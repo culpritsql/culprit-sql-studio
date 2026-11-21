@@ -10,6 +10,15 @@ use std::{collections::HashSet, io::Read, path::Path};
 
 const RECORD_FILE_ERRORS: RecordFileErrors = RecordFileErrors { integrity, storage };
 
+#[cfg(test)]
+thread_local! {
+    static VALIDATION_COUNT: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+#[cfg(test)]
+pub(super) fn validation_count() -> usize {
+    VALIDATION_COUNT.with(std::cell::Cell::get)
+}
+
 pub(super) struct ValidatedCapture {
     pub manifest: CollectionManifest,
     pub manifest_bytes: Vec<u8>,
@@ -61,6 +70,8 @@ pub(super) fn validate_observed(
     destination: Option<&Path>,
     observer: &mut dyn VerificationObserver,
 ) -> Result<ValidatedCapture> {
+    #[cfg(test)]
+    VALIDATION_COUNT.with(|count| count.set(count.get() + 1));
     observer.check()?;
     if !std::fs::symlink_metadata(directory).map_err(|_| integrity())?.file_type().is_dir() {
         return Err(integrity());

@@ -196,3 +196,60 @@ async fn an_archive_handoff_interrupted_after_the_marker_keeps_its_commit_and_fi
     outbox.delivery().mark_archived(&committed).await.unwrap();
     assert_eq!(store.recover(None, 50).await.unwrap().ranges, [prepared.manifest().clone()]);
 }
+
+#[tokio::test]
+async fn one_archive_acknowledgement_reuses_its_canonical_audit_before_durable_eviction() {
+    let root = tempfile::tempdir().unwrap();
+    let (store, owner, contract, mut outbox) = remote_box(root.path()).await;
+    let manifest = complete(&mut outbox).await;
+    let prepared = outbox.delivery().prepare(&manifest.capture.observation_id, contract, vec![]).await.unwrap();
+    let committed = stage_and_commit(&store, owner.fence(), None, &prepared).await.unwrap();
+    let count = outbox
+        .files
+        .run(|| {
+            let committed = committed.clone();
+            move |files| {
+                // Count inside this one synchronous owner call; other tests and worker threads are independent.
+                let before = artifacts::validation_count();
+                files.mark_archived(&committed)?;
+                Ok(artifacts::validation_count() - before)
+            }
+        })
+        .await
+        .unwrap();
+    assert_eq!(count, 1);
+    assert_eq!(outbox.status(50, None).await.unwrap().captures, 0);
+    assert!(!root.path().join("outbox/captures").join(&manifest.capture.observation_id).exists());
+    assert_eq!(store.load(&committed.manifest().range_id).await.unwrap(), *committed.manifest());
+}
+
+#[tokio::test]
+async fn archive_acknowledgement_and_independent_eviction_both_refuse_changed_canonical_bodies() {
+    for acknowledgement in [false, true] {
+        let root = tempfile::tempdir().unwrap();
+        let (store, owner, contract, mut outbox) = remote_box(root.path()).await;
+        let manifest = complete(&mut outbox).await;
+        let delivery = outbox.delivery();
+        let prepared = delivery.prepare(&manifest.capture.observation_id, contract, vec![]).await.unwrap();
+        let committed = stage_and_commit(&store, owner.fence(), None, &prepared).await.unwrap();
+        let directory = root.path().join("outbox/captures").join(&manifest.capture.observation_id);
+        let path = directory.join(TelemetryStream::QueryRuntime.file_name());
+        let original = std::fs::read_to_string(&path).unwrap();
+        let changed = original.replace("9007199254740993", "9007199254740994");
+        assert_ne!(changed, original);
+        assert_eq!(changed.len(), original.len());
+        std::fs::write(path, changed).unwrap();
+        let error = if acknowledgement {
+            delivery.mark_archived(&committed).await.unwrap_err()
+        } else {
+            delivery.evict(&committed).await.unwrap_err()
+        };
+        assert_eq!(kind(&error), OutboxProblem::Integrity, "archive acknowledgement={acknowledgement}");
+        assert!(directory.exists());
+        assert!(delivery.archive_range(&manifest.capture.observation_id).await.unwrap().is_none());
+        let status = outbox.status(50, None).await.unwrap();
+        assert_eq!(status.captures, 1);
+        assert_eq!(status.entries[0].state, OutboxCaptureState::Quarantined);
+        assert_eq!(store.load(&committed.manifest().range_id).await.unwrap(), *committed.manifest());
+    }
+}

@@ -61,7 +61,9 @@ impl Files {
         .map_err(storage)?;
         investigations::retirement::archived(&tx, &capture.identity.observation_id)?;
         tx.commit().map_err(storage)?;
-        self.evict(committed)?;
+        // No await or other Files owner can change the immutable capture between its canonical audit
+        // above and this deletion decision. Carry that same prepared range; independent evict still audits.
+        self.evict_prepared(committed, expected)?;
         Ok(())
     }
     pub(super) fn quarantine_archive(&mut self, id: &str) -> Result<()> {

@@ -1,6 +1,6 @@
 //! A durable deletion intent is written only after an exact remote commit. Source debt is never discarded.
 use super::*;
-use crate::delivery::recovery::CommittedRange;
+use crate::delivery::{evidence::PreparedRange, recovery::CommittedRange};
 use rusqlite::params;
 
 impl Files {
@@ -18,6 +18,12 @@ impl Files {
         Ok(Some(true))
     }
     pub(super) fn evict(&mut self, committed: &CommittedRange) -> Result<bool> {
+        self.evict_using_range(committed, None)
+    }
+    pub(super) fn evict_prepared(&mut self, committed: &CommittedRange, prepared: PreparedRange) -> Result<bool> {
+        self.evict_using_range(committed, Some(prepared))
+    }
+    fn evict_using_range(&mut self, committed: &CommittedRange, prepared: Option<PreparedRange>) -> Result<bool> {
         let RevisionAuthority::Recovery { store_id } = &self.authority else {
             return Err(DeliveryProblem::InvalidContract.error());
         };
@@ -45,12 +51,18 @@ impl Files {
         if self.eviction_candidate(&capture.identity.observation_id)? == Some(false) {
             return Ok(false);
         }
-        let expected = self.prepare_delivery(
-            &capture.identity.observation_id,
-            manifest.contract.clone(),
-            manifest.advances.clone(),
-        )?;
-        if expected.manifest() != manifest || manifest.digest()? != committed.manifest_digest() {
+        let expected = match prepared {
+            Some(prepared) => prepared,
+            None => self.prepare_delivery(
+                &capture.identity.observation_id,
+                manifest.contract.clone(),
+                manifest.advances.clone(),
+            )?,
+        };
+        if expected.directory != self.directory(&capture.identity.observation_id)
+            || expected.manifest() != manifest
+            || manifest.digest()? != committed.manifest_digest()
+        {
             return Err(problem(OutboxProblem::Integrity));
         }
         let tx = self.journal.conn.transaction().map_err(storage)?;
