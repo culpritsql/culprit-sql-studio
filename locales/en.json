@@ -12604,6 +12604,7 @@
   "ui.updates.endpoint_invalid": "CULPRIT_UPDATE_ENDPOINT isn't a URL",
   "ui.updates.install_failed": "Couldn't install the update: {error}",
   "ui.updates.no_pending": "No update is waiting. Check for updates again.",
+  "diagnostic.history.reconciliation_deferred": "Earlier diagnostic history could not be verified. The original observation is retained; a new follow-up is deferred.",
   "engine.credentials.auth_unavailable": "No authentication provider is registered for this sign-in method.",
   "engine.credentials.rds_ca_unavailable": "The bundled Amazon RDS certificate authorities are unavailable in this build. Supply an explicit certificate authority file."
 }

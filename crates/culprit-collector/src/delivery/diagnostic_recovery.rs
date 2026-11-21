@@ -6,7 +6,14 @@ use super::{
 use culprit_core::{Result, telemetry::*};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
+mod originals;
 mod source_reads;
+pub use originals::{
+    MAX_ORIGINAL_HISTORY_LOOKUP_GROUPS, OriginalHistoryLookup, OriginalHistoryPointer, authenticate_original_history,
+    original_revision,
+};
+pub(crate) use originals::{MAX_ORIGINAL_INDEX_BYTES, MAX_POINTER_BYTES, OriginalGroupHeads};
+pub(crate) use originals::{authenticate_original_capture, validate_original_group_keys};
 mod task_holders;
 
 const MAX_DIAGNOSTIC_RECOVERY_BYTES: u64 = 16 * 1024 * 1024;
@@ -221,6 +228,29 @@ impl RecoveredDiagnosticInput {
     pub(crate) fn into_parts(self) -> (CommittedRange, Vec<(u32, ExportedRecord)>) {
         (self.range, self.rows)
     }
+    pub(crate) fn record(&self, reference: &DiagnosticEvidenceRef) -> Result<&ExportedRecord> {
+        let manifest = self.range.manifest();
+        if capture_reference(manifest)? != reference.capture_ref() {
+            return Err(invalid());
+        }
+        verify_reference(manifest, reference)?;
+        let row = self
+            .rows
+            .iter()
+            .find(|(ordinal, row)| *ordinal == reference.row_ordinal && row.batch_id == reference.batch_id)
+            .map(|(_, row)| row)
+            .ok_or_else(invalid)?;
+        let observed = DiagnosticEvidenceRef::from_export(
+            &manifest.source,
+            &manifest.capture_manifest_sha256,
+            row,
+            reference.row_ordinal,
+        )?;
+        if observed != *reference {
+            return Err(invalid());
+        }
+        Ok(row)
+    }
 }
 pub struct RecoveredDiagnosticCheckpoint {
     range: CommittedRange,
@@ -318,9 +348,12 @@ pub async fn load_diagnostic_checkpoint(
     Ok(RecoveredDiagnosticCheckpoint { range, checkpoint })
 }
 /// Called before the store's single authoritative commit; an invalid/missing checkpoint cannot release a native input.
-pub(super) async fn validate_staged(store: &dyn RecoveryStore, manifest: &RangeManifest) -> Result<()> {
+pub(super) async fn validate_staged(
+    store: &dyn RecoveryStore,
+    manifest: &RangeManifest,
+) -> Result<Vec<OriginalHistoryPointer>> {
     let SourceObservation::Diagnostics(description) = &manifest.source.observation else {
-        return Ok(());
+        return Ok(vec![]);
     };
     let rows = read_rows(store, manifest, None).await?;
     let mut references = crate::collection_references::ObservationReferences::default();
@@ -542,7 +575,51 @@ pub(super) async fn validate_staged(store: &dyn RecoveryStore, manifest: &RangeM
         }
         authenticate_investigation_intent(store, &parent.contract, &intent, &mut authenticated).await?;
     }
-    Ok(())
+    let mut original_heads = Vec::new();
+    let mut current_originals = BTreeMap::new();
+    let mut ordinal = 0;
+    for row in &rows {
+        if row.record.stream() != TelemetryStream::OperationalSamples {
+            continue;
+        }
+        if let Some(pointer) = OriginalHistoryPointer::from_record(manifest, row, ordinal)? {
+            let current = original_revision(&row.record).ok_or_else(invalid)?;
+            if current_originals.insert(pointer.group_key.clone(), current).is_some() {
+                return Err(invalid());
+            }
+            original_heads.push(pointer);
+        }
+        ordinal += 1;
+    }
+    if !original_heads.is_empty() {
+        let keys = current_originals.keys().cloned().collect::<Vec<_>>();
+        let lookup = store.diagnostic_original_groups(&keys).await?;
+        lookup.validate_for(&keys)?;
+        for pointers in lookup.captures()? {
+            let prior = Box::pin(authenticate_original_capture(store, &pointers)).await?;
+            for pointer in pointers {
+                let before = &original_revision(&prior.record(&pointer.reference)?.record).ok_or_else(invalid)?.episode;
+                let current = current_originals.get(&pointer.group_key).ok_or_else(invalid)?;
+                let next = &current.episode;
+                if current.previous_revision.as_ref() != Some(&before.revision)
+                    || next.id != before.id
+                    || next.first != before.first
+                    || next.scope != before.scope
+                    || next.signal != before.signal
+                    || next.first_seen_at != before.first_seen_at
+                    || !before.accepts_source_read_transition(next)
+                {
+                    return Err(invalid());
+                }
+            }
+        }
+        for (key, pointer) in lookup.entries() {
+            if pointer.is_none() && current_originals.get(key).ok_or_else(invalid)?.previous_revision.is_some() {
+                return Err(invalid());
+            }
+        }
+    }
+    Ok(original_heads)
 }
 
 fn native_intent(manifest: &RangeManifest) -> Result<Option<DiagnosticInvestigationIntent>> {

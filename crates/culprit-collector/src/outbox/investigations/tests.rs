@@ -138,6 +138,7 @@ fn update(
         })
         .collect::<Vec<_>>();
     DiagnosticUpdate {
+        historical_episodes: vec![],
         step_id: digest(step.as_bytes()),
         analyzed_at: at,
         revisions,
@@ -228,6 +229,7 @@ fn a_partial_or_empty_later_population_cannot_silently_drop_old_episodes() {
     baseline(&mut files, vec![], false, 10);
     let partial = files.next_diagnostic_input(DIAGNOSTIC_CONTROLLER_VERSION).unwrap().unwrap();
     let mut forged = DiagnosticUpdate {
+        historical_episodes: vec![],
         step_id: digest(b"drop"),
         analyzed_at: "2026-11-14T08:03:00Z".into(),
         revisions: vec![],

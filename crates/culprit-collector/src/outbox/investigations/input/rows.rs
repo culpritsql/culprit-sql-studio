@@ -2,7 +2,7 @@
 use super::*;
 use crate::outbox::artifacts::{CanonicalRows, MAX_CANONICAL_ROWS, VerificationObserver};
 
-pub(super) enum RowSelection {
+pub(in crate::outbox::investigations) enum RowSelection {
     All,
     Diagnostic,
     SharedOwner,
@@ -44,7 +44,7 @@ impl VerificationObserver for DiagnosticRows {
 }
 
 impl Files {
-    pub(super) fn validated_rows(
+    pub(in crate::outbox::investigations) fn validated_rows(
         &mut self,
         id: &str,
         selection: RowSelection,

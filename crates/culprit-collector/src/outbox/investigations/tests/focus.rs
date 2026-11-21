@@ -407,6 +407,7 @@ fn attach_page_report(input: &DiagnosticInput, episode_id: &str, focus: &Activit
     checkpoint.input = input.parent.clone();
     *checkpoint.episodes.iter_mut().find(|episode| episode.id == episode_id).unwrap() = revision.episode.clone();
     DiagnosticUpdate {
+        historical_episodes: vec![],
         step_id: digest(episode_id.as_bytes()),
         analyzed_at: analyzed_at.into(),
         revisions: vec![revision],

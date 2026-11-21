@@ -7,16 +7,16 @@ pub(super) fn qualify(
     update: &mut DiagnosticUpdate,
 ) -> Result<()> {
     for episode in &mut update.checkpoint.episodes {
-        if episode.lifecycle == DiagnosticLifecycle::Resolved {
-            if matches!(
+        if episode.lifecycle == DiagnosticLifecycle::Resolved
+            && matches!(
                 episode.signal,
                 DiagnosticSignal::OriginalObservation {
                     condition: DiagnosticOriginalCondition::MssqlCleanupBoundary { .. },
                     ..
                 }
-            ) {
-                continue;
-            }
+            )
+        {
+            continue;
         }
         if episode.source_read.as_deref().is_some_and(|stage| !stage.needs_admission()) {
             continue;

@@ -89,10 +89,14 @@ pub fn temporary_resource_history(partial: bool) -> (CollectionDescription, Vec<
         &basis_refs[0].capture_ref(),
         &original_rows,
         None,
+        &[],
         "2020-01-01T12:00:02Z",
     )
     .unwrap();
-    let episode = observed.checkpoint.episodes.into_iter().next().unwrap();
+    // This imported completed-answer corpus follows the same local planning pass as the collector before a
+    // source question executes. Answer transitions preserve that settled original analysis independently.
+    let episode =
+        observed.checkpoint.episodes.into_iter().next().unwrap().finish_original_observation_planning().unwrap();
     let focus = episode.source_read_focus().unwrap().unwrap();
     let execution = SourceReadExecutionScope::from_context(
         focus.question,
@@ -175,4 +179,44 @@ pub fn temporary_resource_history(partial: bool) -> (CollectionDescription, Vec<
     });
     assert!(record.is_valid() && checkpoint.is_valid());
     (source, vec![record, TelemetryRecord::DiagnosticCheckpoint(checkpoint)])
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::delivery::diagnostic_recovery::original_revision;
+
+    #[test]
+    fn full_and_partial_final_canonical_revisions_preserve_settled_original_analysis_and_typed_answer_on_replay() {
+        for partial in [false, true] {
+            let (source, records) = temporary_resource_history(partial);
+            let record = records.iter().find(|record| original_revision(record).is_some()).unwrap();
+            let revision = original_revision(record).unwrap();
+            assert!(revision.is_valid());
+            assert_eq!(revision.episode.analysis, DiagnosticAnalysisStatus::Unresolved);
+            assert_eq!(revision.episode.issue, Some(DiagnosticAnalysisIssue::Unsupported));
+            let SourceReadStageState::Answered { answer } = &revision.episode.source_read.as_ref().unwrap().state
+            else {
+                panic!("the final canonical revision must retain its completed typed answer");
+            };
+            let SourceReadAnswer::TemporaryResources(answer) = answer.as_ref() else {
+                panic!("the original answer family must remain exact");
+            };
+            assert_eq!(
+                answer.source_state,
+                if partial { culprit_core::SourceState::Partial } else { culprit_core::SourceState::Collected }
+            );
+            assert_eq!(answer.observed_tasks, if partial { 5 } else { 2 });
+            let canonical = ExportedRecord::new(&source, &fixture().0.capture, record.clone()).unwrap();
+            let bytes = serde_json::to_vec(&canonical).unwrap();
+            let replayed: ExportedRecord = serde_json::from_slice(&bytes).unwrap();
+            assert_eq!(replayed, canonical);
+            assert_eq!(replayed.payload_sha256().unwrap(), canonical.payload_sha256().unwrap());
+            assert_eq!(serde_json::to_vec(&replayed).unwrap(), bytes);
+            let final_revision = original_revision(&replayed.record).unwrap();
+            assert_eq!(final_revision, revision);
+            assert_eq!(final_revision.episode.analysis, DiagnosticAnalysisStatus::Unresolved);
+            assert_eq!(final_revision.episode.issue, Some(DiagnosticAnalysisIssue::Unsupported));
+        }
+    }
 }

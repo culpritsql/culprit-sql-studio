@@ -70,7 +70,11 @@ impl RecoveryStore for ObjectRecoveryStore {
             return Err(DeliveryProblem::Conflict.error());
         }
         self.verify_staged(manifest, staged).await?;
-        super::super::diagnostic_recovery::validate_staged(self, manifest).await?;
+        let original_heads = super::super::diagnostic_recovery::validate_staged(self, manifest).await?;
+        for pointer in original_heads {
+            let hash = root.original_groups.observe(&pointer)?;
+            self.immutable(&format!("diagnostic-originals/{hash}.json"), pointer.bytes()?).await?;
+        }
         root.diagnostic_heads.observe(manifest, &manifest_digest)?;
         self.repair_indexes(&root).await?;
         for advance in &manifest.advances {
@@ -127,6 +131,32 @@ impl RecoveryStore for ObjectRecoveryStore {
     async fn diagnostic_heads(&self, cursor: Option<&str>, limit: u32) -> Result<DiagnosticHeadPage> {
         let (root, _) = self.root().await?;
         root.diagnostic_heads.page(cursor, limit, root.high_sequence)
+    }
+    async fn diagnostic_original_groups(
+        &self,
+        keys: &[String],
+    ) -> Result<super::super::diagnostic_recovery::OriginalHistoryLookup> {
+        use super::super::diagnostic_recovery::{
+            MAX_POINTER_BYTES, OriginalHistoryLookup, OriginalHistoryPointer, validate_original_group_keys,
+        };
+        validate_original_group_keys(keys)?;
+        let (root, _) = self.root().await?;
+        let mut entries = std::collections::BTreeMap::new();
+        for (key, hash) in root.original_groups.selected(keys)? {
+            let pointer = if let Some(hash) = hash {
+                let object = self
+                    .transport
+                    .get(&format!("diagnostic-originals/{hash}.json"))
+                    .await?
+                    .ok_or_else(|| DeliveryProblem::NotReady.error())?;
+                let bytes = read_bytes(object, MAX_POINTER_BYTES).await?;
+                Some(OriginalHistoryPointer::from_bytes(&bytes, &hash)?)
+            } else {
+                None
+            };
+            entries.insert(key, pointer);
+        }
+        OriginalHistoryLookup::new(keys, entries)
     }
     async fn pending_ranges(&self, cursor: Option<&str>, limit: u32, order: RecoveryOrder) -> Result<RecoveryPage> {
         if !(1..=128).contains(&limit) {

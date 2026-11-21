@@ -43,7 +43,7 @@ async fn fixture_with_fence(fence: Option<&crate::delivery::recovery::Fence>) ->
     receipt.scope = RecipeCostScope::NativeRead(execution);
     fixture
 }
-async fn episode(runtime: &Runtime) -> DiagnosticEpisode {
+async fn working_episode(runtime: &Runtime) -> DiagnosticEpisode {
     runtime
         .fixture
         .outbox
@@ -65,10 +65,35 @@ async fn episode(runtime: &Runtime) -> DiagnosticEpisode {
         .unwrap()
 }
 
+async fn replay_episode(outbox: &crate::outbox::Outbox, reference: &DiagnosticEvidenceRef) -> DiagnosticEpisode {
+    let (source, original) = outbox.diagnostic_evidence(reference).await.unwrap();
+    reference.validate_canonical_record(&source, &original.record).unwrap();
+    let revision = crate::delivery::diagnostic_recovery::original_revision(&original.record).unwrap();
+    assert_eq!(revision.controller_version, DIAGNOSTIC_CONTROLLER_VERSION);
+    revision.episode.clone()
+}
+
+async fn retired_episode(
+    outbox: &crate::outbox::Outbox,
+    original: &DiagnosticEpisode,
+) -> (DiagnosticEvidenceRef, DiagnosticEpisode) {
+    let group = original.original_group_key().unwrap().unwrap();
+    let reference = outbox.local_original_group(&group).await.unwrap().unwrap();
+    let retained = replay_episode(outbox, &reference).await;
+    assert_eq!(retained.original_group_key().unwrap(), Some(group));
+    assert_eq!(retained.id, original.id);
+    assert!(!retained.retained_in_checkpoint());
+    let working = outbox.diagnostic_checkpoints(DIAGNOSTIC_CONTROLLER_VERSION, None, 8).await.unwrap();
+    assert!(
+        working.checkpoints.iter().flat_map(|checkpoint| &checkpoint.episodes).all(|episode| episode.id != retained.id)
+    );
+    (reference, retained)
+}
+
 #[tokio::test]
 async fn failed_query_history_automatically_captures_one_existing_compilation_reader_and_persists_exact_answer() {
     let mut runtime = Runtime::from_captured_fixture(fixture().await).await;
-    let original = episode(&runtime).await;
+    let original = working_episode(&runtime).await;
     assert!(matches!(original.source_read.as_ref().unwrap().state, SourceReadStageState::Deferred { .. }));
     assert!(runtime.enroll().await);
     let job = runtime.take_focus().await;
@@ -91,7 +116,7 @@ async fn failed_query_history_automatically_captures_one_existing_compilation_re
             .unwrap(),
         1
     );
-    let answered = episode(&runtime).await;
+    let (_, answered) = retired_episode(&runtime.fixture.outbox, &original).await;
     let SourceReadStageState::Answered { answer } = &answered.source_read.as_ref().unwrap().state else { panic!() };
     let SourceReadAnswer::QueryCompilation(answer) = answer.as_ref() else { panic!() };
     assert!(matches!(answer.selection, QueryCompilationSelection::Observed { .. }));
@@ -109,6 +134,7 @@ async fn failed_query_history_automatically_captures_one_existing_compilation_re
 #[tokio::test]
 async fn completed_question_survives_later_fragments_and_empty_history_without_reopening_or_resolving_the_group() {
     let mut runtime = Runtime::from_captured_fixture(fixture().await).await;
+    let original = working_episode(&runtime).await;
     assert!(runtime.enroll().await);
     let job = runtime.take_focus().await;
     let result = runtime.execute(&job).await;
@@ -119,7 +145,7 @@ async fn completed_question_survives_later_fragments_and_empty_history_without_r
         .await
         .unwrap();
     runtime.reconcile().await;
-    let before = episode(&runtime).await;
+    let (answered_reference, before) = retired_episode(&runtime.fixture.outbox, &original).await;
     for case in [DiagnosticOriginalCase::HistoryMultipleFragments, DiagnosticOriginalCase::HistoryZero] {
         let (mut source, records) = diagnostic_original_evidence(case);
         let SourceObservation::QueryHistory(history) = &mut source.observation else { panic!() };
@@ -131,11 +157,12 @@ async fn completed_question_survives_later_fragments_and_empty_history_without_r
             .await
             .unwrap();
         runtime.investigations.bindings.observe("target", &source, &runtime.fixture.backend.revision).unwrap();
-        let after = episode(&runtime).await;
+        let (_, after) = retired_episode(&runtime.fixture.outbox, &original).await;
         assert_eq!(after.source_read, before.source_read);
         assert_eq!(after.first, before.first);
         assert_eq!(after.lifecycle, DiagnosticLifecycle::Uncertain);
         assert!(after.recovery.is_none());
+        assert_eq!(replay_episode(&runtime.fixture.outbox, &answered_reference).await, before);
         assert!(!runtime.enroll().await);
     }
     assert_eq!(runtime.native_calls(), [1; 5]);
@@ -271,6 +298,7 @@ async fn large_pending_original_cold_restore_keeps_selected_ordinal_and_cancelle
     let store = FileRecoveryStore::create(&archive.path().join("recovery"), contract.clone()).unwrap();
     let owner = store.acquire().await.unwrap();
     let mut runtime = large_runtime(Some(owner.fence())).await;
+    let original = working_episode(&runtime).await;
     let job = runtime.take_focus().await;
     let result = runtime.execute(&job).await;
     let Outcome::FocusedComplete { result: capture } = result.outcome else { panic!() };
@@ -314,14 +342,9 @@ async fn large_pending_original_cold_restore_keeps_selected_ordinal_and_cancelle
         analyze_pending(&mut cold, &policies, &CollectionCancellation::default(), 10, Some(&store)).await.unwrap(),
         1
     );
-    let answered = cold
-        .diagnostic_input(&capture.capture.observation_id, DIAGNOSTIC_CONTROLLER_VERSION)
-        .await
-        .unwrap()
-        .checkpoint
-        .unwrap()
-        .episodes
-        .remove(0);
+    let (_, answered) = retired_episode(&cold, &original).await;
+    assert_eq!(answered.first, original.first);
+    assert_eq!(answered.report, original.report);
     let SourceReadStageState::Answered { answer } = answered.source_read.unwrap().state else { panic!() };
     let SourceReadAnswer::QueryCompilation(answer) = *answer else { panic!() };
     let QueryCompilationSelection::Observed { observation, .. } = answer.selection else { panic!() };

@@ -128,6 +128,21 @@ impl Harness {
         }
     }
     async fn capture(&mut self, frame: Frame) -> CaptureIdentity {
+        self.capture_with_budget(
+            frame,
+            CollectionBudget {
+                max_queries: 2,
+                max_pages: 4,
+                max_snapshot_rows: 4,
+                page_rows: 1,
+                page_bytes: 128 * 1024,
+                total_bytes: 4 * 1024 * 1024,
+                ..Default::default()
+            },
+        )
+        .await
+    }
+    async fn capture_with_budget(&mut self, frame: Frame, budget: CollectionBudget) -> CaptureIdentity {
         let selection = match &frame.source.observation {
             SourceObservation::Activity(_) => CollectionSelection::Activity,
             SourceObservation::FocusedBlocking { result, .. } => {
@@ -168,15 +183,7 @@ impl Harness {
                 CollectionTarget::Shared(resource) => CollectionSubject::Shared { resource: resource.clone() },
             },
             selection,
-            budget: CollectionBudget {
-                max_queries: 2,
-                max_pages: 4,
-                max_snapshot_rows: 4,
-                page_rows: 1,
-                page_bytes: 128 * 1024,
-                total_bytes: 4 * 1024 * 1024,
-                ..Default::default()
-            },
+            budget,
         };
         let factory = Factory { frame, calls: self.calls.clone() };
         let mut lease = self.outbox.reserve("fixture", &request).await.unwrap();
@@ -250,7 +257,8 @@ impl Harness {
             })
             .collect::<Vec<_>>();
         assert_eq!(captures.len(), 1, "each input has exactly one durable derived capture");
-        let directory = self.root.path().join(format!("replay-{}", captures[0].capture.observation_id));
+        let replay_root = tempfile::tempdir_in(self.root.path()).unwrap();
+        let directory = replay_root.path().join("capture");
         let rows = replay(&self.path, &captures[0].capture, &directory).await;
         rows.into_iter()
             .filter_map(|row| match row.record {

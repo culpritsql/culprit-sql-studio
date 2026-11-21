@@ -109,6 +109,7 @@ pub(super) fn analyze(input: &DiagnosticInput, original: &OriginalBasis, at: &st
     checkpoint.input = input.parent.clone();
     checkpoint.episodes.retain(DiagnosticEpisode::retained_in_checkpoint);
     Ok(Some(DiagnosticUpdate {
+        historical_episodes: vec![],
         step_id: digest(
             &serde_json::to_vec(&("diagnostic-source-read-control-v1", &input.parent, &revisions))
                 .map_err(|_| DeliveryProblem::Integrity.error())?,

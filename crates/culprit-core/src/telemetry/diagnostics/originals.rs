@@ -254,6 +254,37 @@ impl DiagnosticSignal {
     }
 }
 impl DiagnosticEpisode {
+    /// Stable native grouping, independent of a later capture receipt or source-read answer. This is a lookup
+    /// key only; an immutable original revision must be authenticated before its episode can be reused.
+    /// Finish local classification after the one question-planning pass. Native question state is independent
+    /// and still owes its admitted work; the original observation does not become an established cause.
+    pub fn finish_original_observation_planning(&self) -> Result<Self> {
+        if !self.is_valid() {
+            return Err(invalid());
+        }
+        let mut settled = self.clone();
+        if matches!(settled.signal, DiagnosticSignal::OriginalObservation { .. })
+            && settled.analysis == DiagnosticAnalysisStatus::Pending
+        {
+            settled.analysis = DiagnosticAnalysisStatus::Unresolved;
+            settled.issue = Some(DiagnosticAnalysisIssue::Unsupported);
+        }
+        if !settled.is_valid() {
+            return Err(invalid());
+        }
+        Ok(settled)
+    }
+    pub fn original_group_key(&self) -> Result<Option<String>> {
+        if !self.is_valid() {
+            return Err(invalid());
+        }
+        match &self.signal {
+            DiagnosticSignal::OriginalObservation { .. } if self.signal.is_capture_point() => {
+                self.scope.original_group_key(&self.signal).map(Some)
+            }
+            _ => Ok(None),
+        }
+    }
     pub(super) fn original_point_is_consistent(&self) -> bool {
         let DiagnosticSignal::OriginalObservation { condition, .. } = &self.signal else {
             return true;
@@ -322,5 +353,14 @@ impl DiagnosticEpisode {
                         && coverage.stopped.is_none()
                 })
             })
+    }
+}
+
+impl DiagnosticScope {
+    pub fn original_group_key(&self, signal: &DiagnosticSignal) -> Result<String> {
+        if !self.is_valid() || !matches!(signal, DiagnosticSignal::OriginalObservation { .. }) || !signal.is_valid() {
+            return Err(invalid());
+        }
+        digest_value(&("diagnostic-original-group-v1", self.key()?, signal.key()?))
     }
 }

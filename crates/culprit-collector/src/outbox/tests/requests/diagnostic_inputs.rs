@@ -68,6 +68,7 @@ impl ArchivedFocus {
     async fn consume(&mut self, capture: &CaptureIdentity, step: &str) {
         let input = self.files.diagnostic_input(&capture.observation_id, DIAGNOSTIC_CONTROLLER_VERSION).unwrap();
         let update = investigations::DiagnosticUpdate {
+            historical_episodes: vec![],
             step_id: digest(step.as_bytes()),
             analyzed_at: "2020-01-01T12:00:02Z".into(),
             revisions: vec![],

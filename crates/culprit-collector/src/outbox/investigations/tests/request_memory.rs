@@ -44,6 +44,7 @@ impl MemoryInvestigation {
             .commit_diagnostics(
                 input.clone(),
                 DiagnosticUpdate {
+                    historical_episodes: vec![],
                     step_id: digest(b"native memory baseline"),
                     analyzed_at: "2020-01-01T12:00:01Z".into(),
                     checkpoint: observed.checkpoint,
@@ -84,6 +85,7 @@ impl MemoryInvestigation {
         .unwrap();
         assert_eq!(update.revisions.len(), 1);
         DiagnosticUpdate {
+            historical_episodes: vec![],
             step_id: digest(b"native memory follow-up"),
             analyzed_at: "2020-01-01T12:00:02Z".into(),
             revisions: update.revisions,

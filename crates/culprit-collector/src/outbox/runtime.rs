@@ -97,6 +97,50 @@ impl Outbox {
         };
         self.files.run(|| move |files| files.cache_diagnostic_evidence(input)).await
     }
+    pub(crate) async fn local_original_groups(
+        &self,
+        keys: &[String],
+    ) -> Result<std::collections::BTreeMap<String, Option<DiagnosticEvidenceRef>>> {
+        self.files
+            .run(|| {
+                let keys = keys.to_vec();
+                move |files| files.original_group_references(&keys)
+            })
+            .await
+    }
+    #[cfg(test)]
+    pub(crate) async fn local_original_group(&self, key: &str) -> Result<Option<DiagnosticEvidenceRef>> {
+        let keys = [key.to_owned()];
+        self.local_original_groups(&keys).await?.remove(key).ok_or_else(|| DeliveryProblem::Integrity.error())
+    }
+    #[cfg(test)]
+    pub(crate) async fn local_original_groups_with_read_count(
+        &self,
+        keys: &[String],
+    ) -> Result<(std::collections::BTreeMap<String, Option<DiagnosticEvidenceRef>>, usize)> {
+        self.files
+            .run(|| {
+                let keys = keys.to_vec();
+                move |files| files.original_group_references_with_read_count(&keys)
+            })
+            .await
+    }
+    pub(crate) async fn original_history_witness(&self) -> Result<super::OriginalHistoryWitness> {
+        self.files.run(|| move |files| files.original_history_witness()).await
+    }
+    pub(crate) async fn complete_original_history(
+        &self,
+        observation: &str,
+        reconciled: std::collections::BTreeMap<String, Option<DiagnosticEvidenceRef>>,
+        witness: super::OriginalHistoryWitness,
+    ) -> Result<Box<super::DiagnosticInput>> {
+        self.files
+            .run(|| {
+                let observation = observation.to_owned();
+                move |files| files.complete_original_history(&observation, reconciled, witness).map(Box::new)
+            })
+            .await
+    }
     pub async fn restore_diagnostics(
         &mut self,
         recovered: delivery::diagnostic_recovery::RecoveredDiagnosticCheckpoint,

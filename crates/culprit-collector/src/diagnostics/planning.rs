@@ -199,23 +199,15 @@ fn qualify_writer_question(
 }
 
 fn rebuild_revisions(input: &DiagnosticInput, update: &mut DiagnosticUpdate) -> Result<()> {
-    let previous = input
-        .checkpoint
-        .iter()
-        .flat_map(|checkpoint| &checkpoint.episodes)
-        .map(|episode| (episode.id.as_str(), episode))
-        .collect::<BTreeMap<_, _>>();
     let mut revisions = std::mem::take(&mut update.revisions)
         .into_iter()
         .map(|revision| (revision.episode.id.clone(), revision))
         .collect::<BTreeMap<_, _>>();
     for episode in &mut update.checkpoint.episodes {
         let observed_revision = revisions.remove(&episode.id);
-        if let Some(mut revision) = DiagnosticRevision::between(
-            previous.get(episode.id.as_str()).copied(),
-            episode.clone(),
-            &update.analyzed_at,
-        )? {
+        if let Some(mut revision) =
+            DiagnosticRevision::between(input.previous_episode(&episode.id), episode.clone(), &update.analyzed_at)?
+        {
             // Recipe wording/status changes do not remove the authenticated native prerequisites already used
             // by the observer, including a paired population's exact first Activity receipt.
             if let Some(observed) = observed_revision {
@@ -266,5 +258,17 @@ fn qualify_task_questions(
         &serde_json::to_vec(&("diagnostic-task-recipe-policy-v1", &update.step_id, recipes))
             .map_err(|_| CollectionStop::InvalidPage.error())?,
     );
+    rebuild_revisions(input, update)
+}
+
+/// Local classification gets one planning pass before completed observation points leave working state.
+/// Owed/admitted source-read stages remain retained; every terminal original stays in immutable revisions.
+pub(super) fn settle_original_observations(input: &DiagnosticInput, update: &mut DiagnosticUpdate) -> Result<()> {
+    if diagnostic_original_source_kind(&input.source).is_none() {
+        return Ok(());
+    }
+    for episode in &mut update.checkpoint.episodes {
+        *episode = episode.finish_original_observation_planning()?;
+    }
     rebuild_revisions(input, update)
 }

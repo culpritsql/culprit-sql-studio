@@ -20,6 +20,13 @@ impl ReadProbe<'_> {
 
 #[async_trait::async_trait]
 impl RecoveryStore for ReadProbe<'_> {
+    async fn diagnostic_original_groups(
+        &self,
+        keys: &[String],
+    ) -> Result<crate::delivery::diagnostic_recovery::OriginalHistoryLookup> {
+        self.store.diagnostic_original_groups(keys).await
+    }
+
     fn id(&self) -> &str {
         self.store.id()
     }

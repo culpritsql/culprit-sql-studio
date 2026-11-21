@@ -155,6 +155,9 @@ impl Files {
             || current.source != input.source
             || current.expected_head != input.expected_head
             || current.checkpoint != input.checkpoint
+            || current.original_history != input.original_history
+            || current.historical_episodes != input.historical_episodes
+            || update.historical_episodes != input.historical_episodes
             || encode_investigation(current.investigation.as_ref())?
                 != encode_investigation(input.investigation.as_ref())?
         {
@@ -193,8 +196,12 @@ impl Files {
             self.verify_investigation_intent(intent)?;
         }
         let mut known: BTreeSet<String> = current.rows.iter().map(|row| row.reference.key()).collect::<Result<_>>()?;
-        if let Some(previous) = &current.checkpoint {
-            for reference in super::journal::checkpoint_references(previous) {
+        // `current` was reconstructed by the Files owner and compared with the supplied input above.
+        // Reconciled terminal priors have the same authenticated reference standing as checkpoint priors.
+        for previous in
+            current.checkpoint.iter().flat_map(|checkpoint| &checkpoint.episodes).chain(&current.historical_episodes)
+        {
+            for reference in super::journal::episode_references(previous) {
                 known.insert(reference.key()?);
             }
         }
@@ -319,10 +326,7 @@ impl Files {
                     }
                 }
             }
-            let prior = current
-                .checkpoint
-                .as_ref()
-                .and_then(|checkpoint| checkpoint.episodes.iter().find(|episode| episode.id == revision.episode.id));
+            let prior = current.previous_episode(&revision.episode.id);
             self.validate_source_read_revision(prior, revision, source_read_result.as_ref(), &current)?;
             if revision.episode.lifecycle == DiagnosticLifecycle::Resolved
                 && prior.is_none_or(|episode| episode.lifecycle != DiagnosticLifecycle::Resolved)
@@ -628,12 +632,11 @@ fn validate_new_episode(
     source_original: Option<&DiagnosticOriginalEvidence>,
 ) -> Result<()> {
     let row = input.rows.iter().find(|row| row.reference == episode.first).ok_or_else(integrity)?;
-    if let DiagnosticSignal::OriginalObservation { condition, .. } = &episode.signal {
-        if source_original.ok_or_else(integrity)?.condition(&episode.first)? != Some(condition)
-            || !episode.original_observation_matches(&input.source, &row.row.record)
-        {
-            return Err(integrity());
-        }
+    if let DiagnosticSignal::OriginalObservation { condition, .. } = &episode.signal
+        && (source_original.ok_or_else(integrity)?.condition(&episode.first)? != Some(condition)
+            || !episode.original_observation_matches(&input.source, &row.row.record))
+    {
+        return Err(integrity());
     }
     if matches!(episode.signal, DiagnosticSignal::PageTaskWait { .. }) {
         let frame = original.ok_or_else(integrity)?;

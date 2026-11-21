@@ -19,6 +19,14 @@ pub(in crate::outbox) fn archived(tx: &Transaction<'_>, observation_id: &str) ->
         [observation_id],
     )
     .map_err(storage)?;
+    tx.execute("UPDATE metadata SET original_history_complete=0 WHERE EXISTS(SELECT 1 FROM diagnostic_original_groups WHERE observation_id=?1)", [observation_id]).map_err(storage)?;
+    tx.execute("DELETE FROM diagnostic_pins WHERE owner IN(SELECT 'original-group:'||group_key FROM diagnostic_original_groups WHERE observation_id=?1)", [observation_id]).map_err(storage)?;
+    let removed = tx
+        .execute("DELETE FROM diagnostic_original_groups WHERE observation_id=?1", [observation_id])
+        .map_err(storage)?;
+    if removed > 0 {
+        crate::outbox::journal::advance_original_history_generation(tx)?;
+    }
     compact(tx)
 }
 

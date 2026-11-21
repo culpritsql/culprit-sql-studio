@@ -110,7 +110,24 @@ fn complete_step(
         )
         .map_err(storage)?;
     }
+    super::original_history::record_original_groups(tx, &capture.identity, &update.revisions)?;
     let derived_owner = format!("derived:{}", capture.identity.observation_id);
+    tx.execute(
+        "INSERT OR IGNORE INTO diagnostic_pins SELECT ?1,observation_id FROM diagnostic_pins WHERE owner=?2",
+        params![derived_owner, format!("original-history:{input_id}")],
+    )
+    .map_err(storage)?;
+    tx.execute("DELETE FROM diagnostic_pins WHERE owner=?1", [format!("original-history:{input_id}")])
+        .map_err(storage)?;
+    for revision in &update.revisions {
+        for reference in [&revision.episode.first, &revision.episode.latest]
+            .into_iter()
+            .chain(revision.episode.peak.iter())
+            .chain(revision.episode.report.iter().flat_map(DiagnosticReport::references))
+        {
+            pin(tx, &derived_owner, &reference.capture.observation_id)?;
+        }
+    }
     for reference in update.revisions.iter().flat_map(|revision| &revision.inputs) {
         pin(tx, &derived_owner, &reference.capture.observation_id)?;
     }
@@ -138,6 +155,18 @@ fn complete_step(
         params![encode(&result)?, capture.identity.observation_id],
     )
     .map_err(storage)?;
+    let limits: OutboxLimits = tx
+        .query_row("SELECT limits_json FROM metadata", [], |row| row.get::<_, String>(0))
+        .map_err(storage)
+        .and_then(|json| decode(&json))?;
+    let captures: i64 =
+        tx.query_row("SELECT coalesce(sum(charged_bytes),0) FROM captures", [], |row| row.get(0)).map_err(storage)?;
+    let bytes = super::super::journal::bytes_from_sql(captures)?
+        .checked_add(super::super::journal::metadata_bytes(tx)?)
+        .ok_or_else(|| problem(OutboxProblem::Capacity))?;
+    if bytes > limits.max_bytes {
+        return Err(problem(OutboxProblem::Capacity));
+    }
     super::retirement::compact(tx)
 }
 
@@ -170,6 +199,24 @@ pub(in crate::outbox) fn validate_transition(
             || previous.len() > MAX_DIAGNOSTIC_EPISODES
         {
             return Err(integrity());
+        }
+    }
+    for episode in &update.historical_episodes {
+        if !episode.is_valid()
+            || episode.original_group_key()?.is_none()
+            || episode.retained_in_checkpoint()
+            || !update.revisions.iter().any(|revision| {
+                revision.episode.id == episode.id && revision.previous_revision.as_ref() == Some(&episode.revision)
+            })
+        {
+            return Err(integrity());
+        }
+        match previous.get(&episode.id) {
+            Some(current) if current != episode => return Err(DeliveryProblem::Conflict.error()),
+            Some(_) => (),
+            None => {
+                previous.insert(episode.id.clone(), episode.clone());
+            }
         }
     }
     let mut changed = BTreeSet::new();
@@ -229,13 +276,18 @@ fn validate_investigation_transition(prior: Option<&DiagnosticEpisode>, revision
 pub(in crate::outbox) fn checkpoint_references(
     checkpoint: &DiagnosticCheckpoint,
 ) -> impl Iterator<Item = &DiagnosticEvidenceRef> {
-    checkpoint.episodes.iter().flat_map(|episode| {
-        [&episode.first, &episode.latest]
-            .into_iter()
-            .chain(episode.peak.iter())
-            .chain(episode.signal.references())
-            .chain(episode.report.iter().flat_map(DiagnosticReport::references))
-    })
+    checkpoint.episodes.iter().flat_map(episode_references)
+}
+
+/// The same authenticated prior inventory applies to active checkpoints and reconciled terminal history.
+pub(in crate::outbox) fn episode_references(
+    episode: &DiagnosticEpisode,
+) -> impl Iterator<Item = &DiagnosticEvidenceRef> {
+    [&episode.first, &episode.latest]
+        .into_iter()
+        .chain(episode.peak.iter())
+        .chain(episode.signal.references())
+        .chain(episode.report.iter().flat_map(DiagnosticReport::references))
 }
 pub(in crate::outbox) fn pin(tx: &Transaction<'_>, owner: &str, observation_id: &str) -> Result<()> {
     tx.execute("INSERT OR IGNORE INTO diagnostic_pins VALUES(?1,?2)", params![owner, observation_id])
@@ -244,7 +296,7 @@ pub(in crate::outbox) fn pin(tx: &Transaction<'_>, owner: &str, observation_id: 
 }
 pub(in crate::outbox) fn charged_bytes(conn: &rusqlite::Connection) -> Result<u64> {
     let value: i64 = conn
-        .query_row("SELECT coalesce(sum(charged_bytes),0) FROM diagnostic_inputs", [], |row| row.get(0))
+        .query_row("SELECT (SELECT coalesce(sum(charged_bytes),0) FROM diagnostic_inputs)+(SELECT coalesce(sum(charged_bytes),0) FROM diagnostic_original_groups)", [], |row| row.get(0))
         .map_err(storage)?;
     super::super::journal::bytes_from_sql(value)
 }

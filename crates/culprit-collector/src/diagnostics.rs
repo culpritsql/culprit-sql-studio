@@ -1,4 +1,5 @@
 //! Offline analysis runs on sealed evidence. This module has no provider, credential or native query dependency.
+mod original_history;
 mod planning;
 pub(crate) use planning::long_running_question;
 mod source_reads;
@@ -137,6 +138,9 @@ async fn analyze_input(
     recovery: Option<&dyn RecoveryStore>,
     cancellation: &CollectionCancellation,
 ) -> Result<bool> {
+    let Some(input) = Box::pin(original_history::reconcile(outbox, input, recovery, cancellation)).await? else {
+        return Ok(false);
+    };
     if matches!(input.source.observation, SourceObservation::SourceRead { .. }) {
         let Some(original) = source_reads::parents(outbox, &input, recovery, cancellation).await? else {
             return Ok(false);
@@ -185,6 +189,7 @@ async fn analyze_input(
     };
     attach_page_contexts(outbox, &input, &mut update).await?;
     planning::qualify_questions(&input, policies.assignment(&input)?, &mut update)?;
+    planning::settle_original_observations(&input, &mut update)?;
     outbox.commit_diagnostics(*input, update).await?;
     Ok(true)
 }
@@ -560,6 +565,7 @@ fn analyze(input: &DiagnosticInput, policy: &ActivityPolicy, analyzed_at: &str) 
                 &input.parent,
                 &rows,
                 input.checkpoint.as_ref(),
+                &input.historical_episodes,
                 analyzed_at,
             )?;
             (update.revisions, update.checkpoint)
@@ -572,9 +578,17 @@ fn analyze(input: &DiagnosticInput, policy: &ActivityPolicy, analyzed_at: &str) 
             input.controller_version,
             &input.parent,
             &input.checkpoint,
+            &input.original_history,
+            &input.historical_episodes,
             matches!(input.source.observation, SourceObservation::Activity(_)).then_some(policy),
         ))
         .map_err(|_| CollectionStop::InvalidPage.error())?,
     );
-    Ok(DiagnosticUpdate { step_id, analyzed_at: analyzed_at.into(), revisions, checkpoint })
+    Ok(DiagnosticUpdate {
+        step_id,
+        analyzed_at: analyzed_at.into(),
+        revisions,
+        historical_episodes: input.historical_episodes.clone(),
+        checkpoint,
+    })
 }

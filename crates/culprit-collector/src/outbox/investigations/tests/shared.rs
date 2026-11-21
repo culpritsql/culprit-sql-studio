@@ -62,6 +62,7 @@ impl SharedInvestigation {
             .commit_diagnostics(
                 input,
                 DiagnosticUpdate {
+                    historical_episodes: vec![],
                     step_id: digest(b"shared-durable-initial"),
                     analyzed_at: ANALYZED_AT.into(),
                     revisions: observed.revisions,
@@ -325,6 +326,7 @@ fn a_shared_intent_or_epoch_substitution_is_rejected_before_derived_allocation()
     )
     .unwrap();
     let update = DiagnosticUpdate {
+        historical_episodes: vec![],
         step_id: digest(b"shared-missing-focus"),
         analyzed_at: "2020-01-01T12:00:04Z".into(),
         revisions: result.revisions,

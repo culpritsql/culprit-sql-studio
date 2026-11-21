@@ -6,7 +6,7 @@ pub mod provider;
 mod recovery;
 mod state;
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 pub mod transport;
 
 use super::{contract::*, evidence::*, recovery::*};

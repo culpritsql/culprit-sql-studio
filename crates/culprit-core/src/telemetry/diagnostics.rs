@@ -9,7 +9,7 @@ mod transition;
 
 pub const MAX_DIAGNOSTIC_EPISODES: usize = 4_096;
 pub const MAX_DIAGNOSTIC_INPUTS: usize = 256;
-pub const DIAGNOSTIC_CONTROLLER_VERSION: u32 = 16;
+pub const DIAGNOSTIC_CONTROLLER_VERSION: u32 = 17;
 pub const DIAGNOSTICS_SOURCE: &str = "culprit-diagnostics";
 
 #[derive(Serialize, Deserialize, TS, Clone, Debug, PartialEq, Eq)]
@@ -631,7 +631,7 @@ impl DiagnosticEpisode {
     }
     pub fn retained_in_checkpoint(&self) -> bool {
         let owed = self.has_owed_question();
-        if self.signal.is_task_point() { owed } else { self.lifecycle != DiagnosticLifecycle::Resolved || owed }
+        if self.signal.is_capture_point() { owed } else { self.lifecycle != DiagnosticLifecycle::Resolved || owed }
     }
 }
 

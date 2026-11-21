@@ -128,6 +128,7 @@ impl Harness {
         checkpoint.input = input.parent.clone();
         checkpoint.episodes = vec![revision.episode.clone()];
         let proposed = DiagnosticUpdate {
+            historical_episodes: vec![],
             step_id: digest(format!("event-test:{}", revision.id).as_bytes()),
             analyzed_at: revision.analyzed_at.clone(),
             revisions: vec![revision],

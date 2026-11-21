@@ -80,6 +80,7 @@ fn history_update(
         episodes: if revision.episode.retained_in_checkpoint() { vec![revision.episode.clone()] } else { vec![] },
     };
     DiagnosticUpdate {
+        historical_episodes: vec![],
         step_id: digest(step.as_bytes()),
         analyzed_at: revision.analyzed_at.clone(),
         revisions: vec![revision],

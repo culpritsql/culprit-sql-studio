@@ -29,6 +29,10 @@ struct RecoveryFiles {
     id: String,
     contract: Contract,
     journal: Connection,
+    #[cfg(test)]
+    original_index_reads: usize,
+    #[cfg(test)]
+    object_reads: std::collections::BTreeMap<String, usize>,
 }
 pub struct FileOwnership {
     fence: Fence,
@@ -44,11 +48,12 @@ impl RecoveryFiles {
         contract.validate()?;
         durable_fs::create_directory(root).map_err(storage)?;
         durable_fs::create_directory(&root.join("payloads")).map_err(storage)?;
+        durable_fs::create_directory(&root.join("diagnostic-originals")).map_err(storage)?;
         durable_fs::create_file(&root.join("owner.lock")).map_err(storage)?.sync_all().map_err(storage)?;
         durable_fs::create_file(&root.join("recovery.sqlite3")).map_err(storage)?.sync_all().map_err(storage)?;
         let journal = Connection::open(root.join("recovery.sqlite3")).map_err(storage)?;
         configure(&journal)?;
-        journal.execute_batch("CREATE TABLE identity(id TEXT PRIMARY KEY,contract TEXT NOT NULL,epoch INTEGER NOT NULL,token TEXT NOT NULL,head TEXT,high_sequence INTEGER NOT NULL,pending TEXT NOT NULL,diagnostic_heads TEXT NOT NULL);
+        journal.execute_batch("CREATE TABLE identity(id TEXT PRIMARY KEY,contract TEXT NOT NULL,epoch INTEGER NOT NULL,token TEXT NOT NULL,head TEXT,high_sequence INTEGER NOT NULL,pending TEXT NOT NULL,diagnostic_heads TEXT NOT NULL,original_groups TEXT NOT NULL);
           CREATE TABLE objects(object TEXT PRIMARY KEY,sha TEXT NOT NULL,bytes INTEGER NOT NULL);
           CREATE TABLE ranges(ordinal INTEGER PRIMARY KEY AUTOINCREMENT,id TEXT UNIQUE NOT NULL,previous TEXT,sha TEXT NOT NULL,manifest TEXT NOT NULL);
           CREATE TABLE checkpoints(stream_key TEXT PRIMARY KEY,cursor TEXT NOT NULL);
@@ -56,12 +61,21 @@ impl RecoveryFiles {
         let id = digest(&serde_json::to_vec(&(contract.id()?, durable_fs::random_id()?)).map_err(storage)?);
         journal
             .execute(
-                "INSERT INTO identity VALUES(?1,?2,0,'',NULL,0,'{}','{}')",
+                "INSERT INTO identity VALUES(?1,?2,0,'',NULL,0,'{}','{}','{}')",
                 params![id, serde_json::to_string(&contract).map_err(storage)?],
             )
             .map_err(storage)?;
         durable_fs::sync_directory(root).map_err(storage)?;
-        Ok(Self { root: root.into(), id, contract, journal })
+        Ok(Self {
+            root: root.into(),
+            id,
+            contract,
+            journal,
+            #[cfg(test)]
+            original_index_reads: 0,
+            #[cfg(test)]
+            object_reads: Default::default(),
+        })
     }
     pub fn open(root: &Path, contract: Contract) -> Result<Self> {
         contract.validate()?;
@@ -74,7 +88,16 @@ impl RecoveryFiles {
         if serde_json::from_str::<Contract>(&stored).map_err(|_| integrity())? != contract {
             return Err(DeliveryProblem::DestinationChanged.error());
         }
-        Ok(Self { root: root.into(), id, contract, journal })
+        Ok(Self {
+            root: root.into(),
+            id,
+            contract,
+            journal,
+            #[cfg(test)]
+            original_index_reads: 0,
+            #[cfg(test)]
+            object_reads: Default::default(),
+        })
     }
     pub fn acquire(&mut self) -> Result<FileOwnership> {
         let lock = durable_fs::own_file(&self.root.join("owner.lock")).map_err(|error| match error {
@@ -207,6 +230,7 @@ impl RecoveryFiles {
         expected_head: Option<&str>,
         manifest: &RangeManifest,
         staged: &[StagedBatch],
+        original_heads: &[super::diagnostic_recovery::OriginalHistoryPointer],
     ) -> Result<CommitReceipt> {
         manifest.validate()?;
         if manifest.contract != self.contract {
@@ -309,6 +333,36 @@ impl RecoveryFiles {
             serde_json::from_str(&diagnostics).map_err(|_| integrity())?;
         diagnostics.validate()?;
         diagnostics.observe(manifest, &sha)?;
+        let original_json: String =
+            tx.query_row("SELECT original_groups FROM identity", [], |row| row.get(0)).map_err(storage)?;
+        let mut originals: super::diagnostic_recovery::OriginalGroupHeads =
+            serde_json::from_str(&original_json).map_err(|_| integrity())?;
+        originals.validate()?;
+        for pointer in original_heads {
+            let hash = originals.observe(pointer)?;
+            let path = self.root.join("diagnostic-originals").join(format!("{hash}.json"));
+            let bytes = pointer.bytes()?;
+            if path.try_exists().map_err(storage)? {
+                let mut stored = Vec::new();
+                durable_fs::regular_file(&path)
+                    .map_err(storage)?
+                    .take(super::diagnostic_recovery::MAX_POINTER_BYTES as u64 + 1)
+                    .read_to_end(&mut stored)
+                    .map_err(storage)?;
+                if stored != bytes {
+                    return Err(integrity());
+                }
+            } else {
+                // Reuse the existing synced private artifact publication owner. A partial pointer never becomes
+                // reachable from the committed index and an existing contradictory object is never repaired.
+                durable_fs::publish(&path, &bytes).map_err(storage)?;
+            }
+        }
+        let original_json = serde_json::to_string(&originals).map_err(|_| integrity())?;
+        if original_json.len() > super::diagnostic_recovery::MAX_ORIGINAL_INDEX_BYTES {
+            return Err(DeliveryProblem::Capacity.error());
+        }
+        tx.execute("UPDATE identity SET original_groups=?1", [original_json]).map_err(storage)?;
         tx.execute(
             "UPDATE identity SET head=?1,high_sequence=MAX(high_sequence,?2),pending=?3,diagnostic_heads=?4",
             params![
@@ -408,10 +462,61 @@ impl FileRecoveryStore {
             .await
     }
 }
+#[cfg(test)]
+impl FileRecoveryStore {
+    pub(crate) async fn original_history_read_counts(
+        &self,
+    ) -> Result<(usize, std::collections::BTreeMap<String, usize>)> {
+        self.files.run(|| |files| Ok((files.original_index_reads, files.object_reads.clone()))).await
+    }
+}
 #[async_trait]
 impl RecoveryStore for FileRecoveryStore {
     fn id(&self) -> &str {
         &self.id
+    }
+    async fn diagnostic_original_groups(
+        &self,
+        keys: &[String],
+    ) -> Result<super::diagnostic_recovery::OriginalHistoryLookup> {
+        super::diagnostic_recovery::validate_original_group_keys(keys)?;
+        self.files
+            .run(|| {
+                let keys = keys.to_vec();
+                move |files| {
+                    #[cfg(test)]
+                    {
+                        files.original_index_reads += 1;
+                    }
+                    let json: String = files
+                        .journal
+                        .query_row("SELECT original_groups FROM identity", [], |row| row.get(0))
+                        .map_err(storage)?;
+                    if json.len() > super::diagnostic_recovery::MAX_ORIGINAL_INDEX_BYTES {
+                        return Err(DeliveryProblem::Capacity.error());
+                    }
+                    let heads: super::diagnostic_recovery::OriginalGroupHeads =
+                        serde_json::from_str(&json).map_err(|_| integrity())?;
+                    let mut entries = std::collections::BTreeMap::new();
+                    for (key, hash) in heads.selected(&keys)? {
+                        let pointer = if let Some(hash) = hash {
+                            let path = files.root.join("diagnostic-originals").join(format!("{hash}.json"));
+                            let mut bytes = Vec::new();
+                            durable_fs::regular_file(&path)
+                                .map_err(storage)?
+                                .take(super::diagnostic_recovery::MAX_POINTER_BYTES as u64 + 1)
+                                .read_to_end(&mut bytes)
+                                .map_err(storage)?;
+                            Some(super::diagnostic_recovery::OriginalHistoryPointer::from_bytes(&bytes, &hash)?)
+                        } else {
+                            None
+                        };
+                        entries.insert(key, pointer);
+                    }
+                    super::diagnostic_recovery::OriginalHistoryLookup::new(&keys, entries)
+                }
+            })
+            .await
     }
     async fn pending_ranges(&self, cursor: Option<&str>, limit: u32, order: RecoveryOrder) -> Result<RecoveryPage> {
         if !(1..=128).contains(&limit) {
@@ -621,14 +726,16 @@ impl RecoveryStore for FileRecoveryStore {
         manifest: &RangeManifest,
         staged: &[StagedBatch],
     ) -> Result<CommitReceipt> {
-        super::diagnostic_recovery::validate_staged(self, manifest).await?;
+        let original_heads = super::diagnostic_recovery::validate_staged(self, manifest).await?;
         self.files
             .run(|| {
                 let fence = fence.clone();
                 let head = expected_head.map(str::to_owned);
                 let manifest = manifest.clone();
                 let staged = staged.to_vec();
-                move |files: &mut RecoveryFiles| files.commit(&fence, head.as_deref(), &manifest, &staged)
+                move |files: &mut RecoveryFiles| {
+                    files.commit(&fence, head.as_deref(), &manifest, &staged, &original_heads)
+                }
             })
             .await
     }
@@ -652,7 +759,13 @@ impl RecoveryStore for FileRecoveryStore {
         self.files
             .run(|| {
                 let batch = batch.clone();
-                move |files: &mut RecoveryFiles| files.open_object(&batch)
+                move |files: &mut RecoveryFiles| {
+                    #[cfg(test)]
+                    {
+                        *files.object_reads.entry(batch.object.clone()).or_default() += 1;
+                    }
+                    files.open_object(&batch)
+                }
             })
             .await
     }

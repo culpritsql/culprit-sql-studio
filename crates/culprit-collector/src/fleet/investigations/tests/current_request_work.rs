@@ -334,6 +334,7 @@ async fn a_caller_cannot_commit_partial_current_work_as_a_completed_native_expla
     analysis.revisions[0].id = analysis.revisions[0].expected_id().unwrap();
     analysis.checkpoint.episodes = vec![analysis.revisions[0].episode.clone()];
     let update = DiagnosticUpdate {
+        historical_episodes: vec![],
         step_id: digest(b"forged complete current-work analysis"),
         analyzed_at: at.into(),
         revisions: analysis.revisions,

@@ -243,7 +243,7 @@ fn historical_unknown_or_changed_role_is_not_repaired_by_new_execution_authority
         DiagnosticEvidenceRef::from_export(&historical, &digest(b"unknown-role-original-manifest"), &row, 0).unwrap();
     let input = DiagnosticOriginalRow { reference: &reference, record: &row.record };
     let update =
-        observe_diagnostic_original(&historical, &reference.capture_ref(), &[input], None, "2020-01-01T12:00:01Z")
+        observe_diagnostic_original(&historical, &reference.capture_ref(), &[input], None, &[], "2020-01-01T12:00:01Z")
             .unwrap();
     let episode = &update.checkpoint.episodes[0];
     assert!(matches!(
@@ -426,6 +426,7 @@ fn observed_boundary(
         &reference.capture_ref(),
         &[DiagnosticOriginalRow { reference: &reference, record: &row.record }],
         previous,
+        &[],
         at,
     )
     .unwrap();

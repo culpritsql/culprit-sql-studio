@@ -53,6 +53,7 @@ pub(super) struct Root {
     pub indexed_order: u64,
     pub high_sequence: u64,
     pub checkpoints: BTreeMap<String, String>,
+    pub original_groups: super::super::diagnostic_recovery::OriginalGroupHeads,
     pub diagnostic_heads: super::super::diagnostic_recovery::DiagnosticHeads,
     pub pending: super::super::pending::PendingRanges,
 }
@@ -72,6 +73,7 @@ impl Root {
             checkpoints: BTreeMap::new(),
             pending: Default::default(),
             diagnostic_heads: Default::default(),
+            original_groups: Default::default(),
         })
     }
     pub fn validate(&self, contract: &Contract) -> Result<()> {
@@ -80,6 +82,7 @@ impl Root {
         }
         self.contract.validate()?;
         self.diagnostic_heads.validate()?;
+        self.original_groups.validate()?;
         self.pending.validate()?;
         if self.pending.latest_order() > self.head.as_ref().map_or(0, |head| head.order) {
             return Err(integrity());
@@ -103,6 +106,7 @@ impl Root {
             || self.high_sequence != 0
             || !self.checkpoints.is_empty()
             || !self.diagnostic_heads.is_empty()
+            || !self.original_groups.is_empty()
             || !self.pending.is_empty()
         {
             return Err(integrity());

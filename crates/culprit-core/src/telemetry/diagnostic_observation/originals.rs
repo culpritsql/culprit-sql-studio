@@ -79,6 +79,14 @@ impl DiagnosticOriginalEvidence {
             conditions,
         })
     }
+    pub fn group_keys(&self) -> Result<Vec<String>> {
+        let scope = DiagnosticScope::from_source(&self.source)?;
+        self.groups
+            .values()
+            .filter(|group| group.signal.is_capture_point())
+            .map(|group| scope.original_group_key(&group.signal))
+            .collect()
+    }
     pub fn condition(&self, reference: &DiagnosticEvidenceRef) -> Result<Option<&DiagnosticOriginalCondition>> {
         Ok(self.conditions.get(&reference.key()?))
     }
@@ -113,6 +121,7 @@ pub fn observe_diagnostic_original(
     input: &DiagnosticCaptureRef,
     rows: &[DiagnosticOriginalRow<'_>],
     previous: Option<&DiagnosticCheckpoint>,
+    historical: &[DiagnosticEpisode],
     analyzed_at: &str,
 ) -> Result<DiagnosticObservationUpdate> {
     let kind = diagnostic_original_source_kind(source).ok_or_else(invalid)?;
@@ -134,6 +143,18 @@ pub fn observe_diagnostic_original(
         .flat_map(|checkpoint| &checkpoint.episodes)
         .map(|episode| (episode.id.clone(), episode.clone()))
         .collect::<BTreeMap<_, _>>();
+    let keys = evidence.group_keys()?.into_iter().collect::<BTreeSet<_>>();
+    for episode in historical {
+        let key = episode.original_group_key()?.ok_or_else(invalid)?;
+        if !episode.is_valid()
+            || episode.retained_in_checkpoint()
+            || !keys.contains(&key)
+            || episode.scope.target.telemetry_id()? != source.target.telemetry_id()?
+            || episodes.insert(episode.id.clone(), episode.clone()).is_some()
+        {
+            return Err(invalid());
+        }
+    }
     let mut by_condition = BTreeMap::new();
     for episode in episodes.values() {
         if episode.lifecycle != DiagnosticLifecycle::Resolved
@@ -171,8 +192,12 @@ pub fn observe_diagnostic_original(
             peers: group.references[1..].to_vec(),
         });
         // Known original conditions do not establish a cause or authorize a new native question.
-        episode.analysis = DiagnosticAnalysisStatus::Unresolved;
-        episode.issue = Some(DiagnosticAnalysisIssue::Unsupported);
+        // New observations owe one local policy-planning pass. Existing terminal answers remain unchanged;
+        // a later capture or native fragment is not permission to ask the same question again.
+        if before.is_none() {
+            episode.analysis = DiagnosticAnalysisStatus::Pending;
+            episode.issue = None;
+        }
         record_transition(&mut revisions, before.as_ref(), &mut episode, analyzed_at)?;
         episodes.insert(episode.id.clone(), episode);
     }
@@ -199,15 +224,15 @@ pub fn observe_diagnostic_original(
         }
         record_transition(&mut revisions, Some(&before), episode, analyzed_at)?;
     }
-    if episodes.len() > MAX_DIAGNOSTIC_EPISODES {
-        return Err(DeliveryProblem::Capacity.error());
-    }
     let checkpoint = DiagnosticCheckpoint {
         controller_version: DIAGNOSTIC_CONTROLLER_VERSION,
         target: source.target.clone(),
         input: input.clone(),
         episodes: episodes.into_values().filter(DiagnosticEpisode::retained_in_checkpoint).collect(),
     };
+    if checkpoint.episodes.len() > MAX_DIAGNOSTIC_EPISODES {
+        return Err(DeliveryProblem::Capacity.error());
+    }
     if !checkpoint.is_valid() {
         return Err(invalid());
     }

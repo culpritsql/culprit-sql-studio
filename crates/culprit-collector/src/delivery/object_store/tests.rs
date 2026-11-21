@@ -60,13 +60,20 @@ struct Memory {
     reads: BTreeMap<String, usize>,
 }
 #[derive(Default)]
-struct MemoryBlobs(Mutex<Memory>, Mutex<Option<Arc<Pause>>>);
+pub(crate) struct MemoryBlobs(Mutex<Memory>, Mutex<Option<Arc<Pause>>>);
 #[derive(Default)]
 struct Pause {
     entered: tokio::sync::Notify,
     release: tokio::sync::Notify,
 }
 impl MemoryBlobs {
+    pub(crate) fn root_reads(&self) -> usize {
+        self.0.lock().unwrap().reads.get(ROOT_KEY).copied().unwrap_or(0)
+    }
+    pub(crate) fn corrupt_original_pointer(&self, hash: &str) {
+        self.0.lock().unwrap().objects.get_mut(&format!("diagnostic-originals/{hash}.json")).unwrap().bytes =
+            b"{}".to_vec();
+    }
     fn fail(&self, key: &str, after_write: bool) {
         self.0.lock().unwrap().fault = Some(Fault { key: key.into(), after_write });
     }

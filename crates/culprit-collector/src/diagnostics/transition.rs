@@ -173,7 +173,8 @@ async fn update_analysis(
         &serde_json::to_vec(&("diagnostic-admission-analysis-v1", &revision.id, &input.parent))
             .map_err(|_| CollectionStop::InvalidPage.error())?,
     );
-    let update = DiagnosticUpdate { step_id, analyzed_at, revisions: vec![revision], checkpoint };
+    let update =
+        DiagnosticUpdate { historical_episodes: vec![], step_id, analyzed_at, revisions: vec![revision], checkpoint };
     outbox.commit_diagnostics(input, update).await?;
     Ok(())
 }

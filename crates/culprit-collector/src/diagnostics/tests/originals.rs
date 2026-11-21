@@ -38,7 +38,7 @@ fn observe(
         manifest_sha256: manifest,
         source_scope_id: source.captured_range().unwrap().scope_id,
     };
-    observe_diagnostic_original(source, &parent, &original, previous, "2020-01-01T12:01:00Z").unwrap()
+    observe_diagnostic_original(source, &parent, &original, previous, &[], "2020-01-01T12:01:00Z").unwrap()
 }
 fn source_at(source: &mut CollectionDescription, second: u32) {
     let from = format!("2020-01-01T12:00:{second:02}Z");
@@ -76,8 +76,8 @@ fn qualified_positive_source_conditions_keep_exact_originals_without_creating_a_
         for revision in &update.revisions {
             let episode = &revision.episode;
             assert!(episode.signal.activity_key().is_none());
-            assert_eq!(episode.analysis, DiagnosticAnalysisStatus::Unresolved);
-            assert_eq!(episode.issue, Some(DiagnosticAnalysisIssue::Unsupported));
+            assert_eq!(episode.analysis, DiagnosticAnalysisStatus::Pending);
+            assert!(episode.issue.is_none(), "policy planning has not run or admitted native work");
             assert!(matches!(episode.report, Some(DiagnosticReport::OriginalObservation { .. })));
             if case != Case::Cleanup {
                 assert_eq!(episode.lifecycle, DiagnosticLifecycle::Uncertain);
@@ -215,11 +215,11 @@ fn only_an_explicit_complete_same_native_cleanup_boundary_negative_resolves_and_
     let (mut next, rows) = diagnostic_original_evidence(Case::CleanupEmpty);
     source_at(&mut next, 4);
     let recovered = observe(&next, &rows, Some(&first.checkpoint), "confirmed-no-boundary");
-    assert!(recovered.checkpoint.episodes.is_empty());
+    assert_eq!(recovered.checkpoint.episodes.len(), 1, "local planning still owns its pending answer");
     let [revision] = recovered.revisions.as_slice() else { panic!() };
     assert_eq!(revision.episode.lifecycle, DiagnosticLifecycle::Resolved);
     assert_eq!(revision.episode.first, first.checkpoint.episodes[0].first);
-    assert_eq!(revision.episode.analysis, DiagnosticAnalysisStatus::Unresolved);
+    assert_eq!(revision.episode.analysis, DiagnosticAnalysisStatus::Pending);
     assert!(revision.episode.recovery.as_ref().unwrap().matches_source(
         &revision.episode,
         &next,
@@ -288,14 +288,28 @@ async fn actual_queue_reconciles_repeated_memory_and_history_sources_and_healthy
         let (source, records) = diagnostic_original_evidence(case);
         let first = harness.capture(Frame { source: source.clone(), records: records.clone() }).await;
         assert_eq!(harness.work(1).await, 1);
-        let original = harness.checkpoint().await.episodes;
+        let checkpoint = harness.checkpoint().await;
+        if case == Case::Memory {
+            assert!(checkpoint.episodes.is_empty())
+        } else {
+            assert_eq!(checkpoint.episodes.len(), expected);
+            assert!(checkpoint.episodes.iter().all(DiagnosticEpisode::has_owed_question));
+        }
+        let original = harness.revisions(&first).await.into_iter().map(|revision| revision.episode).collect::<Vec<_>>();
         let mut next = source;
         source_at(&mut next, 2);
         let repeated = harness.capture(Frame { source: next, records }).await;
         assert_eq!(harness.work(1).await, 1);
         let checkpoint = harness.checkpoint().await;
-        assert_eq!(checkpoint.episodes.len(), expected);
-        for episode in checkpoint.episodes {
+        if case == Case::Memory {
+            assert!(checkpoint.episodes.is_empty())
+        } else {
+            assert_eq!(checkpoint.episodes.len(), expected);
+            assert!(checkpoint.episodes.iter().all(DiagnosticEpisode::has_owed_question));
+        }
+        let repeated_episodes = harness.revisions(&repeated).await;
+        assert_eq!(repeated_episodes.len(), expected);
+        for episode in repeated_episodes.into_iter().map(|revision| revision.episode) {
             assert!(original.iter().any(|before| before.id == episode.id && before.first == episode.first));
             assert_eq!(episode.revision, "2");
         }
@@ -552,3 +566,5 @@ fn complete_original_definition_identity_accepts_unavailable_sql_but_rejects_mis
     incomplete.complete = true;
     assert!(!crate::outbox::diagnostic_manifest_eligible(&unresolved, None, &incomplete).unwrap());
 }
+
+mod history_reconciliation;

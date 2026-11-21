@@ -25,6 +25,7 @@ pub(super) fn pending_update(input: &DiagnosticInput, step: &str) -> DiagnosticU
     )
     .unwrap();
     DiagnosticUpdate {
+        historical_episodes: vec![],
         step_id: digest(step.as_bytes()),
         analyzed_at: "2020-01-01T06:03:00Z".into(),
         revisions: update.revisions,

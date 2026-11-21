@@ -32,6 +32,13 @@ struct Transfers {
 }
 #[async_trait]
 impl RecoveryStore for Transfers {
+    async fn diagnostic_original_groups(
+        &self,
+        keys: &[String],
+    ) -> Result<crate::delivery::diagnostic_recovery::OriginalHistoryLookup> {
+        self.store.diagnostic_original_groups(keys).await
+    }
+
     async fn pending_ranges(&self, cursor: Option<&str>, limit: u32, order: RecoveryOrder) -> Result<RecoveryPage> {
         self.pending_calls.fetch_add(1, Ordering::SeqCst);
         if self.pending_unavailable.load(Ordering::SeqCst) {

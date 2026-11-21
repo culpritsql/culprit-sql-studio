@@ -109,6 +109,23 @@ pub trait RecoveryStore: Send + Sync {
     async fn retire(&self, fence: &Fence, publication: &super::sink::PublishedRange) -> Result<()>;
     /// Latest full diagnostic working set per target and controller scope.
     async fn diagnostic_heads(&self, cursor: Option<&str>, limit: u32) -> Result<DiagnosticHeadPage>;
+    /// Complete membership in this store's committed original-group index, independent of capture identity.
+    /// Every selected key has an explicit present/absent result from one validated root snapshot. Pointers remain
+    /// hints: their immutable bodies and exact receipt positions must be authenticated before reuse.
+    async fn diagnostic_original_groups(
+        &self,
+        keys: &[String],
+    ) -> Result<super::diagnostic_recovery::OriginalHistoryLookup>;
+
+    /// One-key convenience uses the same complete selected lookup; it never falls back to a history walk.
+    async fn diagnostic_original_group(
+        &self,
+        key: &str,
+    ) -> Result<Option<super::diagnostic_recovery::OriginalHistoryPointer>> {
+        let keys = [key.to_owned()];
+        self.diagnostic_original_groups(&keys).await?.into_one(key)
+    }
+
     /// Open the exact immutable object as a stream. Consumers verify its complete length and checksum; a partial
     /// HTTP response, truncated file or late read error cannot authorize publication.
     async fn open_object(&self, batch: &PayloadObject) -> Result<RecoveryReader>;

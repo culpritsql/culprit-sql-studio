@@ -52,6 +52,7 @@ impl WriterInvestigation {
             .commit_diagnostics(
                 input.clone(),
                 DiagnosticUpdate {
+                    historical_episodes: vec![],
                     step_id: digest(b"writer original native frame"),
                     analyzed_at: "2020-01-01T12:00:00.100000000Z".into(),
                     checkpoint: observed.checkpoint,
@@ -138,6 +139,7 @@ impl WriterInvestigation {
             .commit_diagnostics(
                 page_input,
                 DiagnosticUpdate {
+                    historical_episodes: vec![],
                     step_id: digest(b"writer original mapped page"),
                     analyzed_at: "2020-01-01T12:00:01Z".into(),
                     checkpoint: explained.checkpoint.clone(),
@@ -212,6 +214,7 @@ impl WriterInvestigation {
         .unwrap();
         assert_eq!(analyzed.revisions.len(), 1);
         DiagnosticUpdate {
+            historical_episodes: vec![],
             step_id: digest(b"writer native relationship"),
             analyzed_at: "2020-01-01T12:00:03Z".into(),
             checkpoint: analyzed.checkpoint,
@@ -235,6 +238,7 @@ impl WriterInvestigation {
             .commit_diagnostics(
                 input,
                 DiagnosticUpdate {
+                    historical_episodes: vec![],
                     step_id: digest(revision.id.as_bytes()),
                     analyzed_at: at.into(),
                     checkpoint,

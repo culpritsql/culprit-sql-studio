@@ -123,10 +123,11 @@ pub fn query_compilation_followup_original() -> QueryCompilationOriginal {
         &basis.capture_ref(),
         &[DiagnosticOriginalRow { reference: &basis, record: &original.record }],
         None,
+        &[],
         "2020-01-01T12:00:01.000000000Z",
     )
     .unwrap();
-    let episode = update.checkpoint.episodes[0].clone();
+    let episode = update.checkpoint.episodes[0].finish_original_observation_planning().unwrap();
     let focus = episode.source_read_focus().unwrap().unwrap();
     let execution =
         SourceReadExecutionScope::from_context(focus.question, &focus.original_context(&source).unwrap()).unwrap();
@@ -209,7 +210,7 @@ pub fn query_compilation_followup_evidence(
         input: parent.clone(),
         part: 0,
         parts: 1,
-        episodes: vec![revision.episode.clone()],
+        episodes: if revision.episode.retained_in_checkpoint() { vec![revision.episode.clone()] } else { vec![] },
     };
     checkpoint.id = checkpoint.expected_id().unwrap();
     assert!(checkpoint.is_valid());

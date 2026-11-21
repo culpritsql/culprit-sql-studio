@@ -373,6 +373,7 @@ fn sealed_question_selects_changed_incarnation_candidates_but_cannot_change_the_
         &values.focus.basis.capture_ref(),
         &[DiagnosticOriginalRow { reference: &values.focus.basis, record: &values.original.record }],
         None,
+        &[],
         "2020-01-01T12:00:01.000000000Z",
     )
     .unwrap();

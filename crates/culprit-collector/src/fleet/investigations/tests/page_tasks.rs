@@ -380,6 +380,7 @@ async fn an_original_missing_token_cannot_starve_an_eligible_sibling_from_the_sa
     .unwrap();
     let invalid = rows.iter().find(|row| row.observation.statement_identity.is_none()).unwrap().observation.key.clone();
     let mut update = DiagnosticUpdate {
+        historical_episodes: vec![],
         step_id: digest(&serde_json::to_vec(&("invalid-population-trigger-first", &input.parent)).unwrap()),
         analyzed_at: at,
         revisions: observed.revisions,

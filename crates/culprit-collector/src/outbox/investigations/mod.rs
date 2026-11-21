@@ -2,6 +2,7 @@
 mod focus_pins;
 mod input;
 pub(super) mod journal;
+mod original_history;
 pub(super) mod retirement;
 mod source_read;
 #[cfg(test)]
@@ -44,9 +45,19 @@ pub struct DiagnosticInput {
     pub controller_version: u32,
     pub checkpoint: Option<DiagnosticCheckpoint>,
     expected_head: Option<String>,
+    pub(crate) original_history: Option<BTreeMap<String, Option<DiagnosticEvidenceRef>>>,
+    pub(crate) historical_episodes: Vec<DiagnosticEpisode>,
 }
 
 impl DiagnosticInput {
+    /// Only authenticated prior bodies enter this roster; a native-group index pointer alone is insufficient.
+    pub(crate) fn previous_episode(&self, id: &str) -> Option<&DiagnosticEpisode> {
+        self.checkpoint
+            .iter()
+            .flat_map(|checkpoint| &checkpoint.episodes)
+            .chain(&self.historical_episodes)
+            .find(|episode| episode.id == id)
+    }
     /// The original database owns the controller. Shared native evidence retains its separate source target.
     pub fn controller_target(&self) -> Result<&CollectionTarget> {
         controller_target(&self.source, self.investigation.as_ref())
@@ -78,6 +89,8 @@ pub struct DiagnosticUpdate {
     pub step_id: String,
     pub analyzed_at: String,
     pub revisions: Vec<DiagnosticRevision>,
+    /// Private transaction replay data, authenticated against original revision bodies before proposal.
+    pub historical_episodes: Vec<DiagnosticEpisode>,
     pub checkpoint: DiagnosticCheckpoint,
 }
 impl DiagnosticUpdate {
@@ -89,7 +102,10 @@ impl DiagnosticUpdate {
             return Err(integrity());
         }
         let revision_ids = self.revisions.iter().map(|revision| &revision.id).collect::<Vec<_>>();
-        Ok(digest(&serde_json::to_vec(&(&self.step_id, &self.checkpoint, revision_ids)).map_err(|_| integrity())?))
+        Ok(digest(
+            &serde_json::to_vec(&(&self.step_id, &self.checkpoint, &self.historical_episodes, revision_ids))
+                .map_err(|_| integrity())?,
+        ))
     }
 }
 
@@ -162,6 +178,13 @@ pub(crate) fn evidence_cache_source(
     source: &CollectionDescription,
     investigation: Option<&DiagnosticInvestigationLineage>,
 ) -> Result<bool> {
+    if let SourceObservation::Diagnostics(header) = &source.observation {
+        return Ok(source.source == DIAGNOSTICS_SOURCE
+            && header.controller_version == DIAGNOSTIC_CONTROLLER_VERSION
+            && source.partition_is_consistent()
+            && source.observation.covers_request()
+            && investigation.is_none());
+    }
     if matches!(source.observation, SourceObservation::PageWaitTargets { .. }) {
         return Ok(source.partition_is_consistent()
             && source.observation.covers_request()

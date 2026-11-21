@@ -130,5 +130,11 @@ pub(super) fn analyze(
         ))
         .map_err(|_| CollectionStop::InvalidPage.error())?,
     );
-    Ok(DiagnosticUpdate { step_id, analyzed_at: analyzed_at.into(), revisions, checkpoint })
+    Ok(DiagnosticUpdate {
+        historical_episodes: vec![],
+        step_id,
+        analyzed_at: analyzed_at.into(),
+        revisions,
+        checkpoint,
+    })
 }

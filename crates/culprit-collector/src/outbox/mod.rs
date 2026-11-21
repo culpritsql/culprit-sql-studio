@@ -78,6 +78,18 @@ struct Files {
     authority: RevisionAuthority,
 }
 
+/// A single journal-owned roster generation; only that owner can certify local absence.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct OriginalHistoryWitness {
+    complete: bool,
+    generation: i64,
+}
+impl OriginalHistoryWitness {
+    pub(crate) fn is_complete(&self) -> bool {
+        self.complete
+    }
+}
+
 struct Reservation {
     entry: journal::Capture,
     directory: PathBuf,
@@ -113,6 +125,9 @@ impl Files {
         let owner = lock(&owner_path)?;
         durable_fs::create_directory(&path.join("captures")).map_err(storage)?;
         let journal = journal::Journal::create(&path.join("journal.sqlite3"), &identity.id, limits)?;
+        if matches!(&identity.authority, RevisionAuthority::Local) {
+            journal.conn.execute("UPDATE metadata SET original_history_complete=1", []).map_err(storage)?;
+        }
         durable_fs::publish(&path.join("identity.json"), &durable_fs::json_bytes(&identity, 4096).map_err(storage)?)
             .map_err(storage)?;
         Ok(Self {

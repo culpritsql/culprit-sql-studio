@@ -31,6 +31,13 @@ struct CrashStore {
 }
 #[async_trait]
 impl RecoveryStore for CrashStore {
+    async fn diagnostic_original_groups(
+        &self,
+        keys: &[String],
+    ) -> Result<crate::delivery::diagnostic_recovery::OriginalHistoryLookup> {
+        self.inner.diagnostic_original_groups(keys).await
+    }
+
     async fn pending_ranges(&self, cursor: Option<&str>, limit: u32, order: RecoveryOrder) -> Result<RecoveryPage> {
         self.inner.pending_ranges(cursor, limit, order).await
     }

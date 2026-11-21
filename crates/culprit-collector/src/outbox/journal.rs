@@ -8,7 +8,7 @@ use culprit_core::{Result, telemetry::*};
 use rusqlite::{Connection, OpenFlags, OptionalExtension, Transaction, params};
 use std::{collections::BTreeSet, path::Path};
 
-const JOURNAL_VERSION: i64 = 29;
+const JOURNAL_VERSION: i64 = 30;
 const APPLICATION_ID: i64 = 0x43554c54;
 const JOURNAL_PAGES: i64 = 4096;
 
@@ -49,8 +49,8 @@ impl Journal {
             return Err(DeliveryProblem::Fenced.error());
         }
         tx.execute(
-            "UPDATE metadata SET owner_epoch=?1,sequence=?2",
-            params![epoch, high_sequence.max(previous_sequence)],
+            "UPDATE metadata SET owner_epoch=?1,sequence=?2,original_history_complete=CASE WHEN ?3=0 AND diagnostic_gc_generation=0 AND sequence=0 THEN 1 ELSE original_history_complete END",
+            params![epoch, high_sequence.max(previous_sequence), high_sequence],
         )
         .map_err(storage)?;
         tx.commit().map_err(storage)
@@ -61,7 +61,7 @@ impl Journal {
         configure_owner(&conn)?;
         conn.pragma_update(None, "user_version", JOURNAL_VERSION).map_err(storage)?;
         conn.execute_batch(&format!("PRAGMA application_id=1129663572;
-          CREATE TABLE metadata(id TEXT PRIMARY KEY, limits_json TEXT NOT NULL, owner_epoch INTEGER NOT NULL, sequence INTEGER NOT NULL,diagnostic_gc_generation INTEGER NOT NULL CHECK(diagnostic_gc_generation>=0));
+          CREATE TABLE metadata(id TEXT PRIMARY KEY, limits_json TEXT NOT NULL, owner_epoch INTEGER NOT NULL, sequence INTEGER NOT NULL,diagnostic_gc_generation INTEGER NOT NULL CHECK(diagnostic_gc_generation>=0),original_history_complete INTEGER NOT NULL CHECK(original_history_complete IN(0,1)),original_history_generation INTEGER NOT NULL CHECK(original_history_generation>=0));
           CREATE TABLE captures(observation_id TEXT PRIMARY KEY,epoch INTEGER NOT NULL,sequence INTEGER NOT NULL,
             connection TEXT NOT NULL,collection TEXT NOT NULL,request_json TEXT NOT NULL CHECK(length(CAST(request_json AS BLOB))<={MAX_REQUEST_BYTES}),state TEXT NOT NULL,
             source_work TEXT NOT NULL,charged_bytes INTEGER NOT NULL CHECK(charged_bytes>=0),problem TEXT,
@@ -69,8 +69,9 @@ impl Journal {
           CREATE TABLE batches(batch_id TEXT PRIMARY KEY,observation_id TEXT NOT NULL REFERENCES captures(observation_id),
             stream TEXT NOT NULL,file TEXT NOT NULL,sha TEXT NOT NULL,rows INTEGER NOT NULL,bytes INTEGER NOT NULL);
           CREATE TABLE range_heads(range_key TEXT PRIMARY KEY,observation_id TEXT NOT NULL REFERENCES captures(observation_id));
-          CREATE TABLE diagnostic_inputs(observation_id TEXT PRIMARY KEY,controller_version INTEGER NOT NULL,parent_json TEXT NOT NULL,source_json TEXT NOT NULL,connection TEXT NOT NULL,acknowledged INTEGER NOT NULL CHECK(acknowledged IN(0,1)),restored_json TEXT,charged_bytes INTEGER NOT NULL CHECK(charged_bytes>=0),restored_sha TEXT,evidence_only INTEGER NOT NULL DEFAULT 0 CHECK(evidence_only IN(0,1)),lineage_json TEXT);
+          CREATE TABLE diagnostic_inputs(observation_id TEXT PRIMARY KEY,controller_version INTEGER NOT NULL,parent_json TEXT NOT NULL,source_json TEXT NOT NULL,connection TEXT NOT NULL,acknowledged INTEGER NOT NULL CHECK(acknowledged IN(0,1)),restored_json TEXT,charged_bytes INTEGER NOT NULL CHECK(charged_bytes>=0),restored_sha TEXT,evidence_only INTEGER NOT NULL DEFAULT 0 CHECK(evidence_only IN(0,1)),lineage_json TEXT,original_history_json TEXT);
           CREATE TABLE diagnostic_heads(controller_key TEXT PRIMARY KEY,controller_version INTEGER NOT NULL,observation_id TEXT NOT NULL,checkpoint_json TEXT NOT NULL,capture_json TEXT NOT NULL);
+          CREATE TABLE diagnostic_original_groups(group_key TEXT PRIMARY KEY,observation_id TEXT NOT NULL,row_ordinal INTEGER NOT NULL CHECK(row_ordinal>=0),charged_bytes INTEGER NOT NULL CHECK(charged_bytes>=0));
           CREATE TABLE diagnostic_episodes(controller_key TEXT NOT NULL,episode_id TEXT NOT NULL,revision TEXT NOT NULL,episode_json TEXT NOT NULL,PRIMARY KEY(controller_key,episode_id));
           CREATE TABLE qualifications(connection TEXT NOT NULL,recipe_id TEXT NOT NULL,binding_json TEXT NOT NULL,charged_bytes INTEGER NOT NULL CHECK(charged_bytes>=0),PRIMARY KEY(connection,recipe_id));
           CREATE TABLE diagnostic_pins(owner TEXT NOT NULL,observation_id TEXT NOT NULL,PRIMARY KEY(owner,observation_id));
@@ -78,7 +79,7 @@ impl Journal {
           CREATE TABLE diagnostic_steps(observation_id TEXT PRIMARY KEY,input_id TEXT NOT NULL,controller_key TEXT NOT NULL,expected_head TEXT,step_id TEXT NOT NULL,update_json TEXT,update_digest TEXT NOT NULL,result_json TEXT,archived INTEGER NOT NULL DEFAULT 0 CHECK(archived IN(0,1)),UNIQUE(input_id,step_id));
           CREATE INDEX capture_state ON captures(state);
           CREATE INDEX capture_collection ON captures(connection,collection,state,epoch DESC,sequence DESC);")) .map_err(storage)?;
-        conn.execute("INSERT INTO metadata VALUES(?1,?2,0,0,0)", params![id, encode(&limits)?]).map_err(storage)?;
+        conn.execute("INSERT INTO metadata VALUES(?1,?2,0,0,0,0,0)", params![id, encode(&limits)?]).map_err(storage)?;
         durable_fs::sync_directory(path.parent().ok_or_else(|| problem(OutboxProblem::Storage))?).map_err(storage)?;
         Ok(Self { conn, id: id.into(), limits })
     }
@@ -607,6 +608,16 @@ pub(super) fn bytes_to_sql(bytes: u64) -> Result<i64> {
 }
 pub(super) fn bytes_from_sql(bytes: i64) -> Result<u64> {
     bytes.try_into().map_err(|_| problem(OutboxProblem::Integrity))
+}
+
+/// Every change to a native-group hint invalidates absence sampled before that transaction.
+pub(super) fn advance_original_history_generation(tx: &Transaction<'_>) -> Result<()> {
+    let generation: i64 =
+        tx.query_row("SELECT original_history_generation FROM metadata", [], |row| row.get(0)).map_err(storage)?;
+    let next =
+        generation.checked_add(1).filter(|_| generation >= 0).ok_or_else(|| problem(OutboxProblem::Integrity))?;
+    tx.execute("UPDATE metadata SET original_history_generation=?1", [next]).map_err(storage)?;
+    Ok(())
 }
 
 pub(super) fn metadata_bytes(conn: &Connection) -> Result<u64> {

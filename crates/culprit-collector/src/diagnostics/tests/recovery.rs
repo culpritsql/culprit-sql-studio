@@ -119,18 +119,27 @@ async fn assert_missing_parent(outbox: &Outbox, parent: &DiagnosticEvidenceRef) 
 }
 
 #[derive(Default)]
-struct Reads {
+pub(super) struct Reads {
     eof: tokio::sync::Notify,
     metadata: AtomicU32,
     opened: AtomicU32,
     active: AtomicU32,
 }
-struct RecoveryProbe {
+pub(super) struct RecoveryProbe {
     store: Arc<FileRecoveryStore>,
     object: String,
     reads: Arc<Reads>,
     advertised: Option<RangeManifest>,
     stall_at_eof: bool,
+}
+pub(super) fn stalling_recovery_probe(store: Arc<FileRecoveryStore>, object: String) -> (RecoveryProbe, Arc<Reads>) {
+    let reads = Arc::new(Reads::default());
+    (RecoveryProbe { store, object, reads: reads.clone(), advertised: None, stall_at_eof: true }, reads)
+}
+impl Reads {
+    pub(super) fn active_readers(&self) -> u32 {
+        self.active.load(Ordering::SeqCst)
+    }
 }
 struct EofStall {
     input: RecoveryReader,
@@ -164,6 +173,13 @@ impl Drop for EofStall {
 }
 #[async_trait::async_trait]
 impl RecoveryStore for RecoveryProbe {
+    async fn diagnostic_original_groups(
+        &self,
+        keys: &[String],
+    ) -> Result<crate::delivery::diagnostic_recovery::OriginalHistoryLookup> {
+        self.store.diagnostic_original_groups(keys).await
+    }
+
     fn id(&self) -> &str {
         self.store.id()
     }
@@ -223,7 +239,7 @@ impl RecoveryStore for RecoveryProbe {
     }
 }
 
-async fn reach_stalled_eof(reads: &Reads) {
+pub(super) async fn reach_stalled_eof(reads: &Reads) {
     tokio::time::timeout(Duration::from_secs(5), reads.eof.notified())
         .await
         .expect("actual archived bytes reached their stalled EOF");

@@ -569,6 +569,14 @@ impl Recovery {
 }
 #[async_trait]
 impl RecoveryStore for Recovery {
+    async fn diagnostic_original_groups(
+        &self,
+        keys: &[String],
+    ) -> Result<crate::delivery::diagnostic_recovery::OriginalHistoryLookup> {
+        crate::delivery::diagnostic_recovery::validate_original_group_keys(keys)?;
+        Err(DeliveryProblem::NotReady.error())
+    }
+
     async fn pending_ranges(
         &self,
         _: Option<&str>,

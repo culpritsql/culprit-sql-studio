@@ -2,7 +2,7 @@ use super::*;
 use culprit_collector::{
     capture::{self, SourceFactory},
     delivery::{
-        diagnostic_recovery::DiagnosticHeadPage,
+        diagnostic_recovery::{DiagnosticHeadPage, OriginalHistoryLookup},
         evidence::{PreparedRange, RangeManifest},
         file_store::FileRecoveryStore,
         recovery::*,
@@ -132,6 +132,7 @@ async fn cold_start_restores_full_checkpoint_then_only_owed_native_inputs_withou
         .commit_diagnostics(
             input,
             DiagnosticUpdate {
+                historical_episodes: vec![],
                 step_id: digest(b"first-analysis"),
                 analyzed_at: "2020-01-01T12:00:01Z".into(),
                 revisions: update.revisions,
@@ -218,6 +219,9 @@ impl ScriptedStore {
 impl RecoveryStore for ScriptedStore {
     fn id(&self) -> &str {
         &self.id
+    }
+    async fn diagnostic_original_groups(&self, _: &[String]) -> Result<OriginalHistoryLookup> {
+        Err(DeliveryProblem::UnsupportedSchema.error())
     }
     async fn diagnostic_heads(&self, cursor: Option<&str>, limit: u32) -> Result<DiagnosticHeadPage> {
         assert_eq!(limit, RESTORE_PAGE_ROWS);
