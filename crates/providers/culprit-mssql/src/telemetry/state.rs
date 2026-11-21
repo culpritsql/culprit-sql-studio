@@ -176,10 +176,9 @@ impl<R: NativeRead> StateSource<R> {
                 .await;
             if let Ok(point::ReadOutcome::Observed(batch)) = &result
                 && let Some(point) = &batch.pool_settings_point
+                && self.pool_settings_point.replace(point.clone()).is_some()
             {
-                if self.pool_settings_point.replace(point.clone()).is_some() {
-                    return Err(invalid_data());
-                }
+                return Err(invalid_data());
             }
             let outcome = record_family(*family, result, remaining, &mut self.rows)?;
             outcomes.push(outcome);

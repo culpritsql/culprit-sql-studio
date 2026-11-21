@@ -76,6 +76,13 @@ pub(crate) fn stops_remaining_reads(error: &Error) -> bool {
         )
 }
 
+// These observational handles follow one dispatched read; their existing finish/drop owners stay unchanged.
+struct ReadObservations {
+    metrics: crate::read_metrics::Metrics,
+    template: Option<String>,
+    connection_phase: Option<culprit_core::telemetry::ReadConnectionPhaseGuard>,
+}
+
 struct ReadQuery {
     sql: String,
     parameters: Vec<Parameter>,
@@ -377,9 +384,7 @@ impl ReadSession {
             timeout,
             cancelled,
             transport,
-            self.metrics.clone(),
-            template,
-            connection_phase,
+            ReadObservations { metrics: self.metrics.clone(), template, connection_phase },
         )));
         Ok(owner)
     }
@@ -602,12 +607,11 @@ async fn read_owned(
     timeout: Duration,
     cancelled: tokio::sync::oneshot::Receiver<()>,
     transport: Option<Arc<dyn culprit_core::ConnectionTransport>>,
-    metrics: crate::read_metrics::Metrics,
-    template: Option<String>,
-    connection_phase: Option<culprit_core::telemetry::ReadConnectionPhaseGuard>,
+    observations: ReadObservations,
 ) -> ReadResult<(MsClient, Vec<Rec>)> {
     // An SSH route must outlive the caller until Attention acknowledgement or disconnect.
     let _transport = transport;
+    let ReadObservations { metrics, template, connection_phase } = observations;
     let started = std::time::Instant::now();
     let progress = Arc::new(crate::read_metrics::Progress::default());
     let retention = query.output.retention_control();

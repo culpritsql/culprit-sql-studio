@@ -27,7 +27,7 @@ pub(super) fn require_profile(identity: &Identity) -> Result<()> {
         Identity::Database { .. } => Ok(()),
         Identity::ResourcePoolSettings(owner) if owner.settings_membership(None).is_valid() => Ok(()),
         Identity::LocalDatabase(owner)
-            if matches!(owner.activity.edition, 2 | 3 | 4) && owner.activity.major >= MIN_BOXED_MAJOR =>
+            if matches!(owner.activity.edition, 2..=4) && owner.activity.major >= MIN_BOXED_MAJOR =>
         {
             Ok(())
         }

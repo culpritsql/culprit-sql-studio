@@ -64,7 +64,7 @@ pub(crate) async fn read_current<R: NativeRead>(
     super::decode(&rows, limit, Population::Database(owner))
 }
 fn require_owner(owner: &Context) -> Result<()> {
-    if !matches!(owner.activity.edition, 2 | 3 | 4) || owner.activity.major < 16 {
+    if !matches!(owner.activity.edition, 2..=4) || owner.activity.major < 16 {
         return Err(culprit_core::Error::new(
             culprit_core::ErrorCode::Unsupported,
             culprit_core::t!("collection.unsupported"),

@@ -177,10 +177,10 @@ impl<R: NativeStreamRead> culprit_read::ObservationReader for Reader<R> {
         {
             return Ok(false);
         }
-        if let Some(context) = &before.context {
-            if after.context(&mut self.io).await?.as_ref() != Some(context) {
-                return Ok(false);
-            }
+        if let Some(context) = &before.context
+            && after.context(&mut self.io).await?.as_ref() != Some(context)
+        {
+            return Ok(false);
         }
         Ok(connection(&self.io)? == before.connection)
     }

@@ -388,10 +388,10 @@ impl<R: QualificationSession> NativeRead for QualificationRead<R> {
         self.owner.as_ref().and_then(NativeRead::connection_generation)
     }
     fn observe_session_work(&mut self, observation: session_work::Observation) {
-        if self.stage == Stage::Measuring {
-            if let Some(owner) = &mut self.owner {
-                owner.observe_session_work(observation);
-            }
+        if self.stage == Stage::Measuring
+            && let Some(owner) = &mut self.owner
+        {
+            owner.observe_session_work(observation);
         }
     }
     fn read_metrics(&self) -> Option<ReadWorkMetrics> {
@@ -437,10 +437,10 @@ impl<R: QualificationSession> NativeRead for QualificationRead<R> {
         if let Some(shutdown) = self.shutdown {
             return shutdown;
         }
-        if self.stage != Stage::Finished {
-            if let Some(owner) = &mut self.owner {
-                owner.session_work().poison(NativeReadWorkIssue::MissingFinalObservation);
-            }
+        if self.stage != Stage::Finished
+            && let Some(owner) = &mut self.owner
+        {
+            owner.session_work().poison(NativeReadWorkIssue::MissingFinalObservation);
         }
         // Close owns no SQL. Interrupted preparation/finish cannot be resumed or repaired by cleanup.
         let source = match &mut self.owner {

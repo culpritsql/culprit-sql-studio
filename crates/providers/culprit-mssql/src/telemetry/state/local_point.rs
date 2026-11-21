@@ -19,7 +19,7 @@ pub(in crate::telemetry) fn bounded_budget(requested: &CollectionBudget) -> Coll
 }
 pub(super) fn require_profile(identity: &Identity) -> Result<()> {
     match identity {
-        Identity::LocalDatabase(owner) if matches!(owner.activity.edition, 2 | 3 | 4) && owner.activity.major >= 16 => {
+        Identity::LocalDatabase(owner) if matches!(owner.activity.edition, 2..=4) && owner.activity.major >= 16 => {
             Ok(())
         }
         _ => Err(Error::new(ErrorCode::Unsupported, culprit_core::t!("collection.unsupported"))),

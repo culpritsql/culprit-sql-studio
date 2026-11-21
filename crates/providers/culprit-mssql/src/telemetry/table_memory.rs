@@ -62,7 +62,7 @@ impl<R: NativeRead> TableMemorySource<R> {
     }
 }
 fn require_owner(owner: &Context, target: &MssqlObjectIdentity) -> Result<()> {
-    if !matches!((owner.activity.edition, owner.activity.major), (5 | 8, _) | (2 | 3 | 4, 16..)) {
+    if !matches!((owner.activity.edition, owner.activity.major), (5 | 8, _) | (2..=4, 16..)) {
         return Err(Error::new(ErrorCode::Unsupported, culprit_core::t!("collection.unsupported")));
     }
     if !owner.is_qualified()

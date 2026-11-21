@@ -35,10 +35,7 @@ fn bounded_request(request: &CollectionRequest) -> Result<CollectionRequest> {
         CollectionSelection::Snapshot { dataset: SnapshotDataset::TaskSpace } => (),
         CollectionSelection::SourceRead { focus, execution }
             if focus.question == SourceReadQuestion::TemporarySpaceContributors
-                && matches!(execution.as_ref(), SourceReadExecutionScope::Local(_)) =>
-        {
-            ()
-        }
+                && matches!(execution.as_ref(), SourceReadExecutionScope::Local(_)) => {}
         _ => return Err(invalid_data()),
     }
     let mut request = request.clone();

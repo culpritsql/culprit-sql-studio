@@ -227,8 +227,7 @@ fn admit_profile(context: &super::database_context::Context, profile: TaskSpaceP
     let supported = match profile {
         TaskSpaceProfile::Scan => matches!(activity.edition, 2 | 3 | 4 | 5 | 8) && activity.major >= 11,
         TaskSpaceProfile::Collection | TaskSpaceProfile::Question => {
-            activity.edition == 5 && activity.major >= 11
-                || matches!(activity.edition, 2 | 3 | 4) && activity.major >= 16
+            activity.edition == 5 && activity.major >= 11 || matches!(activity.edition, 2..=4) && activity.major >= 16
         }
     };
     let unqualified_boxed_role = matches!(profile, TaskSpaceProfile::Collection)
