@@ -7,7 +7,7 @@ use serde_json::Value;
 
 const KEY: &str = "_culprit_store";
 // This encoding stores catalog arguments instead of rendered observation text.
-const STORAGE_VERSION: u32 = 2;
+const STORAGE_VERSION: u32 = 3;
 
 fn retained_snapshot(snapshot: &culprit_core::Snapshot) -> serde_json::Result<Value> {
     let mut snapshot = snapshot.clone();

@@ -22,7 +22,7 @@ export function chartEvents(events: ChangeEvent[], onCompare?: (range: { from: n
         kind: e.kind,
         from,
         to,
-        title: e.title,
+        title: e.title.text,
         when: eventTime(e),
         exact: !e.after,
         // An episode compares itself with the time before it; a change compares everything since it happened (for
@@ -86,11 +86,11 @@ export function AroundThen({ changes, onFocusQuery }: { changes: Changes; onFocu
                 <EventIcon kind={e.kind} size={11} />
               </span>
               <span className="around-text">
-                <b>{e.title}</b>
+                <b>{e.title.text}</b>
                 <span className="around-meta">
                   {eventTime(e)} · {sourceWords(e)}
                 </span>
-                {e.detail && <span className="around-detail">{e.detail}</span>}
+                {e.detail?.text && <span className="around-detail">{e.detail.text}</span>}
               </span>
               <span className="around-side">
                 {queries.length > 0 && (
@@ -99,7 +99,7 @@ export function AroundThen({ changes, onFocusQuery }: { changes: Changes; onFocu
                   </button>
                 )}
                 {e.kind === "mark" && e.source === "mark" && (
-                  <button type="button" className="icon-btn" title={t("ui.change_timeline.remove_mark")} aria-label={t("ui.change_timeline.remove_mark_named", { mark: e.title })} onClick={() => void remove(e)}>
+                  <button type="button" className="icon-btn" title={t("ui.change_timeline.remove_mark")} aria-label={t("ui.change_timeline.remove_mark_named", { mark: e.title.text })} onClick={() => void remove(e)}>
                     <X size={12} />
                   </button>
                 )}
@@ -143,8 +143,8 @@ export function PeriodStrip({ changes, onFocusEvent }: { changes: Changes; onFoc
             type="button"
             className={`tc-ev ${tone}`}
             style={{ left: pct(e.until ? a : b) }}
-            title={`${e.title} · ${eventTime(e)}`}
-            aria-label={`${e.title}, ${eventTime(e)}`}
+            title={`${e.title.text} · ${eventTime(e)}`}
+            aria-label={`${e.title.text}, ${eventTime(e)}`}
             onClick={() => onFocusEvent?.(e.id)}
           >
             <EventIcon kind={e.kind} size={10} />

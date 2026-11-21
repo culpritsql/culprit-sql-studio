@@ -8,7 +8,9 @@
    "at": "2026-10-11T09:00:00Z",
    "after": "2026-10-11T08:30:00Z",
    "until": null,
-   "title": "MAXDOP changed from 0 to 4",
+   "title": {
+    "text": "MAXDOP changed from 0 to 4"
+   },
    "detail": null,
    "table": null,
    "object": "MAXDOP",
@@ -23,7 +25,9 @@
    "at": "2026-10-11T10:02:00Z",
    "after": null,
    "until": null,
-   "title": "Table telemetry.events was altered (its columns, constraints or indexes)",
+   "title": {
+    "text": "Table telemetry.events was altered (its columns, constraints or indexes)"
+   },
    "detail": null,
    "table": "telemetry.events",
    "object": null,
@@ -38,7 +42,9 @@
    "at": "2026-10-11T10:05:00Z",
    "after": null,
    "until": null,
-   "title": "deploy v2.3.0",
+   "title": {
+    "text": "deploy v2.3.0"
+   },
    "detail": null,
    "table": null,
    "object": null,
@@ -55,7 +61,9 @@
    "at": "2026-10-11T08:12:00Z",
    "after": null,
    "until": null,
-   "title": "work_mem changed from 4MB to 16MB",
+   "title": {
+    "text": "work_mem changed from 4MB to 16MB"
+   },
    "detail": null,
    "table": null,
    "object": "work_mem",
@@ -70,7 +78,9 @@
    "at": "2026-10-11T09:40:00Z",
    "after": null,
    "until": null,
-   "title": "migration 0042 applied",
+   "title": {
+    "text": "migration 0042 applied"
+   },
    "detail": null,
    "table": null,
    "object": null,
@@ -85,8 +95,12 @@
    "at": "2026-10-11T10:10:00Z",
    "after": "2026-10-11T09:30:00Z",
    "until": null,
-   "title": "Index ix_items_grp was dropped from telemetry.items",
-   "detail": "CREATE INDEX ix_items_grp ON telemetry.items USING btree (grp)",
+   "title": {
+    "text": "Index ix_items_grp was dropped from telemetry.items"
+   },
+   "detail": {
+    "text": "CREATE INDEX ix_items_grp ON telemetry.items USING btree (grp)"
+   },
    "table": "telemetry.items",
    "object": "ix_items_grp",
    "minor": false,

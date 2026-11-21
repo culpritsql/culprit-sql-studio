@@ -468,7 +468,7 @@ function Detail({ q, changes, report, inReport }: { q: QueryChange; changes: Cha
                   <EventIcon kind={e.kind} size={10} />
                 </span>
                 <span>
-                  <b>{e.title}</b> · {eventTime(e)} <span className="muted">· {l.why}</span>
+                  <b>{e.title.text}</b> · {eventTime(e)} <span className="muted">· {l.why}</span>
                 </span>
               </span>
             );
@@ -500,12 +500,12 @@ function Context({ q, changes }: { q: QueryChange; changes: Changes }) {
   const e = top ? changes.events.find((x) => x.id === top.event) : undefined;
   if (!top || !e) return null;
   return (
-    <span className="wc-context row-context" title={`${e.title} · ${eventTime(e)} · ${top.why}`}>
+    <span className="wc-context row-context" title={`${e.title.text} · ${eventTime(e)} · ${top.why}`}>
       <span className={`tc-ev-dot ${eventTone(e.kind)}`}>
         <EventIcon kind={e.kind} size={10} />
       </span>
       <span className="row-context-text">
-        <span className="muted">{t("ui.what_changed.around_then")}</span> <b>{e.title}</b> <span className="muted">· {eventTime(e)}</span>
+        <span className="muted">{t("ui.what_changed.around_then")}</span> <b>{e.title.text}</b> <span className="muted">· {eventTime(e)}</span>
       </span>
     </span>
   );

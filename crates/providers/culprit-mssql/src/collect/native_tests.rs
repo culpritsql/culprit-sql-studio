@@ -380,7 +380,7 @@ async fn verify_object_metadata(pool: &Arc<Pool>) {
     assert_eq!(object.native_type, "U");
     assert!(!object.modified_without_offset.ends_with('Z'));
     let events = crate::recorded::changes(&mut reader, "2000-01-01T00:00:00Z").await.unwrap();
-    assert!(events.iter().any(|event| event.title.contains("scan_fixture")));
+    assert!(events.iter().any(|event| event.title.text().contains("scan_fixture")));
     assert_eq!(reader.close().await, culprit_core::telemetry::SourceShutdown::Quiescent);
 }
 

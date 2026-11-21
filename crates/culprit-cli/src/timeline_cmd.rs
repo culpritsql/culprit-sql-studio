@@ -159,7 +159,7 @@ fn print_event(e: &ChangeEvent, out: &Out) {
     };
     println!("{tag} {}  {}", e.title, out.dim(&format!("{}{source}", e.when())));
     if let Some(detail) = &e.detail {
-        println!("         {}", out.dim(detail));
+        println!("         {}", out.dim(detail.text()));
     }
 }
 

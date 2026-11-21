@@ -25,7 +25,7 @@ fn said(events: &[ChangeEvent]) -> String {
                 e.action,
                 e.after.as_deref().unwrap_or("-"),
                 e.title,
-                e.detail.as_deref().unwrap_or("-")
+                e.detail.as_ref().map(culprit_core::LocalizedText::text).unwrap_or("-")
             )
         })
         .collect::<Vec<_>>()

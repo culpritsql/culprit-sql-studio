@@ -2,7 +2,7 @@
 import type { EventAction } from "./EventAction";
 import type { EventKind } from "./EventKind";
 import type { EventSource } from "./EventSource";
-import type { Message } from "./Message";
+import type { LocalizedText } from "./LocalizedText";
 
 /**
  * One thing that changed, and when.
@@ -27,11 +27,11 @@ until: string | null,
 /**
  * One plain sentence, without the time: "Index ix_orders_status was dropped from public.orders".
  */
-title: string, 
+title: LocalizedText, 
 /**
  * Before → after, a definition, what it means.
  */
-detail: string | null, 
+detail: LocalizedText | null, 
 /**
  * The table it touches (`schema.table`, as the database names it), so it can be tied to the queries that use it.
  */
@@ -47,4 +47,4 @@ minor: boolean,
 /**
  * Marks: who put it there ("cli", "app" or the coding agent's name).
  */
-by: string | null, title_message?: Message, detail_message?: Message, };
+by: string | null, };

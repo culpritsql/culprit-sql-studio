@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use crate::changes::{ChangeStatus, Changes, QueryChange, epoch, short_time};
-use crate::{format, key, t};
+use crate::{LocalizedText, format, key, t};
 
 #[derive(Serialize, Deserialize, TS, Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[serde(rename_all = "kebab-case")]
@@ -83,6 +83,7 @@ pub enum EventAction {
 
 /// One thing that changed, and when.
 #[derive(Serialize, Deserialize, TS, Clone, Debug, PartialEq)]
+#[serde(deny_unknown_fields)]
 #[ts(export)]
 pub struct ChangeEvent {
     /// Stable id: `<kind>:<subject>:<time>`.
@@ -97,9 +98,9 @@ pub struct ChangeEvent {
     /// Episodes (throttling) last until here.
     pub until: Option<String>,
     /// One plain sentence, without the time: "Index ix_orders_status was dropped from public.orders".
-    pub title: String,
+    pub title: LocalizedText,
     /// Before → after, a definition, what it means.
-    pub detail: Option<String>,
+    pub detail: Option<LocalizedText>,
     /// The table it touches (`schema.table`, as the database names it), so it can be tied to the queries that use it.
     pub table: Option<String>,
     /// The object it is about, when that isn't a table (a procedure, a view, a setting).
@@ -108,12 +109,6 @@ pub struct ChangeEvent {
     pub minor: bool,
     /// Marks: who put it there ("cli", "app" or the coding agent's name).
     pub by: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub title_message: Option<crate::i18n::Message>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub detail_message: Option<crate::i18n::Message>,
 }
 
 impl ChangeEvent {
@@ -125,7 +120,6 @@ impl ChangeEvent {
         at: &str,
         title: impl Into<crate::i18n::Message>,
     ) -> ChangeEvent {
-        let message = title.into();
         ChangeEvent {
             id: format!("{}:{}:{at}", kind.slug(), subject.to_ascii_lowercase()),
             kind,
@@ -134,14 +128,12 @@ impl ChangeEvent {
             at: at.to_string(),
             after: None,
             until: None,
-            title: message.render(),
+            title: LocalizedText::new(title),
             detail: None,
             table: None,
             object: None,
             minor: false,
             by: None,
-            title_message: message.is_translatable().then_some(message),
-            detail_message: None,
         }
     }
 
@@ -161,27 +153,21 @@ impl ChangeEvent {
     }
 
     pub fn detail(mut self, detail: impl Into<crate::i18n::Message>) -> ChangeEvent {
-        let message = detail.into();
-        self.detail = Some(message.render());
-        self.detail_message = message.is_translatable().then_some(message);
+        self.detail = Some(LocalizedText::new(detail));
         self
     }
 
     pub fn refresh_language(&mut self) {
-        if let Some(message) = &self.title_message {
-            self.title = message.render();
-        }
-        if let Some(message) = &self.detail_message {
-            self.detail = Some(message.render());
+        self.title.render();
+        if let Some(detail) = &mut self.detail {
+            detail.render();
         }
     }
 
     pub fn clear_rendered_text(&mut self) {
-        if self.title_message.is_some() {
-            self.title.clear();
-        }
-        if self.detail_message.is_some() {
-            self.detail = None;
+        self.title.clear_rendered();
+        if let Some(detail) = &mut self.detail {
+            detail.clear_rendered();
         }
     }
 
@@ -278,7 +264,7 @@ pub fn correlate(changes: &mut Changes, events: Vec<ChangeEvent>) {
         links.sort_by(|a, b| b.0.total_cmp(&a.0));
         links.truncate(3);
         if let Some((_, e, l)) = links.first().filter(|(_, _, l)| l.strong) {
-            let around = t!("core.events.around_then.query", event = &e.title, when = e.when(), why = &l.why);
+            let around = t!("core.events.around_then.query", event = e.title.text(), when = e.when(), why = &l.why);
             q.headline = [q.headline.clone(), around].join(" ");
         }
         for (_, e, _) in &links {
@@ -395,7 +381,7 @@ fn around_then(events: &[ChangeEvent]) -> Option<String> {
     let marks: Vec<&ChangeEvent> = events.iter().filter(|e| e.kind == EventKind::Mark).collect();
     let mark_words = match marks.as_slice() {
         [] => None,
-        [one] => Some(t!("core.events.around.mark", title = clip(&one.title, 60))),
+        [one] => Some(t!("core.events.around.mark", title = clip(one.title.text(), 60))),
         many => Some(t!("core.events.around.marks", n = many.len(), count = many.len().to_string())),
     };
     let parts: Vec<String> = [
@@ -724,3 +710,6 @@ Database time per hour rose 4.5×: 50 ms → 225 ms. 1 query got slower. Around 
         assert!(c.summary.contains("a mark (\"deploy v1.4.2\") and a procedure or view change"), "{}", c.summary);
     }
 }
+
+#[cfg(test)]
+mod saved_text;

@@ -26,14 +26,34 @@ fn saved_events_render_for_the_reader_without_changing_their_evidence() {
     let mut previous = current.clone();
     previous.taken_at = "2026-10-01T00:00:00Z".into();
     previous.indexes.pop();
-    let events = culprit_core::i18n::scope("fr", || diff(Some(&previous), &current, Vec::new()));
+    let mut events = culprit_core::i18n::scope("fr", || diff(Some(&previous), &current, Vec::new()));
     assert!(!events.is_empty());
+    let raw = ChangeEvent::new(
+        EventKind::Code,
+        EventSource::Database,
+        "native-object",
+        &current.taken_at,
+        "engine.history.restarted",
+    )
+    .detail("native <raw> event detail")
+    .object("native-object");
+    events.push(raw.clone());
     keep_scan(&dir, &current, Some(&previous), &events);
     let stored: serde_json::Value = serde_json::from_slice(&std::fs::read(path(&dir, &current.id)).unwrap()).unwrap();
-    assert!(stored["events"].as_array().unwrap().iter().all(|e| e["title"] == ""));
+    assert!(
+        stored["events"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|e| e["title"].get("source").is_some())
+            .all(|e| e["title"]["text"] == "")
+    );
+    assert_eq!(stored["events"].as_array().unwrap().last().unwrap()["title"]["text"], raw.title.text());
     let en = culprit_core::i18n::scope("en", || read(&dir, &current.id).unwrap().events);
     let fr = culprit_core::i18n::scope("fr", || read(&dir, &current.id).unwrap().events);
     assert_eq!(en.len(), fr.len());
+    assert_eq!(en.last(), Some(&raw));
+    assert_eq!(fr.last(), Some(&raw));
     assert!(en.iter().zip(&fr).any(|(en, fr)| en.title != fr.title));
     for (mut en, mut fr) in en.into_iter().zip(fr) {
         en.clear_rendered_text();
@@ -381,13 +401,13 @@ fn scans_notice_schema_settings_and_restarts() {
     let events = diff(Some(&before), &after, recorded);
     let find = |kind: EventKind| events.iter().filter(move |e| e.kind == kind);
     let index = find(EventKind::Index).next().expect("the dropped index");
-    assert_eq!(index.title, format!("Index {} was dropped from {}", gone.name, gone.qualified_table()));
+    assert_eq!(index.title.text(), format!("Index {} was dropped from {}", gone.name, gone.qualified_table()));
     assert_eq!(index.after.as_deref(), Some("2026-10-11T10:00:00Z"), "noticed between the two scans");
     assert_eq!(index.action, Some(EventAction::Dropped));
     let column = find(EventKind::Table).next().expect("the added column");
-    assert!(column.title.contains("added archived_at timestamptz"), "{}", column.title);
+    assert!(column.title.text().contains("added archived_at timestamptz"), "{}", column.title);
     let set = find(EventKind::Setting).next().expect("the changed setting");
-    assert!(set.title.starts_with(&format!("{setting} changed from")), "{}", set.title);
+    assert!(set.title.text().starts_with(&format!("{setting} changed from")), "{}", set.title);
     assert_eq!(set.at, "2026-10-11T11:00:00Z", "the reload dates it");
     assert_eq!(set.source, EventSource::Database);
     assert_eq!(find(EventKind::Setting).count(), 1, "the reload itself is folded into the change it explains");
@@ -434,8 +454,9 @@ fn scans_notice_foreign_key_constraint_and_trigger_changes() {
         events.iter().any(|e| {
             e.kind == EventKind::Table
                 && e.table.as_deref() == Some("public.orders")
-                && e.title.contains("changed ON DELETE rule")
-                && e.detail.as_deref() == Some("ON DELETE NO ACTION → ON DELETE CASCADE")
+                && e.title.text().contains("changed ON DELETE rule")
+                && e.detail.as_ref().map(culprit_core::LocalizedText::text)
+                    == Some("ON DELETE NO ACTION → ON DELETE CASCADE")
         }),
         "{events:?}"
     );
@@ -443,7 +464,7 @@ fn scans_notice_foreign_key_constraint_and_trigger_changes() {
         events.iter().any(|e| {
             e.kind == EventKind::Table
                 && e.table.as_deref() == Some("public.orders")
-                && e.title.contains("Constraint ck_orders_total on public.orders is NOT VALID / untrusted")
+                && e.title.text().contains("Constraint ck_orders_total on public.orders is NOT VALID / untrusted")
         }),
         "{events:?}"
     );
@@ -451,9 +472,9 @@ fn scans_notice_foreign_key_constraint_and_trigger_changes() {
         .iter()
         .find(|e| e.kind == EventKind::Code && e.object.as_deref() == Some("trg_orders_audit"))
         .expect("trigger event");
-    assert_eq!(trig_event.title, "Trigger trg_orders_audit was created on public.orders");
+    assert_eq!(trig_event.title.text(), "Trigger trg_orders_audit was created on public.orders");
     assert_eq!(trig_event.table.as_deref(), Some("public.orders"));
-    assert_eq!(trig_event.detail.as_deref(), Some("INSERT OR UPDATE"));
+    assert_eq!(trig_event.detail.as_ref().map(culprit_core::LocalizedText::text), Some("INSERT OR UPDATE"));
 
     let recorded_trig = ChangeEvent::new(
         EventKind::Code,
@@ -470,5 +491,47 @@ fn scans_notice_foreign_key_constraint_and_trigger_changes() {
     assert_eq!(code_events.len(), 1, "recorded trigger event should date the scan-diffed trigger event");
     assert_eq!(code_events[0].at, "2026-10-11T10:30:00Z");
     assert_eq!(code_events[0].source, EventSource::Database);
-    assert_eq!(code_events[0].detail.as_deref(), Some("INSERT OR UPDATE"));
+    assert_eq!(code_events[0].detail.as_ref().map(culprit_core::LocalizedText::text), Some("INSERT OR UPDATE"));
+}
+
+#[test]
+fn compact_saved_reports_preserve_event_authority_and_raw_words_for_another_reader_locale() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut report = culprit_checks::analyze(demo());
+    let catalog = culprit_core::i18n::scope("en", || {
+        ChangeEvent::new(
+            EventKind::Restart,
+            EventSource::Database,
+            "native-instance",
+            &report.snapshot.taken_at,
+            culprit_core::message!("engine.history.restarted"),
+        )
+        .detail(culprit_core::message!("engine.history.restart_detail"))
+    });
+    let raw = ChangeEvent::new(
+        EventKind::Mark,
+        EventSource::Mark,
+        "native-mark",
+        &report.snapshot.taken_at,
+        "engine.history.restarted",
+    )
+    .detail("raw <native> detail");
+    report.evidence.as_mut().unwrap().recorded_changes = vec![catalog.clone(), raw.clone()];
+    reports::save(dir.path(), &report).unwrap();
+    let saved = dir.path().join(format!("{}.json", report.snapshot.id));
+    let value: serde_json::Value = serde_json::from_slice(&std::fs::read(&saved).unwrap()).unwrap();
+    let events = &value["_culprit_store"]["recorded_changes"];
+    assert_eq!(events[0]["title"]["text"], "");
+    assert_eq!(events[0]["detail"]["text"], "");
+    assert_eq!(events[1]["title"]["text"], raw.title.text());
+    let french = culprit_core::i18n::scope("fr", || reports::load(&saved).unwrap());
+    let events = &french.evidence.as_ref().unwrap().recorded_changes;
+    assert_ne!(events[0].title.text(), catalog.title.text());
+    assert_eq!(events[0].title.source(), catalog.title.source());
+    assert_eq!(events[0].id, catalog.id);
+    assert_eq!(events[0].at, catalog.at);
+    assert_eq!(events[0].source, catalog.source);
+    assert_eq!(events[1], raw);
+    let english = culprit_core::i18n::scope("en", || reports::load(&saved).unwrap());
+    assert_eq!(english.evidence.as_ref().unwrap().recorded_changes, vec![catalog, raw]);
 }

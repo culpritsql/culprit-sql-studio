@@ -804,7 +804,7 @@ fn event(e: &culprit_core::ChangeEvent) -> Value {
     let mut v = json!({
         "id": e.id,
         "kind": e.kind,
-        "title": clip(&e.title, 300),
+        "title": clip(e.title.text(), 300),
         "at": e.at,
         "source": e.source,
     });
@@ -817,7 +817,7 @@ fn event(e: &culprit_core::ChangeEvent) -> Value {
         }
     }
     if let Some(detail) = &e.detail {
-        map.insert("detail".into(), json!(clip(detail, 400)));
+        map.insert("detail".into(), json!(clip(detail.text(), 400)));
     }
     if e.action.is_some() {
         map.insert("action".into(), json!(e.action));
@@ -940,6 +940,30 @@ mod tests {
             assert!(!variants.is_empty());
             assert!(variants.iter().all(|plan| plan["forced"] == json!(state)));
         }
+    }
+
+    #[test]
+    fn timeline_event_projection_reads_explicit_words_without_exposing_saved_catalog_authority() {
+        let recorded = culprit_core::i18n::scope("fr", || {
+            culprit_core::ChangeEvent::new(
+                culprit_core::EventKind::Restart,
+                culprit_core::EventSource::Database,
+                "native-instance",
+                "2026-11-21T10:00:00Z",
+                culprit_core::message!("engine.history.restarted"),
+            )
+            .detail("native <detail>")
+        });
+        let value = event(&recorded);
+        assert_eq!(value["id"], recorded.id);
+        assert_eq!(value["at"], recorded.at);
+        assert_eq!(value["source"], "database");
+        assert_eq!(value["title"], recorded.title.text());
+        assert_eq!(value["detail"], "native <detail>");
+        assert!(value["title"].is_string());
+        assert!(value.get("title_message").is_none());
+        assert!(value.get("detail_message").is_none());
+        assert!(!value.to_string().contains("engine.history.restarted"));
     }
 
     #[test]

@@ -38,7 +38,7 @@ async fn interactive_changes_share_decoding_and_keep_since_values_out_of_sql() {
     let mut reader = FakeRead::new(vec![Ok(vec![row()])]);
     let events = changes(&mut reader, "2020-01-01T06:30:00Z").await.unwrap();
     assert_eq!(events.len(), 1);
-    assert_eq!(events[0].title, title("U", EventAction::Changed, "orders", "dbo.orders", None).render());
+    assert_eq!(events[0].title.text(), title("U", EventAction::Changed, "orders", "dbo.orders", None).render());
     assert!(!reader.calls[0].sql.contains("2020-01-01"));
     assert_eq!(reader.calls[0].limit, 301);
     assert!(select_sql(false).contains("created_without_offset"));

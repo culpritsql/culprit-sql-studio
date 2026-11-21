@@ -27,7 +27,9 @@
     "object": null,
     "source": "mark",
     "table": null,
-    "title": "deploy v2.3.0",
+    "title": {
+     "text": "deploy v2.3.0"
+    },
     "until": null
    },
    {
@@ -42,7 +44,9 @@
     "object": null,
     "source": "database",
     "table": "telemetry.events",
-    "title": "Statistics on telemetry.events were updated",
+    "title": {
+     "text": "Statistics on telemetry.events were updated"
+    },
     "until": null
    }
   ],
@@ -415,14 +419,18 @@
     "after": null,
     "at": "2026-10-11T13:58:46Z",
     "by": null,
-    "detail": "(grp)",
+    "detail": {
+     "text": "(grp)"
+    },
     "id": "index:shop.telemetry_items.ix_grp:2026-10-11T13:58:46Z",
     "kind": "index",
     "minor": false,
     "object": "ix_grp",
     "source": "database",
     "table": "shop.telemetry_items",
-    "title": "Index ix_grp was dropped from shop.telemetry_items",
+    "title": {
+     "text": "Index ix_grp was dropped from shop.telemetry_items"
+    },
     "until": null
    }
   ],
@@ -532,14 +540,18 @@
     "after": "2026-10-11T13:58:40Z",
     "at": "2026-10-11T13:58:43Z",
     "by": null,
-    "detail": "CREATE INDEX ix_items_grp ON telemetry.items USING btree (grp)",
+    "detail": {
+     "text": "CREATE INDEX ix_items_grp ON telemetry.items USING btree (grp)"
+    },
     "id": "index:telemetry.items.ix_items_grp:2026-10-11T13:58:43Z",
     "kind": "index",
     "minor": false,
     "object": "ix_items_grp",
     "source": "scans",
     "table": "telemetry.items",
-    "title": "Index ix_items_grp was dropped from telemetry.items",
+    "title": {
+     "text": "Index ix_items_grp was dropped from telemetry.items"
+    },
     "until": null
    }
   ],
