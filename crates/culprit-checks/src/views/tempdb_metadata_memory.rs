@@ -76,13 +76,12 @@ pub fn explain(input: TempdbMetadataMemoryEvidence<'_>) -> Result<TempdbMetadata
     if input.read_complete && !input.observations.is_empty() && profile.is_none() {
         return Err(invalid());
     }
-    if let (Some(profile), Some(point), Some(created)) = (&profile, native_point, database_created) {
-        if profile.enabled() != Some(true)
+    if let (Some(profile), Some(point), Some(created)) = (&profile, native_point, database_created)
+        && (profile.enabled() != Some(true)
             || profile.database_created() != created
-            || ObservationBounds::new(profile.observed_at(), point).is_none()
-        {
-            return Err(invalid());
-        }
+            || ObservationBounds::new(profile.observed_at(), point).is_none())
+    {
+        return Err(invalid());
     }
     let metadata_enabled =
         profile.as_ref().and_then(TempdbMetadataFeature::enabled).or_else(|| (!entries.is_empty()).then_some(true));

@@ -106,10 +106,7 @@ fn census<'a>(read: &'a StorageRead, source: &StateSourceCoverage) -> Option<Cen
             OperationalFact::MssqlDatabaseFile(_) => (),
             OperationalFact::Space(space)
                 if space.population == StoragePopulation::WritableOnlineDataFilegroups
-                    && canonical_time(&space.observed_at).ok().as_deref() == Some(observed_at.as_str()) =>
-            {
-                ()
-            }
+                    && canonical_time(&space.observed_at).ok().as_deref() == Some(observed_at.as_str()) => {}
             _ => return None,
         }
     }

@@ -113,10 +113,10 @@ impl<O: Operation> Task<O> {
         } else {
             self.connector.connect_unconfigured().await
         };
-        if let Some(attempt) = &attempt {
-            if result.is_ok() {
-                self.accounting.acquired(attempt);
-            }
+        if let Some(attempt) = &attempt
+            && result.is_ok()
+        {
+            self.accounting.acquired(attempt);
         }
         if let Some(phase) = phase {
             phase.finish(match &result {

@@ -13,16 +13,16 @@ pub(super) fn attach(
         crate::instance_resources::CpuIntervalUnavailableReason::Selection,
     );
     // Exactly two independent originals is deliberate selection, never a plausible surviving/latest pair.
-    if positions.len() == 2 && positions.iter().all(Result::is_ok) {
-        if let [RecordedOperationalRead::Captured { read: first }, RecordedOperationalRead::Captured { read: second }] =
+    if positions.len() == 2
+        && positions.iter().all(Result::is_ok)
+        && let [RecordedOperationalRead::Captured { read: first }, RecordedOperationalRead::Captured { read: second }] =
             selected.as_slice()
-        {
-            interval = crate::instance_resources::compare_cpu_originals(first, second).unwrap_or_else(|_| {
-                crate::instance_resources::unavailable_cpu_interval(
-                    crate::instance_resources::CpuIntervalUnavailableReason::Incomplete,
-                )
-            });
-        }
+    {
+        interval = crate::instance_resources::compare_cpu_originals(first, second).unwrap_or_else(|_| {
+            crate::instance_resources::unavailable_cpu_interval(
+                crate::instance_resources::CpuIntervalUnavailableReason::Incomplete,
+            )
+        });
     }
     let reports = super::super::recorded_operational::explain_positions(
         originals,
