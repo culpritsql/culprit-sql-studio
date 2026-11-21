@@ -46,10 +46,9 @@ mod waits_words;
 pub fn record(s: &mut culprit_core::Snapshot, source: &str, state: culprit_core::SourceState, reason: Option<&str>) {
     s.sources.retain(|o| o.source != source);
     s.sources.push(culprit_core::SourceOutcome {
-        reason_message: None,
         source: source.into(),
         state,
-        reason: reason.map(str::to_string),
+        reason: (reason.map(str::to_string)).map(culprit_core::LocalizedText::raw),
     });
 }
 

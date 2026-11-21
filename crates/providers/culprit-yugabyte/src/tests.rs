@@ -678,7 +678,7 @@ async fn live_ash_history_has_its_own_weights_period_bounds_and_role_scope() {
     }.await;
     session.client.batch_execute(&tagged(&format!("DROP ROLE {role}"))).await.unwrap();
     let (history, expected, id, denied_activity, denied_cache) = own.unwrap();
-    assert!(history.period.source.ends_with(&format!("role {id} only")));
+    assert!(history.period.source.text().ends_with(&format!("role {id} only")));
     assert!(history.period.observations >= 2.0);
     assert_eq!(history.period.observations, expected, "other roles' observations must not enter this history");
     assert_eq!(denied_activity.unwrap_err().code, culprit_core::ErrorCode::PermissionDenied);
@@ -794,14 +794,14 @@ async fn live_native_catalog_workload_sessions_and_stale_identity_guards() {
         .find(|source| source.source == culprit_core::source_id::SHARED_RESOURCE_DETAILS)
         .unwrap();
     assert_eq!(unsupported.state, culprit_core::SourceState::Unavailable);
-    assert!(unsupported.reason_message.is_some());
+    assert!(unsupported.reason.as_ref().and_then(culprit_core::LocalizedText::source).is_some());
     let unsupported = snapshot
         .sources
         .iter()
         .find(|source| source.source == culprit_core::source_id::CURRENT_REQUEST_MEMORY)
         .unwrap();
     assert_eq!(unsupported.state, culprit_core::SourceState::Unavailable);
-    assert!(unsupported.reason_message.is_some());
+    assert!(unsupported.reason.as_ref().and_then(culprit_core::LocalizedText::source).is_some());
     assert!(snapshot.pressure.as_ref().is_none_or(|pressure| pressure.resource_counters.is_none()));
     assert_eq!(snapshot.identity.as_ref().unwrap().engine, Engine::Yugabyte);
     assert!(matches!(snapshot.workload_measurement().unwrap().database.location,

@@ -117,12 +117,7 @@ impl Evidence {
         self.sources = snapshot
             .sources
             .iter()
-            .map(|source| SourceOutcome {
-                source: source.source.clone(),
-                state: source.state,
-                reason: None,
-                reason_message: None,
-            })
+            .map(|source| SourceOutcome { source: source.source.clone(), state: source.state, reason: None })
             .collect();
     }
     pub fn runtime_read(&self) -> CachedRuntimeRead {

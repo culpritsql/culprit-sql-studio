@@ -18,12 +18,7 @@ async fn every_holder_case_replays_the_same_point_explanation_with_exact_origina
             focus,
             &NativeReadContext::from_snapshot(&source).unwrap(),
             Some(point),
-            Some(&SourceOutcome {
-                source: coverage.source.clone(),
-                state: coverage.state,
-                reason: None,
-                reason_message: None,
-            }),
+            Some(&SourceOutcome { source: coverage.source.clone(), state: coverage.state, reason: None }),
         )
         .unwrap();
         let fixture = Fixture::new(source.clone(), records.clone()).await;

@@ -122,7 +122,7 @@ fn quiet_report(original: &super::super::durable_capture::Captured) -> Result<cu
     let source = &snapshot.sources[0];
     culprit_checks::page_waits::explain(
         &[],
-        Some(&SourceOutcome { source: source.source.clone(), state: source.state, reason: None, reason_message: None }),
+        Some(&SourceOutcome { source: source.source.clone(), state: source.state, reason: None }),
         None,
     )
 }

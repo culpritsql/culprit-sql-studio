@@ -40,7 +40,7 @@ fn evidence(observations: Vec<MssqlOutOfMemoryObservation>) -> MemoryFailureSnap
 }
 
 fn source(evidence: &MemoryFailureSnapshot, state: SourceState) -> SourceOutcome {
-    SourceOutcome { source: evidence.source.clone(), state, reason: None, reason_message: None }
+    SourceOutcome { source: evidence.source.clone(), state, reason: None }
 }
 
 #[test]
@@ -119,7 +119,7 @@ fn empty_partial_and_unavailable_reads_never_establish_failure_absence_or_curren
         let report = explain(&empty, Some(&source)).expect("empty source qualification");
         assert!(report.entries.is_empty());
         assert_eq!(report.source_state, Some(state));
-        assert_eq!(report.source_reason.as_deref(), source.reason.as_deref());
+        assert_eq!(report.source_reason.as_deref(), source.reason_text());
         assert!(report.summary.contains("does not establish"));
     }
     let retained = evidence(vec![observation(0, 11)]);
@@ -160,7 +160,7 @@ fn public_pipeline_preserves_the_captured_custom_sources_partial_qualification()
     let report = crate::analyze(snapshot);
     let memory = report.memory_failures.expect("same pure view in the ordinary pipeline");
     assert_eq!(memory.source_state, Some(SourceState::Partial));
-    assert_eq!(memory.source_reason, custom.reason);
+    assert_eq!(memory.source_reason.as_deref(), custom.reason_text());
     assert_eq!(memory.entries[0].position, 0);
     assert_eq!(report.snapshot.operations.memory_failures, Some(captured));
 }
@@ -175,7 +175,6 @@ fn malformed_native_capture_withholds_only_its_derived_view_and_retains_raw_evid
         source: culprit_core::source_id::MEMORY_FAILURES.into(),
         state: SourceState::Collected,
         reason: None,
-        reason_message: None,
     };
     snapshot.sources = vec![source(&captured, SourceState::Collected), canonical.clone()];
     let report = crate::analyze(snapshot);
@@ -183,12 +182,12 @@ fn malformed_native_capture_withholds_only_its_derived_view_and_retains_raw_evid
     assert_eq!(report.snapshot.operations.memory_failures, Some(captured.clone()));
     let custom = report.snapshot.sources.iter().find(|source| source.source == captured.source).expect("actual source");
     assert_eq!(custom.state, SourceState::Unavailable);
-    assert_eq!(custom.reason.as_deref(), Some(t!("view.memory_failures.invalid_capture").as_str()));
-    assert!(custom.reason_message.is_some());
+    assert_eq!(custom.reason_text(), Some(t!("view.memory_failures.invalid_capture").as_str()));
+    assert!(custom.reason.as_ref().and_then(culprit_core::LocalizedText::source).is_some());
     assert!(report.snapshot.sources.contains(&canonical), "another source must not be overwritten");
     assert!(report.snapshot.notes.iter().any(|note| {
         note.collector == captured.source
-            && note.message == t!("view.memory_failures.invalid_capture")
-            && matches!(&note.message_source, Some(culprit_core::i18n::Message::Catalog { key, .. }) if key == "view.memory_failures.invalid_capture")
+            && note.message.text() == t!("view.memory_failures.invalid_capture")
+            && matches!(&note.message.source().cloned(), Some(culprit_core::i18n::Message::Catalog { key, .. }) if key == "view.memory_failures.invalid_capture")
     }));
 }

@@ -59,7 +59,7 @@ fn source(count: u32) -> CollectionDescription {
     }
 }
 fn outcome(state: SourceState) -> SourceOutcome {
-    SourceOutcome { source: source_id::INDEXES.into(), state, reason: None, reason_message: None }
+    SourceOutcome { source: source_id::INDEXES.into(), state, reason: None }
 }
 fn current() -> Snapshot {
     let mut snapshot: Snapshot =
@@ -88,12 +88,7 @@ fn current() -> Snapshot {
     table.mssql_heap_configuration = Some(Box::new(heap));
     snapshot.sources.retain(|source| ![source_id::TABLES, source_id::INDEXES].contains(&source.source.as_str()));
     for source in [source_id::TABLES, source_id::INDEXES] {
-        snapshot.sources.push(SourceOutcome {
-            source: source.into(),
-            state: SourceState::Collected,
-            reason: None,
-            reason_message: None,
-        });
+        snapshot.sources.push(SourceOutcome { source: source.into(), state: SourceState::Collected, reason: None });
     }
     snapshot
 }

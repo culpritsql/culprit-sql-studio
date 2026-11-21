@@ -741,18 +741,21 @@ mod tests {
             let outcomes = part.outcome.outcomes();
             let source = outcomes.iter().find(|source| source.source == crate::sources::PLAN_CACHE.name).unwrap();
             assert_eq!(source.state, culprit_core::SourceState::Partial);
-            assert_eq!(source.reason_message.as_ref(), Some(&reason));
+            assert_eq!(source.reason.as_ref().and_then(culprit_core::LocalizedText::source), Some(&reason));
             assert!(part.outcome.has(culprit_core::Capability::PlanCache));
             assert!(
                 part.outcome.has(culprit_core::Capability::QueryPlans),
                 "available plans remain useful without claiming complete coverage"
             );
             let (_, _, notes) = part.outcome.finish();
-            assert!(notes.iter().any(|note| note.collector == crate::sources::PLAN_CACHE.name
-                && note.message_source.as_ref() == Some(&reason)));
             assert!(notes.iter().any(
-                |note| note.collector == "plans" && note.message_source.as_ref() == Some(&super::unparsed_plans(2))
+                |note| note.collector == crate::sources::PLAN_CACHE.name && note.message.source() == Some(&reason)
             ));
+            assert!(
+                notes
+                    .iter()
+                    .any(|note| note.collector == "plans" && note.message.source() == Some(&super::unparsed_plans(2)))
+            );
         }
     }
 
@@ -867,7 +870,7 @@ mod tests {
         assert!(have.is_empty());
         assert_eq!(missing.len(), 1);
         assert_eq!(missing[0].capability, culprit_core::Capability::ResourceUsage);
-        assert_eq!(missing[0].fix.as_deref(), Some(grant));
+        assert_eq!(missing[0].fix.as_ref().map(culprit_core::LocalizedText::text), Some(grant));
         assert_eq!(notes.len(), 2);
     }
 }

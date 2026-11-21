@@ -21,13 +21,11 @@ fn missing_prerequisites_withhold_current_and_retained_plan_sql_after_native_ann
     assert!(query.executions > 1.0);
     query.plan = Some(plan.clone());
     query.plan_history = Some(PlanHistory {
-        source: "retained-native-plan".into(),
+        source: culprit_core::LocalizedText::raw("retained-native-plan"),
         kind: PlanHistoryKind::Cache,
-        note: String::new(),
+        note: culprit_core::LocalizedText::raw(String::new()),
         captured_plan_id: Some("native-retained-plan".into()),
         captured_plan: Some(plan),
-        source_message: None,
-        note_message: None,
     });
     let mut limitations = vec![limit(None, CollectedAnalysisLimit::MissingSchema)];
     apply_executable_fix_policy(&mut [], Some(&mut workload), &mut limitations);

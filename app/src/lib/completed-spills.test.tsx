@@ -92,7 +92,7 @@ test("captured positions render opaque row identifiers without dumping their nat
 
 test("failed acquisition, raw-only data and stale derived-only data cannot become an empty healthy view", () => {
   const fixture = completedSpillFixture(1);
-  const gap = renderHealth(health({}, [{ source: COMPLETED_SPILL_SOURCE, state: "unavailable", reason: "Native source permission denied." }]));
+  const gap = renderHealth(health({}, [{ source: COMPLETED_SPILL_SOURCE, state: "unavailable", reason: { text: "Native source permission denied." } }]));
   expect(gap).toContain(t("view.completed_spills.title"));
   expect(gap).toContain("Native source permission denied.");
   expect(gap).not.toContain(t("ui.health.empty"));

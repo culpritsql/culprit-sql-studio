@@ -450,8 +450,7 @@ pub(crate) async fn read_query_store<R: crate::read::NativeRead>(
     let workload = Workload {
         population,
         population_catalog,
-        source_label: None,
-        source_message,
+        source_label: source_message.map(culprit_core::LocalizedText::new),
         counter_set: None,
         history_inputs: Vec::new(),
         source: "Query Store".into(),
@@ -835,7 +834,6 @@ pub(crate) async fn from_plan_cache(
         population: None,
         population_catalog: None,
         source_label: None,
-        source_message: None,
         counter_set: None,
         history_inputs: Vec::new(),
         source: "Plan cache".into(),

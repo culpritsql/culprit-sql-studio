@@ -39,7 +39,7 @@ fn view() -> MssqlIndexSnapshot {
     }
 }
 fn outcome(state: SourceState) -> SourceOutcome {
-    SourceOutcome { source: source_id::INDEXES.into(), state, reason: None, reason_message: None }
+    SourceOutcome { source: source_id::INDEXES.into(), state, reason: None }
 }
 fn original() -> (CollectionDescription, OperationalObservation) {
     let index = view();

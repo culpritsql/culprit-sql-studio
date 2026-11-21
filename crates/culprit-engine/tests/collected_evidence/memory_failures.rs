@@ -34,7 +34,6 @@ fn scan(source: &CollectionDescription, records: &[TelemetryRecord]) -> Snapshot
         source: native.sources[0].source.clone(),
         state: native.sources[0].state,
         reason: None,
-        reason_message: None,
     });
     scan
 }

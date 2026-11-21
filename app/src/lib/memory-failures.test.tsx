@@ -61,7 +61,7 @@ function show(evidence = nativeEvidence(), report = explanation()): string {
 }
 
 test("canonical memory source issues retain actual partial results and failed regions remain named", () => {
-  const source: SourceOutcome = { source: "memory failures", state: "partial", reason: "Native positive observations were incomplete." };
+  const source: SourceOutcome = { source: "memory failures", state: "partial", reason: { text: "Native positive observations were incomplete." } };
   expect(memoryFailureReadIssue(undefined, [source])).toBe(source);
   expect(source.state).toBe("partial");
   expect(memoryFailureReadIssue("memory-failures", [source])).toBeUndefined();
@@ -151,7 +151,7 @@ test("a large retained buffer renders only one page while preserving the native 
 
 test("a failed or partial read remains visible when no native wrapper or explanation was admitted", () => {
   for (const state of ["unavailable", "partial"] as const) {
-    const source: SourceOutcome = { source: "memory failures", state, reason: "Permission or bounded completion was not established." };
+    const source: SourceOutcome = { source: "memory failures", state, reason: { text: "Permission or bounded completion was not established." } };
     const issue = memoryFailureReadIssue(undefined, [source]);
     expect(issue).toBe(source);
     const html = renderToStaticMarkup(<MemoryFailureSourceIssue source={issue!} />);
@@ -174,10 +174,10 @@ test("default unrequested reads and unrelated source failures do not add memory 
 });
 
 test("an explicit unsupported memory diagnostic request remains visible without creating an empty read", () => {
-  const source: SourceOutcome = { source: "memory failures", state: "not-applicable", reason: "This provider has no native reader for these records." };
+  const source: SourceOutcome = { source: "memory failures", state: "not-applicable", reason: { text: "This provider has no native reader for these records." } };
   expect(memoryFailureReadIssue(undefined, [source], true)).toBe(source);
   const html = renderToStaticMarkup(<MemoryFailureSourceIssue source={source} />);
-  expect(html).toContain(source.reason!);
+  expect(html).toContain(source.reason!.text);
   expect(html).not.toContain("0 failures");
 });
 

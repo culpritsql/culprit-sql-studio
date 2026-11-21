@@ -170,7 +170,10 @@ async fn sharing_withholds_indivisible_original_receipts_and_preserves_a_repeata
     let source =
         shared.sources.iter().find(|source| source.source == culprit_core::source_id::TEMPDB_METADATA_MEMORY).unwrap();
     assert_eq!(source.state, SourceState::Unavailable);
-    assert_eq!(source.reason_message, Some(culprit_core::message!("view.tempdb_metadata_memory.sharing_withheld")));
+    assert_eq!(
+        source.reason.as_ref().and_then(culprit_core::LocalizedText::source).cloned(),
+        Some(culprit_core::message!("view.tempdb_metadata_memory.sharing_withheld"))
+    );
     assert!(culprit_checks::analyze(shared.clone()).tempdb_metadata_memory.is_none());
     let again = culprit_core::redact::redact_snapshot(&shared);
     assert_eq!(
@@ -179,8 +182,11 @@ async fn sharing_withholds_indivisible_original_receipts_and_preserves_a_repeata
             .iter()
             .find(|source| source.source == culprit_core::source_id::TEMPDB_METADATA_MEMORY)
             .unwrap()
-            .reason_message,
-        source.reason_message
+            .reason
+            .as_ref()
+            .and_then(culprit_core::LocalizedText::source)
+            .cloned(),
+        source.reason.as_ref().and_then(culprit_core::LocalizedText::source).cloned()
     );
     let text = serde_json::to_string(&shared).unwrap();
     for private in ["native-instance-a", "native-instance-namespace", "native_consumer_id", "CapturedOperationalRead"] {

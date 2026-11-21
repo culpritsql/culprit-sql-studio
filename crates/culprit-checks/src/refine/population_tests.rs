@@ -35,7 +35,6 @@ fn snapshot() -> Snapshot {
         source: culprit_core::source_id::QUERY_STORE.into(),
         state: SourceState::Collected,
         reason: None,
-        reason_message: None,
     }];
     snapshot
 }

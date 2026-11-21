@@ -21,16 +21,14 @@ fn prepare(dir: &Path, count: usize) -> Result<(), Box<dyn std::error::Error>> {
     workload.total_time_ms = workload.queries.iter().map(|q| q.total_time_ms).sum();
     let mut input = report.snapshot.clone();
     input.notes.push(CollectorNote {
-        message_source: None,
         collector: "profile".into(),
-        message: "Retained input".into(),
+        message: culprit_core::LocalizedText::raw("Retained input"),
         table: None,
     });
     let mut collected = input.clone();
     collected.notes.push(CollectorNote {
-        message_source: None,
         collector: "profile".into(),
-        message: "Original collection".into(),
+        message: culprit_core::LocalizedText::raw("Original collection"),
         table: None,
     });
     report.evidence = Some(ReportEvidence {
@@ -80,7 +78,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "replay" => {
                 let report = workspace.analyze_file(&path)?;
                 queries = report.snapshot.queries().len();
-                assert!(report.analysis_input().notes.iter().any(|n| n.message == "Retained input"));
+                assert!(report.analysis_input().notes.iter().any(|n| n.message.text() == "Retained input"));
                 std::hint::black_box(report);
             }
             _ => unreachable!(),

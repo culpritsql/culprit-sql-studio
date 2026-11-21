@@ -253,7 +253,7 @@ fn invalid_original_rows_are_withheld_before_masking_and_the_explicit_gap_surviv
         let second = crate::redact::redact_snapshot(&first);
         let gap = second.sources.iter().find(|source| source.source == CACHED_RUNTIME_READ_SOURCE).unwrap();
         assert_eq!(gap.state, crate::SourceState::Unavailable);
-        assert_eq!(gap.reason, Some(crate::t!("view.completed_spills.invalid")));
+        assert_eq!(gap.reason_text(), Some(crate::t!("view.completed_spills.invalid").as_str()));
         assert!(second.operations.cached_runtime.is_none());
     }
 }

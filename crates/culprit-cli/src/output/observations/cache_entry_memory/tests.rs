@@ -10,8 +10,7 @@ fn report(case: CacheEntryMemoryCase) -> CacheEntryMemoryReport {
 fn explain(source: &CollectionDescription, records: &[TelemetryRecord]) -> CacheEntryMemoryReport {
     let context = NativeReadContext::from_snapshot(source).unwrap();
     let coverage = &source.observation.snapshot().unwrap().sources[0];
-    let source =
-        SourceOutcome { source: coverage.source.clone(), state: coverage.state, reason: None, reason_message: None };
+    let source = SourceOutcome { source: coverage.source.clone(), state: coverage.state, reason: None };
     let rows = records
         .iter()
         .map(|record| match record {
@@ -41,7 +40,6 @@ fn population_report() -> CacheEntryMemoryReport {
             source: snapshot.sources[0].source.clone(),
             state: snapshot.sources[0].state,
             reason: None,
-            reason_message: None,
         };
         (context, source)
     };

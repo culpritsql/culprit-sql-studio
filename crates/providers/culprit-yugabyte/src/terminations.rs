@@ -165,26 +165,19 @@ pub(crate) async fn read_from(
         limited = "no",
         role = ""
     );
-    let source = source_message.render();
-    let rendered_notes = notes.iter().map(culprit_core::i18n::Message::render).collect();
     let visibility_message = match probe.statement_role {
         None => culprit_core::message!("provider.yugabyte.terminations.complete_visibility"),
         Some(role) => culprit_core::message!("provider.yugabyte.terminations.role_visibility", role = role.to_string()),
     };
-    let visibility = visibility_message.render();
     Ok(TerminationHistory {
-        source_message: Some(source_message),
-        visibility_message: Some(visibility_message),
-        note_messages: Some(notes),
-
-        source,
+        source: culprit_core::LocalizedText::new(source_message),
         requested_start: window.string("start"),
         requested_end: window.string("end"),
         scope: if cluster { CounterScope::Cluster } else { CounterScope::Node },
         nodes: nodes.into_iter().collect(),
-        visibility,
+        visibility: culprit_core::LocalizedText::new(visibility_message),
         partial,
-        notes: rendered_notes,
+        notes: notes.into_iter().map(culprit_core::LocalizedText::new).collect(),
         events,
     })
 }

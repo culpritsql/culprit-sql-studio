@@ -63,7 +63,7 @@ test("task observations stay collapsed and paged rather than filling Health with
 });
 
 test("requested missing or unsupported task profiles stay visible without an invented healthy empty result", () => {
-  for (const sources of [[], [{ source: "task space", state: "unavailable" as const, reason: "This native source is unsupported here." }]]) {
+  for (const sources of [[], [{ source: "task space", state: "unavailable" as const, reason: { text: "This native source is unsupported here." } }]]) {
     const report = healthReportFixture({ snapshot: { server: { engine: "mssql" }, sources, options: { collect_task_space: true }, operations: { spaces: [], counters: [], sequences: [], multixacts: [], sqlite: null, cluster: null } } });
     const html = renderToStaticMarkup(<HealthTab report={report} pressure={null} resources={[]} engineLabel="SQL Server" />);
     expect(html).toContain(t("view.task_space.title"));

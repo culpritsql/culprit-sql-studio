@@ -8,8 +8,7 @@ fn report_for(name: &str, missing_definition: bool) -> CompilationReport {
     let context = NativeReadContext::from_snapshot(&case.current.0).unwrap();
     let SourceObservation::Snapshot(snapshot) = &case.current.0.observation else { panic!() };
     let coverage = &snapshot.sources[0];
-    let outcome =
-        SourceOutcome { source: coverage.source.clone(), state: coverage.state, reason: None, reason_message: None };
+    let outcome = SourceOutcome { source: coverage.source.clone(), state: coverage.state, reason: None };
     let observations = case
         .current
         .1

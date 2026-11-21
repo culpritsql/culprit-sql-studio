@@ -84,12 +84,9 @@ async fn retained_native_plans_open_offline_without_borrowing_current_catalog_or
     .unwrap();
     cached.facts_mut().constants_redacted = true;
     q.plan_history = Some(culprit_core::PlanHistory {
-        source_message: None,
-        note_message: None,
-
-        source: "yb_pg_stat_plans".into(),
+        source: culprit_core::LocalizedText::raw("yb_pg_stat_plans"),
         kind: culprit_core::PlanHistoryKind::Cache,
-        note: "Retained cache periods are independent of statement statistics".into(),
+        note: culprit_core::LocalizedText::raw("Retained cache periods are independent of statement statistics"),
         captured_plan_id: Some("-123".into()),
         captured_plan: Some(cached),
     });

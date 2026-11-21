@@ -27,7 +27,7 @@ test("Health keeps independent Galera originals while a withdrawn original canno
   const report = galeraReport();
   expect(renderToStaticMarkup(<HealthTab report={galeraHealthReport([report])} pressure={null} resources={[]} engineLabel="PostgreSQL" />)).toContain(t("view.galera.title"));
   report.original = null; report.native_rows = null; report.observed_rows = 0; report.presented_rows = 0; report.entries = []; report.read_complete = false;
-  report.summary = t("view.galera.sharing_withheld"); for (const source of report.sources) { source.state = "unavailable"; source.reason = report.summary; }
+  report.summary = t("view.galera.sharing_withheld"); for (const source of report.sources) { source.state = "unavailable"; source.reason = { text: report.summary }; }
   const html = renderToStaticMarkup(<Galera reports={[report]} />);
   expect(html).toContain(report.summary); expect(html).toContain(t("ui.dashboard.status.unavailable"));
   expect(html).not.toContain("native-state"); expect(html).not.toContain("9007199254740993"); expect(html).not.toContain(">0<");

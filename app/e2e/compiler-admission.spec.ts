@@ -31,7 +31,7 @@ test("compiler admission separates the affected actor from gateway context and k
   const changed = rows[2]!;
   if (changed.fact.kind !== "counter-set") throw new Error("gateway fixture");
   changed.fact.data.identity.qualifiers.resource_pool_id = "different-native-pool";
-  await inject(page, compilerAdmissionEvidence([...rows].reverse()), view, { source: COMPILER_ADMISSION_SOURCE, state: "partial", reason: "Native gateway visibility is partial." });
+  await inject(page, compilerAdmissionEvidence([...rows].reverse()), view, { source: COMPILER_ADMISSION_SOURCE, state: "partial", reason: { text: "Native gateway visibility is partial." } });
   await page.locator('[data-tile="health"]').click();
   await page.getByRole("dialog", { name: "Database health", exact: true }).waitFor();
   const region = page.getByRole("region", { name: english["view.compiler_admission.title"], exact: true });
@@ -56,7 +56,7 @@ test("compiler admission separates the affected actor from gateway context and k
   await expect(cards.nth(3)).toContainText("9007199254740993");
   await region.getByRole("button", { name: "Next records", exact: true }).click();
   await expect(cards).toHaveCount(3);
-  await inject(page, null, null, { source: COMPILER_ADMISSION_SOURCE, state: "unavailable", reason: "Native compiler permission denied." });
+  await inject(page, null, null, { source: COMPILER_ADMISSION_SOURCE, state: "unavailable", reason: { text: "Native compiler permission denied." } });
   await expect(region.locator("article")).toHaveCount(0);
   await region.getByText(english["ui.memory_failures.limitations"], { exact: true }).click();
   await expect(region).toContainText("Native compiler permission denied.");

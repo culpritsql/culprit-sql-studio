@@ -230,14 +230,14 @@ mod tests {
             .find(|source| source.source == culprit_core::source_id::SHARED_RESOURCE_DETAILS)
             .unwrap();
         assert_eq!(outcome.state, culprit_core::SourceState::Unavailable);
-        assert!(outcome.reason_message.is_some());
+        assert!(outcome.reason.as_ref().and_then(culprit_core::LocalizedText::source).is_some());
         let outcome = requested
             .sources
             .iter()
             .find(|source| source.source == culprit_core::source_id::CURRENT_REQUEST_MEMORY)
             .unwrap();
         assert_eq!(outcome.state, culprit_core::SourceState::Unavailable);
-        assert!(outcome.reason_message.is_some());
+        assert!(outcome.reason.as_ref().and_then(culprit_core::LocalizedText::source).is_some());
         assert!(requested.tables.iter().any(|table| table.name == "profile_fixture"));
         assert_eq!(ordinary.tables.len(), requested.tables.len());
         assert!(requested.pressure.is_none() && requested.resources.is_empty());

@@ -383,8 +383,7 @@ pub(crate) async fn read(
         hourly_time_ms: None,
         min_logged_ms: None,
         history_inputs: vec![],
-        source_label: None,
-        source_message: Some(culprit_core::message!(
+        source_label: Some(culprit_core::LocalizedText::new(culprit_core::message!(
             "model.workload.source.ysql",
             scope = if probe.cluster {
                 "cluster"
@@ -396,7 +395,7 @@ pub(crate) async fn read(
             node = probe.node.as_deref().unwrap_or_default(),
             limited = if probe.statement_role.is_some() { "yes" } else { "no" },
             role = probe.statement_role.map(|role| role.to_string()).unwrap_or_default()
-        )),
+        ))),
         counter_set: Some(counter_set),
     })
 }

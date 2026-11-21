@@ -8,7 +8,7 @@ export function fullTextPopulationReport(): FullTextPopulationReport {
     original: { metadata: { observed_at: "2020-01-01T00:00:00.5Z", schema: "dbo", table: "OriginalDocuments" }, context: tableMemoryReport().original!.context,
       target: { table: { database_id: 7, object_id: 100, created_without_offset: "2019-01-01T00:00:00.000" },
         table_modified_without_offset: "2019-01-01T00:00:00.000", catalog_id: 2, unique_index_id: 1 } },
-    source: { source: "full-text populations", state: "partial", reason: t("view.full_text_populations.partial") },
+    source: { source: "full-text populations", state: "partial", reason: { text: t("view.full_text_populations.partial") } },
     read_complete: true, native_rows: 1, observed_rows: 1,
     title: t("view.full_text_populations.title"), summary: t("view.full_text_populations.partial_summary", { count: "1" }),
     limitations: [t("view.full_text_populations.limit.point"), t("view.full_text_populations.limit.identity"), t("view.full_text_populations.limit.time")],

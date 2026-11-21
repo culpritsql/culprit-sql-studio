@@ -27,7 +27,7 @@ pub fn annotate_plans(snapshot: &mut Snapshot) {
             if let Some(history) = &mut q.plan_history
                 && let Some(plan) = &mut history.captured_plan
             {
-                present_retained_plan(plan, &history.note);
+                present_retained_plan(plan, history.note.text());
             }
         }
     }
@@ -454,10 +454,9 @@ mod tests {
         s.server.capabilities.retain(|c| *c != culprit_core::Capability::IndexUsage);
         s.sources.retain(|o| o.source != "indexes");
         s.sources.push(culprit_core::SourceOutcome {
-            reason_message: None,
             source: "indexes".into(),
             state: culprit_core::SourceState::Unavailable,
-            reason: Some("Index definitions unavailable".into()),
+            reason: Some(culprit_core::LocalizedText::raw("Index definitions unavailable")),
         });
         let q = &s.queries()[0];
         let found = query_plan_insights(&s, q, q.plan.as_ref().unwrap());
@@ -616,10 +615,9 @@ note: Estimated plan: misestimates, spills, unused memory grants and uneven thre
         s.server.capabilities.retain(|c| *c != culprit_core::Capability::IndexUsage);
         s.sources.retain(|o| o.source != "indexes");
         s.sources.push(culprit_core::SourceOutcome {
-            reason_message: None,
             source: "indexes".into(),
             state: culprit_core::SourceState::Unavailable,
-            reason: Some("Index definitions unavailable".into()),
+            reason: Some(culprit_core::LocalizedText::raw("Index definitions unavailable")),
         });
         out.push(said(&read(&s)));
         // MySQL's filter above the scan: the scan itself carries no predicate to take keys from.

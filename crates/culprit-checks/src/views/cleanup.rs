@@ -107,12 +107,7 @@ fn source_outcomes(evidence: &CleanupEvidence<'_>, sources: &[SourceOutcome]) ->
     if let Some(population) = evidence.retention {
         for source in &population.sources {
             if !selected.iter().any(|outcome| outcome.source == source.source) {
-                selected.push(SourceOutcome {
-                    source: source.source.clone(),
-                    state: source.state,
-                    reason: None,
-                    reason_message: None,
-                });
+                selected.push(SourceOutcome { source: source.source.clone(), state: source.state, reason: None });
             }
         }
     }

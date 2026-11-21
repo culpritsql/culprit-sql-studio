@@ -14,8 +14,7 @@ fn observation() -> TaskSpaceObservation {
 }
 
 fn report(rows: &[TaskSpaceObservation], state: SourceState) -> TaskSpaceReport {
-    let source =
-        SourceOutcome { source: culprit_core::source_id::TASK_SPACE.into(), state, reason: None, reason_message: None };
+    let source = SourceOutcome { source: culprit_core::source_id::TASK_SPACE.into(), state, reason: None };
     culprit_checks::task_space::explain(&rows.iter().collect::<Vec<_>>(), Some(&source)).unwrap()
 }
 

@@ -216,6 +216,7 @@
       "title": "Replicas that fall behind"
     }
   ],
+  "change_capture": {},
   "findings": [
     {
       "actionability": "optional-improvement",
@@ -1893,14 +1894,22 @@
     "notes": [
       {
         "collector": "plans",
-        "message": "Planned 5 queries; 1 had no recorded statement text."
+        "message": {
+          "text": "Planned 5 queries; 1 had no recorded statement text."
+        }
       },
       {
         "collector": "workload",
-        "message": "MariaDB counts the whole run of a statement the slow query log writes to its table as lock time, so the lock time of 2 statements is left out as unknown rather than read as waiting."
+        "message": {
+          "text": "MariaDB counts the whole run of a statement the slow query log writes to its table as lock time, so the lock time of 2 statements is left out as unknown rather than read as waiting."
+        }
       }
     ],
     "operations": {
+      "change_capture": {
+        "cdc": [],
+        "change_feed": []
+      },
       "cluster": null,
       "counters": [],
       "full_text_populations": [],
@@ -1918,11 +1927,7 @@
       "source_acquisitions": [],
       "spaces": [],
       "sqlite": null,
-      "table_memory": [],
-      "change_capture": {
-        "cdc": [],
-        "change_feed": []
-      }
+      "table_memory": []
     },
     "options": {
       "collect_memory_failures": false,
@@ -4983,6 +4988,5 @@
       "separator": " "
     },
     "top_share": 0.9521354362362536
-  },
-  "change_capture": {}
+  }
 }

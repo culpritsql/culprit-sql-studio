@@ -33,7 +33,6 @@ fn snapshot(files: Vec<FileIo>) -> Snapshot {
         source: culprit_core::source_id::FILE_LATENCY.into(),
         state: SourceState::Collected,
         reason: None,
-        reason_message: None,
     });
     snapshot
 }

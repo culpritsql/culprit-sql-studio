@@ -160,8 +160,7 @@ fn outcome(source: &StateSourceCoverage, rows: usize, read_complete: bool) -> So
     SourceOutcome {
         source: source.source.clone(),
         state: if missing { SourceState::Partial } else { source.state },
-        reason,
-        reason_message: None,
+        reason: (reason).map(culprit_core::LocalizedText::raw),
     }
 }
 fn entry(

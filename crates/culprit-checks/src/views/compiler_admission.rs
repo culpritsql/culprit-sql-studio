@@ -74,7 +74,7 @@ pub fn explain(
     limitations.extend(super::memory_participants::source_limitation(source));
     Ok(CompilerAdmissionReport {
         source_state: source.map(|source| source.state),
-        source_reason: source.and_then(|source| source.reason.clone()),
+        source_reason: source.and_then(|source| source.reason_text().map(str::to_owned)),
         title: t!("view.compiler_admission.title"),
         summary: if snapshot.observations.is_empty() {
             t!("view.compiler_admission.summary.empty")

@@ -18,7 +18,14 @@ fn said(error: &Error) -> String {
 fn reasons(missing: &[MissingCapability]) -> String {
     missing
         .iter()
-        .map(|m| format!("{:?}: {} | {}", m.capability, m.reason, m.fix.as_deref().unwrap_or("-")))
+        .map(|m| {
+            format!(
+                "{:?}: {} | {}",
+                m.capability,
+                m.reason,
+                m.fix.as_ref().map(culprit_core::LocalizedText::text).unwrap_or("-")
+            )
+        })
         .collect::<Vec<_>>()
         .join("\n")
 }
@@ -86,7 +93,7 @@ Sessions: SQLite has no server, so no sessions to list. | -"
         std::time::Instant::now(),
     )
     .unwrap();
-    let reason = |name: &str| snapshot.source_outcome(name).and_then(|o| o.reason.clone());
+    let reason = |name: &str| snapshot.source_outcome(name).and_then(|o| o.reason_text().map(str::to_owned));
     assert_eq!(
         reason("statistics").as_deref(),
         Some("The file has no sqlite_stat1 table; ANALYZE has not recorded planner statistics.")

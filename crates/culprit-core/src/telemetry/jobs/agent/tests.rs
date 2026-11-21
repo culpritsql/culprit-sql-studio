@@ -228,7 +228,10 @@ fn sharing_withholds_immutable_agent_identities_and_retains_one_repeatable_expli
     assert!(shared.operations.jobs.is_none());
     let marker = shared.sources.iter().find(|source| source.source == MSSQL_AGENT_JOBS_SOURCE).unwrap();
     assert_eq!(marker.state, SourceState::Unavailable);
-    assert_eq!(marker.reason_message, Some(crate::message!("view.mssql_agent_jobs.sharing_withheld")));
+    assert_eq!(
+        marker.reason.as_ref().and_then(crate::LocalizedText::source).cloned(),
+        Some(crate::message!("view.mssql_agent_jobs.sharing_withheld"))
+    );
     assert!(!serde_json::to_string(&shared).unwrap().contains("PRIVATE-"));
     let repeated = crate::redact::redact_snapshot(&shared);
     assert_eq!(repeated.sources.iter().find(|source| source.source == MSSQL_AGENT_JOBS_SOURCE), Some(marker));

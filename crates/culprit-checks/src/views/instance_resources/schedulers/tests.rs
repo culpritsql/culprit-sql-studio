@@ -203,7 +203,6 @@ fn ordinary_snapshot_rows_have_no_invented_native_read_interval_and_sharing_with
         source: culprit_core::source_id::SCHEDULERS.into(),
         state: SourceState::Collected,
         reason: None,
-        reason_message: None,
     });
     let report = explain_snapshot(&snapshot).unwrap().unwrap();
     assert!(report.context.is_none() && report.read_complete.is_none() && report.native_rows.is_none());

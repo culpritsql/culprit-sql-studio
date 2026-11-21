@@ -15,7 +15,7 @@ export function tableMemoryReport(index = 0): TableMemoryReport {
       target: { database_id: 7, object_id: 100 + index, created_without_offset: "2019-01-01T00:00:00.0000000" },
       metadata: { observed_at: "2020-01-01T00:00:00.5Z", schema: "dbo", name: `original-table-${index}`, memory_optimized: true, xtp_supported: true, dmv_permission: true, metadata_visible: true, layout_available: true },
     },
-    source: { source: "memory-optimized table memory", state: "partial", reason: t("view.table_memory.partial") },
+    source: { source: "memory-optimized table memory", state: "partial", reason: { text: t("view.table_memory.partial") } },
     native_rows: 1, observed_rows: 1, read_complete: true,
     title: t("view.table_memory.title"), summary: t("view.table_memory.recorded"),
     metrics: [

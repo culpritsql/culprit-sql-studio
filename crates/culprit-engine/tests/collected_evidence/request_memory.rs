@@ -72,12 +72,7 @@ fn scan(source: &CollectionDescription, rows: &[TelemetryRecord]) -> Snapshot {
     let native = source.observation.snapshot().expect("native request-memory fixture");
     let coverage = &native.sources[0];
     scan.sources.retain(|source| source.source != coverage.source);
-    scan.sources.push(SourceOutcome {
-        source: coverage.source.clone(),
-        state: coverage.state,
-        reason: None,
-        reason_message: None,
-    });
+    scan.sources.push(SourceOutcome { source: coverage.source.clone(), state: coverage.state, reason: None });
     scan.pressure.get_or_insert_default().request_memory = Some(RequestMemorySnapshot {
         context: NativeReadContext::from_snapshot(source).unwrap(),
         source: coverage.source.clone(),

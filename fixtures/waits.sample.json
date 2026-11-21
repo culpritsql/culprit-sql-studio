@@ -3090,16 +3090,24 @@
       "3d2d9e10555b4ae2a683a8402505e416"
      ],
      "notes": [
-      "Weights describe sampled active tasks, not query elapsed time, exclusive wait time, or CPU utilization. YSQL and DocDB components can execute concurrently.",
-      "The circular buffer can evict observations, short tasks can fall between samples, and sampling cadence can change. First/last samples do not prove continuous coverage of the requested period.",
-      "Database-scoped activity can include administrative and monitoring work. Background records without this database's identity are excluded."
+      {
+       "text": "Weights describe sampled active tasks, not query elapsed time, exclusive wait time, or CPU utilization. YSQL and DocDB components can execute concurrently."
+      },
+      {
+       "text": "The circular buffer can evict observations, short tasks can fall between samples, and sampling cadence can change. First/last samples do not prove continuous coverage of the requested period."
+      },
+      {
+       "text": "Database-scoped activity can include administrative and monitoring work. Background records without this database's identity are excluded."
+      }
      ],
      "observations": 720.0,
      "partial": false,
      "requested_end": "2026-10-24T06:52:49.190547Z",
      "requested_start": "2026-10-17T06:52:49.190547Z",
      "scope": "node",
-     "source": "yb_active_session_history (node 3d2d9e10555b4ae2a683a8402505e416)",
+     "source": {
+      "text": "yb_active_session_history (node 3d2d9e10555b4ae2a683a8402505e416)"
+     },
      "weighted_observations": 720.0
     }
    },

@@ -44,7 +44,10 @@ async fn selected_secondary_history_keeps_query_plan_lifetime_and_own_original_c
     let catalog = workload.population_catalog.as_ref().unwrap();
     assert!(catalog.is_valid() && catalog.partitioned && catalog.requires_selection);
     assert_eq!(catalog.populations.len(), 2);
-    assert_eq!(workload.source_message, Some(catalog.populations[1].label.clone()));
+    assert_eq!(
+        workload.source_label.as_ref().and_then(culprit_core::LocalizedText::source),
+        Some(&catalog.populations[1].label)
+    );
     assert_eq!(workload.total_executions, 2.0);
     assert_eq!(workload.total_time_ms, 4.0);
     assert_eq!(workload.total_cpu_ms, Some(3.0));

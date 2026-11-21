@@ -111,7 +111,7 @@ fn conflicting_source_state_duplicate_identity_or_non_database_scope_is_rejected
     let observation = row(RuntimeMetricKey::TemporaryTables, "1");
     assert!(report_for(&context(), &[&observation, &observation], None).is_err());
     for state in [SourceState::Empty, SourceState::Unavailable, SourceState::NotApplicable] {
-        let source = SourceOutcome { source: observation.source.clone(), state, reason: None, reason_message: None };
+        let source = SourceOutcome { source: observation.source.clone(), state, reason: None };
         assert!(report_for(&context(), &[&observation], Some(&source)).is_err());
     }
     for scope in [MeasurementScope::Server, MeasurementScope::Pool] {
@@ -120,12 +120,7 @@ fn conflicting_source_state_duplicate_identity_or_non_database_scope_is_rejected
         sample.scope = scope;
         assert!(report_for(&context(), &[&changed], None).is_err());
     }
-    let source = SourceOutcome {
-        source: "another-source".into(),
-        state: SourceState::Collected,
-        reason: None,
-        reason_message: None,
-    };
+    let source = SourceOutcome { source: "another-source".into(), state: SourceState::Collected, reason: None };
     assert!(report_for(&context(), &[&observation], Some(&source)).is_err());
 }
 
@@ -135,8 +130,7 @@ fn unavailable_empty_and_partial_native_reads_stay_explicit_without_manufacturin
         let source = SourceOutcome {
             source: "arbitrary-native-source".into(),
             state,
-            reason: Some("native source qualification".into()),
-            reason_message: None,
+            reason: Some(culprit_core::LocalizedText::raw("native source qualification")),
         };
         let report = report_for(&context(), &[], Some(&source)).unwrap();
         assert_eq!(report.source_state, Some(state));
@@ -235,8 +229,7 @@ fn node_labels_cannot_replace_matching_native_member_generation_or_observation_b
 #[test]
 fn partial_node_visibility_keeps_positive_points_and_missing_rows_explicit() {
     let row = node_row("10", "true");
-    let source =
-        SourceOutcome { source: row.source.clone(), state: SourceState::Partial, reason: None, reason_message: None };
+    let source = SourceOutcome { source: row.source.clone(), state: SourceState::Partial, reason: None };
     let report = report_for(&node_context(), &[&row], Some(&source)).unwrap();
     assert_eq!(report.source_state, Some(SourceState::Partial));
     assert_eq!(report.entries.len(), 1);

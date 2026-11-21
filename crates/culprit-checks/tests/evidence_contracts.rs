@@ -25,9 +25,8 @@ fn typed_success_is_not_reinterpreted_as_failure_by_informational_notes() {
     let mut s = snapshot();
     crate::record(&mut s, "indexes", SourceState::Collected, None);
     s.notes.push(CollectorNote {
-        message_source: None,
         collector: "indexes".into(),
-        message: "Counters cover only this database.".into(),
+        message: culprit_core::LocalizedText::raw("Counters cover only this database."),
         table: None,
     });
     assert!(matches!(assess(&[Requirement::IndexCatalog], &s), CheckEvidence::Available));
@@ -44,10 +43,9 @@ fn empty_partial_and_unavailable_are_distinct_and_do_not_invent_negative_results
         (SourceState::NotApplicable, "inapplicable"),
     ] {
         s.sources = vec![SourceOutcome {
-            reason_message: None,
             source: "team.policy".into(),
             state,
-            reason: Some("Source explanation".into()),
+            reason: Some(culprit_core::LocalizedText::raw("Source explanation")),
         }];
         let result = assess(&[Requirement::Source("team.policy")], &s);
         let actual = match result {
@@ -61,12 +59,7 @@ fn empty_partial_and_unavailable_are_distinct_and_do_not_invent_negative_results
     s.sources.clear();
     assert!(matches!(assess(&[Requirement::Source("team.policy")], &s), CheckEvidence::Insufficient(_)));
     let configured_source = String::from("configured.policy");
-    s.sources.push(SourceOutcome {
-        reason_message: None,
-        source: configured_source.clone(),
-        state: SourceState::Collected,
-        reason: None,
-    });
+    s.sources.push(SourceOutcome { source: configured_source.clone(), state: SourceState::Collected, reason: None });
     assert!(matches!(assess(&[Requirement::Source(&configured_source)], &s), CheckEvidence::Available));
     assert!(matches!(assess(&[], &s), CheckEvidence::Insufficient(_)));
 }
@@ -106,10 +99,9 @@ fn external_checks_declare_requirements_without_a_central_id_registry() {
         ] {
             let mut s = snapshot();
             s.sources.push(SourceOutcome {
-                reason_message: None,
                 source: "team.policy".into(),
                 state,
-                reason: Some("Source explanation".into()),
+                reason: Some(culprit_core::LocalizedText::raw("Source explanation")),
             });
             let calls = Arc::new(AtomicUsize::new(0));
             let report = culprit_checks::analyze_with(s, &[Arc::new(Policy { id, calls: calls.clone() })]);
@@ -155,17 +147,11 @@ fn successful_fallback_is_not_blocked_by_an_unused_source_failure() {
     s.workload.as_mut().unwrap().kind = Some(culprit_core::WorkloadKind::PlanCache);
     s.sources = vec![
         SourceOutcome {
-            reason_message: None,
             source: "query_store".into(),
             state: SourceState::Unavailable,
-            reason: Some("Query Store unavailable".into()),
+            reason: Some(culprit_core::LocalizedText::raw("Query Store unavailable")),
         },
-        SourceOutcome {
-            reason_message: None,
-            source: "plan_cache".into(),
-            state: SourceState::Collected,
-            reason: None,
-        },
+        SourceOutcome { source: "plan_cache".into(), state: SourceState::Collected, reason: None },
     ];
     assert!(matches!(assess(&[Requirement::Query(QueryMeasure::Work)], &s), CheckEvidence::Available));
 }
@@ -626,17 +612,15 @@ fn a_read_is_established_by_its_recorded_outcome_never_by_a_payload_or_a_note() 
     // A payload doesn't say it was read in full, and a note is prose, not a failure.
     s.tuning = Some(Default::default());
     s.notes.push(CollectorNote {
-        message_source: None,
         collector: "tuning".into(),
-        message: "Read 3 recommendations.".into(),
+        message: culprit_core::LocalizedText::raw("Read 3 recommendations."),
         table: None,
     });
     assert!(matches!(assess(&[tuning], &s), CheckEvidence::Insufficient(_)));
     let outcome = |state, reason: Option<&str>| SourceOutcome {
-        reason_message: None,
         source: "missing_indexes".into(),
         state,
-        reason: reason.map(str::to_string),
+        reason: (reason.map(str::to_string)).map(culprit_core::LocalizedText::raw),
     };
     s.sources.retain(|o| o.source != "missing_indexes");
     s.sources.push(outcome(SourceState::Partial, Some("Some requests could not be read")));
@@ -665,10 +649,9 @@ fn failed_statement_detail_sources_prevent_clean_assessments() {
         let mut s = snapshot();
         s.histograms = Some(Vec::new());
         s.sources = vec![SourceOutcome {
-            reason_message: None,
             source: source.into(),
             state: SourceState::Partial,
-            reason: Some("Statement detail query timed out.".into()),
+            reason: Some(culprit_core::LocalizedText::raw("Statement detail query timed out.")),
         }];
         assert!(
             matches!(assess(&[Requirement::Query(measure)], &s), CheckEvidence::Insufficient(_)),

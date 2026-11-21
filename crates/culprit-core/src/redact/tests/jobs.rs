@@ -173,8 +173,7 @@ fn snapshot(read: Box<TimescaleJobsSnapshot>) -> Snapshot {
     snapshot.sources.push(SourceOutcome {
         source: TIMESCALE_JOBS_SOURCE.into(),
         state: SourceState::Collected,
-        reason: Some("JOBS-REDACTION-PRIVATE-prior-source-detail".into()),
-        reason_message: None,
+        reason: Some(crate::LocalizedText::raw("JOBS-REDACTION-PRIVATE-prior-source-detail")),
     });
     snapshot
 }
@@ -187,13 +186,16 @@ fn assert_unavailable(snapshot: &Snapshot) -> SourceOutcome {
     assert_eq!(markers.len(), 1, "one explicit source gap replaces prior native success");
     let marker = markers[0];
     assert_eq!(marker.state, SourceState::Unavailable);
-    assert_eq!(marker.reason_message, Some(crate::message!("view.jobs.invalid")));
+    assert_eq!(
+        marker.reason.as_ref().and_then(crate::LocalizedText::source).cloned(),
+        Some(crate::message!("view.jobs.invalid"))
+    );
     assert_eq!(
         snapshot
             .notes
             .iter()
             .filter(|note| note.collector == TIMESCALE_JOBS_SOURCE
-                && note.message_source == Some(crate::message!("view.jobs.invalid")))
+                && note.message.source().cloned() == Some(crate::message!("view.jobs.invalid")))
             .count(),
         1
     );

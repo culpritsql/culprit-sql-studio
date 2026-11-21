@@ -33,7 +33,7 @@ test("Health shows historical group context independently of current engine and 
 
 test("withdrawn original stays unavailable and does not gain another member or a healthy zero", () => {
   const report = groupReplicationReport(); report.original = null; report.native_rows = null; report.observed_rows = 0; report.presented_rows = 0; report.entries = []; report.read_complete = false;
-  report.summary = t("view.group_replication.sharing_withheld"); for (const source of report.sources) { source.state = "unavailable"; source.reason = report.summary; }
+  report.summary = t("view.group_replication.sharing_withheld"); for (const source of report.sources) { source.state = "unavailable"; source.reason = { text: report.summary }; }
   const html = renderToStaticMarkup(<GroupReplication reports={[report]} />);
   expect(html).toContain(report.summary); expect(html).toContain(t("ui.dashboard.status.unavailable"));
   expect(html).not.toContain("original-group"); expect(html).not.toContain("native-member"); expect(html).not.toContain(">0<");

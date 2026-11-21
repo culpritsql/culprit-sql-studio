@@ -38,6 +38,7 @@ pub enum WorkloadKind {
 
 #[derive(Serialize, Deserialize, TS, Clone, Debug)]
 #[ts(export)]
+#[serde(deny_unknown_fields)]
 pub struct Workload {
     /// The actual source-native execution population behind these statistics. None establishes no physical owner.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -91,11 +92,7 @@ pub struct Workload {
     // Presentation fields follow the optional facts; `source` remains the series identity.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
-    pub source_label: Option<String>,
-    // A provider's scoped label retains native node/role identifiers as arguments.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub source_message: Option<Message>,
+    pub source_label: Option<crate::LocalizedText>,
 }
 
 /// Native contributors to distributed cumulative counters. A missing epoch or skipped node cannot establish
@@ -236,8 +233,8 @@ pub const RATE_MIN_HOURS: f64 = 1.0;
 
 impl Workload {
     pub fn source_message(&self) -> Message {
-        if let Some(message) = &self.source_message {
-            return message.clone();
+        if let Some(label) = &self.source_label {
+            return label.message();
         }
         match self.kind {
             Some(WorkloadKind::PlanCache) => crate::message!("model.workload.source.plan_cache"),
@@ -255,9 +252,17 @@ impl Workload {
         self.source_message().render()
     }
 
+    pub fn set_source_label(&mut self, message: impl Into<Message>) {
+        self.source_label = Some(crate::LocalizedText::new(message));
+    }
+
     pub fn refresh_language(&mut self) {
-        let message = self.source_message();
-        self.source_label = message.is_translatable().then(|| message.render());
+        if let Some(label) = &mut self.source_label {
+            label.render();
+        } else {
+            let message = self.source_message();
+            self.source_label = message.is_translatable().then(|| message.into());
+        }
     }
 
     /// What the workload was read from, as its provider said.
@@ -1326,34 +1331,26 @@ impl QueryVariantFamily {
 
 #[derive(Serialize, Deserialize, TS, Clone, Debug)]
 #[ts(export)]
+#[serde(deny_unknown_fields)]
 pub struct PlanHistory {
-    pub source: String,
+    pub source: crate::LocalizedText,
     pub kind: PlanHistoryKind,
-    pub note: String,
+    pub note: crate::LocalizedText,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub captured_plan_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub captured_plan: Option<Plan>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub source_message: Option<Message>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub note_message: Option<Message>,
 }
 
 impl PlanHistory {
     pub fn set_note(&mut self, message: impl Into<Message>) {
-        let message = message.into();
-        self.note = message.render();
-        self.note_message = message.is_translatable().then_some(message);
+        self.note.set(message);
     }
 
     pub fn append_note(&mut self, message: impl Into<Message>) {
-        let existing = self.note_message.clone().unwrap_or_else(|| Message::from(self.note.clone()));
-        self.set_note(Message::paragraph(vec![existing, message.into()]));
+        self.set_note(Message::paragraph(vec![self.note.message(), message.into()]));
     }
 }
 

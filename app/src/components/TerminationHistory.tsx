@@ -22,9 +22,9 @@ export function TerminationHistoryView({ history, report }: { history: Terminati
   const queries = new Set(report.snapshot.workload?.queries.map((q) => q.id));
   return <section className="operational-card" aria-label={t("ui.termination_history.label")}>
     <h4>{t("ui.termination_history.title", { count: String(records.length) })}</h4>
-    <p className="muted">{history.source}. {history.visibility}. {history.partial && t("ui.common.read_partial")}</p>
+    <p className="muted">{history.source.text}. {history.visibility.text}. {history.partial && t("ui.common.read_partial")}</p>
     <p className="muted" title={`${history.requested_start} — ${history.requested_end}`}>{t("ui.termination_history.requested", { from: when(history.requested_start).short, to: when(history.requested_end).short })}</p>
-    {history.notes.map((note, i) => <p className="muted" key={i}>{note}</p>)}
+    {history.notes.map((note, i) => <p className="muted" key={i}>{note.text}</p>)}
     {history.events.length > records.length && <p className="muted">{t("ui.termination_history.first_records", { shown: String(records.length), total: String(history.events.length) })}</p>}
     {!records.length ? <p>{t("ui.termination_history.none")}</p> : <>
       <div style={{ overflowX: "auto" }}><table className="grid"><thead><tr><th>{t("ui.termination_history.column.terminated")}</th><th>{t("ui.termination_history.column.reason")}</th><th>{t("ui.common.node")}</th><th>{t("ui.termination_history.column.query")}</th></tr></thead>

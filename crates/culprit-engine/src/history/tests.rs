@@ -305,7 +305,7 @@ fn a_replicas_usage_counters_are_set_aside() {
     set_aside_replica_usage(&mut s);
     assert!(!s.server.has(Capability::IndexUsage));
     let missing = s.server.missing.iter().find(|m| m.capability == Capability::IndexUsage).unwrap();
-    assert!(missing.reason.contains("readable secondary"), "{}", missing.reason);
+    assert!(missing.reason.text().contains("readable secondary"), "{}", missing.reason);
     assert!(s.indexes.iter().all(|i| i.reads.is_none() && i.writes.is_none()));
     let report = culprit_checks::analyze(s);
     assert!(!report.findings.iter().any(|f| f.check == "unused-index"));

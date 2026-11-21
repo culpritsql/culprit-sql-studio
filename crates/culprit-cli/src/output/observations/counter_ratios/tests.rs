@@ -17,8 +17,7 @@ fn report(case: CounterRatioCase) -> CounterRatioReport {
         })
         .collect::<Vec<_>>();
     let native = &source.observation.snapshot().unwrap().sources[0];
-    let outcome =
-        SourceOutcome { source: native.source.clone(), state: native.state, reason: None, reason_message: None };
+    let outcome = SourceOutcome { source: native.source.clone(), state: native.state, reason: None };
     culprit_checks::counter_ratios::explain(&samples, Some(&outcome), true).unwrap()
 }
 

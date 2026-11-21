@@ -45,7 +45,7 @@ fn rows() -> Vec<ExecutionGrantObservation> {
 fn report(rows: &[ExecutionGrantObservation], state: SourceState) -> MemoryParticipantsReport {
     explain(
         RequestMemoryEvidence { context: &native_context(), observations: &rows.iter().collect::<Vec<_>>() },
-        Some(&SourceOutcome { source: "current request memory".into(), state, reason: None, reason_message: None }),
+        Some(&SourceOutcome { source: "current request memory".into(), state, reason: None }),
     )
     .unwrap()
 }

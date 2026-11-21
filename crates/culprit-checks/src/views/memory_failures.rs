@@ -39,7 +39,7 @@ pub fn explain(
         incident_input,
         incident_input_explanation: incident_input.explanation(),
         source_state: source.map(|source| source.state),
-        source_reason: source.and_then(|source| source.reason.clone()),
+        source_reason: source.and_then(|source| source.reason_text().map(str::to_owned)),
         title: t!("view.memory_failures.title"),
         summary: if evidence.observations.is_empty() {
             t!("view.memory_failures.summary.empty")

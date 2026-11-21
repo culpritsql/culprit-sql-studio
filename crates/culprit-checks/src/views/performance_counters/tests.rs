@@ -116,12 +116,7 @@ fn sample() -> NativeCounterSet {
     }
 }
 fn outcome(state: SourceState) -> SourceOutcome {
-    SourceOutcome {
-        source: culprit_core::source_id::PERFORMANCE_COUNTERS.into(),
-        state,
-        reason: None,
-        reason_message: None,
-    }
+    SourceOutcome { source: culprit_core::source_id::PERFORMANCE_COUNTERS.into(), state, reason: None }
 }
 fn explain_sample(set: &NativeCounterSet) -> Result<PerformanceCounterReport> {
     explain(PerformanceCounterEvidence::Snapshot {

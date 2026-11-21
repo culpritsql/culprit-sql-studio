@@ -23,8 +23,7 @@ fn expensive_explicit_statement_policy_uses_its_own_lifetime_and_keeps_cause_lim
     assert_eq!(case.total_milliseconds, 12_000.0);
     assert!(case.statement.contains("OPTION (RECOMPILE)"));
     assert!(!case.statement.contains("91234"));
-    let source =
-        SourceOutcome { source: row.source.clone(), state: SourceState::Partial, reason: None, reason_message: None };
+    let source = SourceOutcome { source: row.source.clone(), state: SourceState::Partial, reason: None };
     let report = explain(&[&row], Some(&source)).unwrap();
     assert!(report.entries[0].title.contains("OPTION (RECOMPILE)"));
     assert!(report.entries[0].explanation.contains(&culprit_core::format::duration(12_000.0)));

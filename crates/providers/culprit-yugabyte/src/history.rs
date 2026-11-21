@@ -51,19 +51,15 @@ pub(crate) async fn collect(
         limited = "no",
         role = ""
     );
-    let source = source_message.render();
     let note_message = culprit_core::message!("provider.yugabyte.plan_history.note");
     for q in &mut workload.queries {
         q.plans.clear();
         q.plan_history = Some(PlanHistory {
-            source_message: Some(source_message.clone()),
-            note_message: Some(note_message.clone()),
-
-            source: source.clone(),
+            source: culprit_core::LocalizedText::new(source_message.clone()),
             kind: PlanHistoryKind::Cache,
             captured_plan_id: None,
             captured_plan: None,
-            note: note_message.render(),
+            note: culprit_core::LocalizedText::new(note_message.clone()),
         });
     }
     let ids: Vec<_> = workload.queries.iter().filter_map(|q| q.id.parse::<i64>().ok()).collect();

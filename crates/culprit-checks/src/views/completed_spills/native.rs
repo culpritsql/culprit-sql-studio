@@ -43,8 +43,8 @@ pub fn explain_read(read: &CachedRuntimeRead) -> Result<CompletedSpillReport> {
                 } else {
                     source.state
                 },
-                reason: missing.then(|| t!("view.completed_spills.limit.partial")),
-                reason_message: None,
+                reason: (missing.then(|| t!("view.completed_spills.limit.partial")))
+                    .map(culprit_core::LocalizedText::raw),
             }
         })
         .collect::<Vec<_>>();

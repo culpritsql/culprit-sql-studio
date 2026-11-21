@@ -25,13 +25,11 @@ pub enum SourceState {
 /// Source names are open identifiers so an embedding provider can declare its own sources.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[ts(export)]
+#[serde(deny_unknown_fields)]
 pub struct SourceOutcome {
     pub source: String,
     pub state: SourceState,
-    pub reason: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub reason_message: Option<crate::i18n::Message>,
+    pub reason: Option<crate::LocalizedText>,
 }
 
 /// Canonical built-in source identifiers shared between engine collectors and check evidence contracts.
@@ -272,9 +270,13 @@ pub fn same_source(a: &str, b: &str) -> bool {
 }
 
 impl SourceOutcome {
+    pub fn reason_text(&self) -> Option<&str> {
+        self.reason.as_ref().map(crate::LocalizedText::text)
+    }
+
     pub fn refresh_language(&mut self) {
-        if let Some(message) = &self.reason_message {
-            self.reason = Some(message.render());
+        if let Some(reason) = &mut self.reason {
+            reason.render();
         }
     }
 
@@ -286,18 +288,17 @@ impl SourceOutcome {
             (Collected, Empty) | (Empty, Collected) => Collected,
             _ => Partial,
         };
-        if let Some(reason) = other.reason {
+        if let Some(incoming) = other.reason {
             use crate::i18n::Message;
-            let incoming = other.reason_message.unwrap_or_else(|| Message::from(reason));
+            let incoming = incoming.message();
             let message = match self.reason.take() {
                 Some(existing) => {
-                    let existing = self.reason_message.take().unwrap_or_else(|| Message::from(existing));
+                    let existing = existing.message();
                     if existing == incoming { existing } else { Message::paragraph(vec![existing, incoming]) }
                 }
                 None => incoming,
             };
-            self.reason = Some(message.render());
-            self.reason_message = message.is_translatable().then_some(message);
+            self.reason = Some(message.into());
         }
     }
 }
@@ -308,16 +309,14 @@ impl crate::Snapshot {
         let outcome = SourceOutcome {
             source: source_id.into(),
             state: SourceState::Unavailable,
-            reason: Some(message.render()),
-            reason_message: Some(message.clone()),
+            reason: Some(message.clone().into()),
         };
         if let Some(source) = self.sources.iter_mut().find(|source| source.source == source_id) {
             *source = outcome;
         } else {
             self.sources.push(outcome);
         }
-        if !self.notes.iter().any(|note| note.collector == source_id && note.message_source.as_ref() == Some(&message))
-        {
+        if !self.notes.iter().any(|note| note.collector == source_id && note.message.message() == message) {
             self.notes.push(CollectorNote::recorded(source_id, message));
         }
     }
@@ -400,16 +399,11 @@ impl Coverage {
     }
 
     pub fn recorded(&mut self, source: &Source, state: SourceState, reason: Option<String>) {
-        self.record(SourceOutcome { reason_message: None, source: source.name.into(), state, reason });
+        self.record(SourceOutcome { source: source.name.into(), state, reason: reason.map(crate::LocalizedText::raw) });
     }
 
     pub fn recorded_message(&mut self, source: &Source, state: SourceState, message: crate::i18n::Message) {
-        self.record(SourceOutcome {
-            source: source.name.into(),
-            state,
-            reason: Some(message.render()),
-            reason_message: message.is_translatable().then_some(message),
-        });
+        self.record(SourceOutcome { source: source.name.into(), state, reason: Some(message.into()) });
     }
 
     /// Finish decoding a successful read. A previous failure or partial result is never cleared by this update.
@@ -447,8 +441,7 @@ impl Coverage {
         {
             // A successful configuration probe may establish that the source does not apply.
             existing.state = SourceState::NotApplicable;
-            existing.reason = Some(reason.render());
-            existing.reason_message = reason.is_translatable().then_some(reason);
+            existing.reason = Some(reason.into());
         } else {
             self.recorded_message(source, SourceState::NotApplicable, reason);
         }
@@ -550,10 +543,9 @@ impl Coverage {
     /// login lacks the permission, and `grant` (the statement that gives it) becomes the fix.
     pub fn failed(&mut self, source: &str, capability: Capability, error: &Error, grant: Option<String>) {
         self.record(SourceOutcome {
-            reason_message: error.message_source().is_translatable().then(|| error.message_source()),
             source: source.into(),
             state: SourceState::Unavailable,
-            reason: Some(error.message.clone()),
+            reason: Some(error.message_source().into()),
         });
         self.note(source, error.message_source());
         let denied = error.code == ErrorCode::PermissionDenied;
@@ -686,8 +678,12 @@ impl crate::Snapshot {
     pub fn source_problem(&self, names: &[&str]) -> Option<String> {
         names.iter().find_map(|name| {
             let outcome = self.source_outcome(name)?;
-            matches!(outcome.state, SourceState::Partial | SourceState::Unavailable)
-                .then(|| outcome.reason.clone().unwrap_or_else(|| format!("{name} was not completely collected.")))
+            matches!(outcome.state, SourceState::Partial | SourceState::Unavailable).then(|| {
+                outcome
+                    .reason_text()
+                    .map(str::to_owned)
+                    .unwrap_or_else(|| format!("{name} was not completely collected."))
+            })
         })
     }
 }
@@ -705,7 +701,13 @@ mod tests {
             assert_eq!(outcomes.len(), 1);
             assert_eq!(outcomes[0].source, source_id::SHARED_RESOURCE_DETAILS);
             assert_eq!(outcomes[0].state, SourceState::Unavailable);
-            assert!(outcomes[0].reason_message.as_ref().is_some_and(crate::i18n::Message::is_translatable));
+            assert!(
+                outcomes[0]
+                    .reason
+                    .as_ref()
+                    .and_then(crate::LocalizedText::source)
+                    .is_some_and(crate::i18n::Message::is_translatable)
+            );
             let (have, missing, notes) = coverage.finish();
             assert!(have.contains(&Capability::TableStats));
             assert!(missing.is_empty());
@@ -721,7 +723,13 @@ mod tests {
         assert_eq!(outcomes.len(), 1);
         assert_eq!(outcomes[0].source, source_id::CURRENT_REQUEST_MEMORY);
         assert_eq!(outcomes[0].state, SourceState::Unavailable);
-        assert!(outcomes[0].reason_message.as_ref().is_some_and(crate::i18n::Message::is_translatable));
+        assert!(
+            outcomes[0]
+                .reason
+                .as_ref()
+                .and_then(crate::LocalizedText::source)
+                .is_some_and(crate::i18n::Message::is_translatable)
+        );
         let (have, missing, notes) = coverage.finish();
         assert_eq!(have, [Capability::TableStats]);
         assert!(missing.is_empty());
@@ -748,7 +756,7 @@ mod tests {
         combined.merge(first);
         combined.merge(later);
         let (_, missing, _) = combined.finish();
-        assert_eq!(missing[0].reason, "Une explication.");
+        assert_eq!(missing[0].reason.text(), "Une explication.");
         assert_eq!(missing[0].action.as_ref().unwrap().sql, "ALTER DATABASE CURRENT SET QUERY_STORE = ON;");
     }
 
@@ -776,10 +784,10 @@ mod tests {
                 let mut outcome = outcomes[0].clone();
                 outcome.refresh_language();
                 assert_eq!(outcome.state, SourceState::Partial);
-                assert_eq!(outcome.reason, Some(format!("{} {}", first.render(), second.render())));
+                assert_eq!(outcome.reason_text(), Some(format!("{} {}", first.render(), second.render()).as_str()));
                 let mut note = notes[0].clone();
                 note.refresh_language();
-                assert_eq!(note.message, first.render());
+                assert_eq!(note.message.text(), first.render());
                 assert_eq!(note.table.as_deref(), Some("main.docs"));
             });
         }
@@ -804,12 +812,12 @@ mod tests {
             scope(language, || {
                 outcomes[0].refresh_language();
                 notes[0].refresh_language();
-                assert_eq!(outcomes[0].reason.as_deref(), Some(message.render().as_str()));
-                assert_eq!(notes[0].message, message.render());
+                assert_eq!(outcomes[0].reason_text(), Some(message.render().as_str()));
+                assert_eq!(notes[0].message.text(), message.render());
                 for missing in &mut missing {
                     missing.render_messages();
-                    assert_eq!(missing.fix.as_deref(), Some(hint.render().as_str()));
-                    assert!(missing.reason.contains(&message.render()));
+                    assert_eq!(missing.fix.as_ref().map(crate::LocalizedText::text), Some(hint.render().as_str()));
+                    assert!(missing.reason.text().contains(&message.render()));
                 }
             });
         }
@@ -844,7 +852,7 @@ mod tests {
             };
             assert_eq!(combined.outcomes().len(), 1);
             assert_eq!(combined.outcomes()[0].state, SourceState::Partial);
-            assert_eq!(combined.outcomes()[0].reason.as_deref(), Some("timeout"));
+            assert_eq!(combined.outcomes()[0].reason_text(), Some("timeout"));
         }
     }
 
@@ -878,7 +886,7 @@ mod tests {
             s.server
                 .missing
                 .iter()
-                .any(|m| m.capability == Capability::IndexUsage && m.reason.contains("details timed out"))
+                .any(|m| m.capability == Capability::IndexUsage && m.reason.text().contains("details timed out"))
         );
         assert_eq!(s.notes.len(), 1);
         let saved = serde_json::to_string(&s).unwrap();
@@ -898,7 +906,7 @@ mod tests {
         let (have, missing, notes) = c.finish();
         assert!(have.is_empty());
         assert_eq!(missing.len(), 2);
-        assert_eq!(missing[0].reason, "Reading index statistics failed: statement timeout");
+        assert_eq!(missing[0].reason.text(), "Reading index statistics failed: statement timeout");
         assert_eq!(notes.len(), 1);
         // Denied: the login lacks the permission, and the grant is the fix.
         let denied = Error::new(ErrorCode::PermissionDenied, "permission denied for pg_stat_user_indexes")
@@ -906,8 +914,8 @@ mod tests {
         let mut c = Coverage::default();
         c.source_failed(&INDEXES, &denied);
         let (_, missing, _) = c.finish();
-        assert_eq!(missing[0].reason, "This login lacks the permission to read index statistics.");
-        assert_eq!(missing[0].fix.as_deref(), Some("GRANT pg_read_all_stats TO app;"));
+        assert_eq!(missing[0].reason.text(), "This login lacks the permission to read index statistics.");
+        assert_eq!(missing[0].fix.as_ref().map(crate::LocalizedText::text), Some("GRANT pg_read_all_stats TO app;"));
     }
 
     #[test]
@@ -932,11 +940,47 @@ mod tests {
         assert_eq!(have, vec![Capability::QueryStore]);
         assert_eq!(missing.len(), 1);
         assert_eq!(missing[0].capability, Capability::IndexUsage);
-        assert_eq!(missing[0].reason, "This login lacks the permission to read it.");
-        assert_eq!(missing[0].fix.as_deref(), Some("GRANT VIEW DATABASE STATE TO app;"));
+        assert_eq!(missing[0].reason.text(), "This login lacks the permission to read it.");
+        assert_eq!(missing[0].fix.as_ref().map(crate::LocalizedText::text), Some("GRANT VIEW DATABASE STATE TO app;"));
         assert_eq!(notes.len(), 2);
     }
 }
 
 #[cfg(test)]
 mod workload_tests;
+
+#[cfg(test)]
+mod localized_reason_tests {
+    use super::*;
+
+    #[test]
+    fn mixed_native_and_catalog_reasons_merge_without_losing_authority_or_changing_state() {
+        let source = Source { name: "mixed-test", reads: "test", delivers: &[] };
+        let message = crate::message!("view.indexed_views.sharing_withheld");
+        let mut coverage = Coverage::default();
+        coverage.recorded(&source, SourceState::Collected, Some("native <raw> context".into()));
+        coverage.recorded_message(&source, SourceState::Unavailable, message.clone());
+        let original = coverage.outcomes().remove(0);
+        assert_eq!(original.state, SourceState::Partial);
+        let encoded = serde_json::to_vec(&original).unwrap();
+        let mut restored: SourceOutcome = crate::i18n::scope("fr", || serde_json::from_slice(&encoded).unwrap());
+        assert_eq!(serde_json::to_vec(&restored).unwrap(), encoded);
+        crate::i18n::scope("fr", || restored.refresh_language());
+        assert_eq!(restored.state, SourceState::Partial);
+        assert_eq!(restored.source, original.source);
+        assert_eq!(
+            restored.reason_text(),
+            Some(format!("native <raw> context {}", crate::i18n::scope("fr", || message.render())).as_str())
+        );
+        assert_ne!(restored.reason_text(), original.reason_text());
+    }
+
+    #[test]
+    fn saved_reasons_reject_a_stale_independent_message_field_even_when_reason_is_null() {
+        let raw = serde_json::json!({
+            "source": "indexes", "state": "unavailable", "reason": null,
+            "reason_message": { "kind": "catalog", "key": "view.indexed_views.sharing_withheld", "arguments": {} }
+        });
+        assert!(serde_json::from_value::<SourceOutcome>(raw).is_err());
+    }
+}

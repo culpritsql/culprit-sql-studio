@@ -657,8 +657,7 @@ mod tests {
             sources: vec![SourceOutcome {
                 source: "native-retainer-source".into(),
                 state: SourceState::Partial,
-                reason: Some("Native visibility remains partial.".into()),
-                reason_message: None,
+                reason: Some(culprit_core::LocalizedText::raw("Native visibility remains partial.")),
             }],
             title: t!("view.cleanup.title"),
             summary: t!("view.cleanup.summary.entries", n = entries.len(), count = entries.len().to_string()),
@@ -751,8 +750,7 @@ mod tests {
                 sources: vec![SourceOutcome {
                     source: "explicit-native-cleanup-source".into(),
                     state,
-                    reason: Some("Native source qualification.".into()),
-                    reason_message: None,
+                    reason: Some(culprit_core::LocalizedText::raw("Native source qualification.")),
                 }],
                 title: t!("view.cleanup.title"),
                 summary: t!("view.cleanup.summary.empty"),
@@ -764,7 +762,7 @@ mod tests {
             let cleanup = &response["cleanup"];
             assert_eq!(cleanup["sources"], serde_json::to_value(&data.cleanup.as_ref().unwrap().sources).unwrap());
             assert_eq!(cleanup["sources"][0]["state"], serde_json::to_value(state).unwrap());
-            assert_eq!(cleanup["sources"][0]["reason"], "Native source qualification.");
+            assert_eq!(cleanup["sources"][0]["reason"]["text"], "Native source qualification.");
             assert_eq!(cleanup["entries_retained"], 0);
             assert_eq!(cleanup["entries"], json!([]));
             assert_eq!(cleanup["boundaries"], json!([]));
@@ -823,15 +821,12 @@ mod tests {
         let mut data: Report =
             serde_json::from_str(include_str!("../../../fixtures/yugabyte-demo.report.json")).unwrap();
         data.snapshot.operations.node_resources = Some(culprit_core::NodeResources {
-            source_message: None,
-            note_messages: None,
-
-            source: "shared native nodes".into(),
+            source: culprit_core::LocalizedText::raw("shared native nodes"),
             observed_from: "2026-10-01T00:00:00Z".into(),
             observed_until: "2026-10-01T00:00:01Z".into(),
             nodes_expected: Some(10_001),
             partial: true,
-            notes: vec!["Not database pressure".into()],
+            notes: vec![culprit_core::LocalizedText::raw("Not database pressure")],
             nodes: (0..10_000)
                 .map(|i| culprit_core::NodeResource {
                     node: format!("{i:032x}"),
@@ -868,18 +863,14 @@ mod tests {
         let mut data: Report =
             serde_json::from_str(include_str!("../../../fixtures/yugabyte-demo.report.json")).unwrap();
         data.snapshot.operations.termination_history = Some(culprit_core::TerminationHistory {
-            source_message: None,
-            visibility_message: None,
-            note_messages: None,
-
-            source: "native termination buffer".into(),
+            source: culprit_core::LocalizedText::raw("native termination buffer"),
             requested_start: "2026-10-01T00:00:00Z".into(),
             requested_end: "2026-10-08T00:00:00Z".into(),
             scope: culprit_core::CounterScope::Node,
             nodes: vec!["sample-node".into()],
-            visibility: "native login visibility".into(),
+            visibility: culprit_core::LocalizedText::raw("native login visibility"),
             partial: true,
-            notes: vec!["No failure-rate denominator".into()],
+            notes: vec![culprit_core::LocalizedText::raw("No failure-rate denominator")],
             events: vec![
                 culprit_core::QueryTermination {
                     query_id: None,
@@ -916,10 +907,7 @@ mod tests {
             serde_json::from_str(include_str!("../../../fixtures/yugabyte-demo.report.json")).unwrap();
         data.snapshot.operations.activity_history = Some(culprit_core::ActivityHistory {
             period: culprit_core::ActivityPeriod {
-                source_message: None,
-                note_messages: None,
-
-                source: "native test samples".into(),
+                source: culprit_core::LocalizedText::raw("native test samples"),
                 requested_start: "2026-10-01T00:00:00Z".into(),
                 requested_end: "2026-10-08T00:00:00Z".into(),
                 first_sample: None,
@@ -929,7 +917,7 @@ mod tests {
                 observations: 20_000.0,
                 weighted_observations: 40_000.0,
                 partial: false,
-                notes: vec!["Task weights are not elapsed time".into()],
+                notes: vec![culprit_core::LocalizedText::raw("Task weights are not elapsed time")],
             },
             events: (0..20_000)
                 .map(|i| culprit_core::ActivityEvent {

@@ -71,7 +71,7 @@ pub fn explain(read: &StorageRead) -> Result<StorageReport> {
                 SourceOutcome {
                     source: source.source.clone(),
                     state: if missing { SourceState::Partial } else { source.state },
-                    reason: if missing {
+                    reason: (if missing {
                         Some(t!("view.storage.limit.read"))
                     } else if let Some(stop) = source.stopped {
                         Some(stop.error().message)
@@ -79,8 +79,8 @@ pub fn explain(read: &StorageRead) -> Result<StorageReport> {
                         Some(t!("view.storage.summary.unavailable"))
                     } else {
                         None
-                    },
-                    reason_message: None,
+                    })
+                    .map(culprit_core::LocalizedText::raw),
                 }
             })
             .collect(),

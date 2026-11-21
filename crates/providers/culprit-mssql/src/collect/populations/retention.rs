@@ -111,8 +111,7 @@ fn limited_snapshot(shared: &Snapshot, options: &SnapshotOptions) -> Snapshot {
             .map(|source| culprit_core::SourceOutcome {
                 source: source.source.clone(),
                 state: culprit_core::SourceState::Unavailable,
-                reason: Some(reason.render()),
-                reason_message: Some(reason.clone()),
+                reason: Some(culprit_core::LocalizedText::new(reason.clone())),
             })
             .collect(),
         format: shared.format,

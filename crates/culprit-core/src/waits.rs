@@ -163,8 +163,9 @@ pub struct WaitsReport {
 /// Metadata for independently retained activity samples. First/last observations do not prove continuous coverage.
 #[derive(Serialize, Deserialize, TS, Clone, Debug, PartialEq)]
 #[ts(export)]
+#[serde(deny_unknown_fields)]
 pub struct ActivityPeriod {
-    pub source: String,
+    pub source: crate::LocalizedText,
     pub requested_start: String,
     pub requested_end: String,
     pub first_sample: Option<String>,
@@ -174,13 +175,7 @@ pub struct ActivityPeriod {
     pub observations: f64,
     pub weighted_observations: f64,
     pub partial: bool,
-    pub notes: Vec<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub source_message: Option<crate::i18n::Message>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub note_messages: Option<Vec<crate::i18n::Message>>,
+    pub notes: Vec<crate::LocalizedText>,
 }
 
 /// Aggregated native task observations, kept apart from measured wait durations and statement lifetime totals.

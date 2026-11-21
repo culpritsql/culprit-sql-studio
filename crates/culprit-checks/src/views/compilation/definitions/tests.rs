@@ -116,8 +116,7 @@ fn explained(
     selected_rows: u32,
     read_complete: bool,
 ) -> Result<CompilationReport> {
-    let outcome =
-        SourceOutcome { source: row.source.clone(), state: SourceState::Collected, reason: None, reason_message: None };
+    let outcome = SourceOutcome { source: row.source.clone(), state: SourceState::Collected, reason: None };
     let read = CapturedReadRef::new(
         source,
         CaptureIdentity {

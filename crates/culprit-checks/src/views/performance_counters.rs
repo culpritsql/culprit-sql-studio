@@ -133,15 +133,15 @@ fn captured(
     let source = SourceOutcome {
         source: coverage.source.clone(),
         state: if missing { SourceState::Partial } else { coverage.state },
-        reason: if missing {
+        reason: (if missing {
             Some(t!("view.performance_counters.limit.read"))
         } else {
             coverage
                 .stopped
                 .map(|stop| stop.error().message)
                 .or_else(|| coverage.error_code.map(|_| t!("view.performance_counters.summary.unavailable")))
-        },
-        reason_message: None,
+        })
+        .map(culprit_core::LocalizedText::raw),
     };
     let mut report = render(context.target.engine(), &samples, Some(&source), Some(read_complete), population)?;
     report.context = Some(ObservationReadContext::Native { context: Box::new(context.clone()) });
@@ -263,7 +263,7 @@ fn render(
         context: None,
         native_source: None,
         source_state: source.map(|source| source.state),
-        source_reason: source.and_then(|source| source.reason.clone()),
+        source_reason: source.and_then(|source| source.reason_text().map(str::to_owned)),
         read_complete,
         native_observations: None,
         observed_observations: samples.len() as u32,

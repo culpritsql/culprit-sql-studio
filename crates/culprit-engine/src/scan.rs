@@ -119,9 +119,8 @@ impl<'a> Scan<'a> {
             }
             Err(e) => {
                 auxiliary_notes.push(CollectorNote {
-                    message_source: None,
                     collector: "deadlocks".into(),
-                    message: e.message,
+                    message: culprit_core::LocalizedText::raw(e.message),
                     table: None,
                 });
                 None
@@ -136,9 +135,8 @@ impl<'a> Scan<'a> {
             }
             Err(e) => {
                 auxiliary_notes.push(CollectorNote {
-                    message_source: None,
                     collector: "changes".into(),
-                    message: e.message,
+                    message: culprit_core::LocalizedText::raw(e.message),
                     table: None,
                 });
                 Vec::new()
@@ -276,8 +274,7 @@ fn record_unreported_optional_sources(snapshot: &mut Snapshot, options: &Snapsho
         snapshot.sources.push(SourceOutcome {
             source: source.into(),
             state: SourceState::Unavailable,
-            reason: Some(reason.render()),
-            reason_message: Some(reason),
+            reason: Some(culprit_core::LocalizedText::new(reason)),
         });
     }
 }
@@ -378,9 +375,9 @@ mod tests {
         ] {
             let outcome = snapshot.sources.iter().find(|outcome| outcome.source == source).unwrap();
             assert_eq!(outcome.state, culprit_core::SourceState::Unavailable);
-            assert!(outcome.reason_message.as_ref().unwrap().is_translatable());
+            assert!(outcome.reason.as_ref().and_then(culprit_core::LocalizedText::source).unwrap().is_translatable());
             assert!(
-                snapshot.notes.iter().any(|note| note.collector == source && note.message_source.is_some()),
+                snapshot.notes.iter().any(|note| note.collector == source && note.message.source().is_some()),
                 "human CLI output must also disclose the unqualified source"
             );
         }
@@ -405,8 +402,7 @@ mod tests {
                 snapshot.sources.push(SourceOutcome {
                     source: source.into(),
                     state,
-                    reason: Some("provider job assessment".into()),
-                    reason_message: None,
+                    reason: Some(culprit_core::LocalizedText::raw("provider job assessment")),
                 });
             }
             let original = snapshot.sources.clone();
@@ -415,8 +411,7 @@ mod tests {
             let explicit = SourceOutcome {
                 source: culprit_core::source_id::NATIVE_FAILURES.into(),
                 state: SourceState::Unavailable,
-                reason: Some("explicit retained-log source failure".into()),
-                reason_message: None,
+                reason: Some(culprit_core::LocalizedText::raw("explicit retained-log source failure")),
             };
             snapshot.sources.push(explicit.clone());
             record_unreported_optional_sources(&mut snapshot, &options);
@@ -440,8 +435,7 @@ mod tests {
             snapshot.sources.push(SourceOutcome {
                 source: culprit_core::source_id::NATIVE_FAILURES.into(),
                 state,
-                reason: Some("provider-owned qualification".into()),
-                reason_message: None,
+                reason: Some(culprit_core::LocalizedText::raw("provider-owned qualification")),
             });
             let original = snapshot.sources.clone();
             record_unreported_optional_sources(&mut snapshot, &options);
@@ -464,19 +458,14 @@ mod tests {
     fn an_unrelated_source_spelling_cannot_qualify_a_missing_native_observation() {
         use culprit_core::{SourceOutcome, SourceState, source_id};
         let mut snapshot = recorded();
-        let unrelated = SourceOutcome {
-            source: "SESSION_MEMORY".into(),
-            state: SourceState::Collected,
-            reason: None,
-            reason_message: None,
-        };
+        let unrelated = SourceOutcome { source: "SESSION_MEMORY".into(), state: SourceState::Collected, reason: None };
         snapshot.sources.push(unrelated.clone());
         let options = SnapshotOptions { collect_session_memory: true, ..Default::default() };
         record_unreported_optional_sources(&mut snapshot, &options);
         assert!(snapshot.sources.contains(&unrelated));
         let native = snapshot.sources.iter().find(|outcome| outcome.source == source_id::SESSION_MEMORY).unwrap();
         assert_eq!(native.state, SourceState::Unavailable);
-        assert!(native.reason_message.is_some());
+        assert!(native.reason.as_ref().and_then(culprit_core::LocalizedText::source).is_some());
     }
 
     #[test]

@@ -55,7 +55,6 @@ fn snapshot(rows: Vec<ExecutionGrantObservation>) -> Snapshot {
         source: "current request memory".into(),
         state: SourceState::Collected,
         reason: None,
-        reason_message: None,
     });
     snapshot
 }

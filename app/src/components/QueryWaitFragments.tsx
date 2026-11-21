@@ -6,7 +6,7 @@ import { ObservationList } from "./ObservationList";
 
 export function QueryWaitFragments({ report }: { report: QueryWaitFragmentReport }) {
   return <ObservationList collapseEntries source={report.source} scope={t("view.query_wait_fragments.limit.scope")}
-    report={{ ...report, sources: [{ source: report.source, state: report.source_state, reason: report.source_reason }] }}
+    report={{ ...report, sources: [{ source: report.source, state: report.source_state, reason: report.source_reason == null ? null : { text: report.source_reason } }] }}
     time={queryHistoryReadTimes(report)}
     renderEntry={(entry) => <article className="operational-card" style={{ overflowWrap: "anywhere" }} key={JSON.stringify(entry.reference)}>
       <h4>{contextPreview(entry.category_description ?? entry.category, 256).text}</h4>

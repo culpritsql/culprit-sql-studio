@@ -66,7 +66,7 @@ fn explain_read(
 }
 
 fn coverage(state: SourceState) -> SourceOutcome {
-    SourceOutcome { source: "current request memory".into(), state, reason: None, reason_message: None }
+    SourceOutcome { source: "current request memory".into(), state, reason: None }
 }
 
 #[test]

@@ -89,8 +89,7 @@ fn an_exact_affected_request_is_retained_with_partial_source_coverage_and_never_
     let source = SourceOutcome {
         source: raw.source.clone(),
         state: SourceState::Partial,
-        reason: Some("synthetic partial native read".into()),
-        reason_message: None,
+        reason: Some(culprit_core::LocalizedText::raw("synthetic partial native read")),
     };
     let report = explain(&raw, Some(&source)).unwrap();
     assert_eq!(report.source_state, Some(SourceState::Partial));
@@ -108,7 +107,7 @@ fn an_exact_affected_request_is_retained_with_partial_source_coverage_and_never_
 fn invalid_schema_or_source_outcomes_withhold_the_explanation_but_not_the_original_facts() {
     let original = snapshot();
     for state in [SourceState::Empty, SourceState::Unavailable, SourceState::NotApplicable] {
-        let source = SourceOutcome { source: original.source.clone(), state, reason: None, reason_message: None };
+        let source = SourceOutcome { source: original.source.clone(), state, reason: None };
         assert!(explain(&original, Some(&source)).is_err());
     }
     let mut invalid = original.clone();

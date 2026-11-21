@@ -203,7 +203,11 @@ fn a_replicas_usage_counters_say_why_they_are_set_aside() {
         s.settings.push(setting(culprit_core::REPLICA_SETTING, role));
         history::set_aside_replica_usage(&mut s);
         let missing = s.server.missing.iter().find(|m| m.capability == Capability::IndexUsage).unwrap();
-        out.push(format!("reason: {}\nfix: {}", missing.reason, missing.fix.as_deref().unwrap_or("-")));
+        out.push(format!(
+            "reason: {}\nfix: {}",
+            missing.reason,
+            missing.fix.as_ref().map(culprit_core::LocalizedText::text).unwrap_or("-")
+        ));
     }
     pin("history-replica", &out.join("\n"));
 }

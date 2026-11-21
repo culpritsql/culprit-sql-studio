@@ -407,7 +407,7 @@ function Metric({ value, label }: { value?: string; label: string }) {
 /** The plans the engine kept for this query, best first by average time, and when each was used. */
 function PlanHistory({ query, planId, onOpen }: { query: QueryStat; planId: string | null; onOpen: (id: string) => void }) {
   if (query.plans.length === 0) {
-    return <div className="empty" style={{ padding: 30 }}>{query.plan_history ? t("ui.queries.history.none_retained", { note: query.plan_history.note }) : t("ui.queries.history.none")}</div>;
+    return <div className="empty" style={{ padding: 30 }}>{query.plan_history ? t("ui.queries.history.none_retained", { note: query.plan_history.note.text }) : t("ui.queries.history.none")}</div>;
   }
   const best = Math.min(...query.plans.map((v) => v.mean_time_ms));
   return (
@@ -415,7 +415,7 @@ function PlanHistory({ query, planId, onOpen }: { query: QueryStat; planId: stri
       <h3>
         {t("ui.queries.history.heading")} <span className="muted">{query.plans.length}</span>
       </h3>
-      {query.plan_history && <p className="muted">{query.plan_history.source}. {query.plan_history.note}</p>}
+      {query.plan_history && <p className="muted">{query.plan_history.source.text}. {query.plan_history.note.text}</p>}
       <table className="grid history-table">
         <thead>
           <tr>
@@ -555,7 +555,7 @@ function QueryPlans(props: { report: Report; query: QueryStat; focus: number | n
           <LookToggle look={look} onChange={chooseLook} />
         </span>
       </h3>
-      {cachedHistory && <p className="muted">{query.plan_history!.source}. {query.plan_history!.note}</p>}
+      {cachedHistory && <p className="muted">{query.plan_history!.source.text}. {query.plan_history!.note.text}</p>}
       {(variants.length > 1 || (cachedHistory && variants.length > 0)) && (
         <div className="plan-variants">
           {cachedHistory && <button type="button" className={`variant ${planId === null ? "on" : ""}`} onClick={() => setPlanId(null)}>

@@ -16,9 +16,9 @@ export function NodeResourcesView({ resources: r }: { resources: NodeResources }
   const visible = nodes.slice(currentPage * PAGE_SIZE, (currentPage + 1) * PAGE_SIZE);
   return <section className="operational-card" aria-label={t("ui.node_resources.label")}>
     <h4>{t("ui.node_resources.title", { n: nodes.length })}</h4>
-    <p className="muted">{r.nodes_expected === null ? t("ui.node_resources.inventory_unknown", { source: r.source }) : t("ui.node_resources.expected", { source: r.source, n: r.nodes_expected })} {r.partial && t("ui.common.read_partial")}</p>
+    <p className="muted">{r.nodes_expected === null ? t("ui.node_resources.inventory_unknown", { source: r.source.text }) : t("ui.node_resources.expected", { source: r.source.text, n: r.nodes_expected })} {r.partial && t("ui.common.read_partial")}</p>
     <p className="muted" title={`${r.observed_from} — ${r.observed_until}`}>{t("ui.node_resources.read_period", { from: when(r.observed_from).short, to: when(r.observed_until).short })}</p>
-    {r.notes.map((note, i) => <p className="muted" key={i}>{note}</p>)}
+    {r.notes.map((note, i) => <p className="muted" key={i}>{note.text}</p>)}
     {!nodes.length ? <p>{t("ui.node_resources.none")}</p> : <div style={{ overflowX: "auto" }}><table className="grid"><thead><tr>
       <th>{t("ui.common.node")}</th><th>{t("ui.node_resources.host_cpu")}</th><th>{t("ui.node_resources.host_memory")}</th><th>{t("ui.node_resources.process_memory")}</th><th>{t("ui.node_resources.soft_limit")}</th><th>{t("ui.node_resources.hard_limit")}</th>
     </tr></thead><tbody>{visible.map((n) => <tr key={n.node}>
@@ -26,7 +26,7 @@ export function NodeResourcesView({ resources: r }: { resources: NodeResources }
       {!n.available ? <td colSpan={5}>{t("ui.node_resources.unavailable")}</td> : <>
         <td>{cpu(n.cpu_user_fraction)} / {cpu(n.cpu_system_fraction)}</td>
         <td>{memory(n.host_memory_available_bytes)} / {memory(n.host_memory_total_bytes)}</td>
-        <td title={n.process_memory?.name}>{memory(n.process_memory?.tracked_bytes ?? null)}</td>
+        <td title={n.process_memory?.name.text}>{memory(n.process_memory?.tracked_bytes ?? null)}</td>
         <td>{limit(n.process_memory?.soft_limit ?? null)}</td><td>{limit(n.process_memory?.hard_limit ?? null)}</td>
       </>}
     </tr>)}</tbody></table></div>}

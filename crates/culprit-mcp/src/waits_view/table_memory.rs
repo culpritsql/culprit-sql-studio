@@ -8,7 +8,7 @@ pub(crate) fn value(report: &TableMemoryReport) -> Value {
     } else {
         vec![]
     };
-    json!({"title":report.title,"summary":report.summary,"source_state":report.source.state,"source_reason":report.source.reason,
+    json!({"title":report.title,"summary":report.summary,"source_state":report.source.state,"source_reason":report.source.reason_text(),
         "limitations":report.limitations,"read_complete":report.read_complete,"native_rows":report.native_rows,"observed_rows":report.observed_rows,
         "entries_available":entries.len(),"entries_presented":entries.len(),"entries_omitted":0,"entries_limited":false,"entries":entries,
         "selected_target":original.map(|original|json!({"database_id":original.target.database_id,"object_id":original.target.object_id,"schema":original.metadata.schema,"table":original.metadata.name})),

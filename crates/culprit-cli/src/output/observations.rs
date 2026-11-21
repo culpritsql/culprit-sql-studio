@@ -720,7 +720,7 @@ fn append_native_sources(text: &mut String, sources: &[SourceOutcome]) {
         text.push_str(&culprit_core::i18n::t(message, &[("source", source.source.as_str().into())]));
         if let Some(reason) = &source.reason {
             text.push('\n');
-            text.push_str(reason);
+            text.push_str(reason.text());
         }
     }
 }
@@ -818,8 +818,7 @@ mod tests {
             sources: vec![SourceOutcome {
                 source: "replication-channels".into(),
                 state: SourceState::Partial,
-                reason: Some("Native visibility is incomplete.".into()),
-                reason_message: None,
+                reason: Some(culprit_core::LocalizedText::raw("Native visibility is incomplete.")),
             }],
             read_complete: false,
             native_rows: 7,
@@ -981,8 +980,7 @@ mod tests {
             sources: vec![SourceOutcome {
                 source: "cleanup-source".into(),
                 state: SourceState::Partial,
-                reason: Some("Original native visibility was incomplete.".into()),
-                reason_message: None,
+                reason: Some(culprit_core::LocalizedText::raw("Original native visibility was incomplete.")),
             }],
             boundaries: vec![],
             limitations: vec!["This observation has no qualified rate window.".into()],
@@ -1028,8 +1026,7 @@ mod tests {
             sources: vec![SourceOutcome {
                 source: "native-definitions".into(),
                 state: SourceState::Partial,
-                reason: Some("Original native visibility was incomplete.".into()),
-                reason_message: None,
+                reason: Some(culprit_core::LocalizedText::raw("Original native visibility was incomplete.")),
             }],
             limitations: vec!["Retained evidence has its own lifetime.".into()],
             entries: (0..8)
@@ -1058,17 +1055,11 @@ mod tests {
     fn distribution_output_keeps_independent_source_coverage_and_bounds_details() {
         let mut report = RuntimeDistributionReport {
             sources: vec![
-                SourceOutcome {
-                    source: "native-summary".into(),
-                    state: SourceState::Collected,
-                    reason: None,
-                    reason_message: None,
-                },
+                SourceOutcome { source: "native-summary".into(), state: SourceState::Collected, reason: None },
                 SourceOutcome {
                     source: "native-histogram".into(),
                     state: SourceState::Unavailable,
-                    reason: Some("Histogram visibility was not established.".into()),
-                    reason_message: None,
+                    reason: Some(culprit_core::LocalizedText::raw("Histogram visibility was not established.")),
                 },
             ],
             title: "Recorded distributions".into(),
@@ -1097,7 +1088,7 @@ mod tests {
             "evidence.cli.native_source.unavailable",
             &[("source", "native-histogram".into())]
         )));
-        assert!(text.contains(report.sources[1].reason.as_deref().unwrap()));
+        assert!(text.contains(report.sources[1].reason_text().unwrap()));
         assert!(text.contains(&report.limitations[0]));
         assert_eq!(text.matches('•').count(), super::super::BRIEF_FINDING_LIMIT);
         assert!(!text.contains("private-"));

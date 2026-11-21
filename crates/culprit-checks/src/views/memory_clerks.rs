@@ -79,8 +79,12 @@ pub fn explain(evidence: MemoryClerkEvidence<'_>) -> Result<MemoryClerkReport> {
             let source = SourceOutcome {
                 source: coverage.source.clone(),
                 state: if missing { SourceState::Partial } else { coverage.state },
-                reason: if missing { Some(t!("collected.memory_clerks.limit.read")) } else { source_reason(coverage) },
-                reason_message: None,
+                reason: (if missing {
+                    Some(t!("collected.memory_clerks.limit.read"))
+                } else {
+                    source_reason(coverage)
+                })
+                .map(culprit_core::LocalizedText::raw),
             };
             let mut report = render(&samples, Some(&source), Some(read_complete))?;
             report.context = Some(ObservationReadContext::Native { context: Box::new(context.clone()) });
@@ -148,7 +152,7 @@ fn render(
         context: None,
         native_source: None,
         source_state: source.map(|source| source.state),
-        source_reason: source.and_then(|source| source.reason.clone()),
+        source_reason: source.and_then(|source| source.reason_text().map(str::to_owned)),
         read_complete,
         native_rows: None,
         observed_rows: samples.len() as u32,

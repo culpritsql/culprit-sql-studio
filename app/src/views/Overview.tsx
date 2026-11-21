@@ -366,7 +366,7 @@ function Locked({ report }: { report: Report }) {
           checks: report.locked.map((l) => l.check.title).join(", "),
           missing: [...new Set(report.locked.flatMap((l) => l.missing))].join(", "),
         })}{" "}
-        {report.snapshot.server.missing[0]?.fix && <span className="muted">{report.snapshot.server.missing[0].reason}</span>}
+        {report.snapshot.server.missing[0]?.fix && <span className="muted">{report.snapshot.server.missing[0].reason.text}</span>}
       </div>
     </div>
   );

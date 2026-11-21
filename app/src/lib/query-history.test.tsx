@@ -17,8 +17,8 @@ function overview(): Report {
       connection: "shop", workload: null, options: { window_minutes: 60 },
       runtime_populations: structuredClone(POPULATIONS), sources: [],
       server: { engine: "postgres", missing: [{
-        capability: "pg-stat-statements", reason: "Native permission failure.",
-        action: { sql: "CREATE EXTENSION pg_stat_statements;", detail: "Explicit source instruction." },
+        capability: "pg-stat-statements", reason: { text: "Native permission failure." },
+        action: { sql: "CREATE EXTENSION pg_stat_statements;", detail: { text: "Explicit source instruction." } },
       }] },
     },
     summary: { no_workload: "This scan has no query history.", no_workload_capability: "pg-stat-statements" },
@@ -52,8 +52,8 @@ test("available execution groups ask for a selection across history and unlock s
 test("a selection prompt keeps the exact source failure visible and escaped", () => inEnglish(() => {
   const report = overview();
   report.snapshot.sources = [
-    { source: "unrelated-source", state: "unavailable", reason: "Unrelated failure must stay separate." },
-    { source: POPULATIONS.source, state: "partial", reason: "Native read failed <img onerror=alert(1)>" },
+    { source: "unrelated-source", state: "unavailable", reason: { text: "Unrelated failure must stay separate." } },
+    { source: POPULATIONS.source, state: "partial", reason: { text: "Native read failed <img onerror=alert(1)>" } },
   ];
   const html = renderToStaticMarkup(<QueryHistoryEmpty report={report} />);
   expect(html).toContain(t("ui.population_picker.required"));

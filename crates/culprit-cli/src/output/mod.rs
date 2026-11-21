@@ -390,7 +390,7 @@ impl Out {
         for m in &server.missing {
             println!("  {} {} — {}", self.paint(RED, "✗"), m.capability.label_for(server.engine), m.reason);
             if let Some(fix) = &m.fix {
-                println!("    {}", self.paint(DIM, &fix.replace('\n', "\n    ")));
+                println!("    {}", self.paint(DIM, &fix.text().replace('\n', "\n    ")));
             }
         }
         if !locked.is_empty() {

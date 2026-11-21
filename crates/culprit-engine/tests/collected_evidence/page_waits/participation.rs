@@ -203,12 +203,8 @@ async fn authentic_original_parent_exposes_every_mars_context_and_exact_receipt_
         .collect::<Vec<_>>();
     let frame = ActivityFrameEvidence::new(investigation.parent.source(), &borrowed, true).unwrap();
     let SourceObservation::FocusedPageWait { result, snapshot } = &page.source().observation else { unreachable!() };
-    let source = SourceOutcome {
-        source: snapshot.sources[0].source.clone(),
-        state: SourceState::Partial,
-        reason: None,
-        reason_message: None,
-    };
+    let source =
+        SourceOutcome { source: snapshot.sources[0].source.clone(), state: SourceState::Partial, reason: None };
     let pure = culprit_checks::page_waits::explain(
         &observations(&investigation.page_rows),
         Some(&source),

@@ -57,8 +57,7 @@ fn phase_metrics_preserve_exact_last_native_values_and_do_not_change_advice() {
 #[test]
 fn partial_population_and_unknown_stages_remain_explicit_without_invalid_zero_repair() {
     let mut point = observation("1");
-    let source =
-        SourceOutcome { source: point.source.clone(), state: SourceState::Partial, reason: None, reason_message: None };
+    let source = SourceOutcome { source: point.source.clone(), state: SourceState::Partial, reason: None };
     let partial = explain(&[&point], Some(&source)).unwrap();
     assert_eq!(partial.source_state, Some(SourceState::Partial));
     assert_eq!(

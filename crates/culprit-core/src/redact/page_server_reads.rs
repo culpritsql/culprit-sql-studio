@@ -106,7 +106,7 @@ mod tests {
             );
             let outcome = shared.sources.iter().find(|source| source.source == crate::source_id::QUERY_STORE).unwrap();
             assert_eq!(outcome.state, crate::SourceState::Unavailable);
-            assert_eq!(outcome.reason.as_deref(), Some(crate::t!("view.page_server_reads.invalid").as_str()));
+            assert_eq!(outcome.reason_text(), Some(crate::t!("view.page_server_reads.invalid").as_str()));
             assert_eq!(serde_json::to_value(redact_snapshot(&shared)).unwrap(), serde_json::to_value(&shared).unwrap());
         }
     }

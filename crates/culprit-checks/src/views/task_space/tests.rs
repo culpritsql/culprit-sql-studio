@@ -21,7 +21,7 @@ fn observation() -> TaskSpaceObservation {
     }
 }
 fn source(state: SourceState) -> SourceOutcome {
-    SourceOutcome { source: "native-task-space".into(), state, reason: None, reason_message: None }
+    SourceOutcome { source: "native-task-space".into(), state, reason: None }
 }
 
 #[test]

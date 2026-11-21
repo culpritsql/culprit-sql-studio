@@ -100,7 +100,6 @@ fn sharing_withdraws_native_governor_identity_labels_and_statistics_clock_withou
         source: crate::source_id::PERFORMANCE_COUNTERS.into(),
         state: crate::SourceState::Collected,
         reason: None,
-        reason_message: None,
     }];
     snapshot.pressure.get_or_insert_with(Default::default).resource_counters = Some(vec![sample]);
     let shared = crate::redact::redact_snapshot(&snapshot);

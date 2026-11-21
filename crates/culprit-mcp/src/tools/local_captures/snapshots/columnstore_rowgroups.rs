@@ -19,7 +19,7 @@ pub(super) fn value(analysis: &LocalSnapshotAnalysis, report: &ColumnstoreRowgro
         &report.title,
         &report.summary,
         Some(report.source.state),
-        &report.source.reason,
+        &report.source.reason_text().map(str::to_owned),
         &report.limitations,
         report.entries.len(),
         entries,

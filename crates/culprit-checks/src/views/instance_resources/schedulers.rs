@@ -74,7 +74,7 @@ pub(super) fn explain_snapshot(snapshot: &Snapshot) -> Result<Option<SchedulerRe
         return Err(invalid());
     }
     let mut report = render(&samples, source.map_or(SourceState::Unavailable, |source| source.state))?;
-    report.source_reason = source.and_then(|source| source.reason.clone());
+    report.source_reason = source.and_then(|source| source.reason_text().map(str::to_owned));
     report.limitations.push(t!("view.schedulers.limit.original"));
     if samples.is_empty() && matches!(report.source_state, SourceState::Collected | SourceState::Partial) {
         report.source_state = SourceState::Partial;

@@ -151,7 +151,7 @@ fn lock_time_mariadb_makes_of_a_logged_run_is_not_waiting() {
             .snapshot
             .notes
             .iter()
-            .any(|n| n.message.contains("the lock time of 2 statements is left out as unknown")),
+            .any(|n| n.message.text().contains("the lock time of 2 statements is left out as unknown")),
         "{:?}",
         report.snapshot.notes
     );

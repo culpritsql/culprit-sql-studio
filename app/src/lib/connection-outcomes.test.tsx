@@ -80,7 +80,7 @@ test("Health keeps an admitted derived explanation when all other pressure and r
 test("a withheld shared capsule keeps its source gap visible after the private body has been removed", () => {
   const report = connectionOutcomeHealthReport(null);
   report.snapshot.pressure = null;
-  report.snapshot.sources = [{ source: "sessions", state: "unavailable", reason: t("view.connection_outcomes.invalid") }];
+  report.snapshot.sources = [{ source: "sessions", state: "unavailable", reason: { text: t("view.connection_outcomes.invalid") } }];
   const html = renderToStaticMarkup(<HealthTab report={report} pressure={null} resources={[]} engineLabel="PostgreSQL" />);
   expect(html).toContain(t("view.connection_outcomes.title"));
   expect(html).toContain(t("view.connection_outcomes.invalid"));
@@ -103,7 +103,7 @@ test("source labels and derived database text stay escaped without links or exec
   entry.metrics[0]!.explanation = text;
   entry.metrics[0]!.display_value = text;
   view.sources[0]!.source = text;
-  view.sources[0]!.reason = text;
+  view.sources[0]!.reason = { text };
   const html = show(view);
   expect(html).toContain("&lt;img");
   expect(html).toContain("&lt;script&gt;outcome_canary()&lt;/script&gt;");

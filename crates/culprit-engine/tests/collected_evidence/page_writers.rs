@@ -74,12 +74,7 @@ async fn authenticated_writer_rosters_replay_the_same_native_access_relationship
         let (focus, native) = native(&source, &records);
         let context = NativeReadContext::from_snapshot(&source).unwrap();
         let coverage = &source.observation.snapshot().unwrap().sources[0];
-        let outcome = SourceOutcome {
-            source: coverage.source.clone(),
-            state: coverage.state,
-            reason: None,
-            reason_message: None,
-        };
+        let outcome = SourceOutcome { source: coverage.source.clone(), state: coverage.state, reason: None };
         let expected =
             culprit_checks::page_waits::explain_writers(focus, &context, Some(native), Some(&outcome)).unwrap();
         let fixture = Fixture::new(source.clone(), records.clone()).await;

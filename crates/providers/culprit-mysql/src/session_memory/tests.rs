@@ -164,10 +164,8 @@ async fn disabled_native_tracking_is_reported_even_when_no_foreground_session_wa
     let (snapshot, coverage) = collect_from(&mut reader, true, native_memory::Availability::Available).await;
     assert!(snapshot.unwrap().observations.is_empty());
     assert_eq!(coverage.outcomes()[0].state, SourceState::Partial);
-    assert_eq!(
-        coverage.outcomes()[0].reason,
-        Some(culprit_core::t!("provider.mysql.session_memory.tracking_disabled"))
-    );
+    let reason = culprit_core::t!("provider.mysql.session_memory.tracking_disabled");
+    assert_eq!(coverage.outcomes()[0].reason_text(), Some(reason.as_str()));
     assert_eq!(reader.queries.len(), 9);
 }
 
@@ -184,7 +182,7 @@ async fn missing_statement_permission_preserves_session_facts_as_partial_without
     assert_eq!(reader.queries.len(), 10, "a drained permission error allows native identity verification");
     assert_eq!(reader.closed, 1);
     let (_, _, notes) = coverage.finish();
-    assert!(notes.iter().any(|note| note.message.contains("native event source denied")));
+    assert!(notes.iter().any(|note| note.message.text().contains("native event source denied")));
 }
 
 #[tokio::test]

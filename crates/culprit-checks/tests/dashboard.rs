@@ -328,12 +328,12 @@ fn mariadb_is_called_mariadb() {
     r.snapshot.workload = None;
     r.snapshot.waits.clear();
     r.snapshot.server.missing.push(culprit_core::MissingCapability {
-        reason_message: None,
-        fix_message: None,
         action: None,
         capability: culprit_core::Capability::PerformanceSchema,
-        reason: "performance_schema is OFF on this server.".into(),
-        fix: Some("Set performance_schema=ON in the server configuration and restart.".into()),
+        reason: culprit_core::LocalizedText::raw("performance_schema is OFF on this server."),
+        fix: Some(culprit_core::LocalizedText::raw(
+            "Set performance_schema=ON in the server configuration and restart.",
+        )),
     });
     let d = dashboard(&r);
     let waits = tile(&d, TileKey::Waits);
@@ -658,6 +658,6 @@ fn saved_postgres_io_that_exceeds_execution_time_is_not_an_exclusive_share() {
         !r.snapshot
             .notes
             .iter()
-            .any(|n| n.collector == "waits" && n.message.contains("exceeds statement execution time"))
+            .any(|n| n.collector == "waits" && n.message.text().contains("exceeds statement execution time"))
     );
 }

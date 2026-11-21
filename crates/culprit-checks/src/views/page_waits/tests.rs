@@ -77,7 +77,7 @@ pub(crate) fn observation(session: &str, kind: WaitResourceKind) -> PageWaitObse
     row
 }
 fn source(state: SourceState) -> SourceOutcome {
-    SourceOutcome { source: "native page observations".into(), state, reason: None, reason_message: None }
+    SourceOutcome { source: "native page observations".into(), state, reason: None }
 }
 
 #[test]
@@ -300,7 +300,7 @@ fn empty_partial_unavailable_and_unknown_sources_never_establish_absence_of_para
         assert!(report.entries.is_empty());
         assert_eq!(report.summary, t!("view.page_waits.summary.empty"));
         assert_eq!(report.source_state, Some(state));
-        assert_eq!(report.source_reason, native.reason);
+        assert_eq!(report.source_reason.as_deref(), native.reason_text());
     }
     let report = explain(&[], None, None).unwrap();
     assert!(report.limitations.contains(&t!("view.page_waits.limit.source_unknown")));

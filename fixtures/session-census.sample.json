@@ -8582,7 +8582,9 @@
       "scope": "database",
       "sources": [
         {
-          "reason": "The telemetry source stopped before the read completed.",
+          "reason": {
+            "text": "The telemetry source stopped before the read completed."
+          },
           "source": "mysql-current-activity",
           "state": "partial"
         }
@@ -9017,7 +9019,9 @@
       "scope": "database",
       "sources": [
         {
-          "reason": "The telemetry source stopped before the read completed.",
+          "reason": {
+            "text": "The telemetry source stopped before the read completed."
+          },
           "source": "sessions",
           "state": "partial"
         }

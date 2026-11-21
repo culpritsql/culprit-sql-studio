@@ -100,7 +100,7 @@ export default function WaitsPanel({
             <h2>{title}</h2>
             <div className="waits-sub">
               {connection} · {engine}
-              {tab === "waits" && loaded.status === "ready" && loaded.report ? ` · ${activity?.period.source ?? loaded.report.source}` : ""}
+              {tab === "waits" && loaded.status === "ready" && loaded.report ? ` · ${activity?.period.source.text ?? loaded.report.source}` : ""}
             </div>
           </div>
           <button type="button" className="icon-btn" onClick={onClose} title={t("ui.common.close_esc")} aria-label={t("ui.common.close")}>
@@ -127,7 +127,7 @@ export default function WaitsPanel({
             ) : activity ? (
               <ActivityHistoryView activity={activity} selected={selected} onSelect={setSelected} onClose={onClose} />
             ) : !loaded.report || !current ? (
-              <NoHistory report={report} engine={report.snapshot.server.engine} product={report.snapshot.server.product} reason={report.snapshot.sources?.find((s) => s.source === "docdb-activity-history")?.reason} onSample={sampling ? () => setTab("now") : undefined} />
+              <NoHistory report={report} engine={report.snapshot.server.engine} product={report.snapshot.server.product} reason={report.snapshot.sources?.find((s) => s.source === "docdb-activity-history")?.reason?.text} onSample={sampling ? () => setTab("now") : undefined} />
             ) : (
               <WaitsView report={loaded.report} current={current} onSelect={setSelected} onClose={onClose} onSample={() => setTab("now")} />
             ))}

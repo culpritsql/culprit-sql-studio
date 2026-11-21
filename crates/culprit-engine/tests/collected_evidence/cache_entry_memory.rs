@@ -23,12 +23,8 @@ fn observations(records: &[TelemetryRecord]) -> Vec<&OperationalObservation> {
 async fn authenticated_cache_objects_reuse_the_pure_view_and_preserve_exact_focus_and_original_coverage() {
     for (_, source, records) in test_support::cache_entry_memory_evidence_cases() {
         let native = source.observation.snapshot().unwrap();
-        let outcome = SourceOutcome {
-            source: native.sources[0].source.clone(),
-            state: native.sources[0].state,
-            reason: None,
-            reason_message: None,
-        };
+        let outcome =
+            SourceOutcome { source: native.sources[0].source.clone(), state: native.sources[0].state, reason: None };
         let context = NativeReadContext::from_snapshot(&source).unwrap();
         let expected =
             culprit_checks::cache_entry_memory::explain(&context, &observations(&records), Some(&outcome)).unwrap();

@@ -22,7 +22,7 @@ export function configuredLogRateReport(): ConfiguredLogRateReport {
 
 export function configuredLogRateHealthReport(view: ConfiguredLogRateReport | null = configuredLogRateReport()): Report {
   return healthReportFixture({
-    snapshot: { id: "configured-limit-presentation", server: { engine: "mssql" }, sources: view ? [] : [{ source: "configured-log-rates", state: "unavailable", reason: t("view.configured_log_rates.unavailable") }], resources: [], pressure: null,
+    snapshot: { id: "configured-limit-presentation", server: { engine: "mssql" }, sources: view ? [] : [{ source: "configured-log-rates", state: "unavailable", reason: { text: t("view.configured_log_rates.unavailable") } }], resources: [], pressure: null,
       operations: { spaces: [], counters: [], sequences: [], multixacts: [], sqlite: null, cluster: null } },
     configured_log_rates: view ?? undefined,
   });

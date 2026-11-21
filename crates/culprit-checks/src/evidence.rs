@@ -109,17 +109,23 @@ fn storage_evidence(snapshot: &Snapshot, files: &[culprit_core::FileIo]) -> Chec
     match outcome.state {
         SourceState::Unavailable => {
             return CheckEvidence::Unavailable(
-                outcome.reason.clone().unwrap_or_else(|| t!("evidence.storage_assessment_incomplete")),
+                outcome
+                    .reason_text()
+                    .map(str::to_owned)
+                    .unwrap_or_else(|| t!("evidence.storage_assessment_incomplete")),
             );
         }
         SourceState::Partial => {
             return CheckEvidence::Insufficient(
-                outcome.reason.clone().unwrap_or_else(|| t!("evidence.storage_assessment_incomplete")),
+                outcome
+                    .reason_text()
+                    .map(str::to_owned)
+                    .unwrap_or_else(|| t!("evidence.storage_assessment_incomplete")),
             );
         }
         SourceState::NotApplicable => {
             return CheckEvidence::NotApplicable(
-                outcome.reason.clone().unwrap_or_else(|| t!("evidence.source_not_applicable")),
+                outcome.reason_text().map(str::to_owned).unwrap_or_else(|| t!("evidence.source_not_applicable")),
             );
         }
         SourceState::Collected | SourceState::Empty => {}
@@ -255,7 +261,7 @@ impl Requirement<'_> {
                 {
                     return NotApplicable(
                         s.source_outcome(sources[0])
-                            .and_then(|o| o.reason.clone())
+                            .and_then(|o| o.reason_text().map(str::to_owned))
                             .unwrap_or_else(|| t!("evidence.source_not_applicable")),
                     );
                 }
@@ -265,13 +271,19 @@ impl Requirement<'_> {
                 Some(o) => match o.state {
                     SourceState::Collected | SourceState::Empty => Available,
                     SourceState::Partial => Insufficient(
-                        o.reason.clone().unwrap_or_else(|| t!("evidence.named_source_partial", name = *name)),
+                        o.reason_text()
+                            .map(str::to_owned)
+                            .unwrap_or_else(|| t!("evidence.named_source_partial", name = *name)),
                     ),
                     SourceState::Unavailable => Unavailable(
-                        o.reason.clone().unwrap_or_else(|| t!("evidence.named_source_unavailable", name = *name)),
+                        o.reason_text()
+                            .map(str::to_owned)
+                            .unwrap_or_else(|| t!("evidence.named_source_unavailable", name = *name)),
                     ),
                     SourceState::NotApplicable => NotApplicable(
-                        o.reason.clone().unwrap_or_else(|| t!("evidence.named_source_not_applicable", name = *name)),
+                        o.reason_text()
+                            .map(str::to_owned)
+                            .unwrap_or_else(|| t!("evidence.named_source_not_applicable", name = *name)),
                     ),
                 },
                 None => insufficient(t!("evidence.source_outcome_missing")),

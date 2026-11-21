@@ -80,12 +80,7 @@ fn mixed_index_prefix_rejects_duplicate_keys_and_changed_native_parent_even_with
 }
 #[test]
 fn empty_partial_denied_and_combined_parent_prefix_counts_remain_distinct() {
-    let source = |state| crate::SourceOutcome {
-        source: crate::source_id::INDEXES.into(),
-        state,
-        reason: None,
-        reason_message: None,
-    };
+    let source = |state| crate::SourceOutcome { source: crate::source_id::INDEXES.into(), state, reason: None };
     let catalog = MssqlIndexedViewCatalog {
         source: source(crate::SourceState::Collected),
         retained_index_rows: Some(3),
@@ -112,4 +107,39 @@ fn empty_partial_denied_and_combined_parent_prefix_counts_remain_distinct() {
     let mut missing = catalog;
     missing.retained_index_rows = None;
     assert!(!missing.is_valid());
+}
+
+#[test]
+fn saved_catalog_reason_preserves_original_bytes_until_explicit_reader_localization() {
+    let message = crate::message!("view.indexed_views.sharing_withheld");
+    let original = crate::i18n::scope("en", || MssqlIndexedViewCatalog {
+        source: crate::SourceOutcome {
+            source: crate::source_id::INDEXES.into(),
+            state: crate::SourceState::Partial,
+            reason: Some(message.clone().into()),
+        },
+        retained_index_rows: Some(1),
+        parent_prefix_complete: false,
+        indexes: vec![view()],
+    });
+    assert!(original.is_valid());
+    let bytes = serde_json::to_vec(&original).unwrap();
+    let digest_before = crate::telemetry::digest(&bytes);
+    let mut restored: MssqlIndexedViewCatalog = crate::i18n::scope("fr", || serde_json::from_slice(&bytes).unwrap());
+    assert_eq!(restored, original);
+    assert_eq!(serde_json::to_vec(&restored).unwrap(), bytes);
+    assert_eq!(crate::telemetry::digest(&serde_json::to_vec(&restored).unwrap()), digest_before);
+    crate::i18n::scope("fr", || restored.source.refresh_language());
+    assert_ne!(restored.source.reason_text(), original.source.reason_text());
+    assert_eq!(restored.source.reason.as_ref().unwrap().source(), Some(&message));
+    assert_eq!(restored.indexes, original.indexes);
+    assert!(restored.is_valid());
+    let mut operations =
+        crate::operations::OperationalStats { indexed_views: Some(Box::new(original.clone())), ..Default::default() };
+    operations.clear_recorded_text();
+    assert_eq!(operations.indexed_views.as_ref().unwrap().source.reason_text(), Some(""));
+    let stored = serde_json::to_vec(&operations).unwrap();
+    let mut loaded: crate::operations::OperationalStats = serde_json::from_slice(&stored).unwrap();
+    crate::i18n::scope("fr", || loaded.render_recorded_messages());
+    assert_eq!(loaded.indexed_views.as_ref().unwrap().as_ref(), &restored);
 }

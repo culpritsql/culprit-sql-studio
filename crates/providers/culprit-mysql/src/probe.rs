@@ -308,7 +308,7 @@ mod tests {
         let info = p.server_info();
         assert_eq!(info.product, "MariaDB 10.11.6");
         let ps = info.missing.iter().find(|m| m.capability == Capability::PerformanceSchema).unwrap();
-        let fix = ps.fix.as_deref().unwrap();
+        let fix = ps.fix.as_ref().map(culprit_core::LocalizedText::text).unwrap();
         assert!(fix.starts_with("Run SET GLOBAL userstat = ON"), "{fix}");
         assert!(fix.contains("no restart needed") && fix.ends_with("restart MariaDB."), "{fix}");
         // Once the log goes to the table, only the restart remains.
@@ -328,7 +328,11 @@ mod tests {
 
     /// Why each capability is missing, and its fix, as a person reads them.
     fn missing(p: &Probe) -> Vec<(Capability, String, Option<String>)> {
-        p.server_info().missing.into_iter().map(|m| (m.capability, m.reason, m.fix)).collect()
+        p.server_info()
+            .missing
+            .into_iter()
+            .map(|m| (m.capability, m.reason.to_string(), m.fix.as_ref().map(ToString::to_string)))
+            .collect()
     }
 
     // Why a capability is locked and how to unlock it, word for word: its messages come from locales/en.json.

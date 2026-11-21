@@ -70,7 +70,7 @@ export function connectionOutcomeReport(entryCount = 1): ConnectionOutcomeReport
 
 export function unavailableConnectionOutcomes(): ConnectionOutcomeReport {
   const report = connectionOutcomeReport(0);
-  report.sources[0] = { source: CONNECTION_OUTCOME_SOURCE, state: "unavailable", reason: t("view.connection_outcomes.limit.source") };
+  report.sources[0] = { source: CONNECTION_OUTCOME_SOURCE, state: "unavailable", reason: { text: t("view.connection_outcomes.limit.source") } };
   report.native_rows = 0;
   report.observed_rows = 0;
   report.read_complete = true;

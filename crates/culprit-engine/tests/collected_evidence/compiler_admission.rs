@@ -34,12 +34,7 @@ async fn authenticated_compiler_context_reuses_scan_explanation_and_keeps_exact_
         observations,
     });
     scan.sources.retain(|source| source.source != coverage.source);
-    scan.sources.push(SourceOutcome {
-        source: coverage.source.clone(),
-        state: coverage.state,
-        reason: None,
-        reason_message: None,
-    });
+    scan.sources.push(SourceOutcome { source: coverage.source.clone(), state: coverage.state, reason: None });
     let expected = culprit_checks::analyze(scan).compiler_admission.unwrap();
     let fixture = Fixture::new(source.clone(), records.clone()).await;
     let before = fixture.recovery_object_reads();

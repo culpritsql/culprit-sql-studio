@@ -404,8 +404,7 @@ fn grant_report(captured: &Captured) -> culprit_core::Result<culprit_core::Memor
     let source = captured.source()?;
     let context = NativeReadContext::from_snapshot(source)?;
     let coverage = &source.observation.snapshot().ok_or_else(crate::read::invalid_data)?.sources[0];
-    let outcome =
-        SourceOutcome { source: coverage.source.clone(), state: coverage.state, reason: None, reason_message: None };
+    let outcome = SourceOutcome { source: coverage.source.clone(), state: coverage.state, reason: None };
     culprit_checks::request_memory::explain(
         culprit_checks::request_memory::RequestMemoryEvidence { context: &context, observations: &grants(captured) },
         Some(&outcome),

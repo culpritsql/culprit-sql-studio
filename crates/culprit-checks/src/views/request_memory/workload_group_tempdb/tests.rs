@@ -38,7 +38,6 @@ fn report(rows: &[&ExecutionGrantObservation]) -> MemoryParticipantsReport {
             source: culprit_core::source_id::CURRENT_REQUEST_MEMORY.into(),
             state: SourceState::Partial,
             reason: None,
-            reason_message: None,
         }),
     )
     .unwrap()

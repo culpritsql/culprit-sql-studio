@@ -7,7 +7,7 @@ use culprit_core::telemetry::*;
 
 fn source_outcome(source: &CollectionDescription) -> SourceOutcome {
     let coverage = &source.observation.snapshot().unwrap().sources[0];
-    SourceOutcome { source: coverage.source.clone(), state: coverage.state, reason: None, reason_message: None }
+    SourceOutcome { source: coverage.source.clone(), state: coverage.state, reason: None }
 }
 
 fn request_report(source: &CollectionDescription, rows: &[TelemetryRecord]) -> MemoryParticipantsReport {

@@ -35,7 +35,7 @@ test("Health folds indexed views separately from table indexes and resets a with
     if (current.status !== "ready") throw new Error("A settled report is required");
     const report = structuredClone(current.report);
     report.snapshot.id += "-withdrawn";
-    report.indexed_views = report.indexed_views.map((view) => ({ ...view, entries: [], context: null, native_index_rows: null, observed_index_rows: 0, observed_view_indexes: 0, source: { source: "indexes", state: "unavailable", reason }, summary }));
+    report.indexed_views = report.indexed_views.map((view) => ({ ...view, entries: [], context: null, native_index_rows: null, observed_index_rows: 0, observed_view_indexes: 0, source: { source: "indexes", state: "unavailable", reason: { text: reason } }, summary }));
     setState({ report: { ...current, report } });
   }, { storePath: "/src/lib/store.ts", reason: english["view.indexed_views.sharing_withheld"], summary: english["view.indexed_views.unavailable"] });
   await expect(region.getByText("reporting.Revenue · ix_revenue", { exact: true })).toHaveCount(0);

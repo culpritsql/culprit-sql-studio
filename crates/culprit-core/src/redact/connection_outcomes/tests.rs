@@ -77,7 +77,10 @@ fn invalid_original_identity_is_withheld_with_a_stable_visible_gap_when_sharing(
     assert!(shared.pressure.as_ref().unwrap().connection_outcomes.is_none());
     let source = shared.sources.iter().find(|source| source.source == crate::source_id::SESSIONS).unwrap();
     assert_eq!(source.state, crate::SourceState::Unavailable);
-    assert_eq!(source.reason_message, Some(crate::message!("view.connection_outcomes.invalid")));
+    assert_eq!(
+        source.reason.as_ref().and_then(crate::LocalizedText::source).cloned(),
+        Some(crate::message!("view.connection_outcomes.invalid"))
+    );
     assert!(shared.notes.iter().any(|note| note.collector == crate::source_id::SESSIONS));
     let json = serde_json::to_string(&shared).unwrap();
     assert!(!json.contains("private-native-host"));
@@ -107,7 +110,10 @@ fn a_forged_public_issue_with_private_arguments_is_still_masked() {
             .iter()
             .find(|source| source.source == crate::source_id::SESSIONS)
             .unwrap()
-            .reason_message
+            .reason
+            .as_ref()
+            .and_then(crate::LocalizedText::source)
+            .cloned()
             .is_none()
     );
 }
@@ -274,7 +280,10 @@ fn masking_collisions_withhold_the_carrier_without_overwriting_evidence_and_keep
         assert!(shared.pressure.as_ref().unwrap().connection_outcomes.is_none(), "{kind}");
         let source = shared.sources.iter().find(|source| source.source == crate::source_id::SESSIONS).unwrap();
         assert_eq!(source.state, crate::SourceState::Unavailable);
-        assert_eq!(source.reason_message, Some(crate::message!("view.connection_outcomes.invalid")));
+        assert_eq!(
+            source.reason.as_ref().and_then(crate::LocalizedText::source).cloned(),
+            Some(crate::message!("view.connection_outcomes.invalid"))
+        );
         let json = serde_json::to_string(&shared).unwrap();
         assert!(!json.contains("private"), "{kind}");
         assert!(!json.contains("user:secret"), "{kind}");

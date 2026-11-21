@@ -128,7 +128,7 @@ fn unavailable_missing_native_row_disk_table_and_partial_original_are_distinct()
         snapshot.sources[0] = StateSourceCoverage::unavailable(MSSQL_TABLE_MEMORY_SOURCE.into(), code, None);
         let unavailable = report(&source, &[], true).unwrap();
         assert_eq!(unavailable.source.state, SourceState::Unavailable);
-        assert_eq!(unavailable.source.reason, Some(reason));
+        assert_eq!(unavailable.source.reason_text(), Some(reason.as_str()));
         assert!(unavailable.metrics.is_empty());
     }
     let SourceObservation::TableMemory { snapshot, metadata, .. } = &mut source.observation else { panic!() };

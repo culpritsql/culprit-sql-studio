@@ -71,10 +71,10 @@ export function partialCompletedSpillFixture() {
   fixture.report.read_complete = false;
   fixture.report.native_rows = 3;
   fixture.report.sources[0]!.state = "partial";
-  fixture.report.sources[0]!.reason = english["view.completed_spills.limit.partial"];
+  fixture.report.sources[0]!.reason = { text: english["view.completed_spills.limit.partial"] };
   fixture.report.definition_context = { ...context(), observed_from: "2026-11-13T10:01:00Z", observed_until: "2026-11-13T10:01:01Z" };
   fixture.report.definition_read_complete = false;
-  fixture.report.definition_sources = [{ source: "independent-definitions", state: "partial", reason: "Some definition bodies were not read." }];
+  fixture.report.definition_sources = [{ source: "independent-definitions", state: "partial", reason: { text: "Some definition bodies were not read." } }];
   fixture.report.entries[0]!.statement_binding = "definition-not-observed";
   fixture.report.entries[0]!.explanation = english["view.completed_spills.binding.not_observed"];
   return fixture;

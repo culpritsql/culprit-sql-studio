@@ -190,13 +190,11 @@ fn new_native_lookup_references_and_private_read_contexts_cannot_escape_in_share
     assert!(retained.is_valid());
     plan.facts.retained = Some(Box::new(retained));
     query.plan_history = Some(crate::PlanHistory {
-        source: "native-cache".into(),
+        source: crate::LocalizedText::raw("native-cache"),
         kind: crate::PlanHistoryKind::Cache,
-        note: "native cache counters".into(),
+        note: crate::LocalizedText::raw("native cache counters"),
         captured_plan_id: Some("variant".into()),
         captured_plan: Some(plan.clone()),
-        source_message: None,
-        note_message: None,
     });
     let pressure = snapshot.pressure.get_or_insert_default();
     pressure.grants = vec![read.clone()];

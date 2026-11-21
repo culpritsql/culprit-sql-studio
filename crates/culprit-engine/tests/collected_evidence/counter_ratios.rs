@@ -31,12 +31,7 @@ async fn captured_counter_ratios_reuse_the_scan_view_and_preserve_original_exact
             .collect::<Vec<_>>();
         let native = source.observation.snapshot().unwrap();
         let coverage = &native.sources[0];
-        let outcome = SourceOutcome {
-            source: coverage.source.clone(),
-            state: coverage.state,
-            reason: None,
-            reason_message: None,
-        };
+        let outcome = SourceOutcome { source: coverage.source.clone(), state: coverage.state, reason: None };
         // The SDK may add its source failure reason; the typed rows and all explanation values share one pure view.
         let expected = culprit_checks::counter_ratios::explain(&samples, Some(&outcome), true).unwrap();
         assert_eq!(

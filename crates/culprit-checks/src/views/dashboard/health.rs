@@ -70,7 +70,7 @@ pub(super) fn health(report: &Report) -> Tile {
         };
         let mut tile = Tile::new(TileKey::Health, TileStatus::Unavailable, headline);
         tile.detail = Some(match s.notes.iter().find(|n| n.collector.contains("pressure")) {
-            Some(note) => note.message.clone(),
+            Some(note) => note.message.to_string(),
             None if !s.server.engine.has_server() => t!("view.dashboard.health.serverless_detail", engine = &engine),
             None => t!("view.dashboard.health.scan_again"),
         });

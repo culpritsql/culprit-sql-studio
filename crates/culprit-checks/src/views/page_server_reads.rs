@@ -249,7 +249,7 @@ pub fn explain_workload(workload: &Workload, source: Option<&SourceOutcome>) -> 
         observed_rows: observed_rows as u32,
         presentation_limited,
         source_state: source.map(|source| source.state),
-        source_reason: source.and_then(|source| source.reason.clone()),
+        source_reason: source.and_then(|source| source.reason_text().map(str::to_owned)),
         title: t!("view.page_server_reads.title"),
         summary: t!("view.page_server_reads.summary.plans", observed = format::digits(observed_rows.to_string())),
         limitations,

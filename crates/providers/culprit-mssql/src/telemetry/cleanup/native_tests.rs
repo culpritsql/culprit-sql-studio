@@ -355,12 +355,7 @@ fn report(captured: &Captured) -> culprit_core::Result<CleanupReport> {
         .sources
         .iter()
         .filter(|source| source.source != source_id::VERSION_STORE)
-        .map(|source| SourceOutcome {
-            source: source.source.clone(),
-            state: source.state,
-            reason: None,
-            reason_message: None,
-        })
+        .map(|source| SourceOutcome { source: source.source.clone(), state: source.state, reason: None })
         .collect::<Vec<_>>();
     culprit_checks::cleanup::explain(
         culprit_checks::cleanup::CleanupEvidence { retention: None, native: &native },

@@ -7,18 +7,6 @@ use ts_rs::TS;
 
 use super::Arg;
 
-pub(crate) fn render_text(text: &mut String, message: Option<&Message>) {
-    if let Some(message) = message {
-        *text = message.render();
-    }
-}
-
-pub(crate) fn render_notes(notes: &mut Vec<String>, messages: Option<&[Message]>) {
-    if let Some(messages) = messages {
-        *notes = messages.iter().map(Message::render).collect();
-    }
-}
-
 #[derive(Serialize, Deserialize, TS, Clone, Debug, PartialEq)]
 #[serde(tag = "kind", rename_all = "kebab-case")]
 #[ts(export)]

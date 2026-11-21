@@ -299,13 +299,11 @@ fn query(
         .sort_by(|left, right| right.total_time_ms.total_cmp(&left.total_time_ms).then_with(|| left.id.cmp(&right.id)));
     let (plan_id, plan) = captured.map(|(_, id, plan)| (Some(id), plan)).unwrap_or_default();
     let history = (!variants.is_empty()).then(|| PlanHistory {
-        source: capture.source().source.clone(),
+        source: culprit_core::LocalizedText::raw(capture.source().source.clone()),
         kind: PlanHistoryKind::Workload,
-        note: culprit_core::t!("engine.collected_analysis.plan_population"),
+        note: culprit_core::LocalizedText::new(culprit_core::message!("engine.collected_analysis.plan_population")),
         captured_plan_id: plan_id.clone(),
         captured_plan: None,
-        source_message: None,
-        note_message: Some(culprit_core::message!("engine.collected_analysis.plan_population")),
     });
     let DefinitionPayload::Available { text, .. } = &first.query.sql else { return Err(invalid()) };
     let temporary_work = runtime_temporary_space(fragments.iter().map(|(_, row)| *row), &capture.source().source);

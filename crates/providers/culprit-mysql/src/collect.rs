@@ -285,7 +285,7 @@ mod tests {
             let outcome =
                 coverage.outcomes().into_iter().find(|outcome| outcome.source == sources::STATEMENTS.name).unwrap();
             assert_eq!(outcome.state, SourceState::Unavailable);
-            assert_eq!(outcome.reason.as_deref(), Some("native permission denied"));
+            assert_eq!(outcome.reason_text(), Some("native permission denied"));
             assert_eq!(counters.coverage.source, crate::native::statements::SOURCE);
             assert_eq!(
                 counters.coverage.error_code,
@@ -293,7 +293,10 @@ mod tests {
             );
             assert!(counters.is_valid() && counters.context.is_none() && counters.observations.is_empty());
             let (_, missing, _) = coverage.finish();
-            assert_eq!(missing[0].fix.as_deref(), Some(format!("GRANT SELECT ON {source} TO 'monitor'@'%';").as_str()));
+            assert_eq!(
+                missing[0].fix.as_ref().map(culprit_core::LocalizedText::text),
+                Some(format!("GRANT SELECT ON {source} TO 'monitor'@'%';").as_str())
+            );
         }
     }
 
@@ -347,7 +350,10 @@ mod tests {
                 assert_eq!(counters.coverage.stopped, stopped);
                 assert!(counters.is_valid() && counters.context.is_none() && counters.observations.is_empty());
                 let (_, missing, _) = coverage.finish();
-                assert_eq!(missing[0].fix.as_deref(), Some("native recovery guidance"));
+                assert_eq!(
+                    missing[0].fix.as_ref().map(culprit_core::LocalizedText::text),
+                    Some("native recovery guidance")
+                );
             }
         }
     }

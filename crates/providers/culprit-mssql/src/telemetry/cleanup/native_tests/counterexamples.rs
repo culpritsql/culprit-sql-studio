@@ -168,8 +168,7 @@ fn task_report(captured: &Captured, tasks: &[&TaskSpaceObservation]) -> culprit_
     let native = captured.source()?.observation.snapshot().ok_or_else(invalid_data)?;
     let [coverage] = native.sources.as_slice() else { return Err(invalid_data()) };
     assert!(matches!(coverage.state, SourceState::Empty | SourceState::Partial | SourceState::Collected));
-    let source =
-        SourceOutcome { source: coverage.source.clone(), state: coverage.state, reason: None, reason_message: None };
+    let source = SourceOutcome { source: coverage.source.clone(), state: coverage.state, reason: None };
     culprit_checks::task_space::explain(tasks, Some(&source))
 }
 

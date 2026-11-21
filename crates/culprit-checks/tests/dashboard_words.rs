@@ -619,11 +619,9 @@ fn indexes_and_plans_say_what_they_said() {
         }
         out.push(said(s.clone(), TileKey::Plans));
         s.server.missing.push(culprit_core::MissingCapability {
-            reason_message: None,
-            fix_message: None,
             action: None,
             capability: culprit_core::Capability::QueryPlans,
-            reason: "The login can't read plans.".into(),
+            reason: culprit_core::LocalizedText::raw("The login can't read plans."),
             fix: None,
         });
         out.push(said(s, TileKey::Plans));
@@ -1077,9 +1075,8 @@ fn storage_connections_replication_failures_and_statistics_say_what_they_said() 
     let mut s = pg.clone();
     s.pressure.as_mut().unwrap().replicas.clear();
     s.notes.push(culprit_core::CollectorNote {
-        message_source: None,
         collector: culprit_core::source_id::REPLICATION.into(),
-        message: "The login can't read pg_stat_replication.".into(),
+        message: culprit_core::LocalizedText::raw("The login can't read pg_stat_replication."),
         table: None,
     });
     out.push(said(s, TileKey::Replication));
@@ -1204,7 +1201,7 @@ Storage Info Storage: Too few measured storage operations for a storage-speed as
   item WAL (whole server): 500 µs per flush
   item tables and indexes (whole server): 20 µs per read
 Storage Info Storage: Native I/O timings are recorded; their accounting does not establish physical storage speed.
-  detail: tempdb log: tempdb, over an unknown statistics period Native accounting: reads count storage operations; writes count non-durable log work.; culprit_demo log: this database, over an unknown statistics period Native accounting: reads count storage operations; writes count storage operations.; culprit_demo: this database, over an unknown statistics period Native accounting: reads count storage operations; writes count storage operations.; tempdb: tempdb, over an unknown statistics period Native accounting: reads count storage operations; writes count storage operations.
+  detail: tempdb log: tempdb, over an unknown statistics period Native accounting: reads count storage operations; writes count non-durable log work.; culprit_demo log: this database, over an unknown statistics period Native accounting: reads count storage operations; writes count storage operations.; culprit_demo: this database, over an unknown statistics period Native accounting: reads count storage operations; writes count storage operations.; tempdb, over an unknown statistics period Native accounting: reads count storage operations; writes count storage operations.
   item tempdb log: Native average: 2.2 ms (non-durable log work).
   item culprit_demo log (this database): 632 µs per write
   item culprit_demo (this database): 40 µs per read
@@ -1377,12 +1374,10 @@ fn top_queries_and_waits_say_what_they_said() {
     s.waits.clear();
     out.push(said(s.clone(), TileKey::Waits));
     s.server.missing.push(culprit_core::MissingCapability {
-        reason_message: None,
-        fix_message: None,
         action: None,
         capability: culprit_core::Capability::WaitStats,
-        reason: "The login lacks VIEW SERVER STATE".into(),
-        fix: Some("GRANT VIEW SERVER STATE TO culprit;".into()),
+        reason: culprit_core::LocalizedText::raw("The login lacks VIEW SERVER STATE"),
+        fix: Some(culprit_core::LocalizedText::raw("GRANT VIEW SERVER STATE TO culprit;")),
     });
     out.push(said(s, TileKey::Waits));
     for name in ["pg-demo.report.json", "mysql-demo.report.json", "mariadb-demo.report.json"] {

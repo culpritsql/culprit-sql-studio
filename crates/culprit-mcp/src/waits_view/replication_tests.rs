@@ -111,7 +111,7 @@ fn empty_partial_denied_and_unsupported_replication_reads_preserve_source_flags_
         assert_eq!(evidence["entries"].as_array().unwrap().len(), 0);
         assert_eq!(evidence["entries_limited"], false);
         if expected_state == SourceState::Unavailable {
-            assert!(evidence["sources"][0]["reason"].as_str().is_some_and(|reason| !reason.is_empty()));
+            assert!(evidence["sources"][0]["reason"]["text"].as_str().is_some_and(|reason| !reason.is_empty()));
         }
         assert!(value.get("replication_evidence_unavailable").is_none());
     }

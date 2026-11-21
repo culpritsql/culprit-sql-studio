@@ -39,7 +39,6 @@ fn observed_queue() -> Snapshot {
         source: culprit_core::source_id::QUERY_COMPILATION.into(),
         state: SourceState::Collected,
         reason: None,
-        reason_message: None,
     });
     let query = application_query(&mut snapshot);
     query.id = identity.query_id.clone();

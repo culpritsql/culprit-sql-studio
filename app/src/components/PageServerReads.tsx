@@ -68,6 +68,9 @@ function availability(report: PageServerReadReport): string {
 
 /** Only the typed invalid-evidence marker belongs to this view; unrelated Query Store gaps do not. */
 export function pageServerReadIssue(sources: readonly SourceOutcome[]): SourceOutcome | undefined {
-  return sources.find((source) => source.source === "query_store" && source.reason_message?.kind === "catalog"
-    && source.reason_message.key === "view.page_server_reads.invalid" && Object.keys(source.reason_message.arguments).length === 0);
+  return sources.find((source) => {
+    const message = source.reason?.source;
+    return source.source === "query_store" && message?.kind === "catalog"
+      && message.key === "view.page_server_reads.invalid" && Object.keys(message.arguments).length === 0;
+  });
 }

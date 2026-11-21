@@ -151,7 +151,11 @@ pub fn explain(evidence: FullTextPopulationEvidence<'_>) -> Result<FullTextPopul
             context,
             target: target.as_ref().clone(),
         }),
-        source: SourceOutcome { source: coverage.source.clone(), state, reason, reason_message: None },
+        source: SourceOutcome {
+            source: coverage.source.clone(),
+            state,
+            reason: (reason).map(culprit_core::LocalizedText::raw),
+        },
         read_complete: evidence.read_complete,
         native_rows: Some(coverage.records),
         observed_rows: points.len() as u32,
@@ -183,8 +187,7 @@ pub fn unavailable(reason: &culprit_core::i18n::Message) -> FullTextPopulationRe
         source: SourceOutcome {
             source: MSSQL_FULL_TEXT_POPULATIONS_SOURCE.into(),
             state: SourceState::Unavailable,
-            reason: Some(reason.render()),
-            reason_message: Some(reason.clone()),
+            reason: Some(culprit_core::LocalizedText::new(reason.clone())),
         },
         read_complete: false,
         native_rows: None,

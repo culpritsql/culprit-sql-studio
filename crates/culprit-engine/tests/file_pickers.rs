@@ -119,7 +119,7 @@ async fn a_virtual_tables_logged_statements_belong_to_the_database() {
     assert_eq!(workload.queries.len(), 1);
     assert!(report.snapshot.tables.iter().any(|t| t.name == "search" && t.is_virtual()));
     assert!(!report.snapshot.tables.iter().any(|t| t.name == "search_data"));
-    assert!(!report.snapshot.notes.iter().any(|n| n.message.contains("log is shared with another database")));
+    assert!(!report.snapshot.notes.iter().any(|n| n.message.text().contains("log is shared with another database")));
     let catalog = ws.catalog("app").await.unwrap();
     let search = catalog.tables.iter().find(|t| t.name == "search").unwrap();
     assert_eq!(search.columns.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(), ["title"]);

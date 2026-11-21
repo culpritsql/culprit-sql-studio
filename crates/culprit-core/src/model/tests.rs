@@ -25,11 +25,9 @@ fn a_scan_without_query_history_says_why() {
     snapshot.server.missing.retain(|m| m.capability != Capability::QueryStore);
     assert_eq!(snapshot.no_workload_reason().as_deref(), Some("This scan has no query history."));
     snapshot.server.missing.push(MissingCapability {
-        reason_message: None,
-        fix_message: None,
         action: None,
         capability: Capability::QueryStore,
-        reason: "Query Store is OFF on this database.".into(),
+        reason: crate::LocalizedText::raw("Query Store is OFF on this database."),
         fix: None,
     });
     assert_eq!(snapshot.no_workload_reason().as_deref(), Some("Query Store is OFF on this database."));
@@ -125,7 +123,6 @@ fn how_often_never_extrapolates_a_short_window() {
         population: None,
         population_catalog: None,
         source_label: None,
-        source_message: None,
         counter_set: None,
         history_inputs: Vec::new(),
         source: "Query Store".into(),
@@ -481,12 +478,9 @@ fn cached_plan_statistics_never_substitute_for_workload_variants() {
     assert!(q.captured_plan_variant().is_some());
     assert!(!q.workload_plans().is_empty());
     q.plan_history = Some(PlanHistory {
-        source_message: None,
-        note_message: None,
-
-        source: "native plan cache".into(),
+        source: crate::LocalizedText::raw("native plan cache"),
         kind: PlanHistoryKind::Cache,
-        note: "Independent cache periods".into(),
+        note: crate::LocalizedText::raw("Independent cache periods"),
         captured_plan_id: None,
         captured_plan: None,
     });
@@ -573,7 +567,10 @@ fn source_labels_follow_the_reader_without_changing_counter_identity() {
             workload.refresh_language();
             assert_eq!(workload.source, "Plan cache");
             assert_eq!(workload.source_name(), crate::t!("model.workload.source.plan_cache"));
-            assert_eq!(workload.source_label.as_deref(), Some(workload.source_name().as_str()));
+            assert_eq!(
+                workload.source_label.as_ref().map(crate::LocalizedText::text),
+                Some(workload.source_name().as_str())
+            );
         });
     }
     // A plugin's unclassified source is native text, never inferred from its spelling.

@@ -654,7 +654,11 @@ fn mariadb_lock_time_that_is_the_whole_run_is_unknown() {
     assert_eq!(q.spread.as_ref().and_then(|s| s.lock_ms), None);
     assert!(q.waits.iter().all(|w| w.category != "Lock"), "{:?}", q.waits);
     assert!(
-        report.snapshot.notes.iter().any(|n| n.message.contains("whole run of a statement the slow query log writes")),
+        report
+            .snapshot
+            .notes
+            .iter()
+            .any(|n| n.message.text().contains("whole run of a statement the slow query log writes")),
         "{:?}",
         report.snapshot.notes
     );
@@ -668,6 +672,7 @@ fn mariadb_lock_time_that_is_the_whole_run_is_unknown() {
     }
     // Read again (a saved report is prepared already): nothing changes and the note isn't repeated.
     let again = analyze(report.snapshot.clone());
-    let notes = |r: &Report| r.snapshot.notes.iter().filter(|n| n.message.contains("slow query log writes")).count();
+    let notes =
+        |r: &Report| r.snapshot.notes.iter().filter(|n| n.message.text().contains("slow query log writes")).count();
     assert_eq!(notes(&again), 1);
 }

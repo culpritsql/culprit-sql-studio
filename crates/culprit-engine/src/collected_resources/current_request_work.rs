@@ -35,6 +35,6 @@ pub fn current_request_work(capture: &EvidenceCapture) -> Result<CollectedCurren
     let mut report =
         culprit_checks::current_request_work::explain(&snapshot, capture.is_read_complete()).map_err(|_| invalid())?;
     report.source_state = outcome.state;
-    report.source_reason = outcome.reason;
+    report.source_reason = outcome.reason_text().map(str::to_owned);
     Ok(CollectedCurrentRequestWorkAnalysis { context: crate::collected_context::from_capture(capture), report })
 }

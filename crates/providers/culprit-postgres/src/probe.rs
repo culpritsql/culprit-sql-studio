@@ -351,7 +351,7 @@ mod tests {
     fn missing(probe: &Probe, capability: Capability) -> (String, Option<String>) {
         let info = probe.server_info();
         let m = info.missing.iter().find(|m| m.capability == capability).unwrap();
-        (m.reason.clone(), m.fix.clone())
+        (m.reason.to_string(), m.fix.as_ref().map(ToString::to_string))
     }
 
     #[test]

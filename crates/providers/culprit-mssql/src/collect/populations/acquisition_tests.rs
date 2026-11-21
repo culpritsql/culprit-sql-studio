@@ -355,7 +355,7 @@ async fn empty_duplicate_or_malformed_final_authority_keeps_its_original_failure
             let outcomes = part.outcome.outcomes();
             let source = outcomes.iter().find(|source| source.source == sources::QUERY_STORE.name).unwrap();
             assert_eq!(source.state, culprit_core::SourceState::Unavailable);
-            assert_eq!(source.reason.as_deref(), Some(expected.message.as_str()));
+            assert_eq!(source.reason_text(), Some(expected.message.as_str()));
         }
         let mut snapshot: Snapshot =
             serde_json::from_str(include_str!("../../../../../../fixtures/mssql-demo.json")).unwrap();
@@ -365,7 +365,7 @@ async fn empty_duplicate_or_malformed_final_authority_keeps_its_original_failure
         let outcomes = coverage.outcomes();
         let compiler = outcomes.iter().find(|source| source.source == sources::QUERY_COMPILATION.name).unwrap();
         assert_eq!(compiler.state, culprit_core::SourceState::Unavailable);
-        assert_eq!(compiler.reason.as_deref(), Some(expected.message.as_str()));
+        assert_eq!(compiler.reason_text(), Some(expected.message.as_str()));
         assert_eq!(reader.queries(), 12, "no catalog or fresh native source follows the failed final proof");
         assert_eq!(reader.close().await, SourceShutdown::Quiescent);
     }
@@ -393,7 +393,7 @@ async fn a_whole_batch_row_cap_keeps_its_original_reason_and_cannot_restart_as_a
         .find(|source| source.source == sources::QUERY_STORE.name)
         .unwrap();
     assert_eq!(source.state, culprit_core::SourceState::Unavailable);
-    assert_eq!(source.reason.as_deref(), Some(error.message.as_str()));
+    assert_eq!(source.reason_text(), Some(error.message.as_str()));
     assert_eq!(reader.queries(), 11, "no discovery or fallback SQL follows the cumulative stop");
     assert_eq!(reader.close().await, SourceShutdown::Quiescent);
 }

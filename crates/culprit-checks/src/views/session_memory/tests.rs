@@ -25,7 +25,7 @@ fn observation(id: &str) -> SessionMemoryObservation {
 }
 
 fn coverage(state: SourceState) -> SourceOutcome {
-    SourceOutcome { source: "session memory".into(), state, reason: None, reason_message: None }
+    SourceOutcome { source: "session memory".into(), state, reason: None }
 }
 
 #[test]

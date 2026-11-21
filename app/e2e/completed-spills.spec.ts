@@ -96,7 +96,7 @@ test("partial definition and runtime reads stay independent, and empty or unavai
   await expect(region).toContainText(english["view.completed_spills.summary.missing"]);
   await expect(region).not.toContainText(EXACT_SPILL_COUNT);
   await expect(component.getByText("2026-11-13T10:01:00Z", { exact: false })).toHaveCount(0);
-  await inject(page, null, null, { source: COMPLETED_SPILL_SOURCE, state: "unavailable", reason: "Native completed-spill source denied." });
+  await inject(page, null, null, { source: COMPLETED_SPILL_SOURCE, state: "unavailable", reason: { text: "Native completed-spill source denied." } });
   await expect(region).toBeVisible();
   await expect(region.locator("article")).toHaveCount(0);
   await expect(region).not.toContainText(EXACT_SPILL_COUNT);

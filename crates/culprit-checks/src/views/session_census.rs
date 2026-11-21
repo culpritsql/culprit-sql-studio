@@ -67,12 +67,12 @@ pub fn explain_frame(frame: &ActivityFrameEvidence<'_>) -> Result<SessionCensusR
         sources: vec![SourceOutcome {
             source: native.coverage.source.clone(),
             state: source_state,
-            reason: if gap {
+            reason: (if gap {
                 Some(t!("view.session_census.limit.read"))
             } else {
                 native.coverage.stopped.map(|stop| stop.error().message)
-            },
-            reason_message: None,
+            })
+            .map(culprit_core::LocalizedText::raw),
         }],
         native_rows: native.native_rows,
         observed_rows: rows.len() as u32,

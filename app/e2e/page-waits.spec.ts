@@ -188,7 +188,7 @@ test("page waits retain the original affected request and qualified metadata in 
   await page.setViewportSize({ width: 900, height: 900 });
   await openConnection(page, "mssql-demo");
   const native = fixture();
-  await inject(page, native.evidence, native.report, { source: PAGE_SOURCE, state: "partial", reason: "Only bounded coordinator waits were retained." });
+  await inject(page, native.evidence, native.report, { source: PAGE_SOURCE, state: "partial", reason: { text: "Only bounded coordinator waits were retained." } });
   await page.locator('[data-tile="health"]').click();
   await page.getByRole("dialog", { name: "Database health", exact: true }).waitFor();
   const region = page.getByRole("region", { name: TITLE, exact: true });
@@ -239,7 +239,7 @@ test("page waits retain the original affected request and qualified metadata in 
   await expect(cards.first().getByRole("heading")).toHaveText("Affected request 10");
   await expect(region).toContainText("Observations 11–12 of 12");
 
-  await inject(page, null, null, { source: PAGE_SOURCE, state: "unavailable", reason: "The page target could not be qualified safely." });
+  await inject(page, null, null, { source: PAGE_SOURCE, state: "unavailable", reason: { text: "The page target could not be qualified safely." } });
   await expect(region).toBeVisible();
   await expect(region.locator("article")).toHaveCount(0);
   await expect(region).toContainText("Not available here");

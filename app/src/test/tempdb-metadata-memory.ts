@@ -42,7 +42,7 @@ export function tempdbMetadataHealthReport(view: TempdbMetadataMemoryReport | nu
   return healthReportFixture({
     snapshot: { id: "metadata-presentation", server: { engine: "mssql" }, pressure: null, resources: [],
       sources: [{ source: "tempdb metadata memory", state: view ? view.source_state : "unavailable",
-        reason: view ? null : t("view.tempdb_metadata_memory.source.denied") }],
+        reason: view ? null : { text: t("view.tempdb_metadata_memory.source.denied") } }],
       operations: { spaces: [], counters: [], sequences: [], multixacts: [], sqlite: null, cluster: null } },
     tempdb_metadata_memory: view ?? undefined,
   });

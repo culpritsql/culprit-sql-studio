@@ -56,8 +56,7 @@ pub fn explain(evidence: GaleraEvidence<'_>) -> Result<GaleraReport> {
         } else {
             coverage.state
         },
-        reason,
-        reason_message: None,
+        reason: (reason).map(culprit_core::LocalizedText::raw),
     };
     let mut limitations = limitations();
     if !evidence.read_complete || coverage.state == SourceState::Partial {
@@ -232,8 +231,7 @@ pub fn unavailable(reason: &culprit_core::i18n::Message) -> GaleraReport {
         sources: vec![SourceOutcome {
             source: MARIADB_GALERA_SOURCE.into(),
             state: SourceState::Unavailable,
-            reason: Some(reason_text),
-            reason_message: Some(reason.clone()),
+            reason: Some(culprit_core::LocalizedText::new(reason.clone())),
         }],
         read_complete: false,
         native_rows: None,

@@ -54,7 +54,7 @@ pub fn explain_task_holders(
                 source.state
             }
         }),
-        source_reason: source.and_then(|source| source.reason.clone()),
+        source_reason: source.and_then(|source| source.reason_text().map(str::to_owned)),
         original_page: focus.page.clone(),
         focus_key: focus.key()?,
         target_state: observation.map(|row| row.target_state),

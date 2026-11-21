@@ -6,7 +6,7 @@ export function galeraReport(index = 0): GaleraReport {
   return { original: { context: { target: { scope: "shared", identity: member }, partition: { kind: "instance-local", member, epoch: "private-galera-process" },
     observed_from: "2020-01-01T00:00:00Z", observed_until: "2020-01-01T00:00:01Z", database_writable: null },
     metadata: { observed_at: "2020-01-01T00:00:00Z", enabled: true } },
-    sources: [{ source: "mariadb-galera", state: "partial", reason: t("view.galera.partial") }],
+    sources: [{ source: "mariadb-galera", state: "partial", reason: { text: t("view.galera.partial") } }],
     read_complete: true, native_rows: 1, observed_rows: 1, presented_rows: 1, entries_limited: false,
     title: t("view.galera.title"), summary: t("view.galera.summary"),
     limitations: [t("view.galera.scope"), t("view.galera.reset"), t("view.galera.non_atomic"), t("view.galera.unknown")],

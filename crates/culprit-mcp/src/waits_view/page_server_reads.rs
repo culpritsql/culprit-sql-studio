@@ -117,7 +117,7 @@ fn unavailable(response: &mut Value, report: &Report) {
     });
     let marker = report.snapshot.sources.iter().any(|source| {
         source.source == culprit_core::source_id::QUERY_STORE
-            && matches!(source.reason_message.as_ref(), Some(Message::Catalog { key, arguments })
+            && matches!(source.reason.as_ref().and_then(culprit_core::LocalizedText::source), Some(Message::Catalog { key, arguments })
                 if key == "view.page_server_reads.invalid" && arguments.is_empty())
     });
     if raw || marker || report.page_server_reads.is_some() {

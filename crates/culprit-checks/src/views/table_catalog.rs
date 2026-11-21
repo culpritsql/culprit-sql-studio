@@ -82,14 +82,14 @@ pub(super) fn original_outcome(
     Ok(SourceOutcome {
         source: coverage.source.clone(),
         state: if missing { culprit_core::SourceState::Partial } else { coverage.state },
-        reason: if missing {
+        reason: (if missing {
             Some(partial.render())
         } else {
             coverage
                 .stopped
                 .map(|stop| stop.error().message)
                 .or_else(|| coverage.error_code.map(|code| error(code).render()))
-        },
-        reason_message: None,
+        })
+        .map(culprit_core::LocalizedText::raw),
     })
 }

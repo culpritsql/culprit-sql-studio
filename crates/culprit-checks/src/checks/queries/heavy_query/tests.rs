@@ -213,10 +213,9 @@ fn each_side_of_a_union_names_the_index_it_has_or_the_one_it_needs() {
     let mut unavailable = snapshot.clone();
     unavailable.sources.retain(|o| o.source != culprit_core::source_id::INDEXES);
     unavailable.sources.push(culprit_core::SourceOutcome {
-        reason_message: None,
         source: culprit_core::source_id::INDEXES.into(),
         state: culprit_core::SourceState::Unavailable,
-        reason: Some("permission denied for pg_index".into()),
+        reason: Some(culprit_core::LocalizedText::raw("permission denied for pg_index")),
     });
     let unknown = scan_fix_on(&unavailable, 2.0);
     assert!(!unknown.summary.contains("has no index"), "unavailable definitions do not prove absence");

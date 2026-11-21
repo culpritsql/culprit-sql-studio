@@ -35,7 +35,7 @@ export function persistentVersionRead(observations = [persistentVersionObservati
 
 export function persistentVersionReport(row = persistentVersionObservation()): CleanupReport {
   if (row.fact.kind !== "mssql-persistent-version-store") throw new Error("PVS fixture required");
-  return report([{ source: PVS_SOURCE, state: "partial", reason: "Only this bounded native point was read." }], [{
+  return report([{ source: PVS_SOURCE, state: "partial", reason: { text: "Only this bounded native point was read." } }], [{
     reference: { source: row.source, observation_key: row.key, identity: null },
     mechanisms: ["persistent-version-store", "oldest-active-transaction"], title: "Native persistent version store",
     explanation: "A native counter records skipped pages; the responsible application code is unresolved.",

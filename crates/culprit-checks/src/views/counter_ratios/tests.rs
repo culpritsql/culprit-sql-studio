@@ -80,7 +80,6 @@ fn partial_and_unavailable_sources_never_become_a_healthy_empty_cache() {
         source: culprit_core::source_id::PERFORMANCE_COUNTERS.into(),
         state: SourceState::Partial,
         reason: None,
-        reason_message: None,
     };
     let report = explain(&[], Some(&source), false).unwrap();
     assert!(!report.read_complete);

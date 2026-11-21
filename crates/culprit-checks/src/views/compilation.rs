@@ -43,7 +43,7 @@ pub fn explain(input: CompilationEvidence<'_>) -> Result<CompilationReport> {
     }
     Ok(CompilationReport {
         source_state: input.source.map(|source| source.state),
-        source_reason: input.source.and_then(|source| source.reason.clone()),
+        source_reason: input.source.and_then(|source| source.reason_text().map(str::to_owned)),
         title: t!("view.compilation.title"),
         summary: if input.observations.is_empty() {
             t!("view.compilation.summary.empty")

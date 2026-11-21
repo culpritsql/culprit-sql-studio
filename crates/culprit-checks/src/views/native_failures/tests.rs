@@ -25,7 +25,7 @@ fn evidence(rows: Vec<NativeFailureRecord>) -> NativeFailureSnapshot {
 }
 
 fn source(evidence: &NativeFailureSnapshot, state: SourceState) -> SourceOutcome {
-    SourceOutcome { source: evidence.source.clone(), state, reason: None, reason_message: None }
+    SourceOutcome { source: evidence.source.clone(), state, reason: None }
 }
 
 #[test]
@@ -72,7 +72,7 @@ fn partial_unavailable_empty_and_unknown_reads_keep_their_actual_qualification()
     let mut partial = source(&evidence, SourceState::Partial);
     partial.reason = Some("actual source was bounded".into());
     let report = explain(&evidence, Some(&partial)).unwrap();
-    assert_eq!(report.source_reason, partial.reason);
+    assert_eq!(report.source_reason.as_deref(), partial.reason_text());
     assert_eq!(report.entries.len(), 1);
     assert!(report.limitations.contains(&t!("view.memory_failures.limit.source_partial")));
     assert!(explain(&evidence, None).unwrap().limitations.contains(&t!("view.memory_failures.limit.source_unknown")));

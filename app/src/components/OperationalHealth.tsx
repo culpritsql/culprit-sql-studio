@@ -42,8 +42,8 @@ export function OperationalHealth({ report }: { report: Report }) {
   return <section className="operational-health">
     <h3>{t("ui.operational_health.title")}</h3>
     <p className="muted">{t("ui.operational_health.intro")}</p>
-    {o.node_resources ? <NodeResourcesView key={o.node_resources.observed_until} resources={o.node_resources} /> : report.snapshot.sources?.filter((s) => s.source === "docdb-node-resources" && s.state === "unavailable").map((s) => <div className="operational-card" key={s.source}><h4>{t("ui.operational_health.node_resources_unavailable")}</h4><p>{s.reason}</p></div>)}
-    {o.termination_history ? <TerminationHistoryView key={o.termination_history.requested_end} history={o.termination_history} report={report} /> : report.snapshot.sources?.filter((s) => s.source === "docdb-terminations" && s.state === "unavailable").map((s) => <div className="operational-card" key={s.source}><h4>{t("ui.operational_health.terminations_unavailable")}</h4><p>{s.reason}</p></div>)}
+    {o.node_resources ? <NodeResourcesView key={o.node_resources.observed_until} resources={o.node_resources} /> : report.snapshot.sources?.filter((s) => s.source === "docdb-node-resources" && s.state === "unavailable").map((s) => <div className="operational-card" key={s.source}><h4>{t("ui.operational_health.node_resources_unavailable")}</h4><p>{s.reason?.text}</p></div>)}
+    {o.termination_history ? <TerminationHistoryView key={o.termination_history.requested_end} history={o.termination_history} report={report} /> : report.snapshot.sources?.filter((s) => s.source === "docdb-terminations" && s.state === "unavailable").map((s) => <div className="operational-card" key={s.source}><h4>{t("ui.operational_health.terminations_unavailable")}</h4><p>{s.reason?.text}</p></div>)}
     {o.spaces.length > 0 && <div className="operational-grid">{o.spaces.map((s) => {
       const growth = s.growth_enabled === null ? "unmeasured" : s.growth_enabled ? "configured" : "unavailable";
       return <div className="operational-card" key={`${s.scope}:${s.name}`}>

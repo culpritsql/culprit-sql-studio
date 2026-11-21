@@ -101,7 +101,11 @@ pub fn explain(evidence: ColumnstoreRowgroupEvidence<'_>) -> Result<ColumnstoreR
     Ok(ColumnstoreRowgroupReport {
         context,
         target: target.as_ref().clone(),
-        source: SourceOutcome { source: coverage.source.clone(), state, reason, reason_message: None },
+        source: SourceOutcome {
+            source: coverage.source.clone(),
+            state,
+            reason: (reason).map(culprit_core::LocalizedText::raw),
+        },
         read_complete: evidence.read_complete,
         native_rows: coverage.records,
         observed_rows: points.len() as u32,

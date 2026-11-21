@@ -65,7 +65,6 @@ fn snapshot(points: Vec<NativeCounterSet>) -> Snapshot {
         source: crate::source_id::MEMORY_CLERKS.into(),
         state: SourceState::Collected,
         reason: None,
-        reason_message: None,
     }];
     snapshot.pressure.get_or_insert_with(Default::default).resource_counters = Some(points);
     snapshot
@@ -87,10 +86,16 @@ fn clerk_withholding_keeps_unrelated_exact_counters_and_a_repeatable_family_gap(
     assert!(!text.contains("_canary"));
     let source = shared.sources.iter().find(|source| source.source == crate::source_id::MEMORY_CLERKS).unwrap();
     assert_eq!(source.state, SourceState::Unavailable);
-    assert_eq!(source.reason_message, Some(crate::message!("collected.memory_clerks.sharing_withheld")));
+    assert_eq!(
+        source.reason.as_ref().and_then(crate::LocalizedText::source).cloned(),
+        Some(crate::message!("collected.memory_clerks.sharing_withheld"))
+    );
     let again = crate::redact::redact_snapshot(&shared);
     let source_again = again.sources.iter().find(|source| source.source == crate::source_id::MEMORY_CLERKS).unwrap();
-    assert_eq!(source_again.reason_message, source.reason_message);
+    assert_eq!(
+        source_again.reason.as_ref().and_then(crate::LocalizedText::source).cloned(),
+        source.reason.as_ref().and_then(crate::LocalizedText::source).cloned()
+    );
     assert_eq!(source_again.state, SourceState::Unavailable);
     assert_eq!(
         serde_json::to_value(&again.pressure.as_ref().unwrap().resource_counters).unwrap(),

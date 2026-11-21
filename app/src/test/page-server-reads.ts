@@ -44,8 +44,7 @@ export function unavailablePageServerReads(): PageServerReadReport {
 
 export function pageServerReadHealthReport(view: PageServerReadReport | null = pageServerReadReport()): Report {
   return healthReportFixture({ snapshot: { id: "page-server-presentation", server: { engine: "postgres" }, pressure: null,
-    sources: view ? [] : [{ source: "query_store", state: "unavailable", reason: t("view.page_server_reads.invalid"),
-      reason_message: { kind: "catalog", key: "view.page_server_reads.invalid", arguments: {} } }],
+    sources: view ? [] : [{ source: "query_store", state: "unavailable", reason: { text: t("view.page_server_reads.invalid"), source: { kind: "catalog", key: "view.page_server_reads.invalid", arguments: {} } } }],
     resources: [], operations: { spaces: [], counters: [], sequences: [], multixacts: [], sqlite: null, cluster: null } },
     page_server_reads: view ?? undefined });
 }

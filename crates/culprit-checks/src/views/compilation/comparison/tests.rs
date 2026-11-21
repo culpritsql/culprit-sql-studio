@@ -31,7 +31,7 @@ fn after() -> NativeReadContext {
     context("2020-01-01T12:01:00Z", "2020-01-01T12:01:01Z")
 }
 fn source(state: SourceState) -> SourceOutcome {
-    SourceOutcome { source: "query compilation fixture".into(), state, reason: None, reason_message: None }
+    SourceOutcome { source: "query compilation fixture".into(), state, reason: None }
 }
 fn baseline(row: &OperationalObservation) -> CompilationBaseline {
     CompilationBaseline::from_observations(&row.source, Some(before()), Some(SourceState::Collected), &[row], None)

@@ -43,7 +43,7 @@ export function memoryClerkHealthReport(view: MemoryClerkReport | null = memoryC
   return healthReportFixture({
     snapshot: { id: "memory-clerk-presentation", server: { engine: "mssql" }, resources: [], pressure: null,
       sources: [{ source: "memory clerks", state: view ? "partial" : "unavailable",
-        reason: view ? null : t("collected.memory_clerks.source.unavailable") }],
+        reason: view ? null : { text: t("collected.memory_clerks.source.unavailable") } }],
       operations: { spaces: [], counters: [], sequences: [], multixacts: [], sqlite: null, cluster: null } },
     memory_clerks: view ?? undefined,
   });

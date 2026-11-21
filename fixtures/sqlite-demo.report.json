@@ -91,6 +91,7 @@
       "title": "Storage that's slow to read or write"
     }
   ],
+  "change_capture": {},
   "findings": [
     {
       "actionability": "needs-attention",
@@ -1000,10 +1001,16 @@
     "notes": [
       {
         "collector": "query log",
-        "message": "Read 3.5K statements from development.log (Rails): 7 shapes, the 5 heaviest kept, 5 planned."
+        "message": {
+          "text": "Read 3.5K statements from development.log (Rails): 7 shapes, the 5 heaviest kept, 5 planned."
+        }
       }
     ],
     "operations": {
+      "change_capture": {
+        "cdc": [],
+        "change_feed": []
+      },
       "cluster": null,
       "counters": [],
       "full_text_populations": [],
@@ -1020,11 +1027,7 @@
       "source_acquisitions": [],
       "spaces": [],
       "sqlite": null,
-      "table_memory": [],
-      "change_capture": {
-        "cdc": [],
-        "change_feed": []
-      }
+      "table_memory": []
     },
     "options": {
       "collect_memory_failures": false,
@@ -1057,23 +1060,33 @@
       "missing": [
         {
           "capability": "statistics",
-          "fix": "ANALYZE;",
-          "reason": "The file has no planner statistics (sqlite_stat1): the planner guesses how many rows each step reads."
+          "fix": {
+            "text": "ANALYZE;"
+          },
+          "reason": {
+            "text": "The file has no planner statistics (sqlite_stat1): the planner guesses how many rows each step reads."
+          }
         },
         {
           "capability": "index-usage",
           "fix": null,
-          "reason": "SQLite keeps no record of which indexes queries use."
+          "reason": {
+            "text": "SQLite keeps no record of which indexes queries use."
+          }
         },
         {
           "capability": "wait-stats",
           "fix": null,
-          "reason": "SQLite has no server, so nothing records waits."
+          "reason": {
+            "text": "SQLite has no server, so nothing records waits."
+          }
         },
         {
           "capability": "sessions",
           "fix": null,
-          "reason": "SQLite has no server, so no sessions to list."
+          "reason": {
+            "text": "SQLite has no server, so no sessions to list."
+          }
         }
       ],
       "platform": null,
@@ -1133,7 +1146,9 @@
         "state": "collected"
       },
       {
-        "reason": "The file has no sqlite_stat1 table; ANALYZE has not recorded planner statistics.",
+        "reason": {
+          "text": "The file has no sqlite_stat1 table; ANALYZE has not recorded planner statistics."
+        },
         "source": "statistics",
         "state": "not-applicable"
       },
@@ -2539,7 +2554,9 @@
       ],
       "query_count": 7.0,
       "source": "Rails log",
-      "source_label": "Rails log",
+      "source_label": {
+        "text": "Rails log"
+      },
       "timeline": null,
       "total_cpu_ms": null,
       "total_executions": 3546.0,
@@ -2733,6 +2750,5 @@
       "separator": " "
     },
     "top_share": 0.9887727501019123
-  },
-  "change_capture": {}
+  }
 }

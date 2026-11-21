@@ -918,7 +918,9 @@
       {
         "source": "file_capacity",
         "state": "unavailable",
-        "reason": "Storage evidence is unavailable or incomplete for this read."
+        "reason": {
+          "text": "Storage evidence is unavailable or incomplete for this read."
+        }
       },
       {
         "source": "log_capacity",
@@ -23955,7 +23957,9 @@
       {
         "source": "log_capacity",
         "state": "unavailable",
-        "reason": "Storage evidence is unavailable or incomplete for this read."
+        "reason": {
+          "text": "Storage evidence is unavailable or incomplete for this read."
+        }
       }
     ],
     "source_state": "partial",
@@ -26529,7 +26533,9 @@
       {
         "source": "file_capacity",
         "state": "unavailable",
-        "reason": "Storage evidence is unavailable or incomplete for this read."
+        "reason": {
+          "text": "Storage evidence is unavailable or incomplete for this read."
+        }
       }
     ],
     "source_state": "unavailable",

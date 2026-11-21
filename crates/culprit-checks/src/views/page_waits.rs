@@ -41,7 +41,7 @@ pub fn explain(
         cases.into_iter().map(|case| render(case, activity, &refused_generations)).collect::<Result<Vec<_>>>()?;
     Ok(PageWaitReport {
         source_state: source.map(|source| source.state),
-        source_reason: source.and_then(|source| source.reason.clone()),
+        source_reason: source.and_then(|source| source.reason_text().map(str::to_owned)),
         title: t!("view.page_waits.title"),
         summary: if observations.is_empty() {
             t!("view.page_waits.summary.empty")

@@ -44,7 +44,6 @@ fn absent_average_base_is_unknown_in_a_partial_original_and_zero_is_not_absence(
         source: culprit_core::source_id::PERFORMANCE_COUNTERS.into(),
         state: SourceState::Partial,
         reason: None,
-        reason_message: None,
     };
     let report = explain(&[point], Some(&source), false).unwrap();
     let entry = &report.entries[0];

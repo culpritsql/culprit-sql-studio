@@ -78,6 +78,7 @@ pub mod finding_facts;
 pub mod fingerprint;
 pub mod format;
 pub mod i18n;
+pub use i18n::LocalizedText;
 pub mod index_filter;
 pub mod insights;
 pub mod io_accounting;

@@ -5995,7 +5995,9 @@
       {
         "source": "azure-local-database-replica-state",
         "state": "unavailable",
-        "reason": "The native source reported an error or a visibility restriction; this does not establish empty replication state."
+        "reason": {
+          "text": "The native source reported an error or a visibility restriction; this does not establish empty replication state."
+        }
       }
     ],
     "read_complete": true,
@@ -7268,7 +7270,9 @@
       {
         "source": "hyperscale-replica-topology",
         "state": "unavailable",
-        "reason": "The native source reported an error or a visibility restriction; this does not establish empty replication state."
+        "reason": {
+          "text": "The native source reported an error or a visibility restriction; this does not establish empty replication state."
+        }
       }
     ],
     "read_complete": true,
@@ -8041,7 +8045,9 @@
       {
         "source": "pg_replication_slots",
         "state": "unavailable",
-        "reason": "The native source reported an error or a visibility restriction; this does not establish empty replication state."
+        "reason": {
+          "text": "The native source reported an error or a visibility restriction; this does not establish empty replication state."
+        }
       }
     ],
     "read_complete": true,
@@ -10026,12 +10032,16 @@
       {
         "source": "pg_stat_replication",
         "state": "unavailable",
-        "reason": "The native source reported an error or a visibility restriction; this does not establish empty replication state."
+        "reason": {
+          "text": "The native source reported an error or a visibility restriction; this does not establish empty replication state."
+        }
       },
       {
         "source": "pg_replication_slots",
         "state": "unavailable",
-        "reason": "The native source reported an error or a visibility restriction; this does not establish empty replication state."
+        "reason": {
+          "text": "The native source reported an error or a visibility restriction; this does not establish empty replication state."
+        }
       }
     ],
     "read_complete": true,

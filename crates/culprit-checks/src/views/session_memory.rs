@@ -25,7 +25,7 @@ pub fn explain(
     limitations.extend(memory_participants::source_limitation(source));
     Ok(MemoryParticipantsReport {
         source_state: source.map(|source| source.state),
-        source_reason: source.and_then(|source| source.reason.clone()),
+        source_reason: source.and_then(|source| source.reason_text().map(str::to_owned)),
         title: t!("view.session_memory.title"),
         summary: if observations.is_empty() {
             t!("view.session_memory.summary.empty")

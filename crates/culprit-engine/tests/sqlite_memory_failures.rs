@@ -33,7 +33,6 @@ fn analyze_log(code: Value) -> Report {
         source: source_id::QUERY_LOG.into(),
         state: SourceState::Collected,
         reason: None,
-        reason_message: None,
     });
     snapshot.operations.log_failures = log.failures();
     snapshot.workload = Some(log.workload(format, 100));

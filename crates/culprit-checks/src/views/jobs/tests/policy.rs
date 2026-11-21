@@ -97,5 +97,6 @@ fn the_scan_pipeline_retains_conflicting_raw_facts_but_emits_an_unavailable_sour
     assert_eq!(serde_json::to_value(&report.snapshot.operations.jobs).unwrap(), original);
     assert!(report.snapshot.sources.iter().any(|source| source.source == TIMESCALE_JOBS_SOURCE
         && source.state == SourceState::Unavailable
-        && source.reason_message == Some(culprit_core::message!("view.jobs.invalid"))));
+        && source.reason.as_ref().and_then(culprit_core::LocalizedText::source).cloned()
+            == Some(culprit_core::message!("view.jobs.invalid"))));
 }

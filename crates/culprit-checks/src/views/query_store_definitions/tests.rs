@@ -265,12 +265,8 @@ impl Fixture {
         selected: u32,
         complete: bool,
     ) -> Result<culprit_core::CompilationReport> {
-        let outcome = SourceOutcome {
-            source: self.compilation.source.clone(),
-            state: SourceState::Collected,
-            reason: None,
-            reason_message: None,
-        };
+        let outcome =
+            SourceOutcome { source: self.compilation.source.clone(), state: SourceState::Collected, reason: None };
         let read = self.definition_read(selected)?;
         crate::compilation::explain(crate::compilation::CompilationEvidence {
             context: Some(&self.compiler_context),

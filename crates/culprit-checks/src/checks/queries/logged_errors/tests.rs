@@ -14,7 +14,6 @@ fn snapshot(code: &str, last_at: Option<&str>) -> Snapshot {
         source: source_id::QUERY_LOG.into(),
         state: SourceState::Collected,
         reason: None,
-        reason_message: None,
     });
     snapshot.operations.log_failures = vec![LoggedFailure {
         query_id: "affected-statement".into(),

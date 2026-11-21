@@ -253,12 +253,7 @@ async fn reservation_demand_mcp_replays_canonical_original_waiter_advice_without
         let native = &source.observation.snapshot().unwrap().sources[0];
         let expected = culprit_checks::request_memory::explain(
             culprit_checks::request_memory::RequestMemoryEvidence { context: &context, observations: &observations },
-            Some(&culprit_core::SourceOutcome {
-                source: native.source.clone(),
-                state: native.state,
-                reason: None,
-                reason_message: None,
-            }),
+            Some(&culprit_core::SourceOutcome { source: native.source.clone(), state: native.state, reason: None }),
         )
         .unwrap();
         let expected_waiter =

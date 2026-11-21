@@ -65,3 +65,37 @@ async fn a_missing_original_view_row_keeps_the_native_population_and_partial_rec
     assert_eq!(report.source.state, SourceState::Partial);
     assert_eq!(capture.metrics().recovery_objects, 0);
 }
+
+#[tokio::test]
+async fn indexed_view_canonical_receipts_and_payload_bytes_survive_a_different_reader_locale() {
+    let (source, records) = indexed_views_evidence(IndexedViewsCase::Present);
+    let fixture = Fixture::new(source.clone(), records.clone()).await;
+    let opened = fixture.recovery_object_reads();
+    let original = culprit_core::i18n::scope_async("en", fixture.read_families(FAMILY)).await;
+    assert_table_metadata_capture(&original, &source, &records);
+    let original_rows = original
+        .records()
+        .iter()
+        .map(|record| {
+            (serde_json::to_vec(record.row()).unwrap(), record.native_payload_sha256().to_owned(), record.row_ordinal())
+        })
+        .collect::<Vec<_>>();
+    let restored = culprit_core::i18n::scope_async("fr", fixture.read_families(FAMILY)).await;
+    assert_table_metadata_capture(&restored, &source, &records);
+    for (record, (bytes, digest, ordinal)) in restored.records().iter().zip(original_rows) {
+        assert_eq!(serde_json::to_vec(record.row()).unwrap(), bytes);
+        assert_eq!(record.native_payload_sha256(), digest);
+        assert_eq!(record.row().payload_sha256().unwrap(), digest);
+        assert_eq!(record.row_ordinal(), ordinal);
+        let encoded = serde_json::to_vec(record.row()).unwrap();
+        let decoded: ExportedRecord = culprit_core::i18n::scope("de", || serde_json::from_slice(&encoded).unwrap());
+        assert_eq!(&decoded, record.row());
+        assert_eq!(decoded.payload_sha256().unwrap(), digest);
+    }
+    let report =
+        culprit_core::i18n::scope("fr", || culprit_engine::collected_resources::indexed_views(&restored)).unwrap();
+    assert_eq!(report.report.entries.len(), 2);
+    assert_eq!(original.metrics().recovery_objects, 0);
+    assert_eq!(restored.metrics().recovery_objects, 0);
+    assert_eq!(fixture.recovery_object_reads(), opened);
+}

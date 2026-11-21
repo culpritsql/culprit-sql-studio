@@ -246,8 +246,7 @@ fn a_source_only_gap_is_explicit_and_does_not_render_private_reason_text() {
     data.snapshot.sources = vec![SourceOutcome {
         source: CACHED_RUNTIME_READ_SOURCE.into(),
         state: SourceState::Unavailable,
-        reason: Some("private-permission-query-canary".into()),
-        reason_message: None,
+        reason: Some(culprit_core::LocalizedText::raw("private-permission-query-canary")),
     }];
     let value = compact(&data);
     assert_eq!(value["completed_spills_unavailable"]["sources"][0]["state"], "unavailable");

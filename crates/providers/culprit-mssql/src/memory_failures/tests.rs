@@ -160,7 +160,7 @@ async fn native_failure_stops_rechecks_and_only_confirmed_permissions_add_source
         assert_eq!(reader.closed, 1);
         assert_eq!(state(&coverage), SourceState::Unavailable);
         let (_, _, notes) = coverage.finish();
-        assert_eq!(notes.iter().any(|note| note.message.contains("VIEW SERVER PERFORMANCE STATE")), permission);
+        assert_eq!(notes.iter().any(|note| note.message.text().contains("VIEW SERVER PERFORMANCE STATE")), permission);
     }
     let mut reader = FakeRead::new(vec![Err(Error::new(ErrorCode::PermissionDenied, "pool metadata denied").into())]);
     let (snapshot, coverage) = collect_from(&mut reader, true, 5).await;
@@ -168,7 +168,7 @@ async fn native_failure_stops_rechecks_and_only_confirmed_permissions_add_source
     assert_eq!(reader.calls.len(), 1);
     let (_, _, notes) = coverage.finish();
     assert!(
-        !notes.iter().any(|note| note.message.contains("VIEW SERVER PERFORMANCE STATE")),
+        !notes.iter().any(|note| note.message.text().contains("VIEW SERVER PERFORMANCE STATE")),
         "metadata denial cannot invent an OOM-view grant requirement"
     );
 }

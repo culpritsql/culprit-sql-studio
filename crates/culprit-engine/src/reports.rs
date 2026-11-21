@@ -828,7 +828,7 @@ mod tests {
             limited = "yes",
             role = "42"
         );
-        workload.source_message = Some(message.clone());
+        workload.set_source_label(message.clone());
         let history_source = culprit_core::message!(
             "model.observation.source.ysql",
             relation = "yb_pg_stat_plans",
@@ -843,10 +843,8 @@ mod tests {
             culprit_core::i18n::Message::paragraph(vec![initial_history_note.clone(), partial_history_note.clone()]);
         let query_id = workload.queries[0].id.clone();
         workload.queries[0].plan_history = Some(culprit_core::PlanHistory {
-            source: String::new(),
-            source_message: Some(history_source.clone()),
-            note: String::new(),
-            note_message: Some(initial_history_note),
+            source: culprit_core::LocalizedText::new(history_source.clone()),
+            note: culprit_core::LocalizedText::new(initial_history_note),
             kind: culprit_core::PlanHistoryKind::Cache,
             captured_plan_id: None,
             captured_plan: None,
@@ -865,35 +863,48 @@ mod tests {
         let resources_source = culprit_core::message!("provider.yugabyte.resources.source");
         let tracker_name = culprit_core::message!("provider.yugabyte.resources.root_tracker");
         let activity = snapshot.operations.activity_history.as_mut().unwrap();
-        activity.period.source_message = Some(activity_source.clone());
-        activity.period.note_messages = Some(vec![weights.clone()]);
-        snapshot.operations.termination_history.as_mut().unwrap().visibility_message = Some(visibility.clone());
+        activity.period.source.set(activity_source.clone());
+        activity.period.notes = vec!["raw native context".into(), weights.clone().into(), "raw trailing note".into()];
+        snapshot.operations.termination_history.as_mut().unwrap().visibility.set(visibility.clone());
         let resources = snapshot.operations.node_resources.as_mut().unwrap();
-        resources.source_message = Some(resources_source.clone());
-        resources.nodes[0].process_memory.as_mut().unwrap().name_message = Some(tracker_name.clone());
+        resources.source.set(resources_source.clone());
+        resources.nodes[0].process_memory.as_mut().unwrap().name.set(tracker_name.clone());
         scope("fr", || save(&dir, &culprit_checks::analyze(snapshot.clone())).unwrap());
         let stored: serde_json::Value =
             serde_json::from_slice(&fs::read(dir.join(format!("{}.json", snapshot.id))).unwrap()).unwrap();
-        assert_eq!(stored["snapshot"]["operations"]["activity_history"]["period"]["source"], "");
-        assert_eq!(stored["snapshot"]["operations"]["activity_history"]["period"]["notes"], serde_json::json!([]));
+        assert_eq!(stored["snapshot"]["operations"]["activity_history"]["period"]["source"]["text"], "");
+        let notes = &stored["snapshot"]["operations"]["activity_history"]["period"]["notes"];
+        assert_eq!(notes[0]["text"], "raw native context");
+        assert!(notes[0]["source"].is_null());
+        assert_eq!(notes[1]["text"], "");
+        assert_eq!(notes[2]["text"], "raw trailing note");
         for language in ["en", "fr", "de", "es"] {
             scope(language, || {
                 let restored = load_snapshot(&dir.join(format!("{}.json", snapshot.id))).unwrap();
                 let workload = restored.workload.as_ref().unwrap();
                 assert_eq!(workload.source, source);
                 assert_eq!(workload.source_name(), message.render());
-                assert_eq!(workload.source_label.as_deref(), Some(message.render().as_str()));
+                assert_eq!(
+                    workload.source_label.as_ref().map(culprit_core::LocalizedText::text),
+                    Some(message.render().as_str())
+                );
                 let history =
                     workload.queries.iter().find(|q| q.id == query_id).unwrap().plan_history.as_ref().unwrap();
-                assert_eq!(history.source, history_source.render());
-                assert_eq!(history.note, history_note.render());
+                assert_eq!(history.source.text(), history_source.render());
+                assert_eq!(history.note.text(), history_note.render());
                 let activity = restored.operations.activity_history.as_ref().unwrap();
-                assert_eq!(activity.period.source, activity_source.render());
-                assert_eq!(activity.period.notes, vec![weights.render()]);
-                assert_eq!(restored.operations.termination_history.as_ref().unwrap().visibility, visibility.render());
+                assert_eq!(activity.period.source.text(), activity_source.render());
+                assert_eq!(
+                    activity.period.notes.iter().map(culprit_core::LocalizedText::text).collect::<Vec<_>>(),
+                    vec!["raw native context", weights.render().as_str(), "raw trailing note"]
+                );
+                assert_eq!(
+                    restored.operations.termination_history.as_ref().unwrap().visibility.text(),
+                    visibility.render()
+                );
                 let resources = restored.operations.node_resources.as_ref().unwrap();
-                assert_eq!(resources.source, resources_source.render());
-                assert_eq!(resources.nodes[0].process_memory.as_ref().unwrap().name, tracker_name.render());
+                assert_eq!(resources.source.text(), resources_source.render());
+                assert_eq!(resources.nodes[0].process_memory.as_ref().unwrap().name.text(), tracker_name.render());
             });
         }
         fs::remove_dir_all(dir).unwrap();
@@ -963,14 +974,17 @@ mod tests {
                 );
                 let restored = load_snapshot(&dir.join(format!("{}.json", snapshot.id))).unwrap();
                 let missing = restored.missing_workload().unwrap();
-                assert_eq!(missing.reason, summary.no_workload.unwrap());
+                assert_eq!(missing.reason.text(), summary.no_workload.unwrap());
                 assert_eq!(
-                    missing.fix,
-                    Some(culprit_core::t!("provider.postgres.capability.statements.create", sql = sql))
+                    missing.fix.as_ref().map(culprit_core::LocalizedText::text),
+                    Some(culprit_core::t!("provider.postgres.capability.statements.create", sql = sql).as_str())
                 );
                 let action = missing.action.as_ref().unwrap();
                 assert_eq!(action.sql, sql);
-                assert_eq!(action.detail, Some(culprit_core::t!("provider.postgres.capability.statements.preloaded")));
+                assert_eq!(
+                    action.detail.as_ref().map(culprit_core::LocalizedText::text),
+                    Some(culprit_core::t!("provider.postgres.capability.statements.preloaded").as_str())
+                );
             });
         }
         fs::remove_dir_all(dir).unwrap();

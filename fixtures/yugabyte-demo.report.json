@@ -135,6 +135,7 @@
       "title": "Storage that's slow to read or write"
     }
   ],
+  "change_capture": {},
   "findings": [
     {
       "actionability": "optional-improvement",
@@ -1117,11 +1118,15 @@
     "notes": [
       {
         "collector": "YSQL scope",
-        "message": "Statement totals cover connected YB-TServer 3d2d9e10555b4ae2a683a8402505e416 only. Cluster-wide statistics require configured, enabled global views and pg_read_all_stats; Culprit does not enable the preview automatically."
+        "message": {
+          "text": "Statement totals cover connected YB-TServer 3d2d9e10555b4ae2a683a8402505e416 only. Cluster-wide statistics require configured, enabled global views and pg_read_all_stats; Culprit does not enable the preview automatically."
+        }
       },
       {
         "collector": "DocDB measurements",
-        "message": "PostgreSQL heap pages, buffer ratios, vacuum/dead tuples and XID ages do not describe DocDB. These fields are unknown; YSQL statistics and native DocDB metrics retain their own units."
+        "message": {
+          "text": "PostgreSQL heap pages, buffer ratios, vacuum/dead tuples and XID ages do not describe DocDB. These fields are unknown; YSQL statistics and native DocDB metrics retain their own units."
+        }
       }
     ],
     "operations": {
@@ -3448,18 +3453,30 @@
             "3d2d9e10555b4ae2a683a8402505e416"
           ],
           "notes": [
-            "Weights describe sampled active tasks, not query elapsed time, exclusive wait time, or CPU utilization. YSQL and DocDB components can execute concurrently.",
-            "The circular buffer can evict observations, short tasks can fall between samples, and sampling cadence can change. First/last samples do not prove continuous coverage of the requested period.",
-            "Database-scoped activity can include administrative and monitoring work. Background records without this database's identity are excluded."
+            {
+              "text": "Weights describe sampled active tasks, not query elapsed time, exclusive wait time, or CPU utilization. YSQL and DocDB components can execute concurrently."
+            },
+            {
+              "text": "The circular buffer can evict observations, short tasks can fall between samples, and sampling cadence can change. First/last samples do not prove continuous coverage of the requested period."
+            },
+            {
+              "text": "Database-scoped activity can include administrative and monitoring work. Background records without this database's identity are excluded."
+            }
           ],
           "observations": 720.0,
           "partial": false,
           "requested_end": "2026-10-24T06:52:49.190547Z",
           "requested_start": "2026-10-17T06:52:49.190547Z",
           "scope": "node",
-          "source": "yb_active_session_history (node 3d2d9e10555b4ae2a683a8402505e416)",
+          "source": {
+            "text": "yb_active_session_history (node 3d2d9e10555b4ae2a683a8402505e416)"
+          },
           "weighted_observations": 720.0
         }
+      },
+      "change_capture": {
+        "cdc": [],
+        "change_feed": []
       },
       "cluster": null,
       "counters": [],
@@ -3486,7 +3503,9 @@
                 "bytes": 2147483648.0,
                 "kind": "bytes"
               },
-              "name": "YB-TServer root memory tracker",
+              "name": {
+                "text": "YB-TServer root memory tracker"
+              },
               "soft_limit": {
                 "bytes": 1825361100.0,
                 "kind": "bytes"
@@ -3497,14 +3516,22 @@
         ],
         "nodes_expected": 1,
         "notes": [
-          "Host CPU and memory are shared with other databases and processes; these measurements do not grade the selected database's pressure or identify which queries caused load.",
-          "CPU fields are user/system fractions from a short native sample. Exact per-node sample timestamps and duration are not returned; the observation interval bounds this read, not a workload history.",
-          "Host memory can describe the VM or host rather than a container's allocation. The TServer root tracker is neither process RSS nor total YSQL-backend memory; its own limits stay separate from host capacity."
+          {
+            "text": "Host CPU and memory are shared with other databases and processes; these measurements do not grade the selected database's pressure or identify which queries caused load."
+          },
+          {
+            "text": "CPU fields are user/system fractions from a short native sample. Exact per-node sample timestamps and duration are not returned; the observation interval bounds this read, not a workload history."
+          },
+          {
+            "text": "Host memory can describe the VM or host rather than a container's allocation. The TServer root tracker is neither process RSS nor total YSQL-backend memory; its own limits stay separate from host capacity."
+          }
         ],
         "observed_from": "2026-10-24T06:52:49.406861Z",
         "observed_until": "2026-10-24T06:52:49.917691Z",
         "partial": false,
-        "source": "yb_servers_metrics · shared YB-TServer nodes"
+        "source": {
+          "text": "yb_servers_metrics · shared YB-TServer nodes"
+        }
       },
       "numa_nodes": [],
       "process_cpu_originals": [],
@@ -3695,20 +3722,26 @@
           "3d2d9e10555b4ae2a683a8402505e416"
         ],
         "notes": [
-          "This evictable buffer records unexpected backend terminations and temporary-file-limit failures, not all SQL errors, timeouts, cancellations or deadlocks. Empty history does not prove that no queries failed.",
-          "Records have their own dates and retention, independent of statement-statistics resets. They do not establish a failure rate, failed business requests, or an ongoing incident.",
-          "SIGKILL alone does not prove an out-of-memory kill; inspect the node's logs. Raw SQL and free-form termination messages were not collected."
+          {
+            "text": "This evictable buffer records unexpected backend terminations and temporary-file-limit failures, not all SQL errors, timeouts, cancellations or deadlocks. Empty history does not prove that no queries failed."
+          },
+          {
+            "text": "Records have their own dates and retention, independent of statement-statistics resets. They do not establish a failure rate, failed business requests, or an ongoing incident."
+          },
+          {
+            "text": "SIGKILL alone does not prove an out-of-memory kill; inspect the node's logs. Raw SQL and free-form termination messages were not collected."
+          }
         ],
         "partial": false,
         "requested_end": "2026-10-24T06:52:49.190547Z",
         "requested_start": "2026-10-17T06:52:49.190547Z",
         "scope": "node",
-        "source": "yb_terminated_queries (node 3d2d9e10555b4ae2a683a8402505e416)",
-        "visibility": "Complete monitoring privilege for this database"
-      },
-      "change_capture": {
-        "cdc": [],
-        "change_feed": []
+        "source": {
+          "text": "yb_terminated_queries (node 3d2d9e10555b4ae2a683a8402505e416)"
+        },
+        "visibility": {
+          "text": "Complete monitoring privilege for this database"
+        }
       }
     },
     "options": {
@@ -3743,8 +3776,12 @@
       "missing": [
         {
           "capability": "index-usage",
-          "fix": "Have an administrator configure and authorize YugabyteDB's global views before collecting cluster-wide index usage.",
-          "reason": "Node-local index counters cannot establish cluster-wide usage"
+          "fix": {
+            "text": "Have an administrator configure and authorize YugabyteDB's global views before collecting cluster-wide index usage."
+          },
+          "reason": {
+            "text": "Node-local index counters cannot establish cluster-wide usage"
+          }
         }
       ],
       "platform": null,
@@ -5184,7 +5221,9 @@
         "state": "collected"
       },
       {
-        "reason": "Native counters are recorded only while their YSQL collection flags are enabled; disabled families remain unknown, and their totals do not reconstruct work performed before collection began.",
+        "reason": {
+          "text": "Native counters are recorded only while their YSQL collection flags are enabled; disabled families remain unknown, and their totals do not reconstruct work performed before collection began."
+        },
         "source": "query costs",
         "state": "collected"
       },
@@ -5199,7 +5238,9 @@
         "state": "collected"
       },
       {
-        "reason": "Node-local index counters cannot prove cluster-wide use or absence. Configured, enabled global views are required.",
+        "reason": {
+          "text": "Node-local index counters cannot prove cluster-wide use or absence. Configured, enabled global views are required."
+        },
         "source": "docdb-index-usage",
         "state": "unavailable"
       },
@@ -5916,8 +5957,12 @@
             },
             "captured_plan_id": "-235985156820883037",
             "kind": "cache",
-            "note": "Retained plan-cache entries have their own first/last-use dates, resets and evictions. Their calls and timings are independent of this statement's statistics window; a cache entry's first use does not prove when its plan was introduced.",
-            "source": "yb_pg_stat_plans (node 3d2d9e10555b4ae2a683a8402505e416)"
+            "note": {
+              "text": "Retained plan-cache entries have their own first/last-use dates, resets and evictions. Their calls and timings are independent of this statement's statistics window; a cache entry's first use does not prove when its plan was introduced."
+            },
+            "source": {
+              "text": "yb_pg_stat_plans (node 3d2d9e10555b4ae2a683a8402505e416)"
+            }
           },
           "plan_id": null,
           "plans": [
@@ -6407,8 +6452,12 @@
             },
             "captured_plan_id": "-3627985068787917270",
             "kind": "cache",
-            "note": "Retained plan-cache entries have their own first/last-use dates, resets and evictions. Their calls and timings are independent of this statement's statistics window; a cache entry's first use does not prove when its plan was introduced.",
-            "source": "yb_pg_stat_plans (node 3d2d9e10555b4ae2a683a8402505e416)"
+            "note": {
+              "text": "Retained plan-cache entries have their own first/last-use dates, resets and evictions. Their calls and timings are independent of this statement's statistics window; a cache entry's first use does not prove when its plan was introduced."
+            },
+            "source": {
+              "text": "yb_pg_stat_plans (node 3d2d9e10555b4ae2a683a8402505e416)"
+            }
           },
           "plan_id": null,
           "plans": [
@@ -6881,8 +6930,12 @@
             },
             "captured_plan_id": "1037543280030318267",
             "kind": "cache",
-            "note": "Retained plan-cache entries have their own first/last-use dates, resets and evictions. Their calls and timings are independent of this statement's statistics window; a cache entry's first use does not prove when its plan was introduced.",
-            "source": "yb_pg_stat_plans (node 3d2d9e10555b4ae2a683a8402505e416)"
+            "note": {
+              "text": "Retained plan-cache entries have their own first/last-use dates, resets and evictions. Their calls and timings are independent of this statement's statistics window; a cache entry's first use does not prove when its plan was introduced."
+            },
+            "source": {
+              "text": "yb_pg_stat_plans (node 3d2d9e10555b4ae2a683a8402505e416)"
+            }
           },
           "plan_id": null,
           "plans": [
@@ -7567,8 +7620,12 @@
             },
             "captured_plan_id": "-8345723963170102064",
             "kind": "cache",
-            "note": "Retained plan-cache entries have their own first/last-use dates, resets and evictions. Their calls and timings are independent of this statement's statistics window; a cache entry's first use does not prove when its plan was introduced.",
-            "source": "yb_pg_stat_plans (node 3d2d9e10555b4ae2a683a8402505e416)"
+            "note": {
+              "text": "Retained plan-cache entries have their own first/last-use dates, resets and evictions. Their calls and timings are independent of this statement's statistics window; a cache entry's first use does not prove when its plan was introduced."
+            },
+            "source": {
+              "text": "yb_pg_stat_plans (node 3d2d9e10555b4ae2a683a8402505e416)"
+            }
           },
           "plan_id": null,
           "plans": [
@@ -7894,8 +7951,12 @@
             },
             "captured_plan_id": "1767271698225980175",
             "kind": "cache",
-            "note": "Retained plan-cache entries have their own first/last-use dates, resets and evictions. Their calls and timings are independent of this statement's statistics window; a cache entry's first use does not prove when its plan was introduced.",
-            "source": "yb_pg_stat_plans (node 3d2d9e10555b4ae2a683a8402505e416)"
+            "note": {
+              "text": "Retained plan-cache entries have their own first/last-use dates, resets and evictions. Their calls and timings are independent of this statement's statistics window; a cache entry's first use does not prove when its plan was introduced."
+            },
+            "source": {
+              "text": "yb_pg_stat_plans (node 3d2d9e10555b4ae2a683a8402505e416)"
+            }
           },
           "plan_id": null,
           "plans": [
@@ -8110,6 +8171,5 @@
       "separator": " "
     },
     "top_share": 0.8832246696651375
-  },
-  "change_capture": {}
+  }
 }

@@ -8,7 +8,7 @@ pub(crate) fn columnstore_rowgroups(report: &ColumnstoreRowgroupReport) -> Strin
             summary: &report.summary,
             source: SourceQualification::Single {
                 state: Some(report.source.state),
-                reason: report.source.reason.as_deref(),
+                reason: report.source.reason_text(),
             },
             limitations: &report.limitations,
         },

@@ -5,7 +5,7 @@ import { t } from "../lib/i18n";
 
 const PAGE_SIZE = 10;
 
-type ReadSource = { source: string; state: SourceOutcome["state"] | null; reason?: string | null };
+type ReadSource = { source: string; state: SourceOutcome["state"] | null; reason?: SourceOutcome["reason"] };
 
 type ObservationReport<Entry> = {
   title: string;
@@ -29,7 +29,7 @@ export function ObservationList<Entry>({ source, time, report, scope, renderEntr
   const lastPage = Math.max(0, Math.ceil(report.entries.length / PAGE_SIZE) - 1);
   const currentPage = Math.min(page, lastPage);
   const first = currentPage * PAGE_SIZE;
-  const sources = "sources" in report ? report.sources : [{ source, state: report.source_state, reason: report.source_reason }];
+  const sources = "sources" in report ? report.sources : [{ source, state: report.source_state, reason: report.source_reason == null ? null : { text: report.source_reason } }];
   const observations = <>
     <div className="operational-grid observation-grid">
       {report.entries.slice(first, first + PAGE_SIZE).map(renderEntry)}
@@ -63,7 +63,7 @@ export function ObservationList<Entry>({ source, time, report, scope, renderEntr
 export function observationReadIssue(source: string, sources: SourceOutcome[], requested = false): SourceOutcome | undefined {
   const outcome = sources.find((outcome) => outcome.source === source);
   if (!outcome) {
-    return requested ? { source, state: "unavailable", reason: t("ui.observation_list.source_unknown") } : undefined;
+    return requested ? { source, state: "unavailable", reason: { text: t("ui.observation_list.source_unknown") } } : undefined;
   }
   return (
     outcome.state === "partial" || outcome.state === "unavailable" || (requested && outcome.state === "not-applicable")
@@ -98,7 +98,7 @@ export function ObservationReadQualifications({ sources }: { sources: ReadSource
 
 export function ObservationReadReasons({ sources, showUnknown = false }: { sources: ReadSource[]; showUnknown?: boolean }) {
   return sources.map((source) => {
-    const reason = source.reason ?? (showUnknown ? t("ui.observation_list.source_unknown") : null);
+    const reason = source.reason?.text ?? (showUnknown ? t("ui.observation_list.source_unknown") : null);
     return reason && <p className="muted" key={source.source}>{sources.length > 1 && <>{source.source} · </>}{reason}</p>;
   });
 }

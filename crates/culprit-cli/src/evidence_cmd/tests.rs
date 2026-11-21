@@ -437,12 +437,7 @@ fn tuning_text_uses_existing_source_qualification_and_bounded_titles_without_pay
         verify: Message::from("capture again"),
     };
     let report = TuningReport {
-        sources: vec![SourceOutcome {
-            source: "native-source".into(),
-            state: SourceState::Partial,
-            reason: None,
-            reason_message: None,
-        }],
+        sources: vec![SourceOutcome { source: "native-source".into(), state: SourceState::Partial, reason: None }],
         title: Message::from("Recorded tuning"),
         summary: Message::from("Retained native observations"),
         limitations: vec![Message::from("Unknown scope remains unknown")],
@@ -496,7 +491,6 @@ fn cached_grant_text_preserves_independent_qualification_and_bounds_entry_explan
             source: "native-grants".into(),
             state: culprit_core::SourceState::Partial,
             reason: None,
-            reason_message: None,
         }],
         reads: vec![],
         title: Message::from("Cached grant history"),

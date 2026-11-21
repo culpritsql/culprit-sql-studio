@@ -129,7 +129,7 @@ fn report(
         summary: t!("view.table_full_text.summary", count = format::digits(entries.len().to_string())),
         source_state: source.map(|source| source.state),
         source_reason: source.and_then(|source| {
-            source.reason.clone().or_else(|| {
+            source.reason_text().map(str::to_owned).or_else(|| {
                 (source.state == SourceState::Unavailable).then(|| t!("view.table_full_text.source.unavailable"))
             })
         }),

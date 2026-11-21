@@ -20,7 +20,7 @@ fn forced(scope: QueryStoreScope) -> TuningObservation {
     }
 }
 fn outcome(state: SourceState) -> SourceOutcome {
-    SourceOutcome { source: "forced plans".into(), state, reason: None, reason_message: None }
+    SourceOutcome { source: "forced plans".into(), state, reason: None }
 }
 #[test]
 fn independent_native_scope_and_exact_counter_arguments_do_not_authorize_a_command_or_workload_join() {

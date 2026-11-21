@@ -295,6 +295,7 @@
       "title": "Actual plans without re-running queries"
     }
   ],
+  "change_capture": {},
   "findings": [
     {
       "actionability": "needs-attention",
@@ -1963,6 +1964,10 @@
     "missing_indexes": [],
     "notes": [],
     "operations": {
+      "change_capture": {
+        "cdc": [],
+        "change_feed": []
+      },
       "cluster": null,
       "counters": [],
       "full_text_populations": [],
@@ -1980,11 +1985,7 @@
       "source_acquisitions": [],
       "spaces": [],
       "sqlite": null,
-      "table_memory": [],
-      "change_capture": {
-        "cdc": [],
-        "change_feed": []
-      }
+      "table_memory": []
     },
     "options": {
       "collect_memory_failures": false,
@@ -4500,8 +4501,12 @@
             "sql": "ALTER DATABASE CURRENT SET QUERY_STORE = ON;"
           },
           "capability": "query-store",
-          "fix": "ALTER DATABASE CURRENT SET QUERY_STORE = ON;",
-          "reason": "Query Store is OFF on this database."
+          "fix": {
+            "text": "ALTER DATABASE CURRENT SET QUERY_STORE = ON;"
+          },
+          "reason": {
+            "text": "Query Store is OFF on this database."
+          }
         }
       ],
       "platform": null,
@@ -4923,7 +4928,9 @@
     "sizes_before": null,
     "sources": [
       {
-        "reason": "Query Store is OFF on this database.",
+        "reason": {
+          "text": "Query Store is OFF on this database."
+        },
         "source": "query_store",
         "state": "unavailable"
       },
@@ -5549,6 +5556,5 @@
     "runs_said": [],
     "takeaway": null,
     "top_share": null
-  },
-  "change_capture": {}
+  }
 }

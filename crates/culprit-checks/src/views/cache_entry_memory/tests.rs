@@ -144,12 +144,7 @@ fn clocks_source_mismatches_and_repeated_entries_are_rejected() {
     native(&mut wrong_clock).observed_at = "1900-01-01T00:00:00Z".into();
     wrong_clock.key = native(&mut wrong_clock).key().unwrap();
     assert!(explain(&context(), &[&wrong_clock], None).is_err());
-    let source = SourceOutcome {
-        source: "different-native-source".into(),
-        state: SourceState::Partial,
-        reason: None,
-        reason_message: None,
-    };
+    let source = SourceOutcome { source: "different-native-source".into(), state: SourceState::Partial, reason: None };
     assert!(explain(&context(), &[&row], Some(&source)).is_err());
     let mut target = context();
     target.partition = SourcePartition::Target;
@@ -161,8 +156,7 @@ fn unavailable_or_empty_selected_reads_never_claim_a_healthy_empty_cache() {
     let source = SourceOutcome {
         source: "selected-cache-memory".into(),
         state: SourceState::Unavailable,
-        reason: Some("native metadata denied".into()),
-        reason_message: None,
+        reason: Some(culprit_core::LocalizedText::raw("native metadata denied")),
     };
     let report = explain(&context(), &[], Some(&source)).unwrap();
     assert!(report.entries.is_empty());

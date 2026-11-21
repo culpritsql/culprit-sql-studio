@@ -161,7 +161,7 @@ async fn a_stricter_query_budget_cannot_be_reset_to_make_room_for_the_final_owne
     assert_eq!(reader.query_count(), 8);
     assert_eq!(state(&coverage), SourceState::Unavailable);
     assert_eq!(closed(&reader), 1);
-    assert!(coverage.outcomes().iter().any(|source| source.reason.as_ref().is_some_and(|reason| !reason.is_empty())));
+    assert!(coverage.outcomes().iter().any(|source| source.reason_text().is_some_and(|reason| !reason.is_empty())));
 }
 
 #[tokio::test]

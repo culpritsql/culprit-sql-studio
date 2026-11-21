@@ -642,8 +642,8 @@ mod tests {
         assert_eq!(state, SourceState::Partial);
         let outcome =
             coverage.outcomes().into_iter().find(|source| source.source == sources::OPEN_TRANSACTIONS.name).unwrap();
-        assert!(outcome.reason_message.is_some());
-        assert!(outcome.reason.unwrap().contains("complete cleanup boundary is unknown"));
+        assert!(outcome.reason.as_ref().and_then(culprit_core::LocalizedText::source).is_some());
+        assert!(outcome.reason_text().unwrap().contains("complete cleanup boundary is unknown"));
         let mut pressure = Pressure::default();
         project_cleanup(
             &mut pressure,

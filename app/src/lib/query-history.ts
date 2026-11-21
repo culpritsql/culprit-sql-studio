@@ -20,7 +20,7 @@ export function queryHistoryEmptyState(report: Report): QueryHistoryEmptyState |
       kind: "choose-group",
       title: t("ui.population_picker.label"),
       detail: t("ui.population_picker.required"),
-      sourceReason: ((source?.state === "partial" || source?.state === "unavailable") ? source.reason : null) ?? missing?.reason ?? null,
+      sourceReason: ((source?.state === "partial" || source?.state === "unavailable") ? source.reason?.text : null) ?? missing?.reason.text ?? null,
     };
   }
   return {

@@ -156,8 +156,10 @@ fn source_denial_and_missing_body_do_not_lend_other_members_roles_or_create_zero
     let partial = report(&source, &rows[..1], false).unwrap();
     assert_eq!(partial.native_rows, Some(2));
     assert_eq!(partial.observed_rows, 1);
-    assert!(partial.sources.iter().all(|s| s.state == SourceState::Partial
-        && s.reason.as_deref() == Some(t!("view.group_replication.partial").as_str())));
+    assert!(
+        partial.sources.iter().all(|s| s.state == SourceState::Partial
+            && s.reason_text() == Some(t!("view.group_replication.partial").as_str()))
+    );
     assert!(report(&source, &rows[..1], true).is_err());
 }
 #[test]

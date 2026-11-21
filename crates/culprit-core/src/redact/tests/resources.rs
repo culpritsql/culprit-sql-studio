@@ -161,7 +161,10 @@ fn private_metric_collisions_and_invalid_original_keys_leave_the_existing_explic
         assert!(shared.resources.is_empty(), "{case}: do not overwrite or retain a repaired partial row");
         let gap = shared.sources.iter().find(|source| source.source == source_id::RESOURCES).unwrap();
         assert_eq!(gap.state, SourceState::Unavailable);
-        assert_eq!(gap.reason_message, Some(crate::message!("collection.invalid_source")));
+        assert_eq!(
+            gap.reason.as_ref().and_then(crate::LocalizedText::source).cloned(),
+            Some(crate::message!("collection.invalid_source"))
+        );
         assert!(!serde_json::to_string(&shared).unwrap().contains("private_metric_secret_canary"));
         assert_eq!(serde_json::to_value(redact_snapshot(&shared)).unwrap(), serde_json::to_value(&shared).unwrap());
     }

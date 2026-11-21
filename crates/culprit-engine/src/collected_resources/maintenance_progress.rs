@@ -63,6 +63,6 @@ impl<'a> CapturedMaintenance<'a> {
 
     pub(super) fn qualify_report(&self, report: &mut MaintenanceProgressReport) {
         report.source_state = self.outcome.state;
-        report.source_reason = self.outcome.reason.clone();
+        report.source_reason = self.outcome.reason_text().map(str::to_owned);
     }
 }

@@ -256,12 +256,12 @@ test("participant records start collapsed and render only the first bounded page
 test("requested missing and unsupported sources remain explicit while unrequested profiles add no issue", () => {
   expect(observationReadIssue("session memory", [], false)).toBeUndefined();
   expect(observationReadIssue("session memory", [], true)).toEqual({
-    source: "session memory", state: "unavailable", reason: t("ui.observation_list.source_unknown"),
+    source: "session memory", state: "unavailable", reason: { text: t("ui.observation_list.source_unknown") },
   });
-  const unavailable: SourceOutcome = { source: "session memory", state: "not-applicable", reason: "The adapter has no safe native source." };
+  const unavailable: SourceOutcome = { source: "session memory", state: "not-applicable", reason: { text: "The adapter has no safe native source." } };
   expect(observationReadIssue("session memory", [unavailable], true)).toBe(unavailable);
   expect(observationReadIssue("session memory", [unavailable], false)).toBeUndefined();
-  const positive: SourceOutcome = { source: "session memory", state: "partial", reason: "Some native sessions were retained." };
+  const positive: SourceOutcome = { source: "session memory", state: "partial", reason: { text: "Some native sessions were retained." } };
   expect(observationReadIssue("session memory", [positive])).toBe(positive);
 });
 

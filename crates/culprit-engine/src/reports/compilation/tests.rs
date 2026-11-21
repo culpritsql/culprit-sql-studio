@@ -26,12 +26,7 @@ fn snapshot(point: usize) -> Snapshot {
         })
         .collect();
     let source_name = source.observation.snapshot().unwrap().sources[0].source.clone();
-    snapshot.sources.push(SourceOutcome {
-        source: source_name.clone(),
-        state: SourceState::Collected,
-        reason: None,
-        reason_message: None,
-    });
+    snapshot.sources.push(SourceOutcome { source: source_name.clone(), state: SourceState::Collected, reason: None });
     snapshot.operations.query_compilation = Some(CompilationSnapshot {
         source: source_name,
         observed_from: source.observation.snapshot().unwrap().observed_from.clone(),

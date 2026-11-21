@@ -57,8 +57,7 @@ fn recorded_failure_and_incomplete_membership_withhold_absence_without_inventing
     snapshot.sources.push(SourceOutcome {
         source: source_id::QUERY_STORE.into(),
         state: SourceState::Unavailable,
-        reason: Some("original native permission refusal".into()),
-        reason_message: None,
+        reason: Some(crate::LocalizedText::raw("original native permission refusal")),
     });
     assert_eq!(snapshot.workload_absence_problem().as_deref(), Some("original native permission refusal"));
     snapshot.sources.clear();
@@ -78,8 +77,7 @@ fn independent_cache_workload_does_not_borrow_an_unrelated_observed_catalog_gap(
     snapshot.sources = vec![SourceOutcome {
         source: source_id::QUERY_STORE.into(),
         state: SourceState::Partial,
-        reason: Some("different source membership is incomplete".into()),
-        reason_message: None,
+        reason: Some(crate::LocalizedText::raw("different source membership is incomplete")),
     }];
     assert!(snapshot.workload_absence_problem().is_none());
 }

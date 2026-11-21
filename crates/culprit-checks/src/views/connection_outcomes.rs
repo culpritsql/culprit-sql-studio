@@ -130,14 +130,14 @@ pub fn explain(snapshot: &ConnectionOutcomeSnapshot, read_complete: bool) -> Res
             SourceOutcome {
                 source: source.source.clone(),
                 state: if gap { SourceState::Partial } else { source.state },
-                reason: if gap {
+                reason: (if gap {
                     Some(t!("view.connection_outcomes.limit.read"))
                 } else if source.error_code.is_some() {
                     Some(t!("view.connection_outcomes.limit.source"))
                 } else {
                     None
-                },
-                reason_message: None,
+                })
+                .map(culprit_core::LocalizedText::raw),
             }
         })
         .collect();

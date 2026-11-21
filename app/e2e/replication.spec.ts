@@ -91,7 +91,7 @@ test("partial and unavailable replication stays visible without legacy rows and 
   await openEvidence(region);
   for (const source of partial.sources) {
     await expect(region.locator(".replication-sources")).toContainText(source.source);
-    if (source.reason != null) await expect(region.locator(".replication-sources")).toContainText(source.reason);
+    if (source.reason != null) await expect(region.locator(".replication-sources")).toContainText(source.reason.text);
   }
   const unavailable = replicationReport("unavailable");
   await inject(page, unavailable);

@@ -11,12 +11,8 @@ fn report(case: PageTaskHolderCase, row_available: bool, source_available: bool)
     else {
         panic!()
     };
-    let outcome = SourceOutcome {
-        source: snapshot.sources[0].source.clone(),
-        state: snapshot.sources[0].state,
-        reason: None,
-        reason_message: None,
-    };
+    let outcome =
+        SourceOutcome { source: snapshot.sources[0].source.clone(), state: snapshot.sources[0].state, reason: None };
     culprit_checks::page_waits::explain_task_holders(
         focus,
         &NativeReadContext::from_snapshot(&source).unwrap(),

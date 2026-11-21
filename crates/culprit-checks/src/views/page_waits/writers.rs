@@ -112,7 +112,7 @@ pub fn explain_writers(
                 state
             }
         }),
-        source_reason: source.and_then(|source| source.reason.clone()),
+        source_reason: source.and_then(|source| source.reason_text().map(str::to_owned)),
         original_page: focus.page.clone(),
         original_target: focus.target.clone(),
         focus_key: focus.key()?,

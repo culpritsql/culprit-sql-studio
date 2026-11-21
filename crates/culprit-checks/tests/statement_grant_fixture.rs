@@ -83,7 +83,6 @@ pub(crate) fn install(snapshot: &mut Snapshot) {
     snapshot.sources.push(culprit_core::SourceOutcome {
         source: source_id::GRANTS.into(),
         state: SourceState::Partial,
-        reason: Some("Bounded native cache selection".into()),
-        reason_message: None,
+        reason: Some(culprit_core::LocalizedText::raw("Bounded native cache selection")),
     });
 }

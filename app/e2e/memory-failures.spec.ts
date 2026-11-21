@@ -99,7 +99,7 @@ async function injectMemory(page: Page, evidence: MemoryFailureSnapshot | null, 
 test("retained memory evidence stays compact and preserves native rows, clocks and opaque documents", async ({ page }, info) => {
   await openConnection(page, "mssql-demo");
   const evidence = retainedEvidence();
-  await injectMemory(page, evidence, explanations(evidence), { source: SOURCE, state: "partial", reason: "Only a bounded native buffer was read." });
+  await injectMemory(page, evidence, explanations(evidence), { source: SOURCE, state: "partial", reason: { text: "Only a bounded native buffer was read." } });
   await page.locator('[data-tile="health"]').click();
   // Health is loaded on demand; wait for its dialog before asserting the injected evidence.
   await page.getByRole("dialog", { name: "Database health", exact: true }).waitFor();
@@ -161,7 +161,7 @@ test("retained memory evidence stays compact and preserves native rows, clocks a
   await expect(first.getByText("SQL NULL: no document supplied.", { exact: true })).toBeVisible();
   await info.attach("memory-failures-native-details-1000", { body: await page.screenshot({ path: info.outputPath("memory-failures-native-details-1000.png") }), contentType: "image/png" });
 
-  await injectMemory(page, null, null, { source: SOURCE, state: "unavailable", reason: "The native read did not establish permission or bounded completion." });
+  await injectMemory(page, null, null, { source: SOURCE, state: "unavailable", reason: { text: "The native read did not establish permission or bounded completion." } });
   await expect(memory).toBeVisible();
   await expect(memory).toContainText("Not available here");
   await expect(memory.locator("article")).toHaveCount(0);

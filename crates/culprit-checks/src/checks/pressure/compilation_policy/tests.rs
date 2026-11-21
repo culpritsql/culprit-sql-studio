@@ -27,7 +27,6 @@ fn recorded() -> Snapshot {
         source: source_id::QUERY_COMPILATION.into(),
         state: SourceState::Collected,
         reason: None,
-        reason_message: None,
     });
     snapshot
 }

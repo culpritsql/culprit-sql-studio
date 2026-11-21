@@ -583,14 +583,14 @@ async fn scans_and_live_share_the_owned_reader_and_native_catalog_queries() {
         .find(|source| source.source == culprit_core::source_id::SHARED_RESOURCE_DETAILS)
         .unwrap();
     assert_eq!(unsupported.state, culprit_core::SourceState::Unavailable);
-    assert!(unsupported.reason_message.is_some());
+    assert!(unsupported.reason.as_ref().and_then(culprit_core::LocalizedText::source).is_some());
     let unsupported = snapshot
         .sources
         .iter()
         .find(|source| source.source == culprit_core::source_id::CURRENT_REQUEST_MEMORY)
         .unwrap();
     assert_eq!(unsupported.state, culprit_core::SourceState::Unavailable);
-    assert!(unsupported.reason_message.is_some());
+    assert!(unsupported.reason.as_ref().and_then(culprit_core::LocalizedText::source).is_some());
     assert!(snapshot.pressure.as_ref().is_none_or(|pressure| pressure.resource_counters.is_none()));
     let live = provider.live().await.unwrap();
     assert!(!live.taken_at.is_empty());

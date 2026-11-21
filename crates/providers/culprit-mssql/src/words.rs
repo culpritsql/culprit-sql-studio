@@ -248,7 +248,14 @@ fn probe() -> Probe {
 fn reasons(missing: &[culprit_core::MissingCapability]) -> String {
     missing
         .iter()
-        .map(|m| format!("{:?}: {} | {}", m.capability, m.reason, m.fix.as_deref().unwrap_or("-")))
+        .map(|m| {
+            format!(
+                "{:?}: {} | {}",
+                m.capability,
+                m.reason,
+                m.fix.as_ref().map(culprit_core::LocalizedText::text).unwrap_or("-")
+            )
+        })
         .collect::<Vec<_>>()
         .join("\n")
 }
@@ -292,7 +299,8 @@ fn what_a_scan_notes() {
     let account = |probe: &Probe| {
         let mut c = Coverage::default();
         query_store_account(&mut c, probe);
-        let outcomes: Vec<String> = c.outcomes().into_iter().map(|o| o.reason.unwrap_or_default()).collect();
+        let outcomes: Vec<String> =
+            c.outcomes().into_iter().map(|o| o.reason.unwrap_or_default().to_string()).collect();
         let (_, missing, _) = c.finish();
         format!("{}\n{}", outcomes.join("\n"), reasons(&missing))
     };
@@ -316,7 +324,7 @@ QueryStore: Query Store is off on this database, so workload history is limited 
     plan_cache_unreadable(&mut c, &probe());
     index_usage_unreadable(&mut c, &probe());
     server_state_unreadable(&mut c, &probe());
-    assert_eq!(c.outcomes()[0].reason.as_deref(), Some("This login cannot read plan cache statistics."));
+    assert_eq!(c.outcomes()[0].reason_text(), Some("This login cannot read plan cache statistics."));
     assert_eq!(
         reasons(&c.finish().1),
         "PlanCache: This login cannot read plan cache statistics. | GRANT VIEW SERVER PERFORMANCE STATE TO [reader];

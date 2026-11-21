@@ -5,7 +5,7 @@ import { NativeReference, NativeValue, queryHistoryReadTimes } from "./NativeObs
 import { ObservationList } from "./ObservationList";
 export function RuntimeFragments({ report }: { report: QueryRuntimeFragmentReport }) {
   return <ObservationList collapseEntries source={report.source} scope={t("view.runtime_fragments.limit.scope")}
-    report={{ ...report, sources: [{ source: report.source, state: report.source_state, reason: report.source_reason }] }}
+    report={{ ...report, sources: [{ source: report.source, state: report.source_state, reason: report.source_reason == null ? null : { text: report.source_reason } }] }}
     time={queryHistoryReadTimes(report)}
     renderEntry={(entry) => <article className="operational-card" key={JSON.stringify(entry.reference)} style={{ overflowWrap: "anywhere" }}>
       <h4>{t("view.runtime_fragments.entry", { executions: digits(entry.executions) })}</h4>

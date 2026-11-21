@@ -14,7 +14,7 @@ async function inject(page: Page, unavailable = false) {
     const original = fullTextPopulationReport();
     report.full_text_populations = [unavailable ? { ...original, original: null, native_rows: null, observed_rows: 0,
       read_complete: false, entries: [], summary: words["view.full_text_populations.sharing_withheld"],
-      source: { source: original.source.source, state: "unavailable" as const, reason: words["view.full_text_populations.sharing_withheld"] } } : original];
+      source: { source: original.source.source, state: "unavailable" as const, reason: { text: words["view.full_text_populations.sharing_withheld"] } } } : original];
     setState({ report: { ...current, report } });
   }, { storePath: "/src/lib/store.ts", fixturePath: "/src/test/full-text-populations.ts", unavailable, words: english });
 }

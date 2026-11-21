@@ -286,7 +286,7 @@ fn pattern_name(p: DeadlockPattern) -> &'static str {
 fn deadlocks(report: &Report, previous_at: Option<&str>, top: usize) -> DigestDeadlocks {
     let s = &report.snapshot;
     let Some(d) = &s.deadlocks else {
-        let why = s.notes.iter().find(|n| n.collector == "deadlocks").map(|n| n.message.clone());
+        let why = s.notes.iter().find(|n| n.collector == "deadlocks").map(|n| n.message.to_string());
         return DigestDeadlocks {
             note: Some(why.unwrap_or_else(|| {
                 "This scan has no deadlocks to read: the engine doesn't expose them to Culprit.".into()
@@ -888,9 +888,8 @@ mod tests {
         let mut r = report();
         r.snapshot.deadlocks = None;
         r.snapshot.notes.push(culprit_core::CollectorNote {
-            message_source: None,
             collector: "deadlocks".into(),
-            message: "Reading deadlocks needs VIEW SERVER STATE.".into(),
+            message: culprit_core::LocalizedText::raw("Reading deadlocks needs VIEW SERVER STATE."),
             table: None,
         });
         let d = digest(&r, None, 5, 5).deadlocks.expect("deadlocks");

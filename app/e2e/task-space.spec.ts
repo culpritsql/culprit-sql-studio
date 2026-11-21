@@ -51,7 +51,7 @@ test("task tempdb counts retain exact native tuples and checked SQL context in c
   const view = taskSpaceReport(rows);
   view.entries[1]!.current_request = null;
   view.title = TITLE;
-  await inject(page, taskSpaceEvidence([...rows].reverse()), view, { source: TASK_SOURCE, state: "partial", reason: "The native task read was bounded." });
+  await inject(page, taskSpaceEvidence([...rows].reverse()), view, { source: TASK_SOURCE, state: "partial", reason: { text: "The native task read was bounded." } });
   await page.locator('[data-tile="health"]').click();
   await page.getByRole("dialog", { name: "Database health", exact: true }).waitFor();
   const region = page.getByRole("region", { name: TITLE, exact: true });
@@ -83,7 +83,7 @@ test("task tempdb counts retain exact native tuples and checked SQL context in c
   await region.getByRole("button", { name: "Next records", exact: true }).click();
   await expect(cards).toHaveCount(2);
   await expect(cards.first().getByRole("heading")).toHaveText("Native task 10");
-  await inject(page, null, null, { source: TASK_SOURCE, state: "unavailable", reason: "Task visibility could not be established." });
+  await inject(page, null, null, { source: TASK_SOURCE, state: "unavailable", reason: { text: "Task visibility could not be established." } });
   await expect(region).toBeVisible();
   await expect(region.locator("article")).toHaveCount(0);
   await region.getByText("What this evidence establishes", { exact: true }).click();

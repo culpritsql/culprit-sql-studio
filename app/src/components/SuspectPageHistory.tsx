@@ -11,7 +11,7 @@ export function SuspectPageHistory({ report }: { report: SuspectPageHistoryRepor
     <p>{report.summary}</p>
     {report.source_state && report.source_state !== "collected" && <ObservationSourceIssue
       title={report.title}
-      source={{ source: report.title, state: report.source_state, reason: report.source_reason }}
+      source={{ source: report.title, state: report.source_state, reason: report.source_reason == null ? null : { text: report.source_reason } }}
     />}
     <details>
       <summary>{t("view.suspect_pages.details")}</summary>

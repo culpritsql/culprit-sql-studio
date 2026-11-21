@@ -15,15 +15,13 @@ pub(super) fn qualify(snapshot: &mut Snapshot) {
     if let Some(outcome) = snapshot.sources.iter_mut().find(|outcome| outcome.source == source) {
         if matches!(outcome.state, SourceState::Collected | SourceState::Empty) {
             outcome.state = SourceState::Partial;
-            outcome.reason = Some(reason.render());
-            outcome.reason_message = Some(reason);
+            outcome.reason = Some(reason.into());
         }
     } else {
         snapshot.sources.push(SourceOutcome {
             source,
             state: SourceState::Partial,
-            reason: Some(reason.render()),
-            reason_message: Some(reason),
+            reason: Some(culprit_core::LocalizedText::new(reason)),
         });
     }
 }

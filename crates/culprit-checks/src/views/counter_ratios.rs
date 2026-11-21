@@ -58,7 +58,7 @@ pub(super) fn explain_borrowed(
     }
     Ok(CounterRatioReport {
         source_state: source.map(|source| source.state),
-        source_reason: source.and_then(|source| source.reason.clone()),
+        source_reason: source.and_then(|source| source.reason_text().map(str::to_owned)),
         read_complete,
         declared_ratios: observed as u32,
         presented_ratios: entries.len() as u32,

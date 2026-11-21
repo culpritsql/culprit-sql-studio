@@ -159,7 +159,6 @@ fn workload(
         history_inputs: vec![],
         counter_set: None,
         source_label: None,
-        source_message: None,
     }))
 }
 
@@ -177,16 +176,16 @@ fn snapshot(
         .map(|source| SourceOutcome {
             source: (*source).into(),
             state: SourceState::Unavailable,
-            reason: Some(reason.render()),
-            reason_message: Some(reason.clone()),
+            reason: Some(culprit_core::LocalizedText::new(reason.clone())),
         })
         .collect::<Vec<_>>();
     if workload.is_some()
         && let Some(source) = sources.iter_mut().find(|source| source.source == source_id::WORKLOAD)
     {
         source.state = if partial { SourceState::Partial } else { SourceState::Collected };
-        source.reason = partial.then(|| culprit_core::t!("engine.collected_analysis.partial_workload"));
-        source.reason_message = partial.then(|| culprit_core::message!("engine.collected_analysis.partial_workload"));
+        source.reason = partial.then(|| {
+            culprit_core::LocalizedText::new(culprit_core::message!("engine.collected_analysis.partial_workload"))
+        });
     }
     if let Some(workload) = &workload
         && workload.queries.iter().any(|query| query.waits_coverage.is_some())
@@ -196,14 +195,13 @@ fn snapshot(
             query.waits_coverage.as_ref().is_some_and(|coverage| coverage.complete && coverage.is_valid())
         });
         source.state = if complete { SourceState::Collected } else { SourceState::Partial };
-        source.reason = (!complete).then(|| culprit_core::t!("engine.collected_analysis.partial_workload"));
-        source.reason_message =
-            (!complete).then(|| culprit_core::message!("engine.collected_analysis.partial_workload"));
+        source.reason = (!complete).then(|| {
+            culprit_core::LocalizedText::new(culprit_core::message!("engine.collected_analysis.partial_workload"))
+        });
     }
     if have_plans && let Some(source) = sources.iter_mut().find(|source| source.source == source_id::RETAINED_PLANS) {
         source.state = SourceState::Partial;
-        source.reason = Some(culprit_core::t!("engine.collected_analysis.partial_workload"));
-        source.reason_message = Some(culprit_core::message!("engine.collected_analysis.partial_workload"));
+        source.reason = Some(culprit_core::message!("engine.collected_analysis.partial_workload").into());
     }
     let capabilities =
         culprit_checks::infos().into_iter().flat_map(|info| info.requires).collect::<std::collections::BTreeSet<_>>();

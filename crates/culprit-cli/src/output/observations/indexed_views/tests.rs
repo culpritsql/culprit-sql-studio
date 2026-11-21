@@ -4,12 +4,7 @@ use culprit_core::telemetry::*;
 fn report(case: IndexedViewsCase) -> IndexedViewsReport {
     let (description, records) = indexed_views_evidence(case);
     let coverage = &description.observation.snapshot().unwrap().sources[0];
-    let source = culprit_core::SourceOutcome {
-        source: coverage.source.clone(),
-        state: coverage.state,
-        reason: None,
-        reason_message: None,
-    };
+    let source = culprit_core::SourceOutcome { source: coverage.source.clone(), state: coverage.state, reason: None };
     let rows = records
         .iter()
         .map(|record| {

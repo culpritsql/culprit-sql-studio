@@ -80,7 +80,7 @@ test("memory participants stay collapsed and page exact typed native references 
   await page.setViewportSize({ width: 1000, height: 900 });
   await openConnection(page, "mysql-demo");
   const native = evidence();
-  await inject(page, native, explanation(native), { source: SOURCE, state: "partial", reason: "Only a bounded native population was read." });
+  await inject(page, native, explanation(native), { source: SOURCE, state: "partial", reason: { text: "Only a bounded native population was read." } });
   await page.locator('[data-tile="health"]').click();
   await page.getByRole("dialog", { name: "Database health", exact: true }).waitFor();
   const region = page.getByRole("region", { name: TITLE, exact: true });
@@ -108,7 +108,7 @@ test("memory participants stay collapsed and page exact typed native references 
   await expect(cards.first().getByRole("heading")).toHaveText("Native participant 10");
   await expect(region).toContainText("Observations 11–12 of 12");
 
-  await inject(page, null, null, { source: SOURCE, state: "unavailable", reason: "The native source could not be read safely." });
+  await inject(page, null, null, { source: SOURCE, state: "unavailable", reason: { text: "The native source could not be read safely." } });
   await expect(region).toBeVisible();
   await expect(region.locator("article")).toHaveCount(0);
   await expect(region).toContainText("Not available here");

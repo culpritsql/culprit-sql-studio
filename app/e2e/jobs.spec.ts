@@ -16,7 +16,7 @@ test("recorded native jobs disclose bounded exact points and limits without work
     if (state.report.status !== "ready") throw new Error("Ready fixture report required");
     const next = structuredClone(state.report.report);
     next.snapshot.operations.jobs = evidence;
-    next.snapshot.sources = [{ source, state: "partial", reason: "Native job visibility is partial." }];
+    next.snapshot.sources = [{ source, state: "partial", reason: { text: "Native job visibility is partial." } }];
     next.jobs = report;
     setState({ report: { ...state.report, report: next } });
   }, { evidence: jobsEvidence(rows), report, source: JOBS_SOURCE, path: "/src/lib/store.ts" });
@@ -52,7 +52,7 @@ test("Agent retained history opens as exact native text with independent local-t
   await page.evaluate(async ({evidence,report,path}) => {
     const {getState,setState}=await import(path) as {getState:()=>State;setState:(patch:Partial<State>)=>void};
     const state=getState();if (state.report.status!=="ready") throw new Error("Ready fixture report required");
-    const next=structuredClone(state.report.report);next.snapshot.operations.jobs=evidence;next.snapshot.sources=[{source:"mssql-agent-job-history",state:"partial",reason:"Retained history is partial."}];next.jobs=report;
+    const next=structuredClone(state.report.report);next.snapshot.operations.jobs=evidence;next.snapshot.sources=[{source:"mssql-agent-job-history",state:"partial",reason:{ text: "Retained history is partial." }}];next.jobs=report;
     setState({report:{...state.report,report:next}});
   }, {evidence,report,path:"/src/lib/store.ts"});
   await page.locator('[data-tile="health"]').click();const region=page.getByRole("region",{name:report.title,exact:true});await expect(region).toBeVisible();await expect(region.locator("details[open]")).toHaveCount(0);

@@ -66,12 +66,7 @@ fn outcomes(source: &CollectionDescription) -> Vec<SourceOutcome> {
         .unwrap()
         .sources
         .iter()
-        .map(|source| SourceOutcome {
-            source: source.source.clone(),
-            state: source.state,
-            reason: None,
-            reason_message: None,
-        })
+        .map(|source| SourceOutcome { source: source.source.clone(), state: source.state, reason: None })
         .collect()
 }
 

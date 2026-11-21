@@ -38,7 +38,7 @@ test("native context stays text and a failed read remains visible without an adm
   const html = renderToStaticMarkup(<QueryCompilation evidence={compilationEvidence([row])} report={compilationReport([row])} />);
   expect(html).toContain("&lt;script&gt;");
   expect(html).not.toContain("<script>");
-  const report = healthReportFixture({ snapshot: { server: { engine: "mssql" }, sources: [{ source: "query compilation", state: "unavailable", reason: "Native permission denied." }], operations: { spaces: [], counters: [], sequences: [], multixacts: [], sqlite: null, cluster: null } } });
+  const report = healthReportFixture({ snapshot: { server: { engine: "mssql" }, sources: [{ source: "query compilation", state: "unavailable", reason: { text: "Native permission denied." } }], operations: { spaces: [], counters: [], sequences: [], multixacts: [], sqlite: null, cluster: null } } });
   const failed = renderToStaticMarkup(<HealthTab report={report} pressure={null} resources={[]} engineLabel="SQL Server" />);
   expect(failed).toContain(t("view.compilation.title"));
   expect(failed).toContain("Native permission denied.");

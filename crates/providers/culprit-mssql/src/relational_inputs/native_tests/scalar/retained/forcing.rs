@@ -130,12 +130,7 @@ fn tuning_report(capture: &Captured) -> culprit_core::TuningReport {
         .unwrap()
         .sources
         .iter()
-        .map(|source| SourceOutcome {
-            source: source.source.clone(),
-            state: source.state,
-            reason: None,
-            reason_message: None,
-        })
+        .map(|source| SourceOutcome { source: source.source.clone(), state: source.state, reason: None })
         .collect::<Vec<_>>();
     let report = culprit_checks::tuning::explain(&rows, &coverage).unwrap();
     assert!(report.limitations.contains(&culprit_core::message!("view.tuning.limit.execution")));

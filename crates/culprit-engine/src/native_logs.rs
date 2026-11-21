@@ -89,8 +89,7 @@ fn analyze(
         } else {
             SourceState::Collected
         },
-        reason: reason.as_ref().map(|message| message.render()),
-        reason_message: reason,
+        reason: reason.map(culprit_core::LocalizedText::new),
     };
     let evidence = NativeFailureSnapshot {
         source: SOURCE.into(),

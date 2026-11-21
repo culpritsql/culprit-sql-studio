@@ -39,8 +39,7 @@ fn independent_failed_reads_and_partial_positive_rows_keep_their_own_coverage() 
     let outcome = SourceOutcome {
         source: source_id::GRANTS.into(),
         state: SourceState::Partial,
-        reason: Some("One native selection failed".into()),
-        reason_message: None,
+        reason: Some(culprit_core::LocalizedText::raw("One native selection failed")),
     };
     let report = explain(&[good, failed], std::slice::from_ref(&outcome)).unwrap();
     assert_eq!(report.entries.len(), 1);
@@ -174,12 +173,7 @@ fn partial_archive_decoding_preserves_the_original_header_and_readable_positive_
         explain(std::slice::from_ref(&read), &[]).is_err(),
         "a complete-read declaration cannot omit original rows"
     );
-    let source = SourceOutcome {
-        source: read.description.source.clone(),
-        state: SourceState::Partial,
-        reason: None,
-        reason_message: None,
-    };
+    let source = SourceOutcome { source: read.description.source.clone(), state: SourceState::Partial, reason: None };
     let report = explain_read(&[read], &[source], false).unwrap();
     assert_eq!(report.entries.len(), 1);
     assert_eq!(report.sources[0].state, SourceState::Partial);

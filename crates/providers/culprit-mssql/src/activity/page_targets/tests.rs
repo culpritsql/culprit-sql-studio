@@ -200,7 +200,7 @@ async fn first_or_second_azure_pressure_deferral_stops_optional_work_without_mor
     let (snapshot, coverage) = crate::page_waits::collect_from(&mut native, false).await;
     assert!(snapshot.is_none());
     assert_eq!(coverage.outcomes()[0].state, culprit_core::SourceState::Unavailable);
-    assert!(coverage.outcomes()[0].reason.as_ref().unwrap().contains("resource sample"));
+    assert!(coverage.outcomes()[0].reason_text().unwrap().contains("resource sample"));
     assert_eq!(native.query_count(), 4);
     assert_eq!(native.io.closed, 1);
 }

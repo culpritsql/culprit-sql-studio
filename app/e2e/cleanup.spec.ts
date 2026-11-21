@@ -82,7 +82,7 @@ test("native PVS cleanup counts and columns stay exact escaped and source-qualif
     await expect(region).toContainText(english["ui.memory_failures.missing_row"]);
     await expect(region).not.toContainText(EXACT_REASON_COUNT);
   }
-  await inject(page, [], null, null, [{ source: PVS_SOURCE, state: "unavailable", reason: "Native cleanup permission denied." }]);
+  await inject(page, [], null, null, [{ source: PVS_SOURCE, state: "unavailable", reason: { text: "Native cleanup permission denied." } }]);
   await expect(region).toBeVisible();
   await expect(region.locator("article")).toHaveCount(0);
   await expect(page.getByRole("dialog", { name: "Database health", exact: true })).not.toContainText(english["ui.health.empty"]);

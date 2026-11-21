@@ -64,12 +64,7 @@ async fn authenticated_task_investigation_reuses_pure_explanations_and_keeps_ori
         let coverage = &source.observation.snapshot().unwrap().sources[0];
         let expected = culprit_checks::task_space::explain(
             &observations(&rows),
-            Some(&SourceOutcome {
-                source: coverage.source.clone(),
-                state: coverage.state,
-                reason: None,
-                reason_message: None,
-            }),
+            Some(&SourceOutcome { source: coverage.source.clone(), state: coverage.state, reason: None }),
         )
         .unwrap();
         let mut scan: Snapshot = serde_json::from_str(include_str!("../../../../fixtures/mssql-demo.json")).unwrap();
@@ -77,12 +72,7 @@ async fn authenticated_task_investigation_reuses_pure_explanations_and_keeps_ori
         scan.server.database = database.database.clone();
         scan.identity = Some(database.clone());
         scan.sources.retain(|source| source.source != coverage.source);
-        scan.sources.push(SourceOutcome {
-            source: coverage.source.clone(),
-            state: coverage.state,
-            reason: None,
-            reason_message: None,
-        });
+        scan.sources.push(SourceOutcome { source: coverage.source.clone(), state: coverage.state, reason: None });
         let bounds = source.observation.snapshot().unwrap();
         scan.operations.task_space = Some(TaskSpaceSnapshot {
             source: coverage.source.clone(),

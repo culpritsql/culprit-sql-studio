@@ -75,8 +75,7 @@ pub fn unavailable(reason: &culprit_core::i18n::Message) -> IndexedViewsReport {
     let source = SourceOutcome {
         source: source_id::INDEXES.into(),
         state: SourceState::Unavailable,
-        reason: Some(reason.render()),
-        reason_message: None,
+        reason: Some(culprit_core::LocalizedText::raw(reason.render())),
     };
     // An explicit withdrawn carrier has no retained native population or replacement current scope.
     report(source, Some(false), Vec::new(), 0)

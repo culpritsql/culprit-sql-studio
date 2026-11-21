@@ -6,12 +6,7 @@ fn wait_report() -> WaitCounterReport {
             observed_from: "2026-11-21T00:00:01.000000001Z".into(),
             observed_until: "2026-11-21T00:00:02.000000009Z".into(),
         }),
-        sources: vec![SourceOutcome {
-            source: "waits".into(),
-            state: SourceState::Partial,
-            reason: None,
-            reason_message: None,
-        }],
+        sources: vec![SourceOutcome { source: "waits".into(), state: SourceState::Partial, reason: None }],
         read_complete: false,
         native_rows: 30,
         observed_rows: 30,

@@ -198,14 +198,9 @@ pub(crate) async fn read_from(
         limited = if probe.statement_role.is_some() { "yes" } else { "no" },
         role = probe.statement_role.map(|id| id.to_string()).unwrap_or_default()
     );
-    let source = source_message.render();
-    let rendered_notes = notes.iter().map(culprit_core::i18n::Message::render).collect();
     Ok(ActivityHistory {
         period: ActivityPeriod {
-            source_message: Some(source_message),
-            note_messages: Some(notes),
-
-            source,
+            source: culprit_core::LocalizedText::new(source_message),
             requested_start: window.string("start"),
             requested_end: window.string("end"),
             first_sample: first,
@@ -215,7 +210,7 @@ pub(crate) async fn read_from(
             observations,
             weighted_observations: weighted,
             partial,
-            notes: rendered_notes,
+            notes: notes.into_iter().map(culprit_core::LocalizedText::new).collect(),
         },
         events: events.into_values().collect(),
     })

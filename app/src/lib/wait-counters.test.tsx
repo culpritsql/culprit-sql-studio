@@ -12,7 +12,7 @@ import { healthReportFixture } from "../test/health-report";
 function report(): WaitCounterReport {
   return {
     context: { kind: "collector", observed_from: "2026-11-17T12:00:00.000000001Z", observed_until: "2026-11-17T12:00:00.000000009Z" },
-    sources: [{ source: "waits", state: "partial", reason: "Original native visibility is partial." }],
+    sources: [{ source: "waits", state: "partial", reason: { text: "Original native visibility is partial." } }],
     read_complete: false, native_rows: 10, observed_rows: 1, presented_rows: 1, entries_limited: false,
     title: t("view.wait_counters.title"), summary: t("view.wait_counters.summary.partial"),
     limitations: [t("view.wait_counters.limit.client_clock"), t("view.wait_counters.limit.read")],
@@ -48,7 +48,7 @@ test("empty, unavailable and partial body states retain their distinct shared ex
   expect(emptyHtml).toContain(t("view.wait_counters.summary.empty"));
   expect(emptyHtml).not.toContain("9007199254740993");
   const denied = { ...empty, summary: t("view.wait_counters.summary.partial"),
-    sources: [{ source: "waits", state: "unavailable" as const, reason: t("view.wait_counters.source.unavailable") }] };
+    sources: [{ source: "waits", state: "unavailable" as const, reason: { text: t("view.wait_counters.source.unavailable") } }] };
   const deniedHtml = renderToStaticMarkup(<WaitCounters report={denied} />);
   expect(deniedHtml).toContain(t("view.wait_counters.source.unavailable"));
   expect(deniedHtml).not.toContain(t("view.wait_counters.summary.empty"));
@@ -113,8 +113,7 @@ test("Health keeps raw wait evidence visible when its exact explanation is unava
 test("Health preserves the wait source marker after sharing has withheld the original body", () => {
   const data = waitOnlyHealthReport();
   data.snapshot.sources = [{
-    source: "waits", state: "unavailable", reason: t("view.wait_counters.invalid"),
-    reason_message: { kind: "catalog", key: "view.wait_counters.invalid", arguments: {} },
+    source: "waits", state: "unavailable", reason: { text: t("view.wait_counters.invalid"), source: { kind: "catalog", key: "view.wait_counters.invalid", arguments: {} } },
   }];
   const html = renderHealth(data);
   expect(html).toContain(t("view.wait_counters.title"));
@@ -138,7 +137,7 @@ test("pool scope and native-tier refusal stay folded in shared wait details and 
   expect(html).toContain(t("view.pool_waits.original"));
   expect(html).not.toContain("<details open");
   const denied = { ...view, entries: [], native_rows: 0, observed_rows: 0, presented_rows: 0,
-    sources: [{ source: "waits", state: "unavailable" as const, reason: t("view.pool_waits.tier_unqualified", { tier: "Hyperscale" }) }],
+    sources: [{ source: "waits", state: "unavailable" as const, reason: { text: t("view.pool_waits.tier_unqualified", { tier: "Hyperscale" }) } }],
     summary: t("view.wait_counters.summary.partial"), limitations: [t("view.pool_waits.tier_unqualified", { tier: "Hyperscale" }), t("view.pool_waits.original")] };
   const data = waitOnlyHealthReport(); data.wait_counters = denied;
   const health = renderHealth(data);

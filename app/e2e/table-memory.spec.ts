@@ -14,7 +14,7 @@ async function inject(page: Page, withheld = false) {
       const original = tableMemoryReport(index);
       return withheld ? {
         ...original, original: null, native_rows: null, observed_rows: 0, read_complete: false,
-        source: { source: original.source.source, state: "unavailable" as const, reason: words["view.table_memory.sharing_withheld"] },
+        source: { source: original.source.source, state: "unavailable" as const, reason: { text: words["view.table_memory.sharing_withheld"] } },
         summary: words["view.table_memory.sharing_withheld"], metrics: [],
       } : original;
     });

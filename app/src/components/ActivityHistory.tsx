@@ -16,8 +16,8 @@ export function ActivityHistoryView({ activity, selected, onSelect, onClose }: {
       <b>{t("ui.activity_history.retained", { observations: count(p.observations), weight: count(p.weighted_observations) })}</b>
       <p title={`${p.first_sample ?? ""} — ${p.last_sample ?? ""}`}>{p.first_sample && p.last_sample ? t("ui.activity_history.observed", { from: when(p.first_sample).short, to: when(p.last_sample).short }) : t("ui.activity_history.no_samples")}
         {p.partial && ` ${t("ui.common.read_partial")}`}</p>
-      <p className="muted" title={`${p.requested_start} — ${p.requested_end}`}>{t("ui.activity_history.requested", { from: when(p.requested_start).short, to: when(p.requested_end).short, source: p.source })}</p>
-      {p.notes.map((note, i) => <p className="muted" key={i}>{note}</p>)}
+      <p className="muted" title={`${p.requested_start} — ${p.requested_end}`}>{t("ui.activity_history.requested", { from: when(p.requested_start).short, to: when(p.requested_end).short, source: p.source.text })}</p>
+      {p.notes.map((note, i) => <p className="muted" key={i}>{note.text}</p>)}
     </div>
     {current && <div className="waits-grid">
       <div className="waits-list" role="listbox" aria-label={t("ui.activity_history.categories")}>

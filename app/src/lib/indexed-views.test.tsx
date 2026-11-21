@@ -22,7 +22,7 @@ test("native usage absence, unsupported collection, partial and withdrawn eviden
     if (state === "absent") report.entries[0]!.usage = { kind: "observed", data: { row_present: false, user_seeks: null, user_scans: null, user_lookups: null, user_updates: null, last_user_seek_without_offset: null, last_user_scan_without_offset: null, last_user_lookup_without_offset: null, last_user_update_without_offset: null, reset: { kind: "unknown" } } };
     if (state === "not-collected") report.entries[0]!.usage = { kind: "not-collected" };
     if (state === "denied" || state === "withdrawn") { report.source.state = "unavailable"; report.entries = []; report.native_index_rows = null; report.observed_index_rows = 0; report.observed_view_indexes = 0; }
-    if (state === "withdrawn") report.source.reason = t("view.indexed_views.sharing_withheld");
+    if (state === "withdrawn") report.source.reason = { text: t("view.indexed_views.sharing_withheld") };
     if (state === "partial" || state === "empty") { report.entries = []; report.observed_view_indexes = 0; report.source.state = state; }
     const html = renderToStaticMarkup(<IndexedViews reports={[report]} />);
     if (state === "absent" || state === "not-collected") expect(html).toContain(t("view.indexed_views.usage", { state }));

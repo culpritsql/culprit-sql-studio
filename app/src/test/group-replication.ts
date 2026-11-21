@@ -7,7 +7,7 @@ export function groupReplicationReport(index = 0): GroupReplicationReport {
     original: { context: { target: { scope: "shared", identity: member }, partition: { kind: "instance-local", member, epoch: "private-observer-process" },
       observed_from: "2020-01-01T00:00:00Z", observed_until: "2020-01-01T00:00:01Z", database_writable: null },
       metadata: { observed_at: "2020-01-01T00:00:00Z", group_id: `original-group-${index}`, plugin_status: "ACTIVE", members_layout: true, statistics_layout: true } },
-    sources: [{ source: "group-replication-members", state: "collected", reason: null }, { source: "group-replication-statistics", state: "partial", reason: t("view.group_replication.partial") }],
+    sources: [{ source: "group-replication-members", state: "collected", reason: null }, { source: "group-replication-statistics", state: "partial", reason: { text: t("view.group_replication.partial") } }],
     read_complete: true, native_rows: 2, observed_rows: 2, presented_rows: 1, entries_limited: false,
     title: t("view.group_replication.title"), summary: t("view.group_replication.summary", { n: 1, count: "1" }),
     limitations: [t("view.group_replication.limit.scope"), t("view.group_replication.limit.propagation"), t("view.group_replication.limit.reset"), t("view.group_replication.limit.history"), t("view.group_replication.limit.coverage")],

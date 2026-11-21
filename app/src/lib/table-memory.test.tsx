@@ -31,7 +31,7 @@ test("unavailable and withdrawn originals remain separate and never acquire anot
   const unavailable = tableMemoryReport(); unavailable.original = null; unavailable.native_rows = null;
   unavailable.observed_rows = 0; unavailable.read_complete = false; unavailable.metrics = [];
   unavailable.source.state = "unavailable"; unavailable.summary = t("view.table_memory.sharing_withheld");
-  unavailable.source.reason = unavailable.summary;
+  unavailable.source.reason = { text: unavailable.summary };
   const html = renderToStaticMarkup(<TableMemory reports={[unavailable]} />);
   expect(html).toContain(unavailable.summary); expect(html).toContain(t("ui.dashboard.status.unavailable"));
   expect(html).not.toContain("9007199254740993"); expect(html).not.toContain(">0<"); expect(html).not.toContain("original-table-0");

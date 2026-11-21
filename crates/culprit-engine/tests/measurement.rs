@@ -115,7 +115,7 @@ fn invalid_scope_cannot_enter_database_findings_or_cumulative_trends() {
     let report = culprit_checks::analyze(current);
     assert!(report.snapshot.workload.is_none());
     assert!(report.findings.iter().all(|f| f.queries.is_empty()));
-    assert!(report.snapshot.notes.iter().any(|n| n.message.contains("does not isolate this database")));
+    assert!(report.snapshot.notes.iter().any(|n| n.message.text().contains("does not isolate this database")));
 }
 
 #[test]

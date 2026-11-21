@@ -328,7 +328,7 @@ impl Execution<'_> {
                 .and_then(|q| q.plan_history.as_ref())
                 .filter(|h| h.kind == culprit_core::PlanHistoryKind::Cache && plan_id.is_some())
             {
-                culprit_checks::present_retained_plan(&mut plan, &history.note);
+                culprit_checks::present_retained_plan(&mut plan, history.note.text());
                 return plan;
             }
             culprit_core::insights::mark_plan(&mut plan, snapshot);

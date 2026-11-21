@@ -31,12 +31,7 @@ fn scan(source: &CollectionDescription, rows: &[TelemetryRecord]) -> Snapshot {
     let SourceObservation::PageWaitTargets { snapshot: native, .. } = &source.observation else { panic!() };
     let coverage = &native.sources[0];
     scan.sources.retain(|source| source.source != coverage.source);
-    scan.sources.push(SourceOutcome {
-        source: coverage.source.clone(),
-        state: coverage.state,
-        reason: None,
-        reason_message: None,
-    });
+    scan.sources.push(SourceOutcome { source: coverage.source.clone(), state: coverage.state, reason: None });
     scan.operations.page_waits = Some(PageWaitSnapshot {
         source: coverage.source.clone(),
         observed_from: native.observed_from.clone(),
@@ -53,12 +48,7 @@ async fn authenticated_page_targets_reuse_scan_explanations_and_reference_origin
             culprit_checks::analyze(scan(&source, &rows)).page_waits.unwrap()
         } else {
             let coverage = &source.observation.snapshot().unwrap().sources[0];
-            let outcome = SourceOutcome {
-                source: coverage.source.clone(),
-                state: coverage.state,
-                reason: None,
-                reason_message: None,
-            };
+            let outcome = SourceOutcome { source: coverage.source.clone(), state: coverage.state, reason: None };
             culprit_checks::page_waits::explain(&observations(&rows), Some(&outcome), None).unwrap()
         };
         let fixture = Fixture::new(source.clone(), rows.clone()).await;

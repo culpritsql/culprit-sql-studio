@@ -18,7 +18,7 @@ pub(super) fn collector_note(s: &Snapshot, names: &[&str]) -> Option<String> {
     s.notes
         .iter()
         .find(|n| names.iter().any(|name| culprit_core::same_source(name, &n.collector)))
-        .map(|n| n.message.clone())
+        .map(|n| n.message.to_string())
 }
 
 pub(super) fn file_name(s: &Snapshot, f: &FileIo) -> String {

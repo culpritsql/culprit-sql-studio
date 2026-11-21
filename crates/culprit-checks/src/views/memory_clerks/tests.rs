@@ -95,7 +95,7 @@ fn observation(sample: NativeCounterSet) -> OperationalObservation {
     }
 }
 fn source(state: SourceState) -> SourceOutcome {
-    SourceOutcome { source: culprit_core::source_id::MEMORY_CLERKS.into(), state, reason: None, reason_message: None }
+    SourceOutcome { source: culprit_core::source_id::MEMORY_CLERKS.into(), state, reason: None }
 }
 fn point(samples: &[NativeCounterSet]) -> Result<MemoryClerkReport> {
     explain(MemoryClerkEvidence::Snapshot {

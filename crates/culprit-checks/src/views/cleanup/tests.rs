@@ -5,7 +5,7 @@ use culprit_core::{
 };
 
 fn source(name: &str, state: SourceState) -> SourceOutcome {
-    SourceOutcome { source: name.into(), state, reason: None, reason_message: None }
+    SourceOutcome { source: name.into(), state, reason: None }
 }
 
 fn persistent() -> OperationalObservation {

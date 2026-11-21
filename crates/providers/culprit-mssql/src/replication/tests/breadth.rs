@@ -257,9 +257,9 @@ async fn unconfirmed_shutdown_keeps_the_existing_native_family_failure_without_p
         );
     }
     assert!(snapshot.notes.iter().any(|note| note.collector == Selection::GeoLinks.source()
-        && note.message == culprit_core::t!("provider.mssql.replication.native_unavailable")));
+        && note.message.text() == culprit_core::t!("provider.mssql.replication.native_unavailable")));
     assert!(snapshot.notes.iter().any(|note| note.collector == culprit_core::source_id::REPLICATION
-        && note.message == CollectionStop::CancellationUnconfirmed.error().message));
+        && note.message.text() == CollectionStop::CancellationUnconfirmed.error().message));
     assert_eq!(reader.calls.len(), 3);
     assert_eq!(reader.closed, 1);
 }

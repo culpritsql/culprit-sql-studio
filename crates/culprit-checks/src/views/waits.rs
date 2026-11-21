@@ -51,7 +51,7 @@ pub fn explain(snapshot: &Snapshot) -> Option<WaitsReport> {
             ),
             total_ms: None,
             categories: vec![],
-            notes: activity.period.notes.clone(),
+            notes: activity.period.notes.iter().map(ToString::to_string).collect(),
             activity: Some(activity),
         });
     }
@@ -540,10 +540,7 @@ mod tests {
         let query = snapshot.queries()[0].id.clone();
         snapshot.operations.activity_history = Some(culprit_core::ActivityHistory {
             period: culprit_core::ActivityPeriod {
-                source_message: None,
-                note_messages: None,
-
-                source: "Native recorded activity".into(),
+                source: culprit_core::LocalizedText::raw("Native recorded activity"),
                 requested_start: "2026-10-01T00:00:00Z".into(),
                 requested_end: "2026-10-08T00:00:00Z".into(),
                 first_sample: Some("2026-10-07T00:00:00Z".into()),
@@ -553,7 +550,7 @@ mod tests {
                 observations: 999.0,
                 weighted_observations: 999.0,
                 partial: false,
-                notes: vec!["Weights are independent of elapsed query time".into()],
+                notes: vec![culprit_core::LocalizedText::raw("Weights are independent of elapsed query time")],
             },
             events: [
                 ("cpu", "YSQL", "OnCpu_Active", 1.0),

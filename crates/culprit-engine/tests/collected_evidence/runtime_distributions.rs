@@ -15,12 +15,7 @@ async fn authenticated_distributions_reuse_the_pure_view_with_exact_native_popul
             .unwrap()
             .sources
             .iter()
-            .map(|coverage| SourceOutcome {
-                source: coverage.source.clone(),
-                state: coverage.state,
-                reason: None,
-                reason_message: None,
-            })
+            .map(|coverage| SourceOutcome { source: coverage.source.clone(), state: coverage.state, reason: None })
             .collect::<Vec<_>>();
         let observations = rows
             .iter()

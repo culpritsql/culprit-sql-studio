@@ -19,7 +19,7 @@ test("saved full-text runtime context remains folded, original and informational
 test("unavailable original preserves its reason without a target or manufactured zero population", () => {
   const report = fullTextPopulationReport(); report.original = null; report.native_rows = null;
   report.entries = []; report.source.state = "unavailable"; report.summary = t("view.full_text_populations.sharing_withheld");
-  report.source.reason = report.summary;
+  report.source.reason = { text: report.summary };
   const html = renderToStaticMarkup(<FullTextPopulations reports={[report]} />);
   expect(html).toContain(report.summary); expect(html).not.toContain("2019-12-31T18:00:00.007");
   expect(html).not.toContain(t("view.full_text_populations.target", { database: "7", table: "100", catalog: "2", index: "1" }));

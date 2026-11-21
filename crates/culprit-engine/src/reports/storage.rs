@@ -13,18 +13,16 @@ fn retained_snapshot(snapshot: &culprit_core::Snapshot) -> serde_json::Result<Va
     let mut snapshot = snapshot.clone();
     snapshot.operations.clear_recorded_text();
     if let Some(workload) = &mut snapshot.workload {
-        workload.source_label = None;
+        if let Some(label) = &mut workload.source_label {
+            label.clear_rendered();
+        }
         for query in &mut workload.queries {
             if let Some(plan) = &mut query.plan {
                 plan.clear_recorded_text();
             }
             if let Some(history) = &mut query.plan_history {
-                if history.source_message.is_some() {
-                    history.source.clear();
-                }
-                if history.note_message.is_some() {
-                    history.note.clear();
-                }
+                history.source.clear_rendered();
+                history.note.clear_rendered();
                 if let Some(plan) = &mut history.captured_plan {
                     plan.clear_recorded_text();
                 }
@@ -32,26 +30,20 @@ fn retained_snapshot(snapshot: &culprit_core::Snapshot) -> serde_json::Result<Va
         }
     }
     for missing in &mut snapshot.server.missing {
-        if missing.reason_message.is_some() {
-            missing.reason.clear();
+        missing.reason.clear_rendered();
+        if let Some(fix) = &mut missing.fix {
+            fix.clear_rendered();
         }
-        if missing.fix_message.is_some() {
-            missing.fix = None;
-        }
-        if let Some(action) = &mut missing.action
-            && action.detail_message.is_some()
-        {
-            action.detail = None;
+        if let Some(detail) = missing.action.as_mut().and_then(|action| action.detail.as_mut()) {
+            detail.clear_rendered();
         }
     }
     for note in &mut snapshot.notes {
-        if note.message_source.is_some() {
-            note.message.clear();
-        }
+        note.message.clear_rendered();
     }
     for source in &mut snapshot.sources {
-        if source.reason_message.is_some() {
-            source.reason = None;
+        if let Some(reason) = &mut source.reason {
+            reason.clear_rendered();
         }
     }
     serde_json::to_value(snapshot)
@@ -341,8 +333,8 @@ mod tests {
         let stored: Value = serde_json::from_slice(&encoded).unwrap();
         let note =
             stored["snapshot"]["notes"].as_array().unwrap().iter().find(|n| n["collector"] == "query log").unwrap();
-        assert_eq!(note["message"], "");
-        assert_eq!(note["message_source"]["arguments"]["count"]["value"], 1234.0);
+        assert_eq!(note["message"]["text"], "");
+        assert_eq!(note["message"]["source"]["arguments"]["count"]["value"], 1234.0);
         let en = scope("en", || decode(&encoded).unwrap());
         let fr = scope("fr", || decode(&encoded).unwrap());
         let message =

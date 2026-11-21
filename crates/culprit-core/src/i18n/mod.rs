@@ -11,6 +11,7 @@
 
 mod async_scope;
 mod language_code;
+mod localized_text;
 mod message;
 mod plural;
 mod recorded;
@@ -21,12 +22,12 @@ use std::sync::{Arc, OnceLock, RwLock};
 
 pub use async_scope::scope_async;
 pub use language_code::is_language_code;
+pub use localized_text::LocalizedText;
 #[cfg(test)]
 pub(crate) use message::parse;
 pub use message::{Arg, LabelPosition, argument_kinds, format_message, format_number};
 pub use plural::PluralRule;
 pub use recorded::{Message, MessageValue};
-pub(crate) use recorded::{render_notes, render_text};
 
 include!(concat!(env!("OUT_DIR"), "/catalogs.rs"));
 

@@ -132,7 +132,7 @@ fn report(
         title: t!("view.table_temporal.title"),
         summary: t!("view.table_temporal.summary", count = entries.len()),
         source_state: source.map(|source| source.state),
-        source_reason: source.and_then(|source| source.reason.clone()),
+        source_reason: source.and_then(|source| source.reason_text().map(str::to_owned)),
         observed_from: None,
         observed_until: None,
         native_rows: None,

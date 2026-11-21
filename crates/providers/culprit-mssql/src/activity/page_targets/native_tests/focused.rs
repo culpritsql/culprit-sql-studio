@@ -75,12 +75,7 @@ async fn prove(fixture: &mut Fixture) -> Result<()> {
         let [coverage] = snapshot.sources.as_slice() else { return Err(invalid("native source coverage changed")) };
         culprit_checks::page_waits::explain(
             &[],
-            Some(&SourceOutcome {
-                source: coverage.source.clone(),
-                state: coverage.state,
-                reason: None,
-                reason_message: None,
-            }),
+            Some(&SourceOutcome { source: coverage.source.clone(), state: coverage.state, reason: None }),
             Some(PageWaitActivityEvidence::Focused { source, original: &focus.participant, frame }),
         )
     })?;

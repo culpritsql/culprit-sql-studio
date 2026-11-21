@@ -54,7 +54,7 @@ test("compilation history keeps exact native identities in collapsed paged recor
   if (changed.fact.kind !== "mssql-query-compilation") throw new Error("Compilation fixture required");
   changed.fact.data.identity.qualifiers.context_settings_id = "6";
   await inject(page, compilationEvidence([...rows].reverse()), view, {
-    source: COMPILATION_SOURCE, state: "partial", reason: "Some retained entries were not visible.",
+    source: COMPILATION_SOURCE, state: "partial", reason: { text: "Some retained entries were not visible." },
   });
   await page.locator('[data-tile="health"]').click();
   await page.getByRole("dialog", { name: "Database health", exact: true }).waitFor();
@@ -98,7 +98,7 @@ test("compilation history keeps exact native identities in collapsed paged recor
   await expect(records.first()).toContainText(EXACT_COUNT);
 
   await inject(page, null, null, {
-    source: COMPILATION_SOURCE, state: "unavailable", reason: "Native compilation permission denied.",
+    source: COMPILATION_SOURCE, state: "unavailable", reason: { text: "Native compilation permission denied." },
   });
   await expect(region).toBeVisible();
   await expect(region.locator("article")).toHaveCount(0);
@@ -123,7 +123,7 @@ test("compilation comparison disclosures keep exact values and retire absent or 
   }
   const privateBaselineValues = [baseline.id, database.incarnation, database.location.host];
   unrelated.identity.qualifiers.context_settings_id = "different-native-context";
-  const source: SourceOutcome = { source: COMPILATION_SOURCE, state: "partial", reason: view.source_reason };
+  const source: SourceOutcome = { source: COMPILATION_SOURCE, state: "partial", reason: view.source_reason == null ? null : { text: view.source_reason } };
   await inject(page, compilationEvidence(rows), view, source);
   await page.locator('[data-tile="health"]').click();
   await page.getByRole("dialog", { name: "Database health", exact: true }).waitFor();

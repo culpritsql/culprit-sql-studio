@@ -28,12 +28,7 @@ fn generate() -> Result<(), Box<dyn std::error::Error>> {
         let native = source.observation.snapshot().ok_or_else(|| DeliveryProblem::Integrity.error())?;
         let coverage = &native.sources[0];
         let context = NativeReadContext::from_snapshot(&source)?;
-        let outcome = SourceOutcome {
-            source: coverage.source.clone(),
-            state: coverage.state,
-            reason: None,
-            reason_message: None,
-        };
+        let outcome = SourceOutcome { source: coverage.source.clone(), state: coverage.state, reason: None };
         let rows = observations.iter().collect::<Vec<_>>();
         let report = culprit_checks::request_memory::explain(
             culprit_checks::request_memory::RequestMemoryEvidence { context: &context, observations: &rows },

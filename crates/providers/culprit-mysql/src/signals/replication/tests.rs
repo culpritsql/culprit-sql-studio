@@ -108,7 +108,7 @@ async fn native_empty_and_unavailable_are_distinct_completed_reads_without_retry
             SourceState::Unavailable,
             "a decoded unavailable header is not a successful source part"
         );
-        assert!(outcome.reason.as_ref().unwrap().contains(&error.message));
+        assert!(outcome.reason_text().unwrap().contains(&error.message));
         assert!(snapshot.pressure.as_ref().unwrap().replicas.is_empty());
         assert_eq!(reader.closed, 1);
     }
@@ -188,7 +188,7 @@ async fn a_native_failure_and_unconfirmed_shutdown_both_survive_without_a_succes
         settle(&mut snapshot, Ok(reading), shutdown);
         let outcome = snapshot.source_outcome(sources::REPLICATION.name).unwrap();
         assert_eq!(outcome.state, SourceState::Unavailable);
-        let reason = outcome.reason.as_ref().unwrap();
+        let reason = outcome.reason_text().unwrap();
         assert!(reason.contains(&error.message), "{reason}");
         assert!(reason.contains(&CollectionStop::CancellationUnconfirmed.error().message), "{reason}");
         let pressure = snapshot.pressure.as_ref().unwrap();

@@ -487,27 +487,23 @@ pub fn redact_snapshot(snapshot: &Snapshot) -> Snapshot {
         redact_native_identity(population);
     }
     for note in &mut s.notes {
-        if note.table.is_none() && public_evidence_issue(&note.collector, note.message_source.as_ref()) {
+        if note.table.is_none() && public_evidence_issue(&note.collector, note.message.source()) {
             note.refresh_language();
             continue;
         }
-        note.message_source = None;
-        note.message = "Collection details omitted from shared data.".into();
+        note.message.set("Collection details omitted from shared data.");
     }
     for source in &mut s.sources {
-        if public_evidence_issue(&source.source, source.reason_message.as_ref()) {
+        if public_evidence_issue(&source.source, source.reason.as_ref().and_then(crate::LocalizedText::source)) {
             source.refresh_language();
             continue;
         }
-        source.reason_message = None;
-        if source.reason.is_some() {
-            source.reason = Some("Collection details omitted from shared data.".into());
+        if let Some(reason) = &mut source.reason {
+            reason.set("Collection details omitted from shared data.");
         }
     }
     for missing in &mut s.server.missing {
-        missing.reason_message = None;
-        missing.fix_message = None;
-        missing.reason = "This capability was not collected; diagnostic details omitted from shared data.".into();
+        missing.reason.set("This capability was not collected; diagnostic details omitted from shared data.");
         missing.fix = None;
         missing.action = None;
     }
@@ -654,28 +650,21 @@ pub fn redact_snapshot(snapshot: &Snapshot) -> Snapshot {
         }
     }
     if let Some(resources) = &mut s.operations.node_resources {
-        for message in resources.source_message.iter_mut().chain(resources.note_messages.iter_mut().flatten()) {
-            redact_scoped_message(message);
-        }
-        resources.source = redact_scope(&resources.source);
+        resources.source.redact(redact_scoped_message);
         for note in &mut resources.notes {
-            *note = redact_scope(note);
+            note.redact(redact_scoped_message);
         }
         for node in &mut resources.nodes {
             node.node = opaque(&node.node);
-            if let Some(message) = node.process_memory.as_mut().and_then(|memory| memory.name_message.as_mut()) {
-                redact_scoped_message(message);
+            if let Some(memory) = &mut node.process_memory {
+                memory.name.redact(redact_scoped_message);
             }
         }
     }
     if let Some(history) = &mut s.operations.activity_history {
-        for message in history.period.source_message.iter_mut().chain(history.period.note_messages.iter_mut().flatten())
-        {
-            redact_scoped_message(message);
-        }
-        history.period.source = redact_scope(&history.period.source);
+        history.period.source.redact(redact_scoped_message);
         for note in &mut history.period.notes {
-            *note = redact_scope(note);
+            note.redact(redact_scoped_message);
         }
         for node in &mut history.period.nodes {
             *node = opaque(node);
@@ -685,18 +674,10 @@ pub fn redact_snapshot(snapshot: &Snapshot) -> Snapshot {
         }
     }
     if let Some(history) = &mut s.operations.termination_history {
-        for message in history
-            .source_message
-            .iter_mut()
-            .chain(history.visibility_message.iter_mut())
-            .chain(history.note_messages.iter_mut().flatten())
-        {
-            redact_scoped_message(message);
-        }
-        history.source = redact_scope(&history.source);
-        history.visibility = redact_scope(&history.visibility);
+        history.source.redact(redact_scoped_message);
+        history.visibility.redact(redact_scoped_message);
         for note in &mut history.notes {
-            *note = redact_scope(note);
+            note.redact(redact_scoped_message);
         }
         for node in &mut history.nodes {
             *node = opaque(node);
@@ -790,7 +771,6 @@ pub fn redact_snapshot(snapshot: &Snapshot) -> Snapshot {
         }
         w.source = redact_scope(&w.source);
         w.source_label = None;
-        w.source_message = None;
         if let Some(counters) = &mut w.counter_set {
             counters.members =
                 std::mem::take(&mut counters.members).into_iter().map(|(node, epoch)| (opaque(&node), epoch)).collect();
@@ -805,12 +785,8 @@ pub fn redact_snapshot(snapshot: &Snapshot) -> Snapshot {
             q.text = redact_sql(&q.text, engine);
             q.plan = q.plan.as_ref().map(redact_plan);
             if let Some(history) = &mut q.plan_history {
-                for message in history.source_message.iter_mut().chain(history.note_message.iter_mut()) {
-                    redact_scoped_message(message);
-                }
-                history.source = redact_scope(&history.source);
-                crate::i18n::render_text(&mut history.source, history.source_message.as_ref());
-                crate::i18n::render_text(&mut history.note, history.note_message.as_ref());
+                history.source.redact(redact_scoped_message);
+                history.note.redact(redact_scoped_message);
                 history.captured_plan = history.captured_plan.as_ref().map(redact_plan);
             }
             for p in &mut q.plans {

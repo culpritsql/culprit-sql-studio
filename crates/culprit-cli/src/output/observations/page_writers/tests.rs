@@ -21,12 +21,8 @@ fn report_with(
     };
     let mut row = row.as_ref().clone();
     change(&mut row);
-    let outcome = SourceOutcome {
-        source: snapshot.sources[0].source.clone(),
-        state: snapshot.sources[0].state,
-        reason: None,
-        reason_message: None,
-    };
+    let outcome =
+        SourceOutcome { source: snapshot.sources[0].source.clone(), state: snapshot.sources[0].state, reason: None };
     culprit_checks::page_waits::explain_writers(
         focus,
         &NativeReadContext::from_snapshot(&source).unwrap(),

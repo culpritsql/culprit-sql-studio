@@ -139,17 +139,15 @@ fn empty_unavailable_partial_and_unknown_sources_never_become_healthy_compilatio
         let source = SourceOutcome {
             source: row.source.clone(),
             state,
-            reason: Some("qualification".into()),
-            reason_message: None,
+            reason: Some(culprit_core::LocalizedText::raw("qualification")),
         };
         let report = explain_native(&[], Some(&source)).unwrap();
         assert_eq!(report.source_state, Some(state));
-        assert_eq!(report.source_reason, source.reason);
+        assert_eq!(report.source_reason.as_deref(), source.reason_text());
         assert!(report.entries.is_empty());
         assert!(explain_native(&[&row], Some(&source)).is_err());
     }
-    let source =
-        SourceOutcome { source: row.source.clone(), state: SourceState::Partial, reason: None, reason_message: None };
+    let source = SourceOutcome { source: row.source.clone(), state: SourceState::Partial, reason: None };
     let partial = explain_native(&[&row], Some(&source)).unwrap();
     assert_eq!(partial.source_state, Some(SourceState::Partial));
     assert!(partial.limitations.contains(&t!("view.compilation.limit.source_partial")));

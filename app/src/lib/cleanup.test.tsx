@@ -100,7 +100,7 @@ test("failed reads and raw evidence without an admitted explanation remain visib
   for (const failed of [true, false]) {
     const report = healthReportFixture({ snapshot: {
       server: { engine: "mssql" },
-      sources: [{ source: PVS_SOURCE, state: failed ? "unavailable" : "collected", reason: failed ? "Native cleanup permission denied." : null }],
+      sources: [{ source: PVS_SOURCE, state: failed ? "unavailable" : "collected", reason: failed ? { text: "Native cleanup permission denied." } : null }],
       operations: { cleanup: failed ? [] : [persistentVersionRead()], spaces: [], counters: [], sequences: [], multixacts: [], sqlite: null, cluster: null },
     } });
     const html = renderToStaticMarkup(<HealthTab report={report} pressure={null} resources={[]} engineLabel="SQL Server" />);

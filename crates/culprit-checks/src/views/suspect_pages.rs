@@ -23,7 +23,7 @@ pub fn explain_snapshot(snapshot: &Snapshot) -> Result<Option<SuspectPageHistory
         SourceState::Collected | SourceState::Partial | SourceState::Empty => SourceState::Partial,
         state => state,
     });
-    report.source_reason = source.reason.clone();
+    report.source_reason = source.reason_text().map(str::to_owned);
     Ok(Some(report))
 }
 

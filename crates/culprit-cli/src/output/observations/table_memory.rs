@@ -13,7 +13,7 @@ pub(crate) fn table_memory(report: &TableMemoryReport) -> String {
             summary: &report.summary,
             source: SourceQualification::Single {
                 state: Some(report.source.state),
-                reason: report.source.reason.as_deref(),
+                reason: report.source.reason_text(),
             },
             limitations: &report.limitations,
         },

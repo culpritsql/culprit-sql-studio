@@ -36,7 +36,9 @@
     {
       "source": "statistics",
       "state": "not-applicable",
-      "reason": "The file has no sqlite_stat1 table; ANALYZE has not recorded planner statistics."
+      "reason": {
+        "text": "The file has no sqlite_stat1 table; ANALYZE has not recorded planner statistics."
+      }
     },
     {
       "source": "settings",
@@ -75,22 +77,32 @@
     "missing": [
       {
         "capability": "statistics",
-        "reason": "The file has no planner statistics (sqlite_stat1): the planner guesses how many rows each step reads.",
-        "fix": "ANALYZE;"
+        "reason": {
+          "text": "The file has no planner statistics (sqlite_stat1): the planner guesses how many rows each step reads."
+        },
+        "fix": {
+          "text": "ANALYZE;"
+        }
       },
       {
         "capability": "index-usage",
-        "reason": "SQLite keeps no record of which indexes queries use.",
+        "reason": {
+          "text": "SQLite keeps no record of which indexes queries use."
+        },
         "fix": null
       },
       {
         "capability": "wait-stats",
-        "reason": "SQLite has no server, so nothing records waits.",
+        "reason": {
+          "text": "SQLite has no server, so nothing records waits."
+        },
         "fix": null
       },
       {
         "capability": "sessions",
-        "reason": "SQLite has no server, so no sessions to list.",
+        "reason": {
+          "text": "SQLite has no server, so no sessions to list."
+        },
         "fix": null
       }
     ]
@@ -1331,7 +1343,9 @@
   "notes": [
     {
       "collector": "query log",
-      "message": "Read 3.5K statements from development.log (Rails): 7 shapes, the 5 heaviest kept, 5 planned."
+      "message": {
+        "text": "Read 3.5K statements from development.log (Rails): 7 shapes, the 5 heaviest kept, 5 planned."
+      }
     }
   ],
   "pressure": null,

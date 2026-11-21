@@ -14,7 +14,6 @@ fn snapshot() -> Snapshot {
         source: source_id::TABLES.into(),
         state: SourceState::Collected,
         reason: None,
-        reason_message: None,
     });
     snapshot
 }

@@ -51,8 +51,7 @@ fn data(count: usize) -> Box<Report> {
     data.snapshot.sources = vec![SourceOutcome {
         source: culprit_core::source_id::QUERY_STORE.into(),
         state: SourceState::Partial,
-        reason: Some("private-native-error-canary".into()),
-        reason_message: None,
+        reason: Some(culprit_core::LocalizedText::raw("private-native-error-canary")),
     }];
     data
 }

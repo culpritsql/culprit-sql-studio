@@ -42,7 +42,7 @@ pub fn explain(
     }
     Ok(CacheEntryMemoryReport {
         source_state: source.map(|source| source.state),
-        source_reason: source.and_then(|source| source.reason.clone()),
+        source_reason: source.and_then(|source| source.reason_text().map(str::to_owned)),
         title: t!("view.cache_entry_memory.title"),
         summary: if entries.is_empty() {
             t!("view.cache_entry_memory.summary.empty")

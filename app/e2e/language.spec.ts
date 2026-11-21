@@ -185,7 +185,7 @@ test("Workload source labels refresh with the report without displaying its coun
         ...report,
         snapshot: {
           ...report.snapshot,
-          workload: report.snapshot.workload && { ...report.snapshot.workload, source: "fixed-counter-source", source_label: `source:${language()}` },
+          workload: report.snapshot.workload && { ...report.snapshot.workload, source: "fixed-counter-source", source_label: { text: `source:${language()}` } },
         },
       };
     };

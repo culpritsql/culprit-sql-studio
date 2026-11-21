@@ -14,7 +14,7 @@ fn snapshot() -> Snapshot {
 }
 
 fn outcome(source: &str, state: SourceState) -> SourceOutcome {
-    SourceOutcome { source: source.into(), state, reason: None, reason_message: None }
+    SourceOutcome { source: source.into(), state, reason: None }
 }
 
 fn native_read(source: &str, fact: OperationalFact) -> CleanupSnapshot {
@@ -167,7 +167,9 @@ fn semantic_empty_native_horizon_and_failed_canonical_sources_keep_their_origina
         assert_eq!(explained.entries.len(), 1);
         assert!(explained.entries[0].mechanisms.is_empty());
         assert!(explained.boundaries.iter().all(|boundary| !boundary.complete));
-        assert!(!report.snapshot.notes.iter().any(|note| note.message == culprit_core::t!("view.cleanup.invalid")));
+        assert!(
+            !report.snapshot.notes.iter().any(|note| note.message.text() == culprit_core::t!("view.cleanup.invalid"))
+        );
     }
 }
 
@@ -201,7 +203,7 @@ fn invalid_native_wrappers_withhold_only_their_explanation_and_preserve_raw_fact
         assert_eq!(report.snapshot.operations.cleanup, raw);
         assert_eq!(report.evidence.as_ref().unwrap().input.operations.cleanup, raw);
         assert!(report.snapshot.notes.iter().any(|note| note.collector == source_id::PERSISTENT_VERSION_STORE
-            && note.message_source.as_ref() == Some(&culprit_core::message!("view.cleanup.invalid"))));
+            && note.message.source() == Some(&culprit_core::message!("view.cleanup.invalid"))));
         assert!(
             explained.sources.iter().any(|source| source.source == source_id::PERSISTENT_VERSION_STORE
                 && source.state == SourceState::Unavailable)

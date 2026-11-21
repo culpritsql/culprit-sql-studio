@@ -343,8 +343,16 @@ fn sharing_drops_the_whole_original_carrier_and_retains_only_independent_live_co
     let repeated = crate::redact::redact_snapshot(&shared);
     assert!(repeated.operations.memory_clerks.is_none());
     assert_eq!(
-        repeated.sources.iter().find(|source| source.source == crate::source_id::MEMORY_CLERKS).unwrap().reason_message,
-        source.reason_message
+        repeated
+            .sources
+            .iter()
+            .find(|source| source.source == crate::source_id::MEMORY_CLERKS)
+            .unwrap()
+            .reason
+            .as_ref()
+            .and_then(crate::LocalizedText::source)
+            .cloned(),
+        source.reason.as_ref().and_then(crate::LocalizedText::source).cloned()
     );
     assert_eq!(before, serde_json::to_vec(&snapshot.operations.memory_clerks).unwrap());
 }

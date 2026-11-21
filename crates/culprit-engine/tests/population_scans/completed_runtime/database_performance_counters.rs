@@ -29,7 +29,6 @@ fn with_shared_counters() -> PopulationSnapshots {
         source: culprit_core::source_id::PERFORMANCE_COUNTERS.into(),
         state: SourceState::Collected,
         reason: None,
-        reason_message: None,
     });
     batch
 }

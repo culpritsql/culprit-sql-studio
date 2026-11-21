@@ -215,7 +215,7 @@ pub(super) fn waits_missing(s: &Snapshot) -> Tile {
                     TileStatus::Unavailable,
                     t!("view.dashboard.waits.not_counting", family = family, reason = m.reason.clone()),
                 );
-                tile.detail = m.fix.clone();
+                tile.detail = m.fix.as_ref().map(ToString::to_string);
                 tile
             }
             None => Tile::new(
@@ -231,7 +231,7 @@ pub(super) fn waits_missing(s: &Snapshot) -> Tile {
                     TileStatus::Unavailable,
                     t!("view.dashboard.waits.unreadable", reason = m.reason.clone()),
                 );
-                tile.detail = m.fix.clone();
+                tile.detail = m.fix.as_ref().map(ToString::to_string);
                 tile
             }
             None => Tile::new(TileKey::Waits, TileStatus::Unavailable, t!("view.dashboard.waits.none")),

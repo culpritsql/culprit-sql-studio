@@ -24,12 +24,7 @@ impl Frame {
         Self {
             context,
             rows,
-            source: SourceOutcome {
-                source: "selected-cache-memory".into(),
-                state: SourceState::Partial,
-                reason: None,
-                reason_message: None,
-            },
+            source: SourceOutcome { source: "selected-cache-memory".into(), state: SourceState::Partial, reason: None },
             complete: true,
         }
     }

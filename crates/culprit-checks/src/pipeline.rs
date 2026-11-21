@@ -158,7 +158,11 @@ fn measurement_context(snapshot: &mut Snapshot) {
     };
     if let Some(message) = reason {
         snapshot.workload = None;
-        snapshot.notes.push(CollectorNote { message_source: None, collector: "workload".into(), message, table: None });
+        snapshot.notes.push(CollectorNote {
+            collector: "workload".into(),
+            message: culprit_core::LocalizedText::raw(message),
+            table: None,
+        });
         return;
     }
     if let Some(workload) = &mut snapshot.workload {
@@ -192,9 +196,12 @@ fn lock_time_that_counts_the_run(snapshot: &mut Snapshot) {
         snapshot.waits.retain(|w| culprit_core::waits::known_category_key(&w.category) != Some("lock"));
     }
     snapshot.notes.push(CollectorNote {
-        message_source: None,
         collector: "workload".into(),
-        message: t!("pipeline.note.mariadb_lock_time", n = inflated.len(), count = inflated.len().to_string()),
+        message: culprit_core::LocalizedText::raw(t!(
+            "pipeline.note.mariadb_lock_time",
+            n = inflated.len(),
+            count = inflated.len().to_string()
+        )),
         table: None,
     });
 }
@@ -316,7 +323,7 @@ impl Pipeline {
                                 .missing
                                 .iter()
                                 .find(|m| m.capability == *c)
-                                .map(|m| m.reason.clone())
+                                .map(|m| m.reason.to_string())
                                 .unwrap_or_else(|| t!("pipeline.not_collected", capability = format!("{c:?}")))
                         })
                         .collect::<Vec<_>>()
@@ -618,8 +625,7 @@ mod tests {
         snapshot.sources.push(SourceOutcome {
             source: source.into(),
             state: SourceState::Collected,
-            reason: Some("independently retained database compilation totals".into()),
-            reason_message: None,
+            reason: Some(culprit_core::LocalizedText::raw("independently retained database compilation totals")),
         });
         snapshot
     }
@@ -672,7 +678,7 @@ mod tests {
         let explanation = report.query_compilation.as_ref().unwrap();
         assert_eq!(explanation.source_state, Some(SourceState::Empty));
         assert!(explanation.entries.is_empty());
-        assert_eq!(explanation.source_reason, original_source.reason);
+        assert_eq!(explanation.source_reason.as_deref(), original_source.reason_text());
         assert_eq!(
             report.snapshot.sources.iter().find(|source| source.source == native.source),
             Some(&original_source)
@@ -737,7 +743,7 @@ mod tests {
             assert_eq!(report.snapshot.operations.query_compilation.as_ref(), Some(&original), "{defect}");
             let failed = report.snapshot.sources.iter().find(|source| source.source == original.source).unwrap();
             assert_eq!(failed.state, SourceState::Unavailable);
-            assert_eq!(failed.reason.as_deref(), Some(t!("view.compilation.invalid").as_str()));
+            assert_eq!(failed.reason_text(), Some(t!("view.compilation.invalid").as_str()));
             assert!(report.snapshot.notes.iter().any(|note| note.collector == original.source));
         }
     }
@@ -757,8 +763,7 @@ mod tests {
         snapshot.sources.push(SourceOutcome {
             source: source.into(),
             state: SourceState::Empty,
-            reason: Some("native task read was empty".into()),
-            reason_message: None,
+            reason: Some(culprit_core::LocalizedText::raw("native task read was empty")),
         });
         let report = crate::analyze(snapshot.clone());
         let explanation = report.task_space.as_ref().unwrap();
@@ -772,7 +777,7 @@ mod tests {
         assert!(report.task_space.is_none());
         let unavailable = report.snapshot.sources.iter().find(|outcome| outcome.source == source).unwrap();
         assert_eq!(unavailable.state, SourceState::Unavailable);
-        assert_eq!(unavailable.reason.as_deref(), Some(t!("view.task_space.invalid_capture").as_str()));
+        assert_eq!(unavailable.reason_text(), Some(t!("view.task_space.invalid_capture").as_str()));
         assert!(report.snapshot.operations.task_space.is_some(), "invalid native input remains available");
         assert!(report.snapshot.notes.iter().any(|note| note.collector == source));
     }
@@ -820,8 +825,7 @@ mod tests {
         snapshot.sources.push(SourceOutcome {
             source: source.into(),
             state: SourceState::Partial,
-            reason: Some("bounded coordinator observations".into()),
-            reason_message: None,
+            reason: Some(culprit_core::LocalizedText::raw("bounded coordinator observations")),
         });
         let report = crate::analyze(snapshot.clone());
         let explanation = report.page_waits.as_ref().unwrap();
@@ -835,7 +839,7 @@ mod tests {
         assert!(report.page_waits.is_none());
         let unavailable = report.snapshot.sources.iter().find(|outcome| outcome.source == source).unwrap();
         assert_eq!(unavailable.state, SourceState::Unavailable);
-        assert_eq!(unavailable.reason.as_deref(), Some(t!("view.page_waits.invalid_capture").as_str()));
+        assert_eq!(unavailable.reason_text(), Some(t!("view.page_waits.invalid_capture").as_str()));
         assert!(report.snapshot.notes.iter().any(|note| note.collector == source));
         assert!(report.snapshot.operations.page_waits.is_some(), "invalid input remains available for diagnosis");
     }
@@ -875,12 +879,7 @@ mod tests {
             observations: vec![page.clone()],
         });
         for source in [&grant.source, &page.source] {
-            snapshot.sources.push(SourceOutcome {
-                source: source.clone(),
-                state: SourceState::Partial,
-                reason: None,
-                reason_message: None,
-            });
+            snapshot.sources.push(SourceOutcome { source: source.clone(), state: SourceState::Partial, reason: None });
         }
         let valid = crate::analyze(snapshot.clone());
         assert!(valid.request_memory.is_some() && valid.page_waits.is_some());

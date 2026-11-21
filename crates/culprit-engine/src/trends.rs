@@ -657,7 +657,6 @@ mod tests {
             population: None,
             population_catalog: None,
             source_label: None,
-            source_message: None,
             counter_set: None,
             history_inputs: Vec::new(),
             source: "pg_stat_statements".into(),

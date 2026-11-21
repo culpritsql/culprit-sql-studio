@@ -66,12 +66,7 @@ fn selected_sources(snapshot: &Snapshot) -> Vec<SourceOutcome> {
     if let Some(population) = population {
         for source in &population.sources {
             if !sources.iter().any(|outcome| outcome.source == source.source) {
-                sources.push(SourceOutcome {
-                    source: source.source.clone(),
-                    state: source.state,
-                    reason: None,
-                    reason_message: None,
-                });
+                sources.push(SourceOutcome { source: source.source.clone(), state: source.state, reason: None });
             }
         }
     }
@@ -173,15 +168,13 @@ fn withhold_invalid_source(sources: &mut Vec<SourceOutcome>, name: &str, has_row
     if let Some(source) = sources.iter_mut().find(|source| source.source == name) {
         if matches!(source.state, SourceState::Collected | SourceState::Empty) {
             source.state = state;
-            source.reason = Some(invalid.render());
-            source.reason_message = Some(invalid);
+            source.reason = Some(invalid.into());
         }
     } else {
         sources.push(SourceOutcome {
             source: name.into(),
             state,
-            reason: Some(invalid.render()),
-            reason_message: Some(invalid),
+            reason: Some(culprit_core::LocalizedText::new(invalid)),
         });
     }
 }
@@ -189,12 +182,10 @@ fn withhold_invalid_source(sources: &mut Vec<SourceOutcome>, name: &str, has_row
 fn record_invalid_inputs(snapshot: &mut Snapshot, sources: BTreeSet<String>) {
     let message = culprit_core::message!("view.cleanup.invalid");
     for source in sources {
-        if !snapshot.notes.iter().any(|note| note.collector == source && note.message_source.as_ref() == Some(&message))
-        {
+        if !snapshot.notes.iter().any(|note| note.collector == source && note.message.source() == Some(&message)) {
             snapshot.notes.push(CollectorNote {
                 collector: source,
-                message: message.render(),
-                message_source: Some(message.clone()),
+                message: culprit_core::LocalizedText::new(message.clone()),
                 table: None,
             });
         }

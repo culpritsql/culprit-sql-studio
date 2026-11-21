@@ -26,7 +26,6 @@ fn snapshot() -> Snapshot {
         source: culprit_core::source_id::QUERY_STORE.into(),
         state: SourceState::Empty,
         reason: None,
-        reason_message: None,
     });
     snapshot
 }
@@ -70,5 +69,5 @@ fn native_catalog_completeness_and_original_source_failure_are_preserved() {
     qualify(&mut unavailable);
     let source = unavailable.source_outcome(culprit_core::source_id::QUERY_STORE).unwrap();
     assert_eq!(source.state, SourceState::Unavailable);
-    assert_eq!(source.reason.as_deref(), Some("original native permission refusal"));
+    assert_eq!(source.reason_text(), Some("original native permission refusal"));
 }

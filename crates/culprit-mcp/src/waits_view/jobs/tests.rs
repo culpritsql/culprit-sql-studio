@@ -127,7 +127,6 @@ fn report() -> Box<Report> {
         source: TIMESCALE_JOBS_SOURCE.into(),
         state: SourceState::Collected,
         reason: None,
-        reason_message: None,
     });
     report.jobs = culprit_engine::explain_jobs(&report.snapshot).unwrap().map(Box::new);
     report
@@ -237,14 +236,13 @@ fn source_only_failure_remains_explicit_and_a_stale_cached_view_cannot_resurrect
     report.snapshot.sources.push(SourceOutcome {
         source: TIMESCALE_JOBS_SOURCE.into(),
         state: SourceState::Unavailable,
-        reason: Some("Native permission denied.".into()),
-        reason_message: None,
+        reason: Some(culprit_core::LocalizedText::raw("Native permission denied.")),
     });
     assert!(report.jobs.is_some());
     let mut output = json!({});
     attach(&mut output, &report);
     assert_eq!(output["jobs_unavailable"]["sources"][0]["state"], "unavailable");
-    assert_eq!(output["jobs_unavailable"]["sources"][0]["reason"], "Native permission denied.");
+    assert_eq!(output["jobs_unavailable"]["sources"][0]["reason"]["text"], "Native permission denied.");
     assert!(output.get("jobs").is_none());
     assert!(!output["jobs_unavailable"].to_string().contains("native_rows"));
 }

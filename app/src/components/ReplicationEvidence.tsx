@@ -83,7 +83,7 @@ function ReadContext({ report }: { report: ReplicationReport }) {
     {report.entries_limited && <p className="replication-limit">{t("ui.replication.presentation_limit")}</p>}
     <ul className="replication-sources">{report.sources.map((source) => <li key={source.source}>
       <span className="replication-source"><code>{source.source}</code><span className="replication-badge">{sourceState(source.state)}</span></span>
-      {source.reason != null && <p>{source.reason}</p>}
+      {source.reason != null && <p>{source.reason.text}</p>}
     </li>)}</ul>
     {report.limitations.length > 0 && <Disclosure className="replication-qualifications" summary={t("ui.replication.qualifications")}>
       <ul>{report.limitations.map((limitation, index) => <li key={index}>{limitation}</li>)}</ul>

@@ -12,7 +12,6 @@ fn shared() -> Box<Snapshot> {
         source: sources::TABLES.name.into(),
         state: culprit_core::SourceState::Collected,
         reason: None,
-        reason_message: None,
     }];
     snapshot
 }

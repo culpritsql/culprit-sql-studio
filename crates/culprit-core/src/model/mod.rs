@@ -246,48 +246,31 @@ impl Capability {
 
 #[derive(Serialize, Deserialize, TS, Clone, Debug)]
 #[ts(export)]
+#[serde(deny_unknown_fields)]
 pub struct MissingCapability {
     pub capability: Capability,
-    pub reason: String,
-    pub fix: Option<String>,
+    pub reason: crate::LocalizedText,
+    pub fix: Option<crate::LocalizedText>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub action: Option<CapabilityAction>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub reason_message: Option<crate::i18n::Message>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub fix_message: Option<crate::i18n::Message>,
 }
 
 #[derive(Serialize, Deserialize, TS, Clone, Debug)]
 #[ts(export)]
+#[serde(deny_unknown_fields)]
 pub struct CapabilityAction {
     pub sql: String,
-    pub detail: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub detail_message: Option<crate::i18n::Message>,
+    pub detail: Option<crate::LocalizedText>,
 }
 
 impl MissingCapability {
     pub fn new(capability: Capability, reason: impl Into<crate::i18n::Message>) -> Self {
-        let reason = reason.into();
-        Self {
-            capability,
-            reason: reason.render(),
-            reason_message: reason.is_translatable().then_some(reason),
-            fix: None,
-            fix_message: None,
-            action: None,
-        }
+        Self { capability, reason: crate::LocalizedText::new(reason), fix: None, action: None }
     }
 
     pub fn with_fix(mut self, fix: impl Into<crate::i18n::Message>) -> Self {
-        let fix = fix.into();
-        self.fix = Some(fix.render());
-        self.fix_message = fix.is_translatable().then_some(fix);
+        self.fix = Some(crate::LocalizedText::new(fix));
         self
     }
 
@@ -297,25 +280,17 @@ impl MissingCapability {
     }
 
     pub fn with_action(mut self, sql: impl Into<String>, detail: Option<crate::i18n::Message>) -> Self {
-        self.action = Some(CapabilityAction {
-            sql: sql.into(),
-            detail: detail.as_ref().map(crate::i18n::Message::render),
-            detail_message: detail.filter(crate::i18n::Message::is_translatable),
-        });
+        self.action = Some(CapabilityAction { sql: sql.into(), detail: detail.map(crate::LocalizedText::new) });
         self
     }
 
     pub fn render_messages(&mut self) {
-        if let Some(message) = &self.reason_message {
-            self.reason = message.render();
+        self.reason.render();
+        if let Some(fix) = &mut self.fix {
+            fix.render();
         }
-        if let Some(message) = &self.fix_message {
-            self.fix = Some(message.render());
-        }
-        if let Some(action) = &mut self.action
-            && let Some(message) = &action.detail_message
-        {
-            action.detail = Some(message.render());
+        if let Some(detail) = self.action.as_mut().and_then(|action| action.detail.as_mut()) {
+            detail.render();
         }
     }
 }
@@ -765,27 +740,23 @@ impl ResourceSample {
 
 #[derive(Serialize, Deserialize, TS, Clone, Debug)]
 #[ts(export)]
+#[serde(deny_unknown_fields)]
 pub struct CollectorNote {
     pub collector: String,
-    pub message: String,
+    pub message: crate::LocalizedText,
     /// The table it is about (`schema.table`), where it is about one: what its view shows it under.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub table: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub message_source: Option<crate::i18n::Message>,
 }
 
 impl CollectorNote {
     pub fn recorded(collector: &str, message: crate::i18n::Message) -> Self {
-        Self { collector: collector.into(), message: message.render(), table: None, message_source: Some(message) }
+        Self { collector: collector.into(), message: message.into(), table: None }
     }
 
     pub fn refresh_language(&mut self) {
-        if let Some(message) = &self.message_source {
-            self.message = message.render();
-        }
+        self.message.render();
     }
 }
 
@@ -869,8 +840,8 @@ impl Snapshot {
                     plan.render_recorded_messages();
                 }
                 if let Some(history) = &mut query.plan_history {
-                    crate::i18n::render_text(&mut history.source, history.source_message.as_ref());
-                    crate::i18n::render_text(&mut history.note, history.note_message.as_ref());
+                    history.source.render();
+                    history.note.render();
                     if let Some(plan) = &mut history.captured_plan {
                         plan.render_recorded_messages();
                     }
@@ -906,7 +877,7 @@ impl Snapshot {
         }
         Some(
             self.missing_workload()
-                .map(|missing| missing.reason_message.clone().unwrap_or_else(|| missing.reason.clone().into()))
+                .map(|missing| missing.reason.message())
                 .unwrap_or_else(|| crate::message!("model.no_query_history")),
         )
     }

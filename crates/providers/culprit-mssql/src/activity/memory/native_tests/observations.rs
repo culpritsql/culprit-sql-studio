@@ -199,8 +199,7 @@ pub(super) async fn capture(
         return Err(invalid_data());
     }
     let source = description.observation.snapshot().ok_or_else(invalid_data)?.sources[0].clone();
-    let outcome =
-        SourceOutcome { source: source.source.clone(), state: source.state, reason: None, reason_message: None };
+    let outcome = SourceOutcome { source: source.source.clone(), state: source.state, reason: None };
     let rows = observations.iter().collect::<Vec<_>>();
     let report = culprit_checks::request_memory::explain(
         culprit_checks::request_memory::RequestMemoryEvidence { context: &context, observations: &rows },

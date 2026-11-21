@@ -30,12 +30,7 @@ fn scan(source: &CollectionDescription, rows: &[TelemetryRecord]) -> Snapshot {
     let SourceObservation::Snapshot(native) = &source.observation else { panic!("native read bounds") };
     let coverage = &native.sources[0];
     scan.sources.retain(|source| source.source != coverage.source);
-    scan.sources.push(SourceOutcome {
-        source: coverage.source.clone(),
-        state: coverage.state,
-        reason: None,
-        reason_message: None,
-    });
+    scan.sources.push(SourceOutcome { source: coverage.source.clone(), state: coverage.state, reason: None });
     scan.operations.session_memory = Some(SessionMemorySnapshot {
         source: coverage.source.clone(),
         observed_from: native.observed_from.clone(),

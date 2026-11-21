@@ -94,7 +94,11 @@ pub fn explain(evidence: TableMemoryEvidence<'_>) -> Result<TableMemoryReport> {
             target: target.as_ref().clone(),
             metadata: metadata.as_ref().clone(),
         }),
-        source: SourceOutcome { source: coverage.source.clone(), state, reason, reason_message: None },
+        source: SourceOutcome {
+            source: coverage.source.clone(),
+            state,
+            reason: (reason).map(culprit_core::LocalizedText::raw),
+        },
         read_complete: evidence.read_complete,
         native_rows: Some(coverage.records),
         observed_rows: observed,
@@ -116,8 +120,7 @@ pub fn unavailable(reason: &culprit_core::i18n::Message) -> TableMemoryReport {
         source: SourceOutcome {
             source: MSSQL_TABLE_MEMORY_SOURCE.into(),
             state: SourceState::Unavailable,
-            reason: Some(reason.render()),
-            reason_message: Some(reason.clone()),
+            reason: Some(culprit_core::LocalizedText::new(reason.clone())),
         },
         read_complete: false,
         native_rows: None,

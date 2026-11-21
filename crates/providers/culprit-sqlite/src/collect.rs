@@ -937,7 +937,7 @@ mod tests {
         let s = snapshot(&mut conn, Path::new("demo.db"), "demo", Environment::Local, Instant::now()).unwrap();
         assert!(s.tables.iter().any(|t| t.name == "ordinary" && t.rows == Some(0.0)));
         assert!(s.tables.iter().any(|t| t.name == "vectors" && t.is_virtual() && t.definition.is_some()));
-        assert!(s.notes.iter().any(|n| n.collector == "catalog" && n.message.contains("module_not_installed")));
+        assert!(s.notes.iter().any(|n| n.collector == "catalog" && n.message.text().contains("module_not_installed")));
         // The note names the table it is about, so its view finds it whatever language it is said in.
         let vectors = s.tables.iter().find(|t| t.name == "vectors").unwrap();
         let about = format!("{}.{}", vectors.schema, vectors.name);

@@ -126,10 +126,10 @@ test("missing native rows and unqualified resource identities cannot acquire inv
 });
 
 test("failed and explicitly unsupported requested source profiles remain visible without treating default opt-out as a failure", () => {
-  const unavailable: SourceOutcome = { source: "native failures", state: "unavailable", reason: "Native source denied access." };
+  const unavailable: SourceOutcome = { source: "native failures", state: "unavailable", reason: { text: "Native source denied access." } };
   expect(nativeFailureReadIssue(undefined, [unavailable])).toBe(unavailable);
   expect(nativeFailureReadIssue("other-source", [unavailable])).toBeUndefined();
-  const notApplicable: SourceOutcome = { ...unavailable, state: "not-applicable", reason: "The native source does not apply to this product." };
+  const notApplicable: SourceOutcome = { ...unavailable, state: "not-applicable", reason: { text: "The native source does not apply to this product." } };
   expect(nativeFailureReadIssue(undefined, [notApplicable])).toBeUndefined();
   expect(nativeFailureReadIssue(undefined, [notApplicable], true)).toBe(notApplicable);
   const html = renderToStaticMarkup(<NativeFailureSourceIssue source={notApplicable} />);
@@ -140,7 +140,7 @@ test("failed and explicitly unsupported requested source profiles remain visible
 });
 
 test("native source issues preserve exact canonical and custom source identities", () => {
-  const native: SourceOutcome = { source: "native failures", state: "partial", reason: "Positive retained rows were incomplete." };
+  const native: SourceOutcome = { source: "native failures", state: "partial", reason: { text: "Positive retained rows were incomplete." } };
   expect(nativeFailureReadIssue(undefined, [native])).toBe(native);
   expect(native.state).toBe("partial");
   expect(native.source).toBe("native failures");

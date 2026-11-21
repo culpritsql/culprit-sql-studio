@@ -75,7 +75,7 @@ pub fn explain(observations: &[&TaskSpaceObservation], source: Option<&SourceOut
     }
     Ok(TaskSpaceReport {
         source_state: source.map(|source| source.state),
-        source_reason: source.and_then(|source| source.reason.clone()),
+        source_reason: source.and_then(|source| source.reason_text().map(str::to_owned)),
         title: t!("view.task_space.title"),
         summary: if observations.is_empty() {
             t!("view.task_space.summary.empty")

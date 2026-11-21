@@ -38,7 +38,7 @@ export function WorkloadUnlock({ report }: { report: Report }) {
           <b>{t("ui.workload_unlock.query_log_title")}</b>
         </div>
         <p>
-          {missing.reason} {t("ui.workload_unlock.query_log_until")}
+          {missing.reason.text} {t("ui.workload_unlock.query_log_until")}
         </p>
         <div className="unlock-foot">
           <span className="muted">{t("ui.workload_unlock.query_log_reads_only")}</span>
@@ -50,7 +50,7 @@ export function WorkloadUnlock({ report }: { report: Report }) {
     );
   }
   const sql = missing.action?.sql ?? null;
-  const rest = missing.action ? missing.action.detail : missing.fix;
+  const rest = missing.action ? missing.action.detail?.text : missing.fix?.text;
   return (
     <div className="unlock">
       <div className="unlock-head">
@@ -58,7 +58,7 @@ export function WorkloadUnlock({ report }: { report: Report }) {
         <b>{t("ui.workload_unlock.title")}</b>
       </div>
       <p>
-        {missing.reason} {t("ui.workload_unlock.until")}
+        {missing.reason.text} {t("ui.workload_unlock.until")}
       </p>
       {sql && (
         <div className="unlock-sql">

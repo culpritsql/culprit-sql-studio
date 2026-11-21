@@ -284,7 +284,7 @@ async fn unverified_task_visibility_keeps_readable_coordinators_and_empty_frames
         let outcome = &coverage.outcomes()[0];
         assert_eq!(outcome.state, culprit_core::SourceState::Partial);
         assert_eq!(
-            outcome.reason_message,
+            outcome.reason.as_ref().and_then(culprit_core::LocalizedText::source).cloned(),
             Some(culprit_core::i18n::Message::paragraph(vec![
                 culprit_core::message!("provider.mssql.page_wait_targets.partial"),
                 culprit_core::message!("provider.mssql.page_wait_targets.task_visibility_unavailable"),

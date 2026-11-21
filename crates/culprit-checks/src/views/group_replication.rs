@@ -61,14 +61,14 @@ pub fn explain(evidence: GroupReplicationEvidence<'_>) -> Result<GroupReplicatio
         sources.push(SourceOutcome {
             source: source.source.clone(),
             state: if missing { SourceState::Partial } else { source.state },
-            reason: if missing || source.state == SourceState::Partial {
+            reason: (if missing || source.state == SourceState::Partial {
                 Some(t!("view.group_replication.partial"))
             } else if source.error_code.is_some() || source.stopped.is_some() {
                 Some(t!("view.group_replication.unavailable"))
             } else {
                 None
-            },
-            reason_message: None,
+            })
+            .map(culprit_core::LocalizedText::raw),
         });
     }
     let selected: BTreeSet<_> = members.keys().chain(statistics.keys()).copied().collect();
@@ -265,8 +265,7 @@ pub fn unavailable(reason: &culprit_core::i18n::Message) -> GroupReplicationRepo
             .map(|source| SourceOutcome {
                 source: source.into(),
                 state: SourceState::Unavailable,
-                reason: Some(reason.render()),
-                reason_message: Some(reason.clone()),
+                reason: Some(culprit_core::LocalizedText::new(reason.clone())),
             })
             .collect(),
         read_complete: false,

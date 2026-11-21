@@ -75,7 +75,7 @@ test("unrelated Query Store source failures do not pretend that page-server evid
   const data = pageServerReadHealthReport(null);
   const source = data.snapshot.sources?.[0];
   if (!source) throw new Error("The fixture requires its original Query Store source");
-  source.reason_message = { kind: "catalog", key: "view.compilation.limit.source", arguments: {} };
+  source.reason = { text: t("view.compilation.limit.source"), source: { kind: "catalog", key: "view.compilation.limit.source", arguments: {} } };
   const html = renderToStaticMarkup(<HealthTab report={data} pressure={null} resources={[]} engineLabel="PostgreSQL" />);
   expect(html).not.toContain(t("view.page_server_reads.title"));
 });

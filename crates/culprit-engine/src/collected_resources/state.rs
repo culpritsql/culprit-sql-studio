@@ -172,8 +172,9 @@ pub(crate) fn read_outcome(coverage: &StateSourceCoverage, rows: usize, read_com
     Ok(SourceOutcome {
         source: coverage.source.clone(),
         state: if incomplete_read { SourceState::Partial } else { coverage.state },
-        reason: incomplete_read.then(|| culprit_core::t!("engine.collected_resources.incomplete_read")),
-        reason_message: incomplete_read.then(|| culprit_core::message!("engine.collected_resources.incomplete_read")),
+        reason: incomplete_read.then(|| {
+            culprit_core::LocalizedText::new(culprit_core::message!("engine.collected_resources.incomplete_read"))
+        }),
     })
 }
 

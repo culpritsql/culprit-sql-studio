@@ -387,6 +387,7 @@
       "title": "Actual plans without re-running queries"
     }
   ],
+  "change_capture": {},
   "findings": [
     {
       "actionability": "needs-attention",
@@ -4097,6 +4098,10 @@
     ],
     "notes": [],
     "operations": {
+      "change_capture": {
+        "cdc": [],
+        "change_feed": []
+      },
       "cluster": null,
       "counters": [],
       "full_text_populations": [],
@@ -4114,11 +4119,7 @@
       "source_acquisitions": [],
       "spaces": [],
       "sqlite": null,
-      "table_memory": [],
-      "change_capture": {
-        "cdc": [],
-        "change_feed": []
-      }
+      "table_memory": []
     },
     "options": {
       "collect_memory_failures": false,
@@ -4955,11 +4956,13 @@
         "state": "collected"
       },
       {
-        "reason": "This source was not recorded, was not applicable, or did not expose visible objects. No clean result can be established from its absence.",
-        "reason_message": {
-          "arguments": {},
-          "key": "evidence.source_not_recorded",
-          "kind": "catalog"
+        "reason": {
+          "source": {
+            "arguments": {},
+            "key": "evidence.source_not_recorded",
+            "kind": "catalog"
+          },
+          "text": "This source was not recorded, was not applicable, or did not expose visible objects. No clean result can be established from its absence."
         },
         "source": "memory grants per query",
         "state": "unavailable"
@@ -12676,6 +12679,5 @@
       "separator": " "
     },
     "top_share": 0.6085946588813995
-  },
-  "change_capture": {}
+  }
 }

@@ -76,7 +76,10 @@ fn invalid_originals_and_masking_collisions_are_withheld_with_a_stable_explicit_
         assert!(shared.pressure.as_ref().unwrap().wait_counters.is_none());
         let gap = shared.sources.iter().find(|source| source.source == crate::source_id::WAITS).unwrap();
         assert_eq!(gap.state, SourceState::Unavailable);
-        assert_eq!(gap.reason_message, Some(crate::message!("view.wait_counters.invalid")));
+        assert_eq!(
+            gap.reason.as_ref().and_then(crate::LocalizedText::source).cloned(),
+            Some(crate::message!("view.wait_counters.invalid"))
+        );
         let encoded = serde_json::to_string(&shared).unwrap();
         assert!(!encoded.contains("private-source-canary"));
         assert!(!encoded.contains("private-reset-canary"));
@@ -117,7 +120,6 @@ fn source_outcomes_and_native_context_use_existing_snapshot_privacy_policy() {
         source: "private-source-canary".into(),
         state: SourceState::Collected,
         reason: None,
-        reason_message: None,
     });
     snapshot.pressure.get_or_insert_with(Default::default).wait_counters = Some(read);
     let shared = crate::redact::redact_snapshot(&snapshot);

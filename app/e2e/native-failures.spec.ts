@@ -67,7 +67,7 @@ test("retained native diagnostics stay collapsed, page exact metadata and expose
   await page.setViewportSize({ width: 1000, height: 900 });
   await openConnection(page, "mysql-demo");
   const native = evidence();
-  await inject(page, native, explanations(native), { source: "native failures", state: "partial", reason: "The bounded native read retained only a subset." });
+  await inject(page, native, explanations(native), { source: "native failures", state: "partial", reason: { text: "The bounded native read retained only a subset." } });
   await page.locator('[data-tile="health"]').click();
   await page.getByRole("dialog", { name: "Database health", exact: true }).waitFor();
   const section = page.locator(".health-tab > .operational-health").filter({ has: page.getByRole("heading", { name: "Retained native diagnostics", exact: true }) });
@@ -92,7 +92,7 @@ test("retained native diagnostics stay collapsed, page exact metadata and expose
   await expect(section).toContainText("Observations 11–12 of 12");
   await expect(section.getByRole("button", { name: "Next records", exact: true })).toBeDisabled();
 
-  const unsupported: SourceOutcome = { source: "native failures", state: "not-applicable", reason: "The native source does not apply to this provider." };
+  const unsupported: SourceOutcome = { source: "native failures", state: "not-applicable", reason: { text: "The native source does not apply to this provider." } };
   await inject(page, null, null, unsupported);
   await expect(section).toBeVisible();
   await expect(section).toContainText("This source is not available for the requested profile.");

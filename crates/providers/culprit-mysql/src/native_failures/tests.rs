@@ -154,7 +154,7 @@ async fn terminal_data_reads_stop_before_final_metadata_and_only_confirmed_sourc
         assert_eq!(reader.closed, 1);
         let (_, _, notes) = coverage.finish();
         assert_eq!(
-            notes.iter().any(|note| note.message.contains("SELECT on performance_schema.error_log")),
+            notes.iter().any(|note| note.message.text().contains("SELECT on performance_schema.error_log")),
             permission
         );
     }

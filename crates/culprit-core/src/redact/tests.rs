@@ -16,8 +16,7 @@ fn recorded_messages_and_capability_actions_do_not_retain_private_collector_deta
     snapshot.sources.push(crate::SourceOutcome {
         source: "query log".into(),
         state: crate::SourceState::Partial,
-        reason: Some(message.render()),
-        reason_message: Some(message),
+        reason: Some(crate::LocalizedText::new(message)),
     });
     snapshot.server.missing.push(crate::MissingCapability::sql(
         crate::Capability::Showplan,
@@ -72,7 +71,7 @@ fn distributed_scope_redaction_is_complete_correlated_and_idempotent() {
     let scope = format!("node {node}, role 4294000001 only");
     let w = snapshot.workload.as_mut().unwrap();
     w.source = scope.clone();
-    w.source_message = Some(crate::message!(
+    w.set_source_label(crate::message!(
         "model.workload.source.ysql",
         scope = "node",
         node = &node,
@@ -82,12 +81,12 @@ fn distributed_scope_redaction_is_complete_correlated_and_idempotent() {
     crate::i18n::scope("fr", || w.refresh_language());
     for q in &mut w.queries {
         if let Some(h) = &mut q.plan_history {
-            h.source = scope.clone();
+            h.source = scope.clone().into();
         }
     }
     let h = snapshot.operations.activity_history.as_mut().unwrap();
-    h.period.source = scope.clone();
-    h.period.source_message = Some(crate::message!(
+    h.period.source = scope.clone().into();
+    h.period.source.set(crate::message!(
         "model.observation.source.ysql",
         relation = "yb_active_session_history",
         scope = "node",
@@ -96,9 +95,9 @@ fn distributed_scope_redaction_is_complete_correlated_and_idempotent() {
         role = "4294000001"
     ));
     let h = snapshot.operations.termination_history.as_mut().unwrap();
-    h.source = scope.clone();
-    h.visibility = scope;
-    h.visibility_message = Some(crate::message!("provider.yugabyte.terminations.role_visibility", role = "4294000001"));
+    h.source = scope.clone().into();
+    h.visibility = scope.into();
+    h.visibility.set(crate::message!("provider.yugabyte.terminations.role_visibility", role = "4294000001"));
     crate::i18n::scope("fr", || snapshot.operations.render_recorded_messages());
     snapshot.bind_identity(crate::DatabaseIdentity::server(
         Engine::Yugabyte,
@@ -113,7 +112,7 @@ fn distributed_scope_redaction_is_complete_correlated_and_idempotent() {
     let masked = &shared.operations.node_resources.as_ref().unwrap().nodes[0].node;
     assert!(masked.starts_with("redacted-"));
     let w = shared.workload.as_ref().unwrap();
-    assert!(w.source_message.is_none() && w.source_label.is_none());
+    assert!(w.source_label.is_none());
     assert!(w.counter_set.as_ref().unwrap().members.contains_key(masked));
     assert!(w.source.contains(masked) && w.source.contains("role [redacted] only"));
     let h = shared.operations.activity_history.as_ref().unwrap();
@@ -151,12 +150,9 @@ fn retained_plan_bodies_are_redacted_with_their_parent_snapshot() {
     cached.statement = Some("SELECT 'PLANTED-cache-value'".into());
     cached.raw = Some("PLANTED-cache-native-text".into());
     q.plan_history = Some(crate::PlanHistory {
-        source_message: None,
-        note_message: None,
-
-        source: "native plan cache".into(),
+        source: crate::LocalizedText::raw("native plan cache"),
         kind: crate::PlanHistoryKind::Cache,
-        note: "Independent cache periods".into(),
+        note: crate::LocalizedText::raw("Independent cache periods"),
         captured_plan_id: Some("-123".into()),
         captured_plan: Some(cached),
     });

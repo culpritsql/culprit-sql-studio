@@ -54,7 +54,7 @@ async fn source_failure_survives_shutdown_failure_without_a_success_or_reconnect
     for source in coverage.outcomes() {
         assert_eq!(source.state, culprit_core::SourceState::Unavailable);
         let reason = source.reason.unwrap();
-        assert!(reason.contains(&CollectionStop::Cancelled.error().message));
-        assert!(reason.contains(&CollectionStop::CancellationUnconfirmed.error().message));
+        assert!(reason.text().contains(&CollectionStop::Cancelled.error().message));
+        assert!(reason.text().contains(&CollectionStop::CancellationUnconfirmed.error().message));
     }
 }

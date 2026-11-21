@@ -97,7 +97,7 @@ pub fn explain(evidence: MssqlCatalogEvidence<'_>) -> Result<IndexConfigurationR
     let mut source = evidence.source.clone();
     if missing > 0 {
         source.state = if configurations.is_empty() { SourceState::Unavailable } else { SourceState::Partial };
-        source.reason = Some(t!("view.index_configuration.not_retained"));
+        source.reason = Some(t!("view.index_configuration.not_retained").into());
     }
     let mut report = render(dataset, &configurations, Some(&source), Some(evidence.read_complete))?;
     report.context = Some(context);
@@ -195,7 +195,7 @@ fn render(
         },
         qualification: t!("view.index_configuration.qualification"),
         source_state: source.map(|source| source.state),
-        source_reason: source.and_then(|source| source.reason.clone()),
+        source_reason: source.and_then(|source| source.reason_text().map(str::to_owned)),
         read_complete,
         native_rows: None,
         observed_rows: configurations.len() as u32,

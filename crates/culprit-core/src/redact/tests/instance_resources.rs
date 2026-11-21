@@ -72,7 +72,7 @@ fn invalid_original_instance_measurements_are_withheld_with_a_persistent_unavail
     assert!(shared.pressure.as_ref().unwrap().instance_resources.is_none());
     let gap = shared.sources.iter().find(|source| source.source == INSTANCE_RESOURCES_SOURCE).unwrap();
     assert_eq!(gap.state, crate::SourceState::Unavailable);
-    assert_eq!(gap.reason, Some(crate::t!("view.instance_resources.invalid")));
+    assert_eq!(gap.reason_text(), Some(crate::t!("view.instance_resources.invalid").as_str()));
     assert_eq!(serde_json::to_value(redact_snapshot(&shared)).unwrap(), serde_json::to_value(&shared).unwrap());
     assert!(original.pressure.as_ref().unwrap().instance_resources.is_some());
 }

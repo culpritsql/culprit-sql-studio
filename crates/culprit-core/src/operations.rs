@@ -4,18 +4,6 @@ use crate::{FileKind, FileScope, Snapshot};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-fn clear_text(text: &mut String, message: &Option<crate::i18n::Message>) {
-    if message.is_some() {
-        text.clear();
-    }
-}
-
-fn clear_notes(notes: &mut Vec<String>, messages: &Option<Vec<crate::i18n::Message>>) {
-    if messages.is_some() {
-        notes.clear();
-    }
-}
-
 /// Native index-usage population, independent of the connected member's current role or uptime.
 #[derive(Serialize, Deserialize, TS, Clone, Copy, Debug, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
@@ -167,40 +155,46 @@ impl OperationalStats {
             })
     }
     pub fn render_recorded_messages(&mut self) {
+        if let Some(catalog) = &mut self.indexed_views {
+            catalog.source.refresh_language();
+        }
         if let Some(resources) = &mut self.node_resources {
-            crate::i18n::render_text(&mut resources.source, resources.source_message.as_ref());
-            crate::i18n::render_notes(&mut resources.notes, resources.note_messages.as_deref());
+            resources.source.render();
+            resources.notes.iter_mut().for_each(crate::LocalizedText::render);
             for memory in resources.nodes.iter_mut().filter_map(|node| node.process_memory.as_mut()) {
-                crate::i18n::render_text(&mut memory.name, memory.name_message.as_ref());
+                memory.name.render();
             }
         }
         if let Some(history) = &mut self.activity_history {
-            crate::i18n::render_text(&mut history.period.source, history.period.source_message.as_ref());
-            crate::i18n::render_notes(&mut history.period.notes, history.period.note_messages.as_deref());
+            history.period.source.render();
+            history.period.notes.iter_mut().for_each(crate::LocalizedText::render);
         }
         if let Some(history) = &mut self.termination_history {
-            crate::i18n::render_text(&mut history.source, history.source_message.as_ref());
-            crate::i18n::render_text(&mut history.visibility, history.visibility_message.as_ref());
-            crate::i18n::render_notes(&mut history.notes, history.note_messages.as_deref());
+            history.source.render();
+            history.visibility.render();
+            history.notes.iter_mut().for_each(crate::LocalizedText::render);
         }
     }
 
     pub fn clear_recorded_text(&mut self) {
+        if let Some(reason) = self.indexed_views.as_mut().and_then(|catalog| catalog.source.reason.as_mut()) {
+            reason.clear_rendered();
+        }
         if let Some(resources) = &mut self.node_resources {
-            clear_text(&mut resources.source, &resources.source_message);
-            clear_notes(&mut resources.notes, &resources.note_messages);
+            resources.source.clear_rendered();
+            resources.notes.iter_mut().for_each(crate::LocalizedText::clear_rendered);
             for memory in resources.nodes.iter_mut().filter_map(|node| node.process_memory.as_mut()) {
-                clear_text(&mut memory.name, &memory.name_message);
+                memory.name.clear_rendered();
             }
         }
         if let Some(history) = &mut self.activity_history {
-            clear_text(&mut history.period.source, &history.period.source_message);
-            clear_notes(&mut history.period.notes, &history.period.note_messages);
+            history.period.source.clear_rendered();
+            history.period.notes.iter_mut().for_each(crate::LocalizedText::clear_rendered);
         }
         if let Some(history) = &mut self.termination_history {
-            clear_text(&mut history.source, &history.source_message);
-            clear_text(&mut history.visibility, &history.visibility_message);
-            clear_notes(&mut history.notes, &history.note_messages);
+            history.source.clear_rendered();
+            history.visibility.clear_rendered();
+            history.notes.iter_mut().for_each(crate::LocalizedText::clear_rendered);
         }
     }
 }
@@ -301,20 +295,15 @@ pub struct MemoryFailureSnapshot {
 /// Shared node measurements, separate from the selected database's pressure signals and workload period.
 #[derive(Serialize, Deserialize, TS, Clone, Debug, PartialEq)]
 #[ts(export)]
+#[serde(deny_unknown_fields)]
 pub struct NodeResources {
-    pub source: String,
+    pub source: crate::LocalizedText,
     pub observed_from: String,
     pub observed_until: String,
     pub nodes_expected: Option<usize>,
     pub partial: bool,
-    pub notes: Vec<String>,
+    pub notes: Vec<crate::LocalizedText>,
     pub nodes: Vec<NodeResource>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub source_message: Option<crate::i18n::Message>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub note_messages: Option<Vec<crate::i18n::Message>>,
 }
 
 #[derive(Serialize, Deserialize, TS, Clone, Debug, PartialEq)]
@@ -333,14 +322,12 @@ pub struct NodeResource {
 /// A process's tracked allocation; it is not necessarily RSS or the memory of SQL backend processes.
 #[derive(Serialize, Deserialize, TS, Clone, Debug, PartialEq)]
 #[ts(export)]
+#[serde(deny_unknown_fields)]
 pub struct ProcessMemory {
-    pub name: String,
+    pub name: crate::LocalizedText,
     pub tracked_bytes: Option<f64>,
     pub hard_limit: Option<MemoryLimit>,
     pub soft_limit: Option<MemoryLimit>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub name_message: Option<crate::i18n::Message>,
 }
 
 #[derive(Serialize, Deserialize, TS, Clone, Copy, Debug, PartialEq)]
@@ -354,25 +341,17 @@ pub enum MemoryLimit {
 /// An evictable native buffer of unexpected terminations. It has no complete failure count or workload denominator.
 #[derive(Serialize, Deserialize, TS, Clone, Debug, PartialEq)]
 #[ts(export)]
+#[serde(deny_unknown_fields)]
 pub struct TerminationHistory {
-    pub source: String,
+    pub source: crate::LocalizedText,
     pub requested_start: String,
     pub requested_end: String,
     pub scope: crate::CounterScope,
     pub nodes: Vec<String>,
-    pub visibility: String,
+    pub visibility: crate::LocalizedText,
     pub partial: bool,
-    pub notes: Vec<String>,
+    pub notes: Vec<crate::LocalizedText>,
     pub events: Vec<QueryTermination>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub source_message: Option<crate::i18n::Message>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub visibility_message: Option<crate::i18n::Message>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub note_messages: Option<Vec<crate::i18n::Message>>,
 }
 
 #[derive(Serialize, Deserialize, TS, Clone, Debug, PartialEq)]

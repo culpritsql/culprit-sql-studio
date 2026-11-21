@@ -142,9 +142,12 @@ pub(crate) async fn read_native(session: &mut impl NoticeRead, maximum: usize) -
                 || entry.host_memory_total_bytes.is_some()
                 || tracked_bytes.is_some();
             let name_message = culprit_core::message!("provider.yugabyte.resources.root_tracker");
-            let name = name_message.render();
-            entry.process_memory =
-                Some(ProcessMemory { name_message: Some(name_message), name, tracked_bytes, hard_limit, soft_limit });
+            entry.process_memory = Some(ProcessMemory {
+                name: culprit_core::LocalizedText::new(name_message),
+                tracked_bytes,
+                hard_limit,
+                soft_limit,
+            });
         } else {
             partial = true;
         }
@@ -174,19 +177,14 @@ pub(crate) async fn read_native(session: &mut impl NoticeRead, maximum: usize) -
         culprit_core::message!("provider.yugabyte.resources.cpu"),
         culprit_core::message!("provider.yugabyte.resources.memory"),
     ];
-    let rendered_notes = notes.iter().map(culprit_core::i18n::Message::render).collect();
     let source_message = culprit_core::message!("provider.yugabyte.resources.source");
-    let source = source_message.render();
     let view = NodeResources {
-        source_message: Some(source_message),
-        note_messages: Some(notes),
-
-        source,
+        source: culprit_core::LocalizedText::new(source_message),
         observed_from,
         observed_until,
         nodes_expected,
         partial,
-        notes: rendered_notes,
+        notes: notes.into_iter().map(culprit_core::LocalizedText::new).collect(),
         nodes: nodes.into_values().collect(),
     };
     let counters = view

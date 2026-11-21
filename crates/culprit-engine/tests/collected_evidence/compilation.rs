@@ -96,12 +96,7 @@ async fn archived_compilations_reuse_the_scan_explanation_and_retain_exact_nativ
         observations,
     };
     assert!(snapshot.is_valid(), "native compilation history precedes the independent point read");
-    let source_outcome = SourceOutcome {
-        source: snapshot.source.clone(),
-        state: SourceState::Collected,
-        reason: None,
-        reason_message: None,
-    };
+    let source_outcome = SourceOutcome { source: snapshot.source.clone(), state: SourceState::Collected, reason: None };
     let rows = snapshot.observations.iter().collect::<Vec<_>>();
     let expected = culprit_checks::compilation::explain(culprit_checks::compilation::CompilationEvidence {
         context: snapshot.context.as_ref(),

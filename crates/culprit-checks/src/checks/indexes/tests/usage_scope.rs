@@ -149,7 +149,6 @@ fn current_member_totals_with_old_epochs_do_not_authorize_global_cleanup_after_h
         snapshot.sources.iter_mut().find(|source| source.source == culprit_core::source_id::DOCDB_INDEX_USAGE).unwrap();
     usage.state = culprit_core::SourceState::Collected;
     usage.reason = None;
-    usage.reason_message = None;
     snapshot.server.missing.retain(|missing| missing.capability != culprit_core::Capability::IndexUsage);
     snapshot.server.capabilities.push(culprit_core::Capability::IndexUsage);
 

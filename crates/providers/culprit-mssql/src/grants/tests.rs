@@ -419,8 +419,11 @@ async fn a_scan_without_workload_selectors_keeps_a_source_gap_without_opening_ca
     let [outcome] = outcomes.as_slice() else { panic!("one explicit native-source gap") };
     assert_eq!(outcome.source, crate::sources::GRANTS.name);
     assert_eq!(outcome.state, culprit_core::SourceState::Unavailable);
-    assert_eq!(outcome.reason.as_deref(), Some(culprit_core::t!("provider.mssql.grants.no_selectors").as_str()));
-    assert_eq!(outcome.reason_message, Some(culprit_core::message!("provider.mssql.grants.no_selectors")));
+    assert_eq!(outcome.reason_text(), Some(culprit_core::t!("provider.mssql.grants.no_selectors").as_str()));
+    assert_eq!(
+        outcome.reason.as_ref().and_then(culprit_core::LocalizedText::source).cloned(),
+        Some(culprit_core::message!("provider.mssql.grants.no_selectors"))
+    );
     assert_eq!(provider.pool.source_shutdown(), SourceShutdown::Quiescent);
 
     let mut native = FakeRead::new(vec![]);
