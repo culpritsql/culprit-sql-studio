@@ -1,4 +1,4 @@
-type Invoke = <T>(command: string, args?: Record<string, unknown>) => Promise<T>;
+export type Invoke = <T>(command: string, args?: Record<string, unknown>) => Promise<T>;
 
 /** Register in user order, independently of how long async invocations take to start or finish. */
 export function ownedRequests(invoke: Invoke, begin: string, retire: string) {

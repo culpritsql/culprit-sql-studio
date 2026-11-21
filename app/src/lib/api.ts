@@ -1,177 +1,24 @@
-import type { IncidentHistoryReport } from "../gen/IncidentHistoryReport";
-import type { ProviderAcquisitionReport } from "../gen/ProviderAcquisitionReport";
-import type { ObservedProbeAttempt } from "../gen/ObservedProbeAttempt";
-import type { ObservedScanAttempt } from "../gen/ObservedScanAttempt";
-import { requireProbe, requireScan } from "./provider-acquisition";
-import { language } from "./i18n";
+import type { ConnectionsApi } from "./api/connections";
+import type { DiscoveryApi } from "./api/discovery";
+import type { AuthenticationApi } from "./api/authentication";
+import type { ReportsApi } from "./api/reports";
+import type { PlansApi } from "./api/plans";
+import type { ActivityApi } from "./api/activity";
+import type { TimelineApi } from "./api/timeline";
+import type { EditorApi } from "./api/editor";
+import type { FilesApi } from "./api/files";
+import type { ApprovalsApi } from "./api/approvals";
+import type { UpdatesApi } from "./api/updates";
+import type { LocalizationApi } from "./api/localization";
+export type { UpdateInfo, UpdateProgress } from "./api/updates";
+export type { ScreenArea } from "./api/files";
 import { lazyResource } from "./requests";
-import { discoveryRequests } from "./discovery-requests";
-import { ownedRequests } from "./owned-requests";
-import type { Catalog } from "../gen/Catalog";
-import type { ChangeRequest } from "../gen/ChangeRequest";
-import type { Changes } from "../gen/Changes";
-import type { CloudSignals } from "../gen/CloudSignals";
-import type { CheckInfo } from "../gen/CheckInfo";
-import type { AgentAccess } from "../gen/AgentAccess";
-import type { ApprovalRequest } from "../gen/ApprovalRequest";
-import type { ConnectionSettings } from "../gen/ConnectionSettings";
-import type { ConnectionInfo } from "../gen/ConnectionInfo";
-import type { Deadlock } from "../gen/Deadlock";
-import type { Dashboard } from "../gen/Dashboard";
-import type { DashboardLive } from "../gen/DashboardLive";
-import type { DeadlockReport } from "../gen/DeadlockReport";
-import type { DiscoveryResult } from "../gen/DiscoveryResult";
-import type { DiscoveredDatabase } from "../gen/DiscoveredDatabase";
-import type { Drift } from "../gen/Drift";
-import type { IndexAdvice } from "../gen/IndexAdvice";
-import type { EventLog } from "../gen/EventLog";
-import type { EventsRequest } from "../gen/EventsRequest";
-import type { ExplainMode } from "../gen/ExplainMode";
-import type { ExportFile } from "../gen/ExportFile";
-import type { ExportFormat } from "../gen/ExportFormat";
-import type { ExportOptions } from "../gen/ExportOptions";
-import type { Finding } from "../gen/Finding";
-import type { ImportCandidate } from "../gen/ImportCandidate";
-import type { ImportSource } from "../gen/ImportSource";
-import type { LiveState } from "../gen/LiveState";
-import type { Mark } from "../gen/Mark";
-import type { NewConnection } from "../gen/NewConnection";
-import type { NativeIdentity } from "../gen/NativeIdentity";
-import type { ParsedConnection } from "../gen/ParsedConnection";
-import type { Plan } from "../gen/Plan";
-import type { QueryProgress } from "../gen/QueryProgress";
-import type { PlanDiff } from "../gen/PlanDiff";
-import type { Report } from "../gen/Report";
-import type { ResultSet } from "../gen/ResultSet";
-import type { TablePreview } from "../gen/TablePreview";
-import type { TablePreviewOptions } from "../gen/TablePreviewOptions";
-import type { SavedQuery } from "../gen/SavedQuery";
-import type { SaveQuery } from "../gen/SaveQuery";
-import type { SshConfig } from "../gen/SshConfig";
-import type { ServerInfo } from "../gen/ServerInfo";
-import type { WaitSample } from "../gen/WaitSample";
-import type { WaitsReport } from "../gen/WaitsReport";
-import type { Engine } from "../gen/Engine";
-import type { StatementCheck } from "../gen/StatementCheck";
-import type { Verification } from "../gen/Verification";
-import type { SessionActionRequest } from "../gen/SessionActionRequest";
-import type { SessionActionOutcome } from "../gen/SessionActionOutcome";
-import type { SignInEvent } from "../gen/SignInEvent";
 import type { ErrorDetail } from "../gen/ErrorDetail";
 
 export type ApiError = { code: string; message: string; hint: string | null; detail?: ErrorDetail | null };
 
-/** A newer published release than the running app. */
-export type UpdateInfo = { version: string; current: string; notes: string | null };
-export type UpdateProgress = { downloaded: number; total: number | null };
-/** Part of the window in CSS pixels, from its top left corner. */
-export type ScreenArea = { x: number; y: number; width: number; height: number };
-
-export interface Api {
+export interface Api extends ConnectionsApi, DiscoveryApi, AuthenticationApi, ReportsApi, PlansApi, ActivityApi, TimelineApi, EditorApi, FilesApi, ApprovalsApi, UpdatesApi, LocalizationApi {
   readonly kind: "desktop" | "demo";
-  /** Write what the desktop app words (findings, notes, plan insights) in `code`, the language the app is shown in. */
-  setLanguage(code: string): Promise<void>;
-  connections(): Promise<ConnectionInfo[]>;
-  /** What `input` connects to, read as `engine` wherever the text leaves the engine open. */
-  parseConnection(input: string, engine: Engine | null, ssh?: boolean): Promise<ParsedConnection>;
-  testConnection(input: NewConnection, signal?: AbortSignal, acquisition?: (report: ProviderAcquisitionReport) => void): Promise<ServerInfo>;
-  setConnectionSettings(name: string, settings: ConnectionSettings): Promise<ConnectionInfo>;
-  testConnectionSettings(name: string, settings: ConnectionSettings, signal?: AbortSignal, acquisition?: (report: ProviderAcquisitionReport) => void): Promise<ServerInfo>;
-  addConnection(input: NewConnection): Promise<ConnectionInfo>;
-  removeConnection(name: string): Promise<void>;
-  renameConnection(old: string, next: string): Promise<ConnectionInfo>;
-  discoverAzure(terms: string[], signal?: AbortSignal): Promise<DiscoveryResult>;
-  discoverAws(terms: string[], regions: string[], signal?: AbortSignal): Promise<DiscoveryResult>;
-  setPassword(name: string, password: string): Promise<ConnectionInfo>;
-  setSsh(name: string, ssh: SshConfig | null): Promise<ConnectionInfo>;
-  testSsh(name: string, ssh: SshConfig | null, signal?: AbortSignal, acquisition?: (report: ProviderAcquisitionReport) => void): Promise<ServerInfo>;
-  addDiscovered(items: DiscoveredDatabase[]): Promise<ConnectionInfo[]>;
-  importCandidates(source: ImportSource | null): Promise<ImportCandidate[]>;
-  importConnections(items: ImportCandidate[]): Promise<ConnectionInfo[]>;
-  /** Device-code sign-in progress for Microsoft Entra ID; resolves to an unsubscribe function. */
-  onSignIn(listener: (event: SignInEvent) => void): Promise<() => void>;
-  cancelSignIn(): Promise<void>;
-  openSignInPage(): Promise<void>;
-  latestReport(name: string, windowMinutes: number | null, population: NativeIdentity | null): Promise<Report | null>;
-  reportAt(name: string, reportId: string): Promise<Report>;
-  scan(name: string, windowMinutes: number | null, population: NativeIdentity | null, acquisition?: (report: ProviderAcquisitionReport) => void): Promise<Report>;
-  brief(name: string, reportId: string, findingId: string): Promise<string>;
-  explain(name: string, sql: string, mode: ExplainMode, confirmed: boolean): Promise<Plan>;
-  queryPlan(name: string, queryId: string, planId: string | null, reportId?: string): Promise<Plan>;
-  /** The actual plan of the query's last run as the engine kept it (SQL Server 2019+); never runs the query. */
-  lastActualPlan(name: string, queryId: string, planId: string | null, reportId?: string): Promise<Plan>;
-  /** How far along a session's running statement is; `withPlan` asks for the plan too. */
-  queryProgress(name: string, session: string, withPlan: boolean): Promise<QueryProgress>;
-  /** What differs between the latest scans of two connections of the same engine. */
-  drift(a: string, b: string): Promise<Drift>;
-  /** The dashboard for the latest report with this window (no live read; the app polls sessions itself). */
-  dashboard(name: string, windowMinutes: number | null, reportId?: string): Promise<Dashboard>;
-  /** Refresh sessions and their assessment while retaining this report's selected window. */
-  dashboardLive(name: string, dashboard: Dashboard): Promise<DashboardLive>;
-  /** The index advisor for the displayed report: indexes to add, to clean up, and tables to look at. */
-  indexAdvice(name: string, reportId: string): Promise<IndexAdvice>;
-  parsePlan(text: string): Promise<Plan>;
-  /** `connection`: where the plans came from, so scenarios can use its latest scan's statistics. */
-  diffPlans(a: Plan, b: Plan, nameA: string, nameB: string, connection?: string | null): Promise<PlanDiff>;
-  exportPlan(plan: Plan, title: string, format: ExportFormat, options: ExportOptions): Promise<ExportFile>;
-  exportDiff(a: Plan, b: Plan, nameA: string, nameB: string, format: ExportFormat, options: ExportOptions, connection?: string | null): Promise<ExportFile>;
-  /** A plan of a query from the latest scan, with its original text when the engine keeps it (.sqlplan). */
-  exportQueryPlan(name: string, reportId: string, queryId: string, planId: string | null, format: ExportFormat, options: ExportOptions): Promise<ExportFile>;
-  exportFinding(name: string, reportId: string, findingId: string, format: ExportFormat, options: ExportOptions): Promise<ExportFile>;
-  /** Re-scan and compare with the displayed exact report, finding by finding. */
-  verifyFindings(name: string, reportId: string, ids: string[]): Promise<Verification>;
-  /** Writes into the Downloads folder and returns the path; the browser demo downloads instead. */
-  saveFile(name: string, contents: string): Promise<string>;
-  /** Copies a PNG of `area`, exactly as the window shows it, to the clipboard. Desktop app on macOS only. */
-  screenshot(area: ScreenArea): Promise<void>;
-  live(name: string): Promise<LiveState>;
-  /** Where the latest scan's database time went, by wait category with the queries behind each. */
-  waits(name: string, windowMinutes: number | null): Promise<WaitsReport | null>;
-  /** What the server waits on right now, sampled for `seconds`. */
-  waitSample(name: string, seconds: number): Promise<WaitSample>;
-  interruptSession(request: SessionActionRequest): Promise<SessionActionOutcome>;
-  previewTable(name: string, options: TablePreviewOptions, signal?: AbortSignal): Promise<TablePreview>;
-  run(name: string, sql: string, limit: number, confirmed: boolean): Promise<ResultSet>;
-  /** What changed between two periods: Query Store intervals, or Culprit's own scans. */
-  changes(name: string, request: ChangeRequest): Promise<Changes>;
-  /** What changed around a connection: marks, schema, settings, restarts and cloud throttling. */
-  events(name: string, request: EventsRequest): Promise<EventLog>;
-  /** What the cloud measured for the server (CloudWatch, Azure Monitor); `unsupported` for other hosts. */
-  cloud(name: string, request: EventsRequest): Promise<CloudSignals>;
-  /** Put a moment (a deploy, a migration) on the connection's timeline. */
-  mark(name: string, text: string, at: string | null): Promise<Mark>;
-  unmark(name: string, id: string): Promise<Mark>;
-  /** Recent deadlocks on a connection, explained. */
-  deadlocks(name: string, sinceHours: number): Promise<DeadlockReport>;
-  /** Deadlocks in pasted text: SQL Server .xdl XML, InnoDB status, PostgreSQL log lines. */
-  parseDeadlock(text: string): Promise<Deadlock[]>;
-  checkStatement(engine: Engine, sql: string): Promise<StatementCheck>;
-  lintSql(name: string, sql: string): Promise<Finding[]>;
-  checks(): Promise<CheckInfo[]>;
-  catalog(name: string): Promise<Catalog>;
-  savedQueries(): Promise<SavedQuery[]>;
-  saveQuery(query: SaveQuery): Promise<SavedQuery>;
-  deleteSavedQuery(name: string): Promise<void>;
-  savedQueryRan(name: string): Promise<void>;
-  setAgentAccess(name: string, access: AgentAccess): Promise<ConnectionInfo>;
-  /** The log scans read the statements from when the database keeps none (SQLite); null stops. */
-  setQueryLog(name: string, path: string | null): Promise<ConnectionInfo>;
-  /** Pick that log in the system's file dialog (desktop only); null when the person cancelled. */
-  chooseQueryLog(name: string): Promise<ConnectionInfo | null>;
-  /** Explicit local OperationalSamples JSONL, structurally checked and never source-authenticated. */
-  openIncidentHistory(signal?: AbortSignal): Promise<IncidentHistoryReport | null>;
-  /** Pick a SQLite file in the system's file dialog (desktop only): its path, for the new-connection input. */
-  chooseDatabaseFile(): Promise<string | null>;
-  chooseSshIdentity(): Promise<string | null>;
-  chooseCaCertificate(): Promise<string | null>;
-  pendingApprovals(): Promise<ApprovalRequest[]>;
-  decideApproval(id: string, hash: string, approved: boolean): Promise<void>;
-  /** A newer published release, or null. Asked by the app itself at most once a day, or when the person checks. */
-  checkUpdate(): Promise<UpdateInfo | null>;
-  /** Downloads, verifies and installs the update the last check found; the app restarts into it with restartApp. */
-  installUpdate(): Promise<void>;
-  onUpdateProgress(listener: (progress: UpdateProgress) => void): Promise<() => void>;
-  restartApp(): Promise<void>;
 }
 
 export function isApiError(value: unknown): value is ApiError {
@@ -188,111 +35,7 @@ export function isDesktop(): boolean {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 }
 
-async function desktopApi(): Promise<Api> {
-  const { invoke } = await import("@tauri-apps/api/core");
-  const discover = discoveryRequests(invoke);
-  const connectionTests = ownedRequests(invoke, "begin_connection_test", "cancel_connection_test");
-  const preview = ownedRequests(invoke, "begin_preview", "cancel_preview");
-  const history = ownedRequests(invoke, "begin_incident_history", "cancel_incident_history");
-  // Before anything is read: the backend words what it reads in the app's language.
-  await invoke("set_language", { code: language() });
-  return {
-    kind: "desktop",
-    setLanguage: (code) => invoke("set_language", { code }),
-    connections: () => invoke("connections"),
-    parseConnection: (input, engine, ssh = false) => invoke("parse_connection", { input, engine, ssh }),
-    testConnection: async (input, signal, acquisition) => requireProbe(
-      await connectionTests<ObservedProbeAttempt>("test_connection", { input }, signal), acquisition,
-    ),
-    setConnectionSettings: (name, settings) => invoke("set_connection_settings", { name, settings }),
-    testConnectionSettings: async (name, settings, signal, acquisition) => requireProbe(
-      await connectionTests<ObservedProbeAttempt>("test_connection_settings", { name, settings }, signal), acquisition,
-    ),
-    addConnection: (input) => invoke("add_connection", { input }),
-    removeConnection: (name) => invoke("remove_connection", { name }),
-    renameConnection: (old, next) => invoke("rename_connection", { old, new: next }),
-    discoverAzure: (terms, signal) => discover("discover_azure", { terms }, signal),
-    discoverAws: (terms, regions, signal) => discover("discover_aws", { terms, regions }, signal),
-    setPassword: (name, password) => invoke("set_password", { name, password }),
-    setSsh: (name, ssh) => invoke("set_ssh", { name, ssh }),
-    testSsh: async (name, ssh, signal, acquisition) => requireProbe(
-      await connectionTests<ObservedProbeAttempt>("test_ssh", { name, ssh }, signal), acquisition,
-    ),
-    addDiscovered: (items) => invoke("add_discovered", { items }),
-    importCandidates: (source) => invoke("import_candidates", { source }),
-    importConnections: (items) => invoke("import_connections", { items }),
-    onSignIn: async (listener) => {
-      const { listen } = await import("@tauri-apps/api/event");
-      return listen<SignInEvent>("entra-sign-in", (e) => listener(e.payload));
-    },
-    cancelSignIn: () => invoke("cancel_sign_in"),
-    openSignInPage: () => invoke("open_sign_in_page"),
-    latestReport: (name, windowMinutes, population) => invoke("latest_report", { name, windowMinutes, population }),
-    reportAt: (name, reportId) => invoke("report_at", { name, reportId }),
-    scan: async (name, windowMinutes, population, acquisition) => requireScan(
-      await invoke<ObservedScanAttempt>("scan", { name, windowMinutes, population }), acquisition,
-    ),
-    brief: (name, reportId, findingId) => invoke("brief", { name, reportId, findingId }),
-    explain: (name, sql, mode, confirmed) => invoke("explain", { name, sql, mode, confirmed }),
-    queryPlan: (name, queryId, planId, reportId) => invoke("query_plan", { name, queryId, planId, reportId }),
-    lastActualPlan: (name, queryId, planId, reportId) => invoke("last_actual_plan", { name, queryId, planId, reportId }),
-    queryProgress: (name, session, withPlan) => invoke("query_progress", { name, session, withPlan }),
-    drift: (a, b) => invoke("drift", { a, b }),
-    indexAdvice: (name, reportId) => invoke("index_advice", { name, reportId }),
-    dashboard: (name, windowMinutes, reportId) => invoke("dashboard", { name, windowMinutes, reportId }),
-    dashboardLive: (name, dashboard) => invoke("dashboard_live", { name, dashboard }),
-    parsePlan: (text) => invoke("parse_plan", { text }),
-    diffPlans: (a, b, nameA, nameB, connection) =>
-      invoke("diff_plans", { a: { ...a, raw: null }, b: { ...b, raw: null }, nameA, nameB, connection: connection ?? null }),
-    exportPlan: (plan, title, format, options) => invoke("export_plan", { plan: format === "native" ? plan : { ...plan, raw: null }, title, format, options }),
-    exportDiff: (a, b, nameA, nameB, format, options, connection) =>
-      invoke("export_diff", { request: { a: { ...a, raw: null }, b: { ...b, raw: null }, nameA, nameB, format, options, connection: connection ?? null } }),
-    exportQueryPlan: (name, reportId, queryId, planId, format, options) => invoke("export_query_plan", { name, reportId, queryId, planId, format, options }),
-    exportFinding: (name, reportId, findingId, format, options) => invoke("export_finding", { name, reportId, findingId, format, options }),
-    verifyFindings: (name, reportId, ids) => invoke("verify_findings", { name, reportId, ids }),
-    saveFile: (name, contents) => invoke("save_file", { name, contents }),
-    screenshot: (area) => invoke("screenshot", { area }),
-    live: (name) => invoke("live", { name }),
-    waits: (name, windowMinutes) => invoke("waits", { name, windowMinutes }),
-    waitSample: (name, seconds) => invoke("wait_sample", { name, seconds }),
-    interruptSession: (request) => invoke("interrupt_session", { request }),
-    previewTable: (name, options, signal) => preview("preview_table", { name, options }, signal),
-    run: (name, sql, limit, confirmed) => invoke("run_sql", { name, sql, limit, confirmed }),
-    changes: (name, request) => invoke("changes", { name, request }),
-    events: (name, request) => invoke("events", { name, request }),
-    cloud: (name, request) => invoke("cloud", { name, request }),
-    mark: (name, text, at) => invoke("mark", { name, text, at }),
-    unmark: (name, id) => invoke("unmark", { name, id }),
-    deadlocks: (name, sinceHours) => invoke("deadlocks", { name, sinceHours }),
-    parseDeadlock: (text) => invoke("parse_deadlock", { text }),
-    checkStatement: (engine, sql) => invoke("check_statement", { engine, sql }),
-    lintSql: (name, sql) => invoke("lint_sql", { name, sql }),
-    checks: () => invoke("checks"),
-    catalog: (name) => invoke("catalog", { name }),
-    savedQueries: () => invoke("saved_queries"),
-    saveQuery: (query) => invoke("save_query", { query }),
-    deleteSavedQuery: (name) => invoke("delete_saved_query", { name }),
-    savedQueryRan: (name) => invoke("saved_query_ran", { name }),
-    setAgentAccess: (name, access) => invoke("set_agent_access", { name, access }),
-    setQueryLog: (name, path) => invoke("set_query_log", { name, path }),
-    chooseQueryLog: (name) => invoke("choose_query_log", { name }),
-    openIncidentHistory: (signal) => history("open_incident_history", {}, signal),
-    chooseDatabaseFile: () => invoke("choose_database_file"),
-    chooseSshIdentity: () => invoke("choose_ssh_identity"),
-    chooseCaCertificate: () => invoke("choose_ca_certificate"),
-    pendingApprovals: () => invoke("pending_approvals"),
-    decideApproval: (id, hash, approved) => invoke("decide_approval", { id, hash, approved }),
-    checkUpdate: () => invoke("check_update"),
-    installUpdate: () => invoke("install_update"),
-    onUpdateProgress: async (listener) => {
-      const { listen } = await import("@tauri-apps/api/event");
-      return listen<UpdateProgress>("update-progress", (e) => listener(e.payload));
-    },
-    restartApp: () => invoke("restart_app"),
-  };
-}
-
-const loadApi = lazyResource<Api>(() => isDesktop() ? desktopApi() : import("./demo-api").then((m) => m.demoApi()));
+const loadApi = lazyResource<Api>(() => isDesktop() ? import("./api/desktop").then((m) => m.desktopApi()) : import("./demo-api").then((m) => m.demoApi()));
 let languageApplication: Promise<void> = Promise.resolve();
 
 /** Apply choices in order; every subsequent API read waits for the latest choice. */

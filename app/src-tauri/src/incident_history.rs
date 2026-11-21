@@ -1,6 +1,6 @@
 //! The native dialog delegates one selected artifact; the webview never receives general filesystem access.
-use crate::{Error, Result, requests};
-use culprit_core::IncidentHistoryReport;
+use crate::requests;
+use culprit_core::{Error, IncidentHistoryReport, Result};
 use tauri::State;
 use tauri_plugin_dialog::DialogExt;
 
