@@ -65,24 +65,22 @@ impl ReadConnectionRecorder {
 }
 impl ReadConnectionAttemptRecorder {
     pub fn connection_use(&self, value: ReadConnectionUse) {
-        if let Ok(mut state) = self.recorder.state.lock() {
-            if let Some(attempt) = state.attempt_mut(self.index) {
-                if attempt.connection_use == ReadConnectionUse::Unknown {
-                    attempt.connection_use = value;
-                }
-            }
+        if let Ok(mut state) = self.recorder.state.lock()
+            && let Some(attempt) = state.attempt_mut(self.index)
+            && attempt.connection_use == ReadConnectionUse::Unknown
+        {
+            attempt.connection_use = value;
         }
     }
     pub fn acquired(&self, generation: u64) {
         if generation == 0 {
             return;
         }
-        if let Ok(mut state) = self.recorder.state.lock() {
-            if let Some(attempt) = state.attempt_mut(self.index) {
-                if attempt.reader_generation.is_none() {
-                    attempt.reader_generation = Some(generation.to_string())
-                }
-            }
+        if let Ok(mut state) = self.recorder.state.lock()
+            && let Some(attempt) = state.attempt_mut(self.index)
+            && attempt.reader_generation.is_none()
+        {
+            attempt.reader_generation = Some(generation.to_string());
         }
     }
     pub fn phase(&self, stage: ReadConnectionStage, template_id: Option<String>) -> ReadConnectionPhaseGuard {
@@ -123,20 +121,20 @@ impl ReadConnectionPhaseGuard {
             return;
         }
         self.finished = true;
-        if let Ok(mut state) = self.attempt.recorder.state.lock() {
-            if let Some(work) = &mut state.work {
-                work.active_phases = work.active_phases.saturating_sub(1);
-                work.unconfirmed_phases =
-                    work.unconfirmed_phases.saturating_add(u32::from(outcome == ReadConnectionOutcome::Unconfirmed));
-                let attempt = match self.attempt.index {
-                    Some(index) => work.attempts.get_mut(index),
-                    None => None,
-                };
-                if let Some(phase) = attempt.and_then(|attempt| attempt.phases.get_mut(self.index?)) {
-                    phase.outcome = outcome;
-                    phase.client_finished_at = Some(now());
-                    phase.client_elapsed_ms = Some(self.started.elapsed().as_secs_f64() * 1000.0);
-                }
+        if let Ok(mut state) = self.attempt.recorder.state.lock()
+            && let Some(work) = &mut state.work
+        {
+            work.active_phases = work.active_phases.saturating_sub(1);
+            work.unconfirmed_phases =
+                work.unconfirmed_phases.saturating_add(u32::from(outcome == ReadConnectionOutcome::Unconfirmed));
+            let attempt = match self.attempt.index {
+                Some(index) => work.attempts.get_mut(index),
+                None => None,
+            };
+            if let Some(phase) = attempt.and_then(|attempt| attempt.phases.get_mut(self.index?)) {
+                phase.outcome = outcome;
+                phase.client_finished_at = Some(now());
+                phase.client_elapsed_ms = Some(self.started.elapsed().as_secs_f64() * 1000.0);
             }
         }
     }

@@ -15,10 +15,8 @@ pub(super) fn statement<'a, 'sql>(text: &str, tokens: &'a [Token<'sql>]) -> Opti
     let mut depth = 0usize;
     let mut option = None;
     for (at, token) in tokens.iter().enumerate() {
-        if word(Some(token), "OPTION") {
-            if depth != 0 || option.replace(at).is_some() {
-                return None;
-            }
+        if word(Some(token), "OPTION") && (depth != 0 || option.replace(at).is_some()) {
+            return None;
         }
         match token {
             Token::Punct('(') => {

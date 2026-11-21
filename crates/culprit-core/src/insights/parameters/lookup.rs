@@ -80,9 +80,7 @@ impl<'a> LookupWork<'a> {
             return None;
         }
         let access = bound_access_mismatch(cx, seek)?;
-        if access.parameter.integer_values_equal.is_none() {
-            return None;
-        }
+        access.parameter.integer_values_equal?;
         let (estimated, actual) = access.comparison.output_counts()?;
         let executions = serial_executions(lookup)?;
         let logical_reads = lookup.runtime.as_ref()?.logical_reads.filter(|reads| exact_count(*reads))?;

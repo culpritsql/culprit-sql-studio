@@ -228,10 +228,10 @@ fn cleared_boundary_source(source: &CollectionDescription, rows: &[DiagnosticOri
         let TelemetryRecord::Operational(row) = row.record else {
             return None;
         };
-        if let OperationalFact::MssqlCleanupHorizon(boundary) = &row.fact {
-            if horizon.replace((row.source.as_str(), boundary)).is_some() {
-                return None;
-            }
+        if let OperationalFact::MssqlCleanupHorizon(boundary) = &row.fact
+            && horizon.replace((row.source.as_str(), boundary)).is_some()
+        {
+            return None;
         }
     }
     let (native_source, boundary) = horizon?;

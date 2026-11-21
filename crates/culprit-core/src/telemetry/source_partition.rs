@@ -116,7 +116,7 @@ impl CollectionDescription {
                 .observation
                 .snapshot()
                 .map(|snapshot| snapshot.dataset)
-                .or_else(|| match &self.observation {
+                .or(match &self.observation {
                     SourceObservation::PagedSourceRead { snapshot, .. } => Some(snapshot.dataset),
                     _ => None,
                 })

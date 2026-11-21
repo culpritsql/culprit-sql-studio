@@ -28,7 +28,7 @@ impl QueryCompilationGap {
 #[ts(export)]
 pub enum QueryCompilationSelection {
     Observed {
-        observation: DiagnosticEvidenceRef,
+        observation: Box<DiagnosticEvidenceRef>,
         counters: Box<CompilationCounterPoint>,
     },
     /// The bounded retained roster supplied no row for this native query number. It proves no eviction/recovery.
@@ -167,7 +167,7 @@ impl QueryCompilationAnswer {
 
     pub fn references(&self) -> impl Iterator<Item = &DiagnosticEvidenceRef> {
         let selected = match &self.selection {
-            QueryCompilationSelection::Observed { observation, .. } => Some(observation),
+            QueryCompilationSelection::Observed { observation, .. } => Some(observation.as_ref()),
             _ => None,
         };
         std::iter::once(&self.basis).chain(selected)
@@ -202,7 +202,7 @@ fn select_original_query(
         query_number_seen |= point.identity.query_id == original.query_id;
         if MssqlQueryCompilation::identity_key(&point.identity)? == expected {
             selected = Some(QueryCompilationSelection::Observed {
-                observation: (*reference).clone(),
+                observation: Box::new((*reference).clone()),
                 counters: Box::new(CompilationCounterPoint::from_observation(native)?),
             });
         }

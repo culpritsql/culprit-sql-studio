@@ -325,6 +325,6 @@ async fn large_pending_original_cold_restore_keeps_selected_ordinal_and_cancelle
     let SourceReadStageState::Answered { answer } = answered.source_read.unwrap().state else { panic!() };
     let SourceReadAnswer::QueryCompilation(answer) = *answer else { panic!() };
     let QueryCompilationSelection::Observed { observation, .. } = answer.selection else { panic!() };
-    assert_eq!(observation, expected);
+    assert_eq!(*observation, expected);
     assert_eq!(runtime.native_calls(), [1; 5]);
 }

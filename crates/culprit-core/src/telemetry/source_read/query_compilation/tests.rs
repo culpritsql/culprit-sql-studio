@@ -195,7 +195,7 @@ fn exact_query_incarnation_keeps_original_plan_population_and_independent_lifeti
     assert_eq!(answer.plan.plan_id, "7");
     assert_eq!(answer.unresolved, QueryCompilationGap::ALL);
     let QueryCompilationSelection::Observed { observation, counters } = &answer.selection else { panic!() };
-    assert_eq!(observation, &values.rows[0].0);
+    assert_eq!(observation.as_ref(), &values.rows[0].0);
     assert_eq!(counters.compilations, "9007199254740993");
     assert_eq!(counters.average_duration_us, 123.5);
     assert_eq!(counters.reset, crate::ResetMarker::Unknown);
