@@ -43,10 +43,7 @@ pub fn display(report: &Report) -> impl Serialize + '_ {
         galera: &'a Option<Vec<culprit_core::GaleraReport>>,
         #[serde(skip_serializing_if = "Option::is_none")]
         full_text_populations: &'a Option<Vec<culprit_core::FullTextPopulationReport>>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        cdc: &'a Option<Vec<culprit_core::CdcReport>>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        change_feed: &'a Option<Vec<culprit_core::ChangeFeedReport>>,
+        change_capture: &'a culprit_core::ChangeCaptureReports,
         #[serde(skip_serializing_if = "Option::is_none")]
         tempdb_metadata_memory: &'a Option<Box<culprit_core::TempdbMetadataMemoryReport>>,
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -150,8 +147,7 @@ pub fn display(report: &Report) -> impl Serialize + '_ {
         group_replication,
         galera,
         full_text_populations,
-        cdc,
-        change_feed,
+        change_capture,
         database_properties,
         pool_settings,
         managed_instance_resources,
@@ -204,8 +200,7 @@ pub fn display(report: &Report) -> impl Serialize + '_ {
         group_replication,
         galera,
         full_text_populations,
-        cdc,
-        change_feed,
+        change_capture,
         database_properties,
         pool_settings,
         managed_instance_resources,

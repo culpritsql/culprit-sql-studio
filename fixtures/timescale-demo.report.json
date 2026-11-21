@@ -654,7 +654,7 @@
     "escalations_before": null,
     "evictions_before": null,
     "foreign_keys": [],
-    "format": 54,
+    "format": 55,
     "histograms": null,
     "id": "20261023T213241Z",
     "identity": {
@@ -778,8 +778,6 @@
       }
     ],
     "operations": {
-      "cdc_history": [],
-      "change_feed_history": [],
       "cluster": null,
       "counters": [
         {
@@ -874,7 +872,11 @@
       "source_acquisitions": [],
       "spaces": [],
       "sqlite": null,
-      "table_memory": []
+      "table_memory": [],
+      "change_capture": {
+        "cdc": [],
+        "change_feed": []
+      }
     },
     "options": {
       "collect_memory_failures": false,
@@ -6651,5 +6653,6 @@
       "separator": " "
     },
     "top_share": 0.9867093326578282
-  }
+  },
+  "change_capture": {}
 }

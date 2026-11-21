@@ -51,3 +51,17 @@ fn compact_fields_remain_nullable_bounded_and_independent_of_private_observation
     assert!(value["entries"][0]["fields"][0]["value"].is_null());
     assert!(!value.to_string().contains("private-original-reference"));
 }
+
+#[test]
+fn the_explicit_family_group_preserves_absent_and_empty_children_without_legacy_aliases() {
+    let snapshot: culprit_core::Snapshot =
+        serde_json::from_str(include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/mssql-demo.json")))
+            .unwrap();
+    let mut report = culprit_checks::analyze(snapshot);
+    report.change_capture = culprit_core::ChangeCaptureReports { cdc: Some(vec![]), change_feed: None };
+    let mut response = json!({});
+    attach(&mut response, &report);
+    assert_eq!(response, json!({"change_capture":{"cdc":[]}}));
+    assert!(response.get("cdc").is_none() && response.get("change_feed").is_none());
+    assert!(response["change_capture"].get("change_feed").is_none());
+}

@@ -186,8 +186,8 @@ export function HealthTab({
   const databasePropertiesRead = report.snapshot.operations.database_properties;
   const databasePropertiesRecorded = (report.snapshot.sources ?? []).some((source) => source.source === "database-properties");
   const databasePropertiesIssue = observationReadIssue("database-properties", report.snapshot.sources ?? [], Boolean(databasePropertiesRead || databasePropertiesRecorded));
-  const cdcHistory = changeCaptureHistoryState(report.cdc, report.snapshot.operations.cdc_history.length, CDC_HISTORY_SOURCES, report.snapshot.sources ?? []);
-  const changeFeedHistory = changeCaptureHistoryState(report.change_feed, report.snapshot.operations.change_feed_history.length, CHANGE_FEED_HISTORY_SOURCES, report.snapshot.sources ?? []);
+  const cdcHistory = changeCaptureHistoryState(report.change_capture.cdc, report.snapshot.operations.change_capture.cdc.length, CDC_HISTORY_SOURCES, report.snapshot.sources ?? []);
+  const changeFeedHistory = changeCaptureHistoryState(report.change_capture.change_feed, report.snapshot.operations.change_capture.change_feed.length, CHANGE_FEED_HISTORY_SOURCES, report.snapshot.sources ?? []);
   const numaNodes = report.numa_nodes ?? [];
   const numaRecorded = report.snapshot.operations.numa_nodes.length > 0 || (report.snapshot.sources ?? []).some((source) => source.source === "cpu-node-state" || source.source === "memory-node-state");
   const sourceAcquisitions = report.source_acquisitions;

@@ -18,6 +18,7 @@ import type { NativeFailureSnapshot } from "./NativeFailureSnapshot";
 import type { NodeResources } from "./NodeResources";
 import type { OperationalCounter } from "./OperationalCounter";
 import type { PageWaitSnapshot } from "./PageWaitSnapshot";
+import type { RecordedChangeCaptureHistories } from "./RecordedChangeCaptureHistories";
 import type { RecordedManagedInstanceResourceRead } from "./RecordedManagedInstanceResourceRead";
 import type { RecordedOperationalRead } from "./RecordedOperationalRead";
 import type { RecordedPerformanceCounters } from "./RecordedPerformanceCounters";
@@ -71,11 +72,11 @@ galera: Array<RecordedOperationalRead>, full_text_populations: Array<RecordedOpe
 /**
  * Independent original native histories; current scan membership supplies no historical ownership.
  */
-cdc_history: Array<RecordedOperationalRead>, 
+change_capture: RecordedChangeCaptureHistories, 
 /**
  * Independently captured original NUMA node populations, never merged with the later scan.
  */
-numa_nodes: Array<RecordedOperationalRead>, process_cpu_originals: Array<RecordedOperationalRead>, change_feed_history: Array<RecordedOperationalRead>, 
+numa_nodes: Array<RecordedOperationalRead>, process_cpu_originals: Array<RecordedOperationalRead>, 
 /**
  * Historical shared tempdb points retain their original scope and receipt; the current database supplies none.
  */

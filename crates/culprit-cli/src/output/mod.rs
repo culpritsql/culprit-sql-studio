@@ -484,10 +484,10 @@ impl Out {
         for nodes in report.numa_nodes.as_deref().unwrap_or_default() {
             println!("\n{}", observations::instance_resources(nodes));
         }
-        for history in report.cdc.as_deref().unwrap_or_default() {
+        for history in report.change_capture.cdc.as_deref().unwrap_or_default() {
             println!("\n{}", observations::cdc(history));
         }
-        for history in report.change_feed.as_deref().unwrap_or_default() {
+        for history in report.change_capture.change_feed.as_deref().unwrap_or_default() {
             println!("\n{}", observations::change_feed(history));
         }
         for group in report.group_replication.as_deref().unwrap_or_default() {
@@ -872,8 +872,10 @@ pub(super) fn compact_report(report: &Report, path: &Path) -> Value {
         "assessments": report.assessments,
         "engine_limitations": s.server.engine.spec().limitations(),
         "numa_nodes":report.numa_nodes.as_ref().map(|reports|reports.iter().map(observations::compact_numa_nodes).collect::<Vec<_>>()),
-        "cdc":report.cdc.as_ref().map(|reports|reports.iter().map(|report|observations::compact_change_capture((&report.title,&report.summary),report.source_state,report.read_complete,report.context.as_ref(),&report.limitations,&report.entries,&report.sources)).collect::<Vec<_>>()),
-        "change_feed":report.change_feed.as_ref().map(|reports|reports.iter().map(|report|observations::compact_change_capture((&report.title,&report.summary),report.source_state,report.read_complete,report.context.as_ref(),&report.limitations,&report.entries,&report.sources)).collect::<Vec<_>>()),
+        "change_capture":{
+        "cdc":report.change_capture.cdc.as_ref().map(|reports|reports.iter().map(|report|observations::compact_change_capture((&report.title,&report.summary),report.source_state,report.read_complete,report.context.as_ref(),&report.limitations,&report.entries,&report.sources)).collect::<Vec<_>>()),
+        "change_feed":report.change_capture.change_feed.as_ref().map(|reports|reports.iter().map(|report|observations::compact_change_capture((&report.title,&report.summary),report.source_state,report.read_complete,report.context.as_ref(),&report.limitations,&report.entries,&report.sources)).collect::<Vec<_>>()),
+        },
         "runtime_fragments": report.runtime_fragments.as_deref().map(observations::compact_runtime_fragments),
         "query_wait_fragments": report.query_wait_fragments.as_deref().map(observations::compact_query_wait_fragments),
         "index_configuration":report.index_configuration.iter().map(observations::compact_index_configuration).collect::<Vec<_>>(),
@@ -933,10 +935,10 @@ pub(super) fn markdown_report(report: &Report) -> String {
     for nodes in report.numa_nodes.as_deref().unwrap_or_default() {
         out.push_str(&markdown_text_block(&observations::instance_resources(nodes)));
     }
-    for history in report.cdc.as_deref().unwrap_or_default() {
+    for history in report.change_capture.cdc.as_deref().unwrap_or_default() {
         out.push_str(&markdown_text_block(&observations::cdc(history)));
     }
-    for history in report.change_feed.as_deref().unwrap_or_default() {
+    for history in report.change_capture.change_feed.as_deref().unwrap_or_default() {
         out.push_str(&markdown_text_block(&observations::change_feed(history)));
     }
     for group in report.group_replication.as_deref().unwrap_or_default() {

@@ -1414,7 +1414,7 @@
         "table": "ticket_events"
       }
     ],
-    "format": 54,
+    "format": 55,
     "histograms": null,
     "id": "20261011T121512.204Z",
     "identity": {
@@ -1963,8 +1963,6 @@
     "missing_indexes": [],
     "notes": [],
     "operations": {
-      "cdc_history": [],
-      "change_feed_history": [],
       "cluster": null,
       "counters": [],
       "full_text_populations": [],
@@ -1982,7 +1980,11 @@
       "source_acquisitions": [],
       "spaces": [],
       "sqlite": null,
-      "table_memory": []
+      "table_memory": [],
+      "change_capture": {
+        "cdc": [],
+        "change_feed": []
+      }
     },
     "options": {
       "collect_memory_failures": false,
@@ -5547,5 +5549,6 @@
     "runs_said": [],
     "takeaway": null,
     "top_share": null
-  }
+  },
+  "change_capture": {}
 }

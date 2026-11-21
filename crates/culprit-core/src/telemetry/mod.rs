@@ -46,7 +46,10 @@ mod catalog;
 mod cdc;
 mod change_capture;
 mod change_feed;
-pub use change_capture::{MssqlChangeCaptureFamily, MssqlChangeCapturePoint, change_capture_owner_is_qualified};
+pub use change_capture::{
+    MssqlChangeCaptureFamily, MssqlChangeCapturePoint, RecordedChangeCaptureHistories,
+    change_capture_owner_is_qualified,
+};
 pub use change_feed::*;
 mod columnstore_rowgroups;
 mod full_text_populations;

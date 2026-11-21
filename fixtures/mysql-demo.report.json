@@ -1906,7 +1906,7 @@
         "table": "orders"
       }
     ],
-    "format": 54,
+    "format": 55,
     "histograms": [
       {
         "buckets": 4.0,
@@ -2330,8 +2330,6 @@
     "missing_indexes": [],
     "notes": [],
     "operations": {
-      "cdc_history": [],
-      "change_feed_history": [],
       "cluster": null,
       "counters": [],
       "full_text_populations": [],
@@ -2349,7 +2347,11 @@
       "source_acquisitions": [],
       "spaces": [],
       "sqlite": null,
-      "table_memory": []
+      "table_memory": [],
+      "change_capture": {
+        "cdc": [],
+        "change_feed": []
+      }
     },
     "options": {
       "collect_memory_failures": false,
@@ -8256,5 +8258,6 @@
       "separator": " "
     },
     "top_share": 0.8436961809545049
-  }
+  },
+  "change_capture": {}
 }

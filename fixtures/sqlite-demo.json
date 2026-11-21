@@ -11,14 +11,16 @@
     "sqlite": null,
     "cluster": null,
     "galera": [],
-    "cdc_history": [],
-    "change_feed_history": [],
     "index_configuration": [],
     "numa_nodes": [],
     "source_acquisitions": [],
     "indexed_views": null,
     "indexed_view_originals": [],
-    "process_cpu_originals": []
+    "process_cpu_originals": [],
+    "change_capture": {
+      "cdc": [],
+      "change_feed": []
+    }
   },
   "sources": [
     {
@@ -47,7 +49,7 @@
       "reason": null
     }
   ],
-  "format": 54,
+  "format": 55,
   "id": "20261016T210115.862Z",
   "connection": "sqlite-demo",
   "environment": "development",

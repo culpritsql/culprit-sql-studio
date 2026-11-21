@@ -8,8 +8,8 @@ async function setHistory(page: Page, withdrawn = false) {
     const { cdcHistoryCase, changeFeedHistoryCase } = await import(fixturePath) as typeof import("../src/test/change-capture");
     const current = getState().report;if (current.status !== "ready") throw new Error("A settled report is required");
     const report = structuredClone(current.report);
-    report.cdc = [cdcHistoryCase(withdrawn ? "withdrawn" : "cdc_exact")];
-    report.change_feed = withdrawn ? [] : [changeFeedHistoryCase("change_feed_many")];
+    report.change_capture.cdc = [cdcHistoryCase(withdrawn ? "withdrawn" : "cdc_exact")];
+    report.change_capture.change_feed = withdrawn ? [] : [changeFeedHistoryCase("change_feed_many")];
     setState({ report: { ...current, report } });
   }, { storePath: "/src/lib/store.ts", fixturePath: "/src/test/change-capture.ts", withdrawn });
 }

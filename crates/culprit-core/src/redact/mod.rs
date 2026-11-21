@@ -387,11 +387,7 @@ pub fn redact_snapshot(snapshot: &Snapshot) -> Snapshot {
             reason: crate::message!("view.table_memory.sharing_withheld"),
         };
     }
-    for recorded in s.operations.cdc_history.iter_mut().chain(&mut s.operations.change_feed_history) {
-        *recorded = crate::telemetry::RecordedOperationalRead::Unavailable {
-            reason: crate::message!("view.change_capture.history.sharing_withheld"),
-        };
-    }
+    s.operations.change_capture.withdraw_for_sharing();
     for recorded in &mut s.operations.process_cpu_originals {
         *recorded = crate::telemetry::RecordedOperationalRead::Unavailable {
             reason: crate::message!("view.process_cpu.sharing_withheld"),

@@ -1,5 +1,7 @@
 //! Closed native log-capture families share scope and retained-row admission, never their native data.
 use super::*;
+mod history;
+pub use history::RecordedChangeCaptureHistories;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum MssqlChangeCaptureFamily {

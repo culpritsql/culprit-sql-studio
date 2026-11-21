@@ -187,13 +187,7 @@ impl CapturedScanEvidence {
                 )?;
             }
             Self::ChangeCapture { family, read } => {
-                let originals = match family {
-                    culprit_core::telemetry::MssqlChangeCaptureFamily::Cdc => &mut snapshot.operations.cdc_history,
-                    culprit_core::telemetry::MssqlChangeCaptureFamily::ChangeFeed => {
-                        &mut snapshot.operations.change_feed_history
-                    }
-                };
-                culprit_core::telemetry::append_recorded_operational_read(originals, read)?;
+                snapshot.operations.change_capture.append(family, read)?;
             }
 
             Self::RuntimeFragments(read) => {

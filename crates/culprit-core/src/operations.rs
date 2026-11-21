@@ -79,11 +79,10 @@ pub struct OperationalStats {
     pub galera: Vec<crate::telemetry::RecordedOperationalRead>,
     pub full_text_populations: Vec<crate::telemetry::RecordedOperationalRead>,
     /// Independent original native histories; current scan membership supplies no historical ownership.
-    pub cdc_history: Vec<crate::telemetry::RecordedOperationalRead>,
+    pub change_capture: crate::telemetry::RecordedChangeCaptureHistories,
     /// Independently captured original NUMA node populations, never merged with the later scan.
     pub numa_nodes: Vec<crate::telemetry::RecordedOperationalRead>,
     pub process_cpu_originals: Vec<crate::telemetry::RecordedOperationalRead>,
-    pub change_feed_history: Vec<crate::telemetry::RecordedOperationalRead>,
     /// Historical shared tempdb points retain their original scope and receipt; the current database supplies none.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
@@ -242,9 +241,8 @@ impl OperationalStats {
             group_replication: _,
             galera: _,
             full_text_populations: _,
-            cdc_history: _,
+            change_capture: _,
             numa_nodes: _,
-            change_feed_history: _,
             tempdb_metadata_memory: _,
             storage: _,
             hyperscale_log_components: _,
@@ -564,17 +562,21 @@ mod tests {
         let marker = crate::telemetry::RecordedOperationalRead::Unavailable {
             reason: crate::message!("view.change_capture.history.sharing_withheld"),
         };
-        let operations = OperationalStats {
-            cdc_history: vec![marker.clone()],
-            change_feed_history: vec![marker],
-            ..Default::default()
-        };
+        let histories =
+            serde_json::from_value(serde_json::json!({"cdc":[marker.clone()],"change_feed":[marker]})).unwrap();
+        let operations = OperationalStats { change_capture: histories, ..Default::default() };
         let original = serde_json::to_value(&operations).unwrap();
         let counters = serde_json::to_value(operations.counters_only()).unwrap();
-        for key in ["cdc_history", "change_feed_history"] {
-            assert!(original[key].is_array());
-            assert!(counters.get(key).is_none());
+        for key in ["cdc", "change_feed"] {
+            assert!(original["change_capture"][key].is_array());
         }
+        assert!(counters.get("change_capture").is_none());
+        assert!(original.get("cdc_history").is_none() && original.get("change_feed_history").is_none());
+        let mut legacy = original.clone();
+        legacy.as_object_mut().unwrap().remove("change_capture");
+        legacy["cdc_history"] = serde_json::json!([]);
+        legacy["change_feed_history"] = serde_json::json!([]);
+        assert!(serde_json::from_value::<OperationalStats>(legacy).is_err());
         assert!(!counters.to_string().contains("sharing_withheld"));
     }
 

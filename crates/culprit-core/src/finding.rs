@@ -382,12 +382,7 @@ pub struct Report {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub numa_nodes: Option<Vec<crate::InstanceResourceReport>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub cdc: Option<Vec<crate::CdcReport>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub change_feed: Option<Vec<crate::ChangeFeedReport>>,
+    pub change_capture: crate::ChangeCaptureReports,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub runtime_fragments: Option<Box<crate::query_runtime_report::QueryRuntimeFragmentReport>>,

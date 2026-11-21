@@ -29,3 +29,32 @@ pub struct ChangeCaptureEntry {
     pub investigation: String,
     pub verify: String,
 }
+
+/// Independent family explanations; each retained original supplies its own source/clock/coverage.
+#[derive(Serialize, Deserialize, TS, Clone, Debug, Default)]
+#[serde(deny_unknown_fields)]
+#[ts(export)]
+pub struct ChangeCaptureReports {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub cdc: Option<Vec<crate::CdcReport>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub change_feed: Option<Vec<crate::ChangeFeedReport>>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn absent_child_and_explicit_empty_child_remain_distinct_without_a_combined_health_state() {
+        let absent = ChangeCaptureReports::default();
+        assert_eq!(serde_json::to_value(&absent).unwrap(), serde_json::json!({}));
+        let empty_cdc = ChangeCaptureReports { cdc: Some(vec![]), change_feed: None };
+        let json = serde_json::to_value(&empty_cdc).unwrap();
+        assert_eq!(json, serde_json::json!({"cdc":[]}));
+        let restored: ChangeCaptureReports = serde_json::from_value(json).unwrap();
+        assert_eq!(restored.cdc.as_ref().unwrap().len(), 0);
+        assert!(restored.change_feed.is_none());
+    }
+}

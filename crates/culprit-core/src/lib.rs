@@ -20,7 +20,7 @@ pub mod cloud;
 pub mod collected_analysis;
 pub use cdc_report::CdcReport;
 mod change_capture_report;
-pub use change_capture_report::{ChangeCaptureEntry, ChangeCaptureEntryKind, ChangeCaptureField};
+pub use change_capture_report::{ChangeCaptureEntry, ChangeCaptureEntryKind, ChangeCaptureField, ChangeCaptureReports};
 mod change_feed_report;
 pub use change_feed_report::ChangeFeedReport;
 pub mod collected_resource_analysis;

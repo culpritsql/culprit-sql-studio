@@ -20,8 +20,9 @@ fn value(
         "historical_context":true,"original_read_bounds":context.map(|context|json!({"from":context.observed_from,"until":context.observed_until}))})
 }
 pub(super) fn attach(response: &mut Value, report: &culprit_core::Report) {
-    if let Some(reports) = &report.cdc {
-        response["cdc"] = json!(
+    let mut histories = json!({});
+    if let Some(reports) = &report.change_capture.cdc {
+        histories["cdc"] = json!(
             reports
                 .iter()
                 .map(|report| value(
@@ -36,8 +37,8 @@ pub(super) fn attach(response: &mut Value, report: &culprit_core::Report) {
                 .collect::<Vec<_>>()
         );
     }
-    if let Some(reports) = &report.change_feed {
-        response["change_feed"] = json!(
+    if let Some(reports) = &report.change_capture.change_feed {
+        histories["change_feed"] = json!(
             reports
                 .iter()
                 .map(|report| value(
@@ -52,6 +53,7 @@ pub(super) fn attach(response: &mut Value, report: &culprit_core::Report) {
                 .collect::<Vec<_>>()
         );
     }
+    response["change_capture"] = histories;
 }
 #[cfg(test)]
 mod tests;

@@ -52,12 +52,12 @@ async fn independent_original_families_replay_idempotently_after_current_databas
         .unwrap()
         .attach(&mut saved)
         .unwrap();
-    assert_eq!(saved.operations.cdc_history.len(), 1);
-    assert_eq!(saved.operations.change_feed_history.len(), 1);
+    assert_eq!(saved.operations.change_capture.originals(MssqlChangeCaptureFamily::Cdc).len(), 1);
+    assert_eq!(saved.operations.change_capture.originals(MssqlChangeCaptureFamily::ChangeFeed).len(), 1);
     let saved: Snapshot = serde_json::from_slice(&serde_json::to_vec(&saved).unwrap()).unwrap();
     let report = culprit_checks::analyze(saved);
-    let cdc_report = &report.cdc.as_ref().unwrap()[0];
-    let feed_report = &report.change_feed.as_ref().unwrap()[0];
+    let cdc_report = &report.change_capture.cdc.as_ref().unwrap()[0];
+    let feed_report = &report.change_capture.change_feed.as_ref().unwrap()[0];
     assert_eq!(cdc_report.context.as_ref().unwrap().target, cdc.description.target);
     assert_eq!(feed_report.context.as_ref().unwrap().partition, feed.description.partition);
     assert_eq!(
@@ -67,15 +67,34 @@ async fn independent_original_families_replay_idempotently_after_current_databas
     assert_eq!(feed_report.source_state, SourceState::Partial);
     assert_eq!(feed_report.sources[2].records, 2);
     let displayed = serde_json::to_value(crate::reports::display(&report)).unwrap();
-    assert_eq!(displayed["cdc"], serde_json::to_value(&report.cdc).unwrap());
-    assert_eq!(displayed["change_feed"], serde_json::to_value(&report.change_feed).unwrap());
-    assert_eq!(report.snapshot.operations.cdc_history[0], RecordedOperationalRead::Captured { read: cdc });
-    assert_eq!(report.snapshot.operations.change_feed_history[0], RecordedOperationalRead::Captured { read: feed });
+    assert!(displayed.get("cdc").is_none() && displayed.get("change_feed").is_none());
+    assert!(displayed["snapshot"]["operations"].get("cdc_history").is_none());
+    assert!(displayed["snapshot"]["operations"].get("change_feed_history").is_none());
+    assert_eq!(displayed["change_capture"]["cdc"], serde_json::to_value(&report.change_capture.cdc).unwrap());
+    assert_eq!(
+        displayed["change_capture"]["change_feed"],
+        serde_json::to_value(&report.change_capture.change_feed).unwrap()
+    );
+    assert_eq!(
+        report.snapshot.operations.change_capture.originals(MssqlChangeCaptureFamily::Cdc)[0],
+        RecordedOperationalRead::Captured { read: cdc }
+    );
+    assert_eq!(
+        report.snapshot.operations.change_capture.originals(MssqlChangeCaptureFamily::ChangeFeed)[0],
+        RecordedOperationalRead::Captured { read: feed }
+    );
 }
 #[tokio::test]
 async fn foreign_family_and_changed_original_receipts_never_keep_a_measured_survivor() {
     let read = original(MssqlChangeCaptureFamily::Cdc).await.into_read();
     assert!(CapturedScanEvidence::change_capture(MssqlChangeCaptureFamily::ChangeFeed, read.clone()).is_err());
+    let mut owner = RecordedChangeCaptureHistories::default();
+    assert!(owner.append(MssqlChangeCaptureFamily::ChangeFeed, read.clone()).is_err());
+    assert!(owner.originals(MssqlChangeCaptureFamily::Cdc).is_empty());
+    assert!(owner.originals(MssqlChangeCaptureFamily::ChangeFeed).is_empty());
+    owner.append(MssqlChangeCaptureFamily::Cdc, read.clone()).unwrap();
+    owner.append(MssqlChangeCaptureFamily::Cdc, read.clone()).unwrap();
+    assert_eq!(owner.originals(MssqlChangeCaptureFamily::Cdc).len(), 1);
     let mut saved = snapshot();
     CapturedScanEvidence::change_capture(MssqlChangeCaptureFamily::Cdc, read.clone())
         .unwrap()
@@ -89,11 +108,17 @@ async fn foreign_family_and_changed_original_receipts_never_keep_a_measured_surv
             .attach(&mut saved)
             .is_err()
     );
-    saved.operations.cdc_history.push(RecordedOperationalRead::Captured { read: changed });
-    let raw = saved.operations.cdc_history.clone();
+    // Imported raw histories remain inspectable even when a file bypasses the append owner.
+    let mut imported = serde_json::to_value(&saved).unwrap();
+    imported["operations"]["change_capture"]["cdc"]
+        .as_array_mut()
+        .unwrap()
+        .push(serde_json::to_value(RecordedOperationalRead::Captured { read: changed }).unwrap());
+    let saved: Snapshot = serde_json::from_value(imported).unwrap();
+    let raw = saved.operations.change_capture.originals(MssqlChangeCaptureFamily::Cdc).to_vec();
     let report = culprit_checks::analyze(saved);
-    assert_eq!(report.snapshot.operations.cdc_history, raw);
-    let cdc = &report.cdc.unwrap()[0];
+    assert_eq!(report.snapshot.operations.change_capture.originals(MssqlChangeCaptureFamily::Cdc), raw);
+    let cdc = &report.change_capture.cdc.unwrap()[0];
     assert_eq!(cdc.source_state, SourceState::Unavailable);
     assert!(cdc.context.is_none() && cdc.entries.is_empty());
 }
@@ -108,15 +133,24 @@ async fn sharing_withdraws_both_independent_histories_instead_of_masking_or_reis
     }
     let shared = culprit_core::redact::redact_snapshot(&saved);
     let twice = culprit_core::redact::redact_snapshot(&shared);
-    assert_eq!(shared.operations.cdc_history, twice.operations.cdc_history);
-    assert_eq!(shared.operations.change_feed_history, twice.operations.change_feed_history);
-    for originals in [&shared.operations.cdc_history, &shared.operations.change_feed_history] {
+    assert_eq!(
+        shared.operations.change_capture.originals(MssqlChangeCaptureFamily::Cdc),
+        twice.operations.change_capture.originals(MssqlChangeCaptureFamily::Cdc)
+    );
+    assert_eq!(
+        shared.operations.change_capture.originals(MssqlChangeCaptureFamily::ChangeFeed),
+        twice.operations.change_capture.originals(MssqlChangeCaptureFamily::ChangeFeed)
+    );
+    for originals in [
+        shared.operations.change_capture.originals(MssqlChangeCaptureFamily::Cdc),
+        shared.operations.change_capture.originals(MssqlChangeCaptureFamily::ChangeFeed),
+    ] {
         assert!(matches!(&originals[0], RecordedOperationalRead::Unavailable { .. }));
         assert!(!serde_json::to_string(originals).unwrap().contains("original-instance"));
     }
     let report = culprit_checks::analyze(shared);
-    let cdc = &report.cdc.unwrap()[0];
-    let feed = &report.change_feed.unwrap()[0];
+    let cdc = &report.change_capture.cdc.unwrap()[0];
+    let feed = &report.change_capture.change_feed.unwrap()[0];
     assert!(cdc.context.is_none() && feed.context.is_none());
     assert!(cdc.entries.is_empty() && feed.entries.is_empty());
     assert!(!cdc.read_complete && !feed.read_complete);

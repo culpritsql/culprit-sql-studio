@@ -1,6 +1,7 @@
 //! Actual CLI intake -> sealed local original -> normal scan -> source-free saved replay for both families.
 use super::*;
 use culprit_collector::analytical::test_support::{CdcCase, ChangeFeedCase, cdc_evidence, change_feed_evidence};
+use culprit_core::telemetry::MssqlChangeCaptureFamily;
 #[test]
 fn each_native_history_requires_one_explicit_original_and_an_outbox_without_enabling_acquisition() {
     for flag in ["--cdc-capture", "--change-feed-capture"] {
@@ -37,11 +38,14 @@ async fn both_cli_histories_retain_original_scope_sources_and_clocks_through_off
         let report = observed_scan(&workspace, &parsed).await.unwrap();
         assert_eq!(calls.load(Ordering::SeqCst), 1);
         let (originals, view) = if flag == "--cdc-capture" {
-            (&report.snapshot.operations.cdc_history, serde_json::to_value(report.cdc.as_ref().unwrap()).unwrap())
+            (
+                report.snapshot.operations.change_capture.originals(MssqlChangeCaptureFamily::Cdc),
+                serde_json::to_value(report.change_capture.cdc.as_ref().unwrap()).unwrap(),
+            )
         } else {
             (
-                &report.snapshot.operations.change_feed_history,
-                serde_json::to_value(report.change_feed.as_ref().unwrap()).unwrap(),
+                report.snapshot.operations.change_capture.originals(MssqlChangeCaptureFamily::ChangeFeed),
+                serde_json::to_value(report.change_capture.change_feed.as_ref().unwrap()).unwrap(),
             )
         };
         let culprit_core::telemetry::RecordedOperationalRead::Captured { read } = &originals[0] else { panic!() };
@@ -61,20 +65,21 @@ async fn both_cli_histories_retain_original_scope_sources_and_clocks_through_off
         );
         let saved = offline.analyze_file(&path).unwrap();
         let reopened = if flag == "--cdc-capture" {
-            serde_json::to_value(saved.cdc).unwrap()
+            serde_json::to_value(saved.change_capture.cdc).unwrap()
         } else {
-            serde_json::to_value(saved.change_feed).unwrap()
+            serde_json::to_value(saved.change_capture.change_feed).unwrap()
         };
         assert_eq!(reopened, view);
         assert_eq!(calls.load(Ordering::SeqCst), 1);
         let compact = crate::output::compact_report(&report, &path);
         let key = if flag == "--cdc-capture" { "cdc" } else { "change_feed" };
+        assert!(compact.get("cdc").is_none() && compact.get("change_feed").is_none());
         assert_eq!(
-            compact[key][0]["original_read_bounds"]["from"],
+            compact["change_capture"][key][0]["original_read_bounds"]["from"],
             source.observation.snapshot().unwrap().observed_from
         );
-        assert_eq!(compact[key][0]["sources"].as_array().unwrap().len(), 3);
-        assert!(compact[key][0]["entries_presented"].as_u64().unwrap() <= 3);
+        assert_eq!(compact["change_capture"][key][0]["sources"].as_array().unwrap().len(), 3);
+        assert!(compact["change_capture"][key][0]["entries_presented"].as_u64().unwrap() <= 3);
     }
 }
 

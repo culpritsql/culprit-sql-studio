@@ -55,24 +55,24 @@ test("native fields render as bounded escaped text and preserve NULL rather than
 
 test("native partial, denied, empty and disabled histories never disappear behind Health healthy-empty", () => {
   for (const name of ["cdc_empty", "cdc_disabled", "cdc_denied", "cdc_partial"] as const) {
-    const report = health();report.cdc = [cdcHistoryCase(name)];
+    const report = health();report.change_capture.cdc = [cdcHistoryCase(name)];
     const html = renderToStaticMarkup(<HealthTab report={report} pressure={null} resources={[]} engineLabel="PostgreSQL" />);
-    expect(html).toContain(report.cdc[0]!.summary);expect(html).not.toContain(t("ui.health.empty"));
+    expect(html).toContain(report.change_capture.cdc[0]!.summary);expect(html).not.toContain(t("ui.health.empty"));
   }
   for (const name of ["change_feed_empty", "change_feed_denied", "change_feed_partial"] as const) {
-    const report = health();report.change_feed = [changeFeedHistoryCase(name)];
+    const report = health();report.change_capture.change_feed = [changeFeedHistoryCase(name)];
     const html = renderToStaticMarkup(<HealthTab report={report} pressure={null} resources={[]} engineLabel="PostgreSQL" />);
-    expect(html).toContain(report.change_feed[0]!.summary);expect(html).not.toContain(t("ui.health.empty"));
+    expect(html).toContain(report.change_capture.change_feed[0]!.summary);expect(html).not.toContain(t("ui.health.empty"));
   }
 });
 
 test("original evidence without an admitted explanation and each source-only outcome stays explicit", () => {
   for (const family of ["cdc", "change_feed"] as const) {
-    const report = health();report[family] = undefined;
-    report.snapshot.operations[family === "cdc" ? "cdc_history" : "change_feed_history"] = [changeCaptureUnavailable()];
+    const report = health();report.change_capture[family] = undefined;
+    report.snapshot.operations.change_capture[family] = [changeCaptureUnavailable()];
     let html = renderToStaticMarkup(<HealthTab report={report} pressure={null} resources={[]} engineLabel="SQL Server" />);
     expect(html).toContain(t("view.change_capture.history.missing"));expect(html).not.toContain(t("ui.health.empty"));
-    report.snapshot.operations.cdc_history = [];report.snapshot.operations.change_feed_history = [];
+    report.snapshot.operations.change_capture.cdc = [];report.snapshot.operations.change_capture.change_feed = [];
     const names = family === "cdc" ? CDC_HISTORY_SOURCES : CHANGE_FEED_HISTORY_SOURCES;
     for (const state of ["empty", "partial", "unavailable"] as const) {
       report.snapshot.sources = [{ source: names[1]!, state, reason: null }];
@@ -95,4 +95,20 @@ test("Health retains its ordinary empty state when neither family was acquired",
   const html = renderToStaticMarkup(<HealthTab report={report} pressure={null} resources={[]} engineLabel="PostgreSQL" />);
   expect(html).toContain(t("ui.health.empty"));
   expect(html).not.toContain(t("view.change_capture.history.missing"));
+});
+
+
+test("one unavailable family never replaces its independently observed sibling or its original clock", () => {
+  const report = health();
+  const cdc = cdcHistoryCase("cdc_denied");
+  const feed = changeFeedHistoryCase("change_feed_exact");
+  report.change_capture = { cdc: [cdc], change_feed: [feed] };
+  const html = renderToStaticMarkup(<HealthTab report={report} pressure={null} resources={[]} engineLabel="SQL Server" />);
+  expect(html).toContain(cdc.summary);
+  expect(html).toContain(feed.summary);
+  expect(html).toContain(feed.context!.observed_from);
+  expect(html).toContain(feed.context!.observed_until);
+  expect(html).not.toContain(t("ui.health.empty"));
+  expect(report.change_capture.cdc?.[0]?.source_state).toBe(cdc.source_state);
+  expect(report.change_capture.change_feed?.[0]?.context).toEqual(feed.context);
 });
