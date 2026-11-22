@@ -127,10 +127,7 @@ pub(crate) async fn application(reader: &mut impl NativeRead) -> Result<Vec<Boun
     Ok(values)
 }
 pub(crate) fn application_bound(boundary: &Boundary) -> Option<String> {
-    let id = boundary.definition.boundary_id?;
-    let value = boundary.raw_display_value.as_deref()?;
-    let comparison = if boundary.definition.boundary_on_right { "LESS THAN" } else { "LESS THAN OR EQUAL" };
-    Some(format!("partition_bound=VALUES {comparison} ({value}):p{id}"))
+    boundary.definition.display_storage_option(boundary.raw_display_value.as_deref())
 }
 
 #[cfg(test)]

@@ -9,6 +9,7 @@ mod conn_cmd;
 mod dashboard_cmd;
 mod evidence_cmd;
 mod fleet_cmd;
+mod incident_cmd;
 mod lint_cmd;
 mod live_cmd;
 mod locks;
@@ -16,6 +17,7 @@ mod logs_cmd;
 mod outbox_cmd;
 mod output;
 mod plan_cmd;
+mod resources_cmd;
 mod scan_capture;
 mod service_cmd;
 mod share_cmd;
@@ -143,6 +145,10 @@ enum Command {
     Dashboard(dashboard_cmd::DashboardArgs),
     /// Show the server, what this login can see, and which checks are locked and why.
     Doctor { connection: String },
+    #[command(about = culprit_core::t!("incident.cli.about"))]
+    Incident(incident_cmd::IncidentArgs),
+    #[command(about = culprit_core::t!("resources.cli.about"))]
+    Resources(resources_cmd::ResourcesArgs),
     /// Take a snapshot, run every check, save the report and print the findings.
     Scan(ScanArgs),
     #[command(subcommand, about = culprit_core::t!("collection.cli.about"))]
@@ -529,6 +535,9 @@ async fn run(command: Command, out: &Out) -> culprit_core::Result<u8> {
     if let Command::Logs(args) = command {
         return logs_cmd::run(args, out).await;
     }
+    if let Command::Resources(args) = command {
+        return resources_cmd::run(args, out).await;
+    }
     let mut ws = Workspace::open()?;
     // A device-code sign-in needs a person to read the code; scripts and agents get an error with a hint instead.
     if std::io::stderr().is_terminal() && !matches!(&command, Command::Collect(_)) {
@@ -564,6 +573,10 @@ fn dispatch<'a>(command: Command, ws: Workspace, out: &'a Out) -> CommandTask<'a
         }),
         Command::Dashboard(args) => Box::pin(async move { dashboard_cmd::run(&ws, args, out).await }),
         Command::Doctor { connection } => Box::pin(async move { commands::doctor(&ws, &connection, out).await }),
+        Command::Incident(args) => Box::pin(async move { incident_cmd::run(&ws, args, out).await }),
+        Command::Resources(_) => {
+            Box::pin(async move { unreachable!("archive resources dispatch precedes workspace creation") })
+        }
         Command::Scan(args) => Box::pin(async move { commands::scan(&ws, args, out).await }),
         Command::Collect(_) => Box::pin(async move { unreachable!("collection dispatch precedes workspace creation") }),
         Command::Logs(_) => Box::pin(async move { unreachable!("local log dispatch precedes workspace creation") }),

@@ -1,8 +1,11 @@
 use crate::output::{Format, Out};
 use clap::Subcommand;
-use culprit_collector::{capture::CollectionCancellation, service::ServiceReporter};
+use culprit_collector::service::ServiceReporter;
 use culprit_core::{Result, telemetry::*};
-use culprit_engine::collector_service::{self, SourceMode, config::CollectorConfig};
+use culprit_engine::collector_service;
+use culprit_engine::collector_service::SourceMode;
+use culprit_engine::collector_service::config::CollectorConfig;
+use culprit_read::cancellation::CollectionCancellation;
 use std::{io::Write, path::PathBuf};
 
 #[derive(Subcommand)]
@@ -67,6 +70,25 @@ impl ServiceReporter for Reporter<'_> {
         } else {
             print_enrollment(summary);
             Ok(())
+        }
+    }
+    fn synthesis(&self, turn: &culprit_collector::synthesis::SynthesisTurn) -> Result<()> {
+        use culprit_collector::synthesis::SynthesisTurn;
+        match turn {
+            SynthesisTurn::Committed { primary, output, queue_retired } if self.0.format() == Format::Json => {
+                write(&serde_json::json!({
+                    "kind": "synthesis", "primary": primary, "output": output, "queue_retired": queue_retired,
+                }))
+            }
+            SynthesisTurn::Failed { primary, code } => {
+                if self.0.format() == Format::Json {
+                    write(&serde_json::json!({"kind": "synthesis-error", "primary": primary, "code": code}))
+                } else {
+                    self.0.error(&culprit_core::Error::new(*code, culprit_core::t!("service.synthesis.failed")));
+                    Ok(())
+                }
+            }
+            _ => Ok(()),
         }
     }
     fn source_paused(&self, error: &culprit_core::Error) -> Result<()> {

@@ -27,7 +27,7 @@ async fn capture(captures: &mut OwnedCaptures, target: &MssqlColumnstoreTarget) 
     assert!(captured.source().unwrap().partition.is_qualified());
     let recipe =
         crate::telemetry::recipes().into_iter().find(|recipe| recipe.id == "mssql.columnstore-rowgroups").unwrap();
-    assert_eq!(recipe.cost, RecipeCostQualification::Unqualified);
+    assert_eq!(recipe.admission, RecipeAdmission::Unqualified);
     captured
 }
 async fn denied_target(fixture: &mut Fixture<'_>, target: &MssqlColumnstoreTarget) {

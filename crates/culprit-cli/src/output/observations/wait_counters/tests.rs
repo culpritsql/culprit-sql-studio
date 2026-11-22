@@ -1,6 +1,7 @@
 use super::*;
-use culprit_collector::analytical::test_support::{WaitCounterCase, wait_counter_evidence};
 use culprit_core::telemetry::*;
+use culprit_evidence::analytical::test_support::WaitCounterCase;
+use culprit_evidence::analytical::test_support::wait_counter_evidence;
 
 fn report(case: WaitCounterCase) -> WaitCounterReport {
     let (source, rows) = wait_counter_evidence(case);
@@ -46,7 +47,7 @@ fn unavailable_and_empty_are_distinct_and_inconsistent_signal_never_becomes_reso
 
 #[test]
 fn pool_native_corpus_keeps_shared_scope_unqualified_tiers_and_exact_counts_in_bounded_cli_text() {
-    use culprit_collector::analytical::test_support::{PoolWaitCounterCase, pool_wait_counter_evidence};
+    use culprit_evidence::analytical::test_support::{PoolWaitCounterCase, pool_wait_counter_evidence};
     for case in PoolWaitCounterCase::ALL {
         let (source, records) = pool_wait_counter_evidence(case);
         let rows = records

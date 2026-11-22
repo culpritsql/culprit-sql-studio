@@ -3,15 +3,14 @@ use super::{
     runtime::Runtime,
     support::{Frame, Harness},
 };
-use crate::{
-    analytical::test_support::{compiler_admission_investigation_fixture, query_compilation_evidence},
-    capture::CollectionCancellation,
-    diagnostics::analyze_pending,
-    fleet::{journal::FocusedStage, scheduler::Outcome},
-    outbox::DiagnosticInputState,
-};
+use crate::diagnostics::analyze_pending;
+use crate::fleet::journal::FocusedStage;
+use crate::fleet::scheduler::Outcome;
+use crate::outbox::DiagnosticInputState;
 use culprit_core::telemetry::*;
-use std::sync::atomic::Ordering;
+use culprit_evidence::analytical::test_support::compiler_admission_investigation_fixture;
+use culprit_evidence::analytical::test_support::query_compilation_evidence;
+use culprit_read::cancellation::CollectionCancellation;
 
 mod failures;
 pub(super) mod log_rates;
@@ -54,7 +53,7 @@ async fn fixture() -> Harness {
     fixture_with_fence(None).await
 }
 
-async fn fixture_with_fence(fence: Option<&crate::delivery::recovery::Fence>) -> Harness {
+async fn fixture_with_fence(fence: Option<&culprit_evidence::delivery::mutations::Fence>) -> Harness {
     let compiler = compiler_admission_investigation_fixture();
     let mut source = compiler.baseline_source;
     let CollectionTarget::Database(database) = &mut source.target else { panic!() };
@@ -63,7 +62,7 @@ async fn fixture_with_fence(fence: Option<&crate::delivery::recovery::Fence>) ->
     configured_fixture(Frame { source, records: vec![compiler.baseline_record.record] }, fence).await
 }
 
-async fn configured_fixture(activity: Frame, fence: Option<&crate::delivery::recovery::Fence>) -> Harness {
+async fn configured_fixture(activity: Frame, fence: Option<&culprit_evidence::delivery::mutations::Fence>) -> Harness {
     let mut fixture = match fence {
         Some(fence) => Harness::with_archived_activity(activity, fence).await,
         None => Harness::with_activity(activity).await,
@@ -71,7 +70,7 @@ async fn configured_fixture(activity: Frame, fence: Option<&crate::delivery::rec
     let scope = DiagnosticScope::from_source(&fixture.backend.activity.source).unwrap();
     fixture.backend.recipe.selector = RecipeSelector::FocusedCompilationAdmission;
     fixture.backend.recipe.id = "fixture.focused-compiler-prerequisite".into();
-    let RecipeCostQualification::Measured(receipt) = &mut fixture.backend.recipe.cost else { panic!() };
+    let RecipeAdmission::Measured(receipt) = &mut fixture.backend.recipe.admission else { panic!() };
     receipt.selector = fixture.backend.recipe.selector;
     receipt.recipe_id = fixture.backend.recipe.id.clone();
     receipt.scope = scope.into();
@@ -80,7 +79,7 @@ async fn configured_fixture(activity: Frame, fence: Option<&crate::delivery::rec
     let mut history = fixture.backend.recipe.clone();
     history.id = "fixture.automatic-compilation-history".into();
     history.selector = SourceReadQuestion::CompilationHistory.selector();
-    let RecipeCostQualification::Measured(receipt) = &mut history.cost else { panic!() };
+    let RecipeAdmission::Measured(receipt) = &mut history.admission else { panic!() };
     receipt.recipe_id = history.id.clone();
     receipt.selector = history.selector;
     receipt.scope = RecipeCostScope::NativeRead(

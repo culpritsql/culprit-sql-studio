@@ -149,7 +149,7 @@ fn selected_report_read_bounds_survive_compact_projection_without_native_owner_p
 
 #[test]
 fn compact_common_counters_include_the_canonical_fraction_without_raw_native_labels_or_receipts() {
-    use culprit_collector::analytical::test_support::{
+    use culprit_evidence::analytical::test_support::{
         CommonPerformanceCounterCase as Case, common_performance_counter_evidence,
     };
     for case in Case::ALL {

@@ -1,5 +1,6 @@
 use super::*;
 use crate::fleet::scheduler::{ADMISSION_START_WINDOW, Outcome};
+use culprit_read::cancellation::CollectionCancellation;
 
 fn clock(seconds: i64) -> chrono::DateTime<chrono::Utc> {
     now() + chrono::TimeDelta::seconds(seconds)

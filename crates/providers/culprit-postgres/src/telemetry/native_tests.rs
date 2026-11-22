@@ -1,11 +1,12 @@
 //! Full capture uses the common controller and files, not a provider-specific export path.
 use super::*;
-use culprit_collector::capture::{CollectionCancellation, SourceFactory, collect_once};
+use culprit_collector::capture::SourceFactory;
+use culprit_collector::capture::collect_once;
 use culprit_core::{ConnectionSpec, Engine, Provider};
 use culprit_read::admission::SourceGate;
+use culprit_read::cancellation::CollectionCancellation;
 
 mod caller_context;
-mod case;
 mod copy;
 mod jobs;
 mod maintenance_waits;
@@ -34,19 +35,9 @@ fn task_space_is_explicitly_unsupported_without_connecting_or_starting_a_runtime
 }
 
 fn spec() -> ConnectionSpec {
-    let database = std::env::var("CULPRIT_PREVIEW_PG_DATABASE").unwrap();
-    assert!(matches!(database.as_str(), "culprit_smoke" | "culprit_timescale"));
-    ConnectionSpec {
-        engine: Some(Engine::Postgres),
-        host: "127.0.0.1".into(),
-        port: Some(std::env::var("CULPRIT_PREVIEW_PG_PORT").unwrap().parse().unwrap()),
-        database: Some(database),
-        user: Some("postgres".into()),
-        password: Some(std::env::var("CULPRIT_PREVIEW_PG_PASSWORD").unwrap()),
-        options: [("sslmode".into(), "disable".into())].into(),
-        ..Default::default()
-    }
+    crate::native_test_support::connection_spec()
 }
+
 struct Factory(crate::PostgresProvider);
 #[async_trait::async_trait]
 impl SourceFactory for Factory {

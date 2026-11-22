@@ -1,7 +1,8 @@
 use super::*;
 use culprit_checks::maintenance_blocking::{MaintenanceProgressEvidence, explain};
-use culprit_collector::analytical::test_support::{MaintenanceBlockingCase, maintenance_blocking_evidence};
 use culprit_core::telemetry::*;
+use culprit_evidence::analytical::test_support::MaintenanceBlockingCase;
+use culprit_evidence::analytical::test_support::maintenance_blocking_evidence;
 
 // The native source relationships come from the shared corpus. These canonical refs exercise the pure report;
 // the SDK replay tests separately authenticate the actual archive manifests and rows.

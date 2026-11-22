@@ -1,9 +1,11 @@
 //! Controlled native-shaped points through the same common view; no native cost or current-owner claim.
-use culprit_collector::analytical::test_support::{
-    InstanceResourceCase, ProcessCpuCase, SchedulerCase, instance_resource_cpu_evidence, instance_resource_evidence,
-    instance_resource_scheduler_evidence,
-};
 use culprit_core::telemetry::*;
+use culprit_evidence::analytical::test_support::InstanceResourceCase;
+use culprit_evidence::analytical::test_support::ProcessCpuCase;
+use culprit_evidence::analytical::test_support::SchedulerCase;
+use culprit_evidence::analytical::test_support::instance_resource_cpu_evidence;
+use culprit_evidence::analytical::test_support::instance_resource_evidence;
+use culprit_evidence::analytical::test_support::instance_resource_scheduler_evidence;
 use std::{collections::BTreeMap, path::PathBuf};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -78,16 +80,16 @@ fn generate() -> Result<(), Box<dyn std::error::Error>> {
         cases.insert(name.into(), serde_json::json!({"read":read,"report":report}));
     }
     for (name, case) in [
-        ("numa_exact", culprit_collector::analytical::test_support::NumaNodeCase::Exact),
-        ("numa_zero", culprit_collector::analytical::test_support::NumaNodeCase::Zero),
-        ("numa_null", culprit_collector::analytical::test_support::NumaNodeCase::NativeNull),
-        ("numa_unavailable", culprit_collector::analytical::test_support::NumaNodeCase::ColumnUnavailable),
-        ("numa_partial", culprit_collector::analytical::test_support::NumaNodeCase::PartialMemory),
-        ("numa_cpu_denied", culprit_collector::analytical::test_support::NumaNodeCase::CpuDenied),
-        ("numa_both_denied", culprit_collector::analytical::test_support::NumaNodeCase::BothDenied),
-        ("numa_limited", culprit_collector::analytical::test_support::NumaNodeCase::Limited),
+        ("numa_exact", culprit_evidence::analytical::test_support::NumaNodeCase::Exact),
+        ("numa_zero", culprit_evidence::analytical::test_support::NumaNodeCase::Zero),
+        ("numa_null", culprit_evidence::analytical::test_support::NumaNodeCase::NativeNull),
+        ("numa_unavailable", culprit_evidence::analytical::test_support::NumaNodeCase::ColumnUnavailable),
+        ("numa_partial", culprit_evidence::analytical::test_support::NumaNodeCase::PartialMemory),
+        ("numa_cpu_denied", culprit_evidence::analytical::test_support::NumaNodeCase::CpuDenied),
+        ("numa_both_denied", culprit_evidence::analytical::test_support::NumaNodeCase::BothDenied),
+        ("numa_limited", culprit_evidence::analytical::test_support::NumaNodeCase::Limited),
     ] {
-        let (source, records) = culprit_collector::analytical::test_support::numa_node_evidence(case);
+        let (source, records) = culprit_evidence::analytical::test_support::numa_node_evidence(case);
         let rows = records
             .into_iter()
             .map(|row| match row {
@@ -98,8 +100,8 @@ fn generate() -> Result<(), Box<dyn std::error::Error>> {
         let report = culprit_checks::instance_resources::explain_source(&source, &rows, true)?;
         cases.insert(name.into(), serde_json::json!({"source":source,"report":report}));
     }
-    for case in culprit_collector::analytical::test_support::ProcessCpuIntervalCase::ALL {
-        let [first, second] = culprit_collector::analytical::test_support::process_cpu_interval_originals(case);
+    for case in culprit_evidence::analytical::test_support::ProcessCpuIntervalCase::ALL {
+        let [first, second] = culprit_evidence::analytical::test_support::process_cpu_interval_originals(case);
         let mut report = culprit_checks::instance_resources::explain_captured(&second)?;
         report.process_cpu_originals = Some(vec![
             *culprit_checks::instance_resources::explain_captured(&first)?.process_cpu.unwrap(),

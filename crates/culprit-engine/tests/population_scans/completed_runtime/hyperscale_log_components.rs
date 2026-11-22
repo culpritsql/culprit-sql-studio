@@ -1,10 +1,10 @@
 //! Original component captures use the existing verified local reader and one normal scan owner.
 use super::*;
-use culprit_collector::analytical::test_support::hyperscale_log_component_evidence_cases;
 use culprit_engine::{
     LocalCaptureAnalysisKind, LocalCaptureRequest, LocalCapturedAnalysis, LocalHyperscaleLogComponents,
     OutboxCaptureReader,
 };
+use culprit_evidence::analytical::test_support::hyperscale_log_component_evidence_cases;
 
 async fn capture(case: usize) -> Captured {
     let (mut source, rows) = hyperscale_log_component_evidence_cases().remove(case);

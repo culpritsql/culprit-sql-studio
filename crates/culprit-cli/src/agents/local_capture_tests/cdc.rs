@@ -1,6 +1,7 @@
 use super::*;
-use culprit_collector::analytical::test_support::{CdcCase, cdc_evidence};
 use culprit_engine::LocalCaptureAnalysisKind;
+use culprit_evidence::analytical::test_support::CdcCase;
+use culprit_evidence::analytical::test_support::cdc_evidence;
 #[tokio::test]
 async fn cdc_local_mcp_action_reuses_original_native_outcomes_without_source_calls_or_private_payloads() {
     for case in CdcCase::ALL {

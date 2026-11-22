@@ -30,6 +30,9 @@ impl SourceProfileGuard {
         self.refused.store(true, Ordering::Release);
         changed()
     }
+    pub fn builtin_policy(&self) -> Option<&BuiltinRecipeSafety> {
+        self.admission.builtin_policy()
+    }
     /// Authority discovery can precede native binding; revocation is still checked before login and SET.
     pub fn ensure_active(&self) -> Result<()> {
         if self.refused.load(Ordering::Acquire) || !self.admission.approval_is_active() {

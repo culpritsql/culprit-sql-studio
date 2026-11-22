@@ -1,5 +1,6 @@
 use super::*;
-use culprit_collector::analytical::test_support::{InvestigationFixture, investigation_fixture};
+use culprit_evidence::analytical::test_support::InvestigationFixture;
+use culprit_evidence::analytical::test_support::investigation_fixture;
 
 /// This is a fixture-specific native-work policy, not production qualification or common counter-name inference.
 fn native_verifier(calls: Arc<AtomicUsize>) -> RecipeCostVerifier {
@@ -31,7 +32,7 @@ fn selected(
 ) -> ProviderRegistration {
     registration(factories, vec![fixture.recipe.clone()])
         .unwrap()
-        .with_qualification_authority(fixture.intent.qualification.component.clone(), native_verifier(verifiers))
+        .with_qualification_authority(fixture.intent.qualification.component().clone(), native_verifier(verifiers))
         .unwrap()
 }
 
@@ -41,7 +42,11 @@ fn a_measured_catalog_without_its_selected_authority_cannot_approve_any_native_w
     let factories = Arc::new(AtomicUsize::new(0));
     let registration = registration(factories.clone(), vec![fixture.recipe]).unwrap();
     assert!(registration.qualification_component().is_none());
-    assert!(!registration.verify_cost(&fixture.intent.qualification, &fixture.source, &fixture.record).unwrap());
+    assert!(
+        !registration
+            .verify_cost(fixture.intent.qualification.measured().unwrap(), &fixture.source, &fixture.record)
+            .unwrap()
+    );
     assert_eq!(factories.load(Ordering::SeqCst), 0);
 }
 
@@ -51,8 +56,12 @@ fn exact_selected_native_cost_facts_reach_the_pure_verifier_without_opening_a_pr
     let factories = Arc::new(AtomicUsize::new(0));
     let verifiers = Arc::new(AtomicUsize::new(0));
     let registration = selected(&fixture, factories.clone(), verifiers.clone());
-    assert_eq!(registration.qualification_component(), Some(&fixture.intent.qualification.component));
-    assert!(registration.verify_cost(&fixture.intent.qualification, &fixture.source, &fixture.record).unwrap());
+    assert_eq!(registration.qualification_component(), Some(fixture.intent.qualification.component()));
+    assert!(
+        registration
+            .verify_cost(fixture.intent.qualification.measured().unwrap(), &fixture.source, &fixture.record)
+            .unwrap()
+    );
     assert_eq!(verifiers.load(Ordering::SeqCst), 1);
     assert_eq!(factories.load(Ordering::SeqCst), 0);
 }
@@ -65,7 +74,7 @@ fn receipt_identity_component_budget_hash_and_ordinal_mismatches_never_reach_a_v
     let registration = selected(&fixture, factories.clone(), verifiers.clone());
     for changed in ["recipe", "version", "selector", "component", "revision", "budget", "hash", "ordinal", "accounting"]
     {
-        let mut receipt = fixture.intent.qualification.clone();
+        let mut receipt = fixture.intent.qualification.measured().unwrap().clone();
         match changed {
             "recipe" => receipt.recipe_id = "another-source.page-wait".into(),
             "version" => receipt.recipe_version += 1,
@@ -118,7 +127,10 @@ fn changed_artifact_source_target_native_payload_capture_or_export_format_is_rej
             "capture" => record.capture.revision.as_mut().unwrap().sequence = "2".into(),
             _ => record.format_version += 1,
         }
-        assert!(!registration.verify_cost(&fixture.intent.qualification, &source, &record).unwrap(), "{changed}");
+        assert!(
+            !registration.verify_cost(fixture.intent.qualification.measured().unwrap(), &source, &record).unwrap(),
+            "{changed}"
+        );
     }
     assert_eq!(verifiers.load(Ordering::SeqCst), 0);
     assert_eq!(factories.load(Ordering::SeqCst), 0);
@@ -130,20 +142,24 @@ fn absent_unqualified_or_different_current_catalogs_do_not_inherit_a_receipts_au
     let factories = Arc::new(AtomicUsize::new(0));
     let verifiers = Arc::new(AtomicUsize::new(0));
     let mut unqualified = fixture.recipe.clone();
-    unqualified.cost = RecipeCostQualification::Unqualified;
+    unqualified.admission = RecipeAdmission::Unqualified;
     let mut another = fixture.recipe.clone();
     another.id = "another-source.page-wait-focus".into();
-    let RecipeCostQualification::Measured(receipt) = &mut another.cost else { panic!() };
+    let RecipeAdmission::Measured(receipt) = &mut another.admission else { panic!() };
     receipt.recipe_id = another.id.clone();
     for recipes in [vec![], vec![unqualified], vec![another]] {
         let registration = registration(factories.clone(), recipes)
             .unwrap()
             .with_qualification_authority(
-                fixture.intent.qualification.component.clone(),
+                fixture.intent.qualification.component().clone(),
                 native_verifier(verifiers.clone()),
             )
             .unwrap();
-        assert!(!registration.verify_cost(&fixture.intent.qualification, &fixture.source, &fixture.record).unwrap());
+        assert!(
+            !registration
+                .verify_cost(fixture.intent.qualification.measured().unwrap(), &fixture.source, &fixture.record)
+                .unwrap()
+        );
     }
     assert_eq!(verifiers.load(Ordering::SeqCst), 0);
     assert_eq!(factories.load(Ordering::SeqCst), 0);
@@ -159,7 +175,7 @@ fn a_registered_pure_verifier_can_reject_or_fail_without_native_construction() {
         let registration = registration(factories.clone(), vec![fixture.recipe.clone()])
             .unwrap()
             .with_qualification_authority(
-                fixture.intent.qualification.component.clone(),
+                fixture.intent.qualification.component().clone(),
                 Arc::new(move |_, _, _| {
                     calls.fetch_add(1, Ordering::SeqCst);
                     if fail {
@@ -170,7 +186,11 @@ fn a_registered_pure_verifier_can_reject_or_fail_without_native_construction() {
                 }),
             )
             .unwrap();
-        let result = registration.verify_cost(&fixture.intent.qualification, &fixture.source, &fixture.record);
+        let result = registration.verify_cost(
+            fixture.intent.qualification.measured().unwrap(),
+            &fixture.source,
+            &fixture.record,
+        );
         if fail {
             assert_eq!(result.unwrap_err().code, ErrorCode::QueryFailed);
         } else {
@@ -194,19 +214,23 @@ fn valid_client_accounting_and_a_matching_reference_cannot_replace_native_cost_m
     assert!(fixture.record.record.is_valid());
     let reference = DiagnosticEvidenceRef::from_export(
         &fixture.source,
-        &fixture.intent.qualification.evidence.manifest_sha256,
+        &fixture.intent.qualification.measured().unwrap().evidence.manifest_sha256,
         &fixture.record,
-        fixture.intent.qualification.evidence.row_ordinal,
+        fixture.intent.qualification.measured().unwrap().evidence.row_ordinal,
     )
     .unwrap();
-    fixture.intent.qualification.evidence = reference;
-    let RecipeCostQualification::Measured(receipt) = &mut fixture.recipe.cost else { panic!() };
-    **receipt = fixture.intent.qualification.clone();
+    fixture.intent.qualification.measured_mut().unwrap().evidence = reference;
+    let RecipeAdmission::Measured(receipt) = &mut fixture.recipe.admission else { panic!() };
+    **receipt = fixture.intent.qualification.measured().unwrap().clone();
     assert!(fixture.recipe.is_valid());
     let factories = Arc::new(AtomicUsize::new(0));
     let verifiers = Arc::new(AtomicUsize::new(0));
     let registration = selected(&fixture, factories.clone(), verifiers.clone());
-    assert!(!registration.verify_cost(&fixture.intent.qualification, &fixture.source, &fixture.record).unwrap());
+    assert!(
+        !registration
+            .verify_cost(fixture.intent.qualification.measured().unwrap(), &fixture.source, &fixture.record)
+            .unwrap()
+    );
     assert_eq!(verifiers.load(Ordering::SeqCst), 1, "only the source can interpret its measured native cost facts");
     assert_eq!(factories.load(Ordering::SeqCst), 0);
 }
@@ -217,7 +241,7 @@ fn unknown_components_and_mismatched_selected_authorities_cannot_approve_a_recei
     let factories = Arc::new(AtomicUsize::new(0));
     let verifiers = Arc::new(AtomicUsize::new(0));
     for missing in ["component", "version", "revision", "empty-revision"] {
-        let mut component = fixture.intent.qualification.component.clone();
+        let mut component = fixture.intent.qualification.component().clone();
         match missing {
             "component" => component.component.clear(),
             "version" => component.version = None,
@@ -231,13 +255,17 @@ fn unknown_components_and_mismatched_selected_authorities_cannot_approve_a_recei
             .unwrap();
         assert_eq!(error.code, ErrorCode::InvalidInput);
     }
-    let mut different = fixture.intent.qualification.component.clone();
+    let mut different = fixture.intent.qualification.component().clone();
     different.revision = Some("another-selected-native-implementation".into());
     let registration = registration(factories.clone(), vec![fixture.recipe.clone()])
         .unwrap()
         .with_qualification_authority(different, native_verifier(verifiers.clone()))
         .unwrap();
-    assert!(!registration.verify_cost(&fixture.intent.qualification, &fixture.source, &fixture.record).unwrap());
+    assert!(
+        !registration
+            .verify_cost(fixture.intent.qualification.measured().unwrap(), &fixture.source, &fixture.record)
+            .unwrap()
+    );
     assert_eq!(verifiers.load(Ordering::SeqCst), 0);
     assert_eq!(factories.load(Ordering::SeqCst), 0);
 }
@@ -254,7 +282,11 @@ fn replacing_a_selected_registration_does_not_borrow_the_old_cost_verifier() {
         .with_provider(engine, registration(factories.clone(), vec![fixture.recipe.clone()]).unwrap());
     let selected = &workspace.providers.iter().find(|(selected, _)| *selected == engine).unwrap().1;
     assert!(selected.qualification_component().is_none());
-    assert!(!selected.verify_cost(&fixture.intent.qualification, &fixture.source, &fixture.record).unwrap());
+    assert!(
+        !selected
+            .verify_cost(fixture.intent.qualification.measured().unwrap(), &fixture.source, &fixture.record)
+            .unwrap()
+    );
     assert_eq!(verifiers.load(Ordering::SeqCst), 0);
     assert_eq!(factories.load(Ordering::SeqCst), 0);
 }

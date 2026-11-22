@@ -3,14 +3,14 @@ use super::{
     runtime::Runtime,
     support::{Frame, Harness},
 };
-use crate::{
-    analytical::test_support::{compiler_admission_evidence, compiler_admission_investigation_fixture},
-    capture::CollectionCancellation,
-    diagnostics::analyze_pending,
-    fleet::{journal::FocusedStage, scheduler::Outcome},
-    outbox::DiagnosticInputState,
-};
+use crate::diagnostics::analyze_pending;
+use crate::fleet::journal::FocusedStage;
+use crate::fleet::scheduler::Outcome;
+use crate::outbox::DiagnosticInputState;
 use culprit_core::telemetry::*;
+use culprit_evidence::analytical::test_support::compiler_admission_evidence;
+use culprit_evidence::analytical::test_support::compiler_admission_investigation_fixture;
+use culprit_read::cancellation::CollectionCancellation;
 
 pub(super) fn focused_frame(focus: &ActivityRequestFocus, native_gateways: Option<&[OperationalObservation]>) -> Frame {
     let (_, mut records) = compiler_admission_evidence();
@@ -77,7 +77,7 @@ async fn fixture() -> Harness {
         Frame { source: compiler.baseline_source, records: vec![compiler.baseline_record.record] };
     fixture.backend.recipe.selector = RecipeSelector::FocusedCompilationAdmission;
     fixture.backend.recipe.id = "synthetic.focused-compiler-admission".into();
-    let RecipeCostQualification::Measured(receipt) = &mut fixture.backend.recipe.cost else { panic!() };
+    let RecipeAdmission::Measured(receipt) = &mut fixture.backend.recipe.admission else { panic!() };
     receipt.selector = RecipeSelector::FocusedCompilationAdmission;
     receipt.recipe_id = fixture.backend.recipe.id.clone();
     receipt.scope = DiagnosticScope::from_source(&fixture.backend.activity.source).unwrap().into();
@@ -136,7 +136,7 @@ async fn an_admitted_compiler_waiter_retains_original_incident_and_all_gateway_r
 #[tokio::test]
 async fn unqualified_cost_never_dispatches_the_compiler_followup() {
     let mut fixture = fixture().await;
-    fixture.backend.recipe.cost = RecipeCostQualification::Unqualified;
+    fixture.backend.recipe.admission = RecipeAdmission::Unqualified;
     let mut runtime = Runtime::from_fixture(fixture).await;
     assert!(!runtime.enroll().await);
     assert_eq!(runtime.native_calls(), [1; 5]);

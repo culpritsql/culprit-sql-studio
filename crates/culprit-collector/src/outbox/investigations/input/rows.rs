@@ -71,7 +71,7 @@ mod tests {
     use super::*;
 
     fn originals() -> (DiagnosticCaptureRef, CollectionDescription, Vec<ExportedRecord>) {
-        let (source, records) = crate::analytical::test_support::activity_evidence_cases()
+        let (source, records) = culprit_evidence::analytical::test_support::activity_evidence_cases()
             .into_iter()
             .find(|(_, rows)| rows.len() > 1)
             .unwrap();

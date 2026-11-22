@@ -1,14 +1,15 @@
 //! One native archival owner, independent of warehouse requests and warehouse metadata capacity.
-use super::{
-    archive_driver::ArchiveDriver,
-    contract::Contract,
-    driver::DeliveryPolicy,
-    journal::DeliveryJournal,
-    recovery::{self, Fence, RecoveryStore},
-    worker::{Report, fatal},
-};
-use crate::{capture::CollectionCancellation, outbox::OutboxDelivery};
+use super::archive_driver::ArchiveDriver;
+use super::driver::DeliveryPolicy;
+use super::journal::DeliveryJournal;
+use super::recovery::RecoveryStore;
+use super::worker::Report;
+use super::worker::fatal;
+use crate::outbox::OutboxDelivery;
 use culprit_core::{Result, telemetry::*};
+use culprit_evidence::delivery::contract::Contract;
+use culprit_evidence::delivery::mutations::Fence;
+use culprit_read::cancellation::CollectionCancellation;
 use std::sync::Arc;
 use tokio::sync::Notify;
 pub(super) struct ArchiveWorker<'a> {
@@ -55,7 +56,7 @@ impl ArchiveWorker<'_> {
         match result {
             Ok(entry) => {
                 if entry.phase == DeliveryPhase::Committed && !cancellation.is_cancelled() {
-                    let committed = recovery::reopen(self.store, id).await?;
+                    let committed = culprit_evidence::delivery::recovery::reopen(self.store, id).await?;
                     self.outbox.mark_archived(&committed).await?;
                     self.journal.forget_archive(&committed).await?;
                     self.committed.notify_one();
@@ -86,7 +87,7 @@ impl ArchiveWorker<'_> {
                 continue;
             }
             if let Some(range) = self.outbox.archive_range(id).await? {
-                self.outbox.evict(&recovery::reopen(self.store, &range).await?).await?;
+                self.outbox.evict(&culprit_evidence::delivery::recovery::reopen(self.store, &range).await?).await?;
             }
         }
         self.maintenance_cursor = page.next_cursor;

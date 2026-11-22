@@ -1,5 +1,6 @@
 //! Process health and expected work, independent of a healthy source or destination. Metrics contain no SQL.
 mod http;
+mod synthesis;
 #[cfg(test)]
 mod tests;
 use culprit_core::{Result, SourceState, telemetry::*};
@@ -31,6 +32,7 @@ struct State {
     source_fenced: bool,
     source_enabled: bool,
     monitoring_gaps: u32,
+    synthesis: Option<synthesis::SynthesisHealth>,
 }
 #[derive(Clone)]
 struct Schedule {
@@ -136,6 +138,7 @@ impl CollectorHealth {
                 source_fenced: false,
                 source_enabled: true,
                 monitoring_gaps: 0,
+                synthesis: None,
             })),
         })
     }
@@ -225,6 +228,9 @@ impl CollectorHealth {
         writeln!(body, "culprit_collector_uptime_seconds {}", now.duration_since(state.started).as_secs())
             .map_err(metric_error)?;
         writeln!(body, "culprit_collector_monitoring_gaps {}", state.monitoring_gaps).map_err(metric_error)?;
+        if let Some(synthesis) = &state.synthesis {
+            synthesis.write_metrics(&mut body)?;
+        }
         for schedule in state.schedules.values() {
             let overdue = state.source_enabled && schedule.overdue(now, state.started);
             for (name, count) in [
@@ -315,6 +321,7 @@ impl CollectorHealth {
 impl State {
     fn ready(&self, now: Instant) -> bool {
         self.initialized
+            && self.synthesis.as_ref().is_none_or(|synthesis| synthesis.ready(now))
             && !self.source_fenced
             && (!self.source_enabled || self.monitoring_gaps == 0)
             && self.outbox.as_ref().is_some_and(|outbox| {

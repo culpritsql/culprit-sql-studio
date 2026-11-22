@@ -56,6 +56,10 @@ const USER_SETTINGS: &[&str] = &[
 ];
 
 impl EngineSpec for Postgres {
+    fn default_port(&self) -> Option<u16> {
+        Some(5432)
+    }
+
     fn connection_outcome_profile(
         &self,
         source: &str,

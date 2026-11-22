@@ -6,6 +6,9 @@
 use crate::i18n::{self, Arg};
 use crate::{key, t};
 
+mod preview;
+pub use preview::{TextPreview, escaped_preview};
+
 /// `fixed`, a number as Rust's formatting writes it ("9.5", "-12"), in the current language's decimal separator.
 pub fn digits(fixed: String) -> String {
     let lang = i18n::current();

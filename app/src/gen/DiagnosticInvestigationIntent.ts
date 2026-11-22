@@ -2,10 +2,10 @@
 import type { CollectionBudget } from "./CollectionBudget";
 import type { DiagnosticExecutionBinding } from "./DiagnosticExecutionBinding";
 import type { DiagnosticFocus } from "./DiagnosticFocus";
-import type { RecipeCostReceipt } from "./RecipeCostReceipt";
+import type { RecipeExecutionAdmission } from "./RecipeExecutionAdmission";
 
 /**
  * One immutable focused question for an episode. Route/admission ownership stays with the scheduler.
  * The selected registration's authenticated cost verifier remains mandatory even when every relation here matches.
  */
-export type DiagnosticInvestigationIntent = { episode_id: string, episode_revision: string, recipe_id: string, recipe_version: number, focus: DiagnosticFocus, execution: DiagnosticExecutionBinding, budget: CollectionBudget, qualification: RecipeCostReceipt, };
+export type DiagnosticInvestigationIntent = { episode_id: string, episode_revision: string, recipe_id: string, recipe_version: number, focus: DiagnosticFocus, execution: DiagnosticExecutionBinding, budget: CollectionBudget, qualification: RecipeExecutionAdmission, };

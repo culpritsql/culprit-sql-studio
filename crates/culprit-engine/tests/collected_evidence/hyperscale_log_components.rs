@@ -1,9 +1,9 @@
 use super::fixture::Fixture;
-use culprit_collector::analytical::{
-    evidence::{EvidenceFamily, EvidenceGapReason},
-    test_support::{assert_operational_capture, hyperscale_log_component_evidence_cases},
-};
 use culprit_core::{SourceState, telemetry::*};
+use culprit_evidence::analytical::evidence::EvidenceFamily;
+use culprit_evidence::analytical::evidence::EvidenceGapReason;
+use culprit_evidence::analytical::test_support::assert_operational_capture;
+use culprit_evidence::analytical::test_support::hyperscale_log_component_evidence_cases;
 const FAMILIES: &[EvidenceFamily] = &[EvidenceFamily::OperationalSamples];
 #[tokio::test]
 async fn all_native_component_cases_use_the_same_view_and_preserve_exact_original_scope_and_clocks() {

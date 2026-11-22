@@ -70,7 +70,7 @@ async fn installed_public_job_views_retain_paused_states_actual_failures_and_exa
     assert!(!json.contains(PRIVATE_ERROR));
     assert!(!json.contains(PRIVATE_CONFIG));
     let recipe = crate::telemetry_recipes().into_iter().find(|recipe| recipe.id == "postgres.timescale-jobs").unwrap();
-    assert_eq!(recipe.cost, RecipeCostQualification::Unqualified, "native conformance is not cost qualification");
+    assert_eq!(recipe.admission, RecipeAdmission::Unqualified, "native conformance is not cost qualification");
 }
 
 #[tokio::test]
@@ -159,5 +159,5 @@ async fn configured_validation_function_is_recorded_without_invocation_during_co
     assert!(!json.contains(PRIVATE_ERROR));
     assert_settled(captured.manifest.read_metrics.as_ref().unwrap(), captured.manifest.source_queries);
     let recipe = crate::telemetry_recipes().into_iter().find(|recipe| recipe.id == "postgres.timescale-jobs").unwrap();
-    assert_eq!(recipe.cost, RecipeCostQualification::Unqualified);
+    assert_eq!(recipe.admission, RecipeAdmission::Unqualified);
 }

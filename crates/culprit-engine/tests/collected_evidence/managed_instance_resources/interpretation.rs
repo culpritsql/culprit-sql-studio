@@ -1,6 +1,7 @@
 use culprit_checks::managed_instance_resources::{ManagedInstanceResourceEvidence, explain};
-use culprit_collector::analytical::test_support::{ManagedInstanceResourceCase, managed_instance_resource_case};
 use culprit_core::{SourceState, t, telemetry::*};
+use culprit_evidence::analytical::test_support::ManagedInstanceResourceCase;
+use culprit_evidence::analytical::test_support::managed_instance_resource_case;
 fn rows(records: Vec<TelemetryRecord>) -> Vec<ResourceMeasurement> {
     records
         .into_iter()

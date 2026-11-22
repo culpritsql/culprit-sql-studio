@@ -25,7 +25,7 @@ fn empirical_replication_conformance_does_not_promote_the_recipe_cost_qualificat
             recipe.selector == RecipeSelector::Collection(TelemetryCollection::Snapshot(SnapshotDataset::Replication))
         })
         .expect("native SHOW recipe");
-    assert_eq!(recipe.cost, RecipeCostQualification::Unqualified);
+    assert_eq!(recipe.admission, RecipeAdmission::Unqualified);
 }
 
 #[tokio::test]

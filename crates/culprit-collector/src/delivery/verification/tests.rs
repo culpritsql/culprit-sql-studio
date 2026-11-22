@@ -1,16 +1,17 @@
 use super::*;
-use crate::delivery::{
-    contract::Contract,
-    driver::{DeliveryDriver, DeliveryPolicy},
-    file_sink::FileTelemetrySink,
-    file_store::FileRecoveryStore,
-    journal::DeliveryJournal,
-    recovery::*,
-    sink::*,
-    tests::{contract, prepared, problem},
-};
+use crate::delivery::driver::DeliveryDriver;
+use crate::delivery::driver::DeliveryPolicy;
+use crate::delivery::file_sink::FileTelemetrySink;
+use crate::delivery::file_store::FileRecoveryStore;
+use crate::delivery::journal::DeliveryJournal;
+use crate::delivery::recovery::*;
+use crate::delivery::sink::*;
+use crate::delivery::tests::contract;
+use crate::delivery::tests::prepared;
+use crate::delivery::tests::problem;
 use async_trait::async_trait;
 use culprit_core::telemetry::DeliveryPhase;
+use culprit_evidence::delivery::contract::Contract;
 use std::{
     sync::{
         Mutex,

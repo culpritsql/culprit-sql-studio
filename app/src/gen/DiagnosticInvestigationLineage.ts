@@ -2,7 +2,7 @@
 import type { CollectionBudget } from "./CollectionBudget";
 import type { DiagnosticExecutionBinding } from "./DiagnosticExecutionBinding";
 import type { DiagnosticFocus } from "./DiagnosticFocus";
-import type { RecipeCostReceipt } from "./RecipeCostReceipt";
+import type { RecipeExecutionAdmission } from "./RecipeExecutionAdmission";
 
 /**
  * Owner-written provenance retained before source authentication or description. The complete admitted question
@@ -14,4 +14,4 @@ export type DiagnosticInvestigationLineage = { intent_key: string,
  * The admitted question stays immutable when a native header contains only a capture-level association.
  * Public analytical metadata projects its opaque key, never this private original request or SQL.
  */
-focus: DiagnosticFocus, episode_id: string, episode_revision: string, recipe_id: string, recipe_version: number, budget: CollectionBudget, qualification: RecipeCostReceipt, execution: DiagnosticExecutionBinding, };
+focus: DiagnosticFocus, episode_id: string, episode_revision: string, recipe_id: string, recipe_version: number, budget: CollectionBudget, qualification: RecipeExecutionAdmission, execution: DiagnosticExecutionBinding, };

@@ -1,6 +1,7 @@
 //! A durable deletion intent is written only after an exact remote commit. Source debt is never discarded.
 use super::*;
-use crate::delivery::{evidence::PreparedRange, recovery::CommittedRange};
+use crate::delivery::evidence::PreparedRange;
+use culprit_evidence::delivery::recovery::CommittedRange;
 use rusqlite::params;
 
 impl Files {
@@ -128,6 +129,7 @@ impl Files {
             durable_fs::sync_directory(&self.root.join("captures")).map_err(storage)?;
         }
         let tx = self.journal.conn.transaction().map_err(storage)?;
+        super::automatic_synthesis::before_remove(&tx, id)?;
         tx.execute("DELETE FROM range_heads WHERE observation_id=?1", [id]).map_err(storage)?;
         tx.execute("DELETE FROM batches WHERE observation_id=?1", [id]).map_err(storage)?;
         let changed = tx

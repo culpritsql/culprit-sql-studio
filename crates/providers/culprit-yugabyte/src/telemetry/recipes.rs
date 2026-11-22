@@ -62,7 +62,7 @@ impl Registration {
             selector: self.route.selector(),
             subjects: vec![RecipeSubject::Database],
             budget: self.native_budget(),
-            cost: RecipeCostQualification::Unqualified,
+            admission: RecipeAdmission::Unqualified,
         }
     }
     fn native_budget(&self) -> CollectionBudget {

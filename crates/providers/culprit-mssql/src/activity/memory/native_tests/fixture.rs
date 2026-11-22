@@ -1,11 +1,18 @@
 //! One disposable database and three original workload actors at most. Source failures never start replacements.
-use super::{
-    BODY_TIMEOUT, CASE_TIMEOUT, CONTROL_TIMEOUT, Case, MAX_FIXTURE_MEMORY_KIB, MAX_FIXTURE_REQUESTS,
-    MAX_NATIVE_OBSERVATIONS, OBSERVATION_INTERVAL, SETTLEMENT_TIMEOUT, SETUP_TIMEOUT,
-    actors::FixtureRequest,
-    observations::{self, NativePoint},
-    profile::ResourceProfile,
-};
+use super::BODY_TIMEOUT;
+use super::CASE_TIMEOUT;
+use super::CONTROL_TIMEOUT;
+use super::Case;
+use super::MAX_FIXTURE_MEMORY_KIB;
+use super::MAX_FIXTURE_REQUESTS;
+use super::MAX_NATIVE_OBSERVATIONS;
+use super::OBSERVATION_INTERVAL;
+use super::SETTLEMENT_TIMEOUT;
+use super::SETUP_TIMEOUT;
+use super::actors::FixtureRequest;
+use super::observations;
+use super::observations::NativePoint;
+use super::profile::ResourceProfile;
 use crate::{
     conn::{MsClient, Pool, SessionKind, map_error},
     read::invalid_data,
@@ -14,8 +21,8 @@ use crate::{
         save_cost_receipt, verify_owned_source,
     },
 };
-use culprit_collector::capture::CollectionCancellation;
 use culprit_core::{Error, Result, telemetry::*};
+use culprit_read::cancellation::CollectionCancellation;
 use futures_util::FutureExt;
 use std::{collections::BTreeMap, panic::AssertUnwindSafe, path::PathBuf, sync::Arc};
 use tokio::time::Instant;

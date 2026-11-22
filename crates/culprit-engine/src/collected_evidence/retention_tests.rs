@@ -1,11 +1,11 @@
 use super::*;
-use culprit_collector::analytical::test_support::query_population_evidence;
+use culprit_evidence::analytical::test_support::query_population_evidence;
 
 // The same sealed recovery/publication/readback fixture serves the public SDK integration tests. Its unrelated
 // corruption and hydration controls are intentionally unused in these private small-limit tests.
 #[allow(dead_code)]
 #[path = "../../tests/collected_evidence/fixture.rs"]
-mod fixture;
+pub(super) mod fixture;
 use fixture::Fixture;
 
 #[tokio::test]

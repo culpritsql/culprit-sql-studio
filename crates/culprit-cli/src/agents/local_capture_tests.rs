@@ -14,12 +14,11 @@ mod table_memory;
 mod tempdb_metadata_memory;
 use super::*;
 use clap::Parser;
-use culprit_collector::{
-    analytical::test_support::{LocalCaptureFixture, page_server_read_evidence_cases},
-    outbox::CompletedCaptureBudget,
-};
+use culprit_collector::analytical::test_support::LocalCaptureFixture;
+use culprit_collector::outbox::CompletedCaptureBudget;
 use culprit_core::{AuthKind, Engine, SourceState, telemetry::*};
 use culprit_engine::{LocalCaptureAnalysisKind, NewConnection, OutboxCaptureReader, ProviderRegistration};
+use culprit_evidence::analytical::test_support::page_server_read_evidence_cases;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 #[test]
@@ -187,7 +186,7 @@ async fn corrupted_originals_never_fall_back_to_cached_reports_or_open_a_native_
 }
 
 fn clerk_originals(groups: usize, state: SourceState) -> (CollectionDescription, Vec<TelemetryRecord>) {
-    use culprit_collector::analytical::test_support::{MemoryClerkCase, memory_clerk_evidence};
+    use culprit_evidence::analytical::test_support::{MemoryClerkCase, memory_clerk_evidence};
     let (mut source, mut originals) = memory_clerk_evidence(MemoryClerkCase::SharedInstance);
     let unrelated = originals.pop().unwrap();
     let TelemetryRecord::Operational(original) = &originals[0] else { panic!() };
@@ -321,7 +320,7 @@ mod managed_instance_resources;
 
 #[tokio::test]
 async fn temporal_table_configuration_uses_original_local_action_and_canonical_fields_without_a_provider() {
-    use culprit_collector::analytical::test_support::{TableTemporalCase, table_temporal_evidence};
+    use culprit_evidence::analytical::test_support::{TableTemporalCase, table_temporal_evidence};
     for case in TableTemporalCase::ALL {
         let (source, records) = table_temporal_evidence(case);
         let mut fixture = LocalCaptureFixture::snapshot(source.clone(), records.clone()).await;

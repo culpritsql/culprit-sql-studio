@@ -1,6 +1,7 @@
 use super::*;
-use culprit_collector::analytical::test_support::{activity_evidence_cases, activity_observation};
 use culprit_core::{Engine, ErrorCode, ErrorDetail, ObservedWaitResource, WaitResourceKind, telemetry::*};
+use culprit_evidence::analytical::test_support::activity_evidence_cases;
+use culprit_evidence::analytical::test_support::activity_observation;
 use culprit_read::{FrozenObservation, FrozenSource, ObservationReader, admission::SourceGate};
 use std::sync::{
     Arc,

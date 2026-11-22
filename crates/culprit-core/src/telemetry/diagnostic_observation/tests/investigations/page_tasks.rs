@@ -47,7 +47,7 @@ impl PopulationCase {
         let mut recipe = fixture.recipe;
         recipe.id = "fixture.page-wait-task-population".into();
         recipe.selector = RecipeSelector::PageWaitTasks;
-        let RecipeCostQualification::Measured(receipt) = &mut recipe.cost else { panic!() };
+        let RecipeAdmission::Measured(receipt) = &mut recipe.admission else { panic!() };
         receipt.recipe_id = recipe.id.clone();
         receipt.selector = recipe.selector;
         receipt.scope = observed.checkpoint.episodes[0].scope.clone().into();
@@ -275,7 +275,7 @@ fn the_early_population_stage_key_is_the_same_canonical_intent_key_and_separates
     let case = PopulationCase::new();
     let intent = case.intent(0);
     let original = intent.focus.parent().capture_ref();
-    let target = intent.qualification.scope.target();
+    let target = intent.qualification.scope().target();
     assert_eq!(page_wait_tasks_stage_key(&original, &target).unwrap(), intent.episode_stage_key().unwrap());
     let later = case.later(true);
     assert_ne!(page_wait_tasks_stage_key(&later.1, &target).unwrap(), intent.episode_stage_key().unwrap());

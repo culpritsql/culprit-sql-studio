@@ -1,6 +1,10 @@
 //! Versioned native catalog facts are definitions, independent of counters and rendered messages.
 use super::*;
 use chrono::{Datelike, NaiveDateTime, Timelike};
+mod projection;
+mod relational_projection;
+pub use projection::MssqlIndexPresentation;
+pub use relational_projection::MssqlConstraintIssueFields;
 
 /// Availability of a selected native catalog projection, independent of presence, configuration or health.
 #[derive(Serialize, Deserialize, TS, Clone, Copy, Debug, PartialEq, Eq)]

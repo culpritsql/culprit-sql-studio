@@ -1,15 +1,16 @@
 //! Workspace authentication composes with the source-independent capture controller.
+use culprit_core::telemetry::{RecipeExecutionAdmission, SourceProfileAdmission};
 mod overhead;
 mod qualification;
 pub use overhead::inspect_source_overhead;
 #[cfg(test)]
 mod tests;
 use crate::Workspace;
-use culprit_collector::{
-    capture::{self, CollectionCancellation, SourceFactory},
-    fleet::{FleetCaptureOutcome, FleetSourceAdmission},
-    outbox::Outbox,
-};
+use culprit_collector::capture;
+use culprit_collector::capture::SourceFactory;
+use culprit_collector::fleet::FleetCaptureOutcome;
+use culprit_collector::fleet::FleetSourceAdmission;
+use culprit_collector::outbox::Outbox;
 use culprit_core::{
     Result,
     telemetry::{
@@ -18,6 +19,7 @@ use culprit_core::{
     },
 };
 use culprit_read::admission::SourceAdmission;
+use culprit_read::cancellation::CollectionCancellation;
 use std::path::Path;
 
 struct AuthenticatedSource<'a> {
@@ -63,6 +65,26 @@ impl SourceFactory for AuthenticatedSource<'_> {
             .and_then(|value| value.profile.as_ref())
             .map(|profile| connections.profile_registration(self.name, request, profile))
             .transpose()?;
+        let builtin = if let Some(intent) = admitted.and_then(|admitted| admitted.investigation.as_ref()) {
+            if let RecipeExecutionAdmission::BuiltinSafety { policy, scope, .. } = &intent.qualification {
+                if !DiagnosticInvestigationLineage::from_intent(intent)?.matches_request(request)
+                    || !connections.verify_builtin_safety(self.name, policy)?
+                {
+                    return Err(CollectionStop::SourceChanged.error());
+                }
+                Some(SourceProfileAdmission::for_builtin(
+                    connections.route_revision(self.name)?,
+                    policy.as_ref().clone(),
+                    Some(scope.as_ref().clone()),
+                    request.budget.clone(),
+                    || true,
+                )?)
+            } else {
+                None
+            }
+        } else {
+            None
+        };
         let provider = match &self.selection {
             SourceSelection::Qualification { route, registration } => {
                 return connections.qualification_source_at_route(route, registration, request).await;
@@ -80,6 +102,8 @@ impl SourceFactory for AuthenticatedSource<'_> {
         {
             let bound = connections.bound_profile(self.name, request, profile)?;
             registration.profile_source(provider.as_ref(), request, &bound)
+        } else if let Some(profile) = builtin {
+            provider.telemetry_source_for_safety(request, &profile)
         } else {
             provider.telemetry_source(request)
         }

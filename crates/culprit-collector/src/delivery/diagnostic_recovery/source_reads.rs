@@ -1,7 +1,8 @@
 //! Original prerequisite bodies are authenticated; query-history body visibility is a separate bounded read.
 use super::*;
+use culprit_evidence::delivery::recovery::RecoveryRead;
 
-pub(super) async fn authenticate(store: &dyn RecoveryStore, intent: &DiagnosticInvestigationIntent) -> Result<()> {
+pub(super) async fn authenticate(store: &dyn RecoveryRead, intent: &DiagnosticInvestigationIntent) -> Result<()> {
     let DiagnosticFocus::SourceRead { focus } = &intent.focus else { return Err(invalid()) };
     let original = load_diagnostic_evidence(store, &focus.basis).await?;
     if !intent.matches_parent_record(original.source(), original.record()) {
@@ -14,7 +15,7 @@ pub(super) async fn authenticate(store: &dyn RecoveryStore, intent: &DiagnosticI
     if !matches!(advertised.source.observation, SourceObservation::FocusedCompilationAdmission { .. }) {
         return Err(invalid());
     }
-    let range = recovery::reopen(store, &advertised.range_id).await?;
+    let range = culprit_evidence::delivery::recovery::reopen(store, &advertised.range_id).await?;
     if range.manifest_digest() != advertised.digest()?
         || capture_reference(range.manifest())? != prerequisite.observation.capture_ref()
     {

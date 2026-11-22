@@ -1,11 +1,10 @@
 //! A conservative single-target loop. No overlapping reads, catch-up bursts or incident resolution on failed polls.
 use crate::Workspace;
-use culprit_collector::{
-    capture::CollectionCancellation,
-    diagnostics::{DiagnosticPolicies, drain_pending},
-    outbox::Outbox,
-};
+use culprit_collector::diagnostics::DiagnosticPolicies;
+use culprit_collector::diagnostics::drain_pending;
+use culprit_collector::outbox::Outbox;
 use culprit_core::{Result, telemetry::*};
+use culprit_read::cancellation::CollectionCancellation;
 use std::time::Duration;
 
 const MAX_FAILURE_DELAY_SECONDS: u64 = 900;

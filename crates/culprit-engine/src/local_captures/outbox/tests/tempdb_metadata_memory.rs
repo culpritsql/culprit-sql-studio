@@ -1,6 +1,7 @@
 use super::*;
-use culprit_collector::analytical::test_support::{TempdbMetadataMemoryCase, tempdb_metadata_memory_evidence};
 use culprit_core::SourceState;
+use culprit_evidence::analytical::test_support::TempdbMetadataMemoryCase;
+use culprit_evidence::analytical::test_support::tempdb_metadata_memory_evidence;
 
 async fn analyze(fixture: &LocalCaptureFixture, budget: CompletedCaptureBudget) -> Result<LocalSnapshotAnalysis> {
     let reader = OutboxCaptureReader::directory(fixture.directory.clone(), budget)?;
@@ -87,8 +88,8 @@ async fn metadata_action_uses_the_same_absolute_local_read_budget_and_cannot_bor
             .bytes_read(),
         fixture.original_bytes()
     );
-    let (source, rows) = culprit_collector::analytical::test_support::storage_evidence(
-        culprit_collector::analytical::test_support::StorageCase::Exact,
+    let (source, rows) = culprit_evidence::analytical::test_support::storage_evidence(
+        culprit_evidence::analytical::test_support::StorageCase::Exact,
     );
     let mut unrelated = LocalCaptureFixture::snapshot(source, rows).await;
     drop(unrelated.outbox.take());

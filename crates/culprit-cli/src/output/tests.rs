@@ -21,8 +21,8 @@ fn stopped_findings_get_their_own_section_and_text_stays_text() {
 #[test]
 fn compact_saved_scan_json_preserves_both_counter_populations_without_private_originals() {
     let mut report = report();
-    let (source, records) = culprit_collector::analytical::test_support::performance_counter_evidence(
-        culprit_collector::analytical::test_support::PerformanceCounterCase::Exact,
+    let (source, records) = culprit_evidence::analytical::test_support::performance_counter_evidence(
+        culprit_evidence::analytical::test_support::PerformanceCounterCase::Exact,
     );
     let coverage = source
         .observation
@@ -55,10 +55,10 @@ fn compact_saved_scan_json_preserves_both_counter_populations_without_private_or
 }
 
 fn suspect_history(
-    case: culprit_collector::analytical::test_support::SuspectPageHistoryCase,
+    case: culprit_evidence::analytical::test_support::SuspectPageHistoryCase,
 ) -> culprit_core::SuspectPageHistoryReport {
     use culprit_core::telemetry::*;
-    let (source, records) = culprit_collector::analytical::test_support::suspect_page_history_evidence(case);
+    let (source, records) = culprit_evidence::analytical::test_support::suspect_page_history_evidence(case);
     let rows = records
         .iter()
         .map(|record| {
@@ -71,7 +71,7 @@ fn suspect_history(
 
 #[test]
 fn compact_scan_history_stays_visible_without_an_event_finding_or_private_original_proof() {
-    use culprit_collector::analytical::test_support::SuspectPageHistoryCase;
+    use culprit_evidence::analytical::test_support::SuspectPageHistoryCase;
     for case in SuspectPageHistoryCase::ALL {
         let mut scan = report();
         scan.findings.clear();
@@ -136,7 +136,7 @@ fn compact_scan_history_stays_visible_without_an_event_finding_or_private_origin
 
 #[test]
 fn markdown_scan_preserves_historical_counts_and_limits_as_bounded_text_without_an_event_finding() {
-    use culprit_collector::analytical::test_support::SuspectPageHistoryCase;
+    use culprit_evidence::analytical::test_support::SuspectPageHistoryCase;
     for case in SuspectPageHistoryCase::ALL {
         let mut scan = report();
         scan.findings.clear();

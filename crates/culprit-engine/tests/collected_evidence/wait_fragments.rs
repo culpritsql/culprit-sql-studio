@@ -1,9 +1,8 @@
 use super::fixture::Fixture;
-use culprit_collector::analytical::{
-    evidence::EvidenceFamily,
-    test_support::{query_wait_evidence_cases, query_wait_fragment_evidence},
-};
 use culprit_core::telemetry::*;
+use culprit_evidence::analytical::evidence::EvidenceFamily;
+use culprit_evidence::analytical::test_support::query_wait_evidence_cases;
+use culprit_evidence::analytical::test_support::query_wait_fragment_evidence;
 #[tokio::test]
 async fn original_wait_fragment_details_replay_from_the_canonical_family_without_provider_or_recovery_reads() {
     for (source, records) in query_wait_evidence_cases() {

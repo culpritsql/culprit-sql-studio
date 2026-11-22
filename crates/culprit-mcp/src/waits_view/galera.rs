@@ -30,7 +30,7 @@ pub(super) fn attach(value: &mut Value, report: &culprit_core::Report) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use culprit_collector::analytical::test_support::{GaleraCase, galera_evidence};
+    use culprit_evidence::analytical::test_support::{GaleraCase, galera_evidence};
     fn report(case: GaleraCase) -> GaleraReport {
         let (source, records) = galera_evidence(case);
         let rows = records

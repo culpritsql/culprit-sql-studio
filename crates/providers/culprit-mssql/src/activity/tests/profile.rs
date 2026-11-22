@@ -1,5 +1,5 @@
 use super::*;
-use culprit_collector::analytical::test_support::baseline_profile_expectation;
+use culprit_evidence::analytical::test_support::baseline_profile_expectation;
 use culprit_read::SourceProfileGuard;
 use std::sync::atomic::{AtomicBool, Ordering};
 struct ProfiledRead {

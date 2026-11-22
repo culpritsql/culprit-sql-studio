@@ -1,11 +1,12 @@
 use super::*;
-use crate::delivery::{
-    contract::Contract,
-    diagnostic_recovery::{capture_reference, load_diagnostic_checkpoint, load_diagnostic_input},
-    file_store::{FileOwnership, FileRecoveryStore},
-};
+use crate::delivery::diagnostic_recovery::load_diagnostic_checkpoint;
+use crate::delivery::diagnostic_recovery::load_diagnostic_input;
+use crate::delivery::file_store::FileOwnership;
+use crate::delivery::file_store::FileRecoveryStore;
 use crate::outbox::Outbox;
-use rusqlite::OptionalExtension;
+use culprit_evidence::delivery::contract::Contract;
+use culprit_evidence::delivery::heads::capture_reference;
+use culprit_evidence::delivery::recovery::CommittedRange;
 
 struct Fixture {
     root: tempfile::TempDir,

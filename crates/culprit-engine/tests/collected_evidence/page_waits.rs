@@ -1,10 +1,10 @@
 use super::fixture::Fixture;
-use culprit_collector::analytical::{
-    evidence::{EvidenceFamily, EvidenceGapReason},
-    test_support::{page_wait_evidence_cases, shared_page_wait_evidence_cases},
-};
 use culprit_core::{Snapshot, SourceOutcome, SourceState, telemetry::*};
 use culprit_engine::collected_resources;
+use culprit_evidence::analytical::evidence::EvidenceFamily;
+use culprit_evidence::analytical::evidence::EvidenceGapReason;
+use culprit_evidence::analytical::test_support::page_wait_evidence_cases;
+use culprit_evidence::analytical::test_support::shared_page_wait_evidence_cases;
 
 mod participation;
 

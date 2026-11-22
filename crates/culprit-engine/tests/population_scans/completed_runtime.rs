@@ -1,13 +1,15 @@
 //! Synthetic native rows pass through the real capture, Outbox, scan and report owners; no database is contacted.
 use super::*;
-use culprit_collector::{
-    analytical::test_support::cached_runtime_evidence_cases,
-    capture::{self, CollectionCancellation, SourceFactory},
-    outbox::{CompletedCaptureBudget, Outbox, OutboxDelivery},
-};
+use culprit_collector::capture;
+use culprit_collector::capture::SourceFactory;
+use culprit_collector::outbox::CompletedCaptureBudget;
+use culprit_collector::outbox::Outbox;
+use culprit_collector::outbox::OutboxDelivery;
 use culprit_core::{CompletedSpillState, DatabaseLocation, SourceState, telemetry::*};
 use culprit_engine::{CompletedCaptureAnalysis, CompletedCaptureScanInput};
+use culprit_evidence::analytical::test_support::cached_runtime_evidence_cases;
 use culprit_read::admission::SourceGate;
+use culprit_read::cancellation::CollectionCancellation;
 
 mod database_performance_counters;
 mod full_text_populations;

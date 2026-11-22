@@ -1,5 +1,4 @@
 //! A verified historical query capture can feed the existing pure checks without a database provider or credentials.
-use culprit_collector::analytical::evidence::EvidenceCapture;
 use culprit_core::{
     CollectorNote, Environment, MissingCapability, Result, SNAPSHOT_FORMAT, ServerInfo, Snapshot, SourceOutcome,
     SourceState, Workload,
@@ -8,7 +7,10 @@ use culprit_core::{
     source_id,
     telemetry::DeliveryProblem,
 };
+use culprit_evidence::analytical::evidence::EvidenceCapture;
+use culprit_evidence::original_projection::OriginalProjection;
 
+pub(crate) mod catalogs;
 mod groups;
 mod populations;
 mod validation;
@@ -29,30 +31,97 @@ fn analyze_with_limit(
     population: Option<&culprit_core::telemetry::NativeIdentity>,
     limit: usize,
 ) -> Result<CollectedQueryAnalysis> {
-    let database = validation::capture(capture)?;
-    let selected = populations::PopulationIndex::new(capture, population)?;
-    let definitions = validation::Definitions::new(capture)?;
+    validation::warehouse_capture(capture)?;
+    let original = capture.verified_original()?;
     let mut analysis = CollectedQueryAnalysis {
         context: crate::collected_context::from_capture(capture),
         requested_population: population.cloned(),
         analyses: Vec::new(),
     };
-    // The empty array already accounts for both brackets. Only each item and separators are added below; the
-    // original context, including every retained native payload, is charged exactly once before derivation.
-    let mut retained = json_size(&analysis, limit).map_err(output_size_error)?;
+    let retained = json_size(&analysis, limit).map_err(output_size_error)?;
+    analysis.analyses = analyze_original_with_limit(
+        &original,
+        population,
+        capture.range_id(),
+        limit - retained,
+        &culprit_checks::Pipeline::builtin(),
+        culprit_core::AnalysisOrigin::ArchivedTelemetry,
+        &catalogs::CatalogContext::default(),
+    )?;
+    Ok(analysis)
+}
+
+pub(crate) fn analyze_original_with_catalogs(
+    capture: &dyn OriginalProjection,
+    analysis_key: &str,
+    pipeline: &culprit_checks::Pipeline,
+    catalogs: &catalogs::CatalogContext,
+) -> Result<Vec<CollectedQueryAnalysisResult>> {
+    analyze_original_with_limit(
+        capture,
+        None,
+        analysis_key,
+        MAX_RETAINED_ANALYSIS_BYTES - 2,
+        pipeline,
+        culprit_core::AnalysisOrigin::RetainedInput,
+        catalogs,
+    )
+}
+/// Comparison uses the same empty historical Snapshot owner, with only the admitted settings populated.
+pub(crate) fn settings_snapshot(
+    original: &dyn OriginalProjection,
+    settings: Vec<culprit_core::Setting>,
+    taken_at: &str,
+    pipeline: &culprit_checks::Pipeline,
+) -> Result<Snapshot> {
+    let database = original.source().target.database().ok_or_else(invalid)?.clone();
+    let analysis_key = original.original().key()?;
+    let catalogs = catalogs::CatalogContext::default();
+    let policy = AnalysisPolicy {
+        analysis_key: &analysis_key,
+        pipeline,
+        origin: culprit_core::AnalysisOrigin::RetainedInput,
+        catalogs: &catalogs,
+    };
+    let mut snapshot = snapshot(original, database, None, false, &policy);
+    snapshot.taken_at = taken_at.into();
+    snapshot.settings = settings;
+    Ok(snapshot)
+}
+fn analyze_original_with_limit(
+    capture: &dyn OriginalProjection,
+    population: Option<&culprit_core::telemetry::NativeIdentity>,
+    analysis_key: &str,
+    limit: usize,
+    pipeline: &culprit_checks::Pipeline,
+    origin: culprit_core::AnalysisOrigin,
+    catalogs: &catalogs::CatalogContext,
+) -> Result<Vec<CollectedQueryAnalysisResult>> {
+    let policy = AnalysisPolicy { analysis_key, pipeline, origin, catalogs };
+    let database = validation::capture(capture)?;
+    let selected = populations::PopulationIndex::new(capture, population)?;
+    let definitions = validation::Definitions::new(capture)?;
+    let mut results = Vec::new();
+    let mut retained = 0usize;
     for population in selected.selected() {
-        let result =
-            analyze_population(capture, &definitions, &database, population.clone(), selected.rows(population)?)?;
-        let comma = usize::from(!analysis.analyses.is_empty());
+        let result = analyze_population(
+            capture,
+            &definitions,
+            &database,
+            population.clone(),
+            selected.rows(population)?,
+            &policy,
+        )?;
+        let comma = usize::from(!results.is_empty());
         let remaining = limit
             .checked_sub(retained)
             .and_then(|remaining| remaining.checked_sub(comma))
             .ok_or_else(|| output_size_error(JsonSizeError::LimitExceeded))?;
         let bytes = json_size(&result, remaining).map_err(output_size_error)?;
         retained += comma + bytes;
-        analysis.analyses.push(result);
+        results.push(result);
     }
-    Ok(analysis)
+    Ok(results)
 }
 
 fn output_size_error(error: JsonSizeError) -> culprit_core::Error {
@@ -65,11 +134,12 @@ fn output_size_error(error: JsonSizeError) -> culprit_core::Error {
 }
 
 fn analyze_population(
-    capture: &EvidenceCapture,
+    capture: &dyn OriginalProjection,
     definitions: &validation::Definitions<'_>,
     database: &culprit_core::DatabaseIdentity,
     population: CollectedQueryPopulation,
     rows: &populations::NativeRows<'_>,
+    policy: &AnalysisPolicy<'_>,
 ) -> Result<CollectedQueryAnalysisResult> {
     let mut limitations = vec![
         limit(None, CollectedAnalysisLimit::MissingCurrentServerMetadata),
@@ -95,10 +165,14 @@ fn analyze_population(
         .query_history()
         .and_then(|history| history.population_catalog.as_ref())
         .is_some_and(|catalog| !catalog.has_complete_membership());
-    let mut report =
-        culprit_checks::analyze(snapshot(capture, database.clone(), workload, partial || membership_incomplete));
+    let mut snapshot = snapshot(capture, database.clone(), workload, partial || membership_incomplete, policy);
+    policy.catalogs.apply(&mut snapshot);
+    if policy.catalogs.settings_complete() {
+        limitations.retain(|limitation| limitation.reason != CollectedAnalysisLimit::MissingSettings);
+    }
+    let mut report = policy.pipeline.run(snapshot);
     if let Some(provenance) = &mut report.provenance {
-        provenance.origin = culprit_core::AnalysisOrigin::ArchivedTelemetry;
+        provenance.origin = policy.origin;
     }
     apply_executable_fix_policy(&mut report.findings, report.snapshot.workload.as_mut(), &mut limitations);
     Ok(CollectedQueryAnalysisResult {
@@ -115,7 +189,7 @@ fn analyze_population(
 }
 
 fn workload(
-    capture: &EvidenceCapture,
+    capture: &dyn OriginalProjection,
     population: &CollectedQueryPopulation,
     totals: Option<&groups::CapturedTotals>,
     queries: Vec<culprit_core::QueryStat>,
@@ -163,10 +237,11 @@ fn workload(
 }
 
 fn snapshot(
-    capture: &EvidenceCapture,
+    capture: &dyn OriginalProjection,
     database: culprit_core::DatabaseIdentity,
     workload: Option<Workload>,
     partial: bool,
+    policy: &AnalysisPolicy<'_>,
 ) -> Snapshot {
     let have_plans =
         workload.as_ref().is_some_and(|workload| workload.queries.iter().any(|query| query.plan.is_some()));
@@ -203,8 +278,12 @@ fn snapshot(
         source.state = SourceState::Partial;
         source.reason = Some(culprit_core::message!("engine.collected_analysis.partial_workload").into());
     }
-    let capabilities =
-        culprit_checks::infos().into_iter().flat_map(|info| info.requires).collect::<std::collections::BTreeSet<_>>();
+    let capabilities = policy
+        .pipeline
+        .checks()
+        .iter()
+        .flat_map(|check| check.info().requires)
+        .collect::<std::collections::BTreeSet<_>>();
     let server = ServerInfo {
         engine: database.engine,
         database: database.database.clone(),
@@ -225,7 +304,7 @@ fn snapshot(
     };
     Snapshot {
         format: SNAPSHOT_FORMAT,
-        id: capture.range_id().into(),
+        id: policy.analysis_key.into(),
         connection: String::new(),
         // No connection is opened and no environment/session claim is exposed by CollectedQueryAnalysis.
         environment: Environment::Production,
@@ -319,3 +398,21 @@ mod retention_tests;
 pub(super) fn invalid() -> culprit_core::Error {
     DeliveryProblem::Integrity.error()
 }
+
+/// Reuse the same exact native definition join for a developer-facing original query.
+pub(crate) fn original_query<'a>(
+    capture: &'a dyn OriginalProjection,
+    references: &culprit_core::telemetry::StatementReferences,
+) -> Result<Option<&'a culprit_core::telemetry::QueryDefinition>> {
+    Ok(validation::Definitions::new(capture)?.join(references)?.query)
+}
+
+struct AnalysisPolicy<'a> {
+    analysis_key: &'a str,
+    pipeline: &'a culprit_checks::Pipeline,
+    origin: culprit_core::AnalysisOrigin,
+    catalogs: &'a catalogs::CatalogContext,
+}
+
+#[cfg(test)]
+pub(crate) use retention_tests::fixture::Fixture as RetainedEvidenceFixture;

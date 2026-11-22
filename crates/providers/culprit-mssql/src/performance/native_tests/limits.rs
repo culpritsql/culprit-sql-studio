@@ -1,5 +1,6 @@
 //! Every case uses the exact production template. Fast completion never counts as active cancellation proof.
 use super::*;
+use crate::test_support::owned_case::until_cancelled;
 
 #[derive(Clone, Copy)]
 enum Case {

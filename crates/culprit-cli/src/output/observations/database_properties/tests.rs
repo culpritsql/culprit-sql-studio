@@ -1,6 +1,7 @@
 use super::*;
-use culprit_collector::analytical::test_support::{self, DatabasePropertiesCase};
 use culprit_core::telemetry::*;
+use culprit_evidence::analytical::test_support;
+use culprit_evidence::analytical::test_support::DatabasePropertiesCase;
 #[test]
 fn text_retains_native_code_unknown_zero_clock_and_original_source_without_configuration_advice() {
     let (source, rows) = test_support::database_properties_evidence(DatabasePropertiesCase::UnknownCodes);

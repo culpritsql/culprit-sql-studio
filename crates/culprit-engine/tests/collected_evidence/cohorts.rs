@@ -1,8 +1,8 @@
 use super::*;
-use culprit_collector::analytical::test_support::{
-    QueryCohortCase, assert_query_cohort_capture, query_cohort_evidence,
-};
 use culprit_core::{Actionability, FindingRuntimeVariation, collected_analysis::CollectedQueryAnalysis};
+use culprit_evidence::analytical::test_support::QueryCohortCase;
+use culprit_evidence::analytical::test_support::assert_query_cohort_capture;
+use culprit_evidence::analytical::test_support::query_cohort_evidence;
 
 async fn analyze_case(case: QueryCohortCase) -> CollectedQueryAnalysis {
     let (source, records) = query_cohort_evidence(case);

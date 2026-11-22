@@ -74,7 +74,7 @@ fn render_fields(text: &mut String, fields: &[culprit_core::SessionCensusField])
             value = field
                 .value
                 .as_deref()
-                .map(|value| super::statement::preview_bounded(value, MAX_FIELD_PREVIEW_CHARACTERS))
+                .map(|value| culprit_core::format::escaped_preview(value, MAX_FIELD_PREVIEW_CHARACTERS).text)
                 .unwrap_or_else(|| t!("ui.memory_failures.not_reported"))
         ));
     }

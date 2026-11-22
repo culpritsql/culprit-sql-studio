@@ -1,6 +1,6 @@
 //! Remote archive acknowledgement is independent of publication and remains durable while a baseline stays local.
 use super::*;
-use crate::delivery::recovery::CommittedRange;
+use culprit_evidence::delivery::recovery::CommittedRange;
 use rusqlite::{OptionalExtension, params};
 impl Files {
     pub(super) fn next_archive(&self) -> Result<Option<String>> {
@@ -60,6 +60,7 @@ impl Files {
         )
         .map_err(storage)?;
         investigations::retirement::archived(&tx, &capture.identity.observation_id)?;
+        super::automatic_synthesis::archived(&tx, &capture.identity.observation_id)?;
         tx.commit().map_err(storage)?;
         // No await or other Files owner can change the immutable capture between its canonical audit
         // above and this deletion decision. Carry that same prepared range; independent evict still audits.

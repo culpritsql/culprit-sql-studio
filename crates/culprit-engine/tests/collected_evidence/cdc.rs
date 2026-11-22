@@ -1,6 +1,8 @@
 use super::*;
-use culprit_collector::analytical::test_support::{CdcCase, assert_operational_capture, cdc_evidence};
 use culprit_engine::collected_resources;
+use culprit_evidence::analytical::test_support::CdcCase;
+use culprit_evidence::analytical::test_support::assert_operational_capture;
+use culprit_evidence::analytical::test_support::cdc_evidence;
 #[tokio::test]
 async fn cdc_originals_keep_all_native_outcomes_and_one_canonical_explanation_without_recovery() {
     for case in CdcCase::ALL {
@@ -8,7 +10,7 @@ async fn cdc_originals_keep_all_native_outcomes_and_one_canonical_explanation_wi
         let fixture = Fixture::new(source.clone(), rows.clone()).await;
         let opened = fixture.recovery_object_reads();
         let capture =
-            fixture.read_families(&[culprit_collector::analytical::evidence::EvidenceFamily::OperationalSamples]).await;
+            fixture.read_families(&[culprit_evidence::analytical::evidence::EvidenceFamily::OperationalSamples]).await;
         assert_operational_capture(&capture, &source, &rows);
         let analysis = collected_resources::cdc(&capture).unwrap();
         assert_eq!(analysis.context.source, source);

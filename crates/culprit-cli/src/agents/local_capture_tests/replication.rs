@@ -1,6 +1,7 @@
 use super::*;
-use culprit_collector::analytical::test_support::{ReplicationCase, replication_evidence};
 use culprit_engine::LocalCaptureAnalysisKind;
+use culprit_evidence::analytical::test_support::ReplicationCase;
+use culprit_evidence::analytical::test_support::replication_evidence;
 #[tokio::test]
 async fn actual_local_replication_mcp_keeps_original_role_topology_and_caveats_without_source_or_native_proof() {
     for case in [

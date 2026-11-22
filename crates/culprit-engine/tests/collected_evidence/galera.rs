@@ -1,9 +1,8 @@
 use super::fixture::Fixture;
-use culprit_collector::analytical::{
-    evidence::EvidenceFamily,
-    test_support::{self, GaleraCase},
-};
 use culprit_core::telemetry::*;
+use culprit_evidence::analytical::evidence::EvidenceFamily;
+use culprit_evidence::analytical::test_support;
+use culprit_evidence::analytical::test_support::GaleraCase;
 #[tokio::test]
 async fn galera_native_member_roles_queues_and_unknown_totals_replay_one_canonical_report() {
     for case in GaleraCase::ALL {

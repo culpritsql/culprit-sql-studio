@@ -44,6 +44,10 @@ pub fn session_target(session: &str) -> crate::Result<(String, i32, String)> {
 }
 
 impl EngineSpec for Yugabyte {
+    fn default_port(&self) -> Option<u16> {
+        Some(5433)
+    }
+
     fn session_id_format(&self) -> SessionIdFormat {
         SessionIdFormat::NativeIdAndGeneration
     }

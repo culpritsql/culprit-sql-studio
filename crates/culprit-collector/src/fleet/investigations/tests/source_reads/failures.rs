@@ -1,4 +1,6 @@
 use super::*;
+use culprit_read::cancellation::CollectionCancellation;
+use std::sync::atomic::Ordering;
 
 #[tokio::test]
 async fn unqualified_or_refused_native_history_cost_never_constructs_a_source() {
@@ -6,7 +8,7 @@ async fn unqualified_or_refused_native_history_cost_never_constructs_a_source() 
         let mut runtime = Runtime::from_fixture(fixture().await).await;
         gateway_answer(&mut runtime).await;
         if unqualified {
-            runtime.fixture.backend.additional_recipes[0].cost = RecipeCostQualification::Unqualified;
+            runtime.fixture.backend.additional_recipes[0].admission = RecipeAdmission::Unqualified;
         } else {
             runtime.fixture.backend.accept = false;
         }
@@ -96,7 +98,7 @@ async fn cancelled_or_unconfirmed_history_preserves_owner_debt_and_never_enrolls
 #[tokio::test]
 async fn flat_history_intent_obeys_existing_request_and_manifest_bytes_before_constructing_native_source() {
     let mut fixture = fixture().await;
-    let RecipeCostQualification::Measured(receipt) = &mut fixture.backend.additional_recipes[0].cost else { panic!() };
+    let RecipeAdmission::Measured(receipt) = &mut fixture.backend.additional_recipes[0].admission else { panic!() };
     let prototype = receipt.read_metrics.templates[0].clone();
     // Grow only the separate history qualification, after the ordinary original/gateway boundary. Three
     // completed templates stay within the existing tested query budget. Legal quoted native identifiers
@@ -124,7 +126,7 @@ async fn flat_history_intent_obeys_existing_request_and_manifest_bytes_before_co
         receipt.tested_budget.max_queries
     );
     assert!(receipt.is_valid(), "the independent synthetic history approval remains structurally bounded");
-    let (_, rows) = crate::analytical::test_support::compiler_admission_evidence();
+    let (_, rows) = culprit_evidence::analytical::test_support::compiler_admission_evidence();
     let template = rows
         .into_iter()
         .find_map(|row| match row {

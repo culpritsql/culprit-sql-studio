@@ -1,6 +1,7 @@
 //! Explicit small/medium cost control with a genuine SqlClient MARS actor; no ordinary smoke admission.
 use super::*;
 use crate::read::{Parameter, ReadSession};
+use futures_util::FutureExt;
 mod actor;
 mod setup;
 use crate::test_support::owned_case;

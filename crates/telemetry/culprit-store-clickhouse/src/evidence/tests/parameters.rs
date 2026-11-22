@@ -117,7 +117,7 @@ async fn read(fixture: &Fixture, recovery: bool) -> culprit_core::Result<Evidenc
                 recovery_payloads: recovery.then(RecoveryPayloadBudget::default),
                 ..Default::default()
             },
-            recovery.then_some(fixture.recovery.as_ref() as &dyn culprit_collector::delivery::recovery::RecoveryStore),
+            recovery.then_some(fixture.recovery.as_ref() as &dyn culprit_evidence::delivery::recovery::RecoveryRead),
         )
         .await
 }

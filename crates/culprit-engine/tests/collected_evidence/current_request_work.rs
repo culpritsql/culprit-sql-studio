@@ -1,10 +1,10 @@
 use super::fixture::Fixture;
-use culprit_collector::analytical::{
-    evidence::{EvidenceFamily, EvidenceGapReason, RecoveryPayloadBudget},
-    test_support::current_request_work_evidence_cases,
-};
 use culprit_core::{SourceState, telemetry::*};
 use culprit_engine::collected_resources;
+use culprit_evidence::analytical::evidence::EvidenceFamily;
+use culprit_evidence::analytical::evidence::EvidenceGapReason;
+use culprit_evidence::analytical::evidence::RecoveryPayloadBudget;
+use culprit_evidence::analytical::test_support::current_request_work_evidence_cases;
 
 const FAMILY: &[EvidenceFamily] = &[EvidenceFamily::OperationalSamples];
 
@@ -178,7 +178,7 @@ fn future_or_recycled_native_points_cannot_be_sealed_under_the_original_header()
 
 #[tokio::test]
 async fn postgres_copy_replays_the_shared_native_view_with_exact_counts_and_independent_read_gaps() {
-    for (source, records) in culprit_collector::analytical::test_support::postgres_copy_evidence_cases() {
+    for (source, records) in culprit_evidence::analytical::test_support::postgres_copy_evidence_cases() {
         let fixture = Fixture::new(source.clone(), records.clone()).await;
         let opens = fixture.recovery_object_reads();
         let preview = fixture.read_families(FAMILY).await;
@@ -223,7 +223,7 @@ async fn postgres_copy_replays_the_shared_native_view_with_exact_counts_and_inde
 
 #[tokio::test]
 async fn missing_archived_copy_point_cannot_become_a_complete_empty_or_request_completion() {
-    let (source, records) = culprit_collector::analytical::test_support::postgres_copy_evidence_cases().remove(0);
+    let (source, records) = culprit_evidence::analytical::test_support::postgres_copy_evidence_cases().remove(0);
     let fixture = Fixture::new(source.clone(), records).await;
     fixture.remove_first_row(TelemetryStream::OperationalSamples);
     let capture = fixture.read_families(FAMILY).await;

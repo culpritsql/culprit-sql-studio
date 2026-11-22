@@ -1,10 +1,11 @@
 use super::fixture::Fixture;
-use culprit_collector::analytical::{
-    evidence::{EvidenceFamily, EvidenceGapReason},
-    test_support::{MaintenanceBlockingCase, MaintenanceBlockingFixture, maintenance_blocking_evidence},
-};
 use culprit_core::{SourceState, telemetry::*};
 use culprit_engine::collected_resources;
+use culprit_evidence::analytical::evidence::EvidenceFamily;
+use culprit_evidence::analytical::evidence::EvidenceGapReason;
+use culprit_evidence::analytical::test_support::MaintenanceBlockingCase;
+use culprit_evidence::analytical::test_support::MaintenanceBlockingFixture;
+use culprit_evidence::analytical::test_support::maintenance_blocking_evidence;
 
 const PROGRESS: &[EvidenceFamily] = &[EvidenceFamily::OperationalSamples];
 const BLOCKING: &[EvidenceFamily] = &[EvidenceFamily::ActivityObservations];

@@ -4,9 +4,10 @@ use super::{
     replication::{counter, required, valid_owner},
 };
 use crate::connect::Flavor;
-use culprit_collector::capture::{CollectionCancellation, collect_once};
+use culprit_collector::capture::collect_once;
 use culprit_core::{Provider, telemetry::*};
 use culprit_read::admission::SourceGate;
+use culprit_read::cancellation::CollectionCancellation;
 use fixture::Topology;
 use std::{
     path::Path,

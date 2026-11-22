@@ -11,12 +11,13 @@ pub(crate) use transition::set_analysis;
 pub(crate) use transition::{record_investigation, set_question_analysis, set_source_read_issue};
 #[cfg(test)]
 mod tests;
-use crate::{
-    capture::CollectionCancellation,
-    delivery::{diagnostic_recovery, recovery::RecoveryStore},
-    outbox::{DiagnosticInput, DiagnosticUpdate, Outbox},
-};
+use crate::delivery::diagnostic_recovery;
+use crate::delivery::recovery::RecoveryStore;
+use crate::outbox::DiagnosticInput;
+use crate::outbox::DiagnosticUpdate;
+use crate::outbox::Outbox;
 use culprit_core::{Error, ErrorCode, ErrorDetail, Result, telemetry::*};
+use culprit_read::cancellation::CollectionCancellation;
 use std::time::Duration;
 
 const RECOVERY_READ_TIMEOUT: Duration = Duration::from_secs(30);

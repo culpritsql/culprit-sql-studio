@@ -3,7 +3,7 @@ use crate::ProviderFactory;
 use culprit_core::{
     ComponentVersion, ConnectionSpec, Error, Provider, ProviderOperationObservation, Result,
     telemetry::{
-        CollectionDescription, DiagnosticEvidenceRef, ExportedRecord, RecipeCostQualification, RecipeCostReceipt,
+        CollectionDescription, DiagnosticEvidenceRef, ExportedRecord, RecipeAdmission, RecipeCostReceipt,
         RecipeDescriptor, qualification_component_is_valid, recipe_catalog_is_valid,
     },
 };
@@ -38,6 +38,9 @@ pub type RecipeQualificationIssuer = Arc<
         + Send
         + Sync,
 >;
+
+pub type BuiltinSafetyVerifier =
+    Arc<dyn Fn(&culprit_core::telemetry::BuiltinRecipeSafety) -> Result<bool> + Send + Sync>;
 
 /// Native profile intake reuses the constructed provider and its existing reader. Construction stays lazy.
 /// The implementation must check the expected native owner/role before source work and at its final witness;
@@ -77,6 +80,7 @@ pub struct ProviderRegistration {
     construction: ProviderConstructionPolicy,
     recipes: Vec<RecipeDescriptor>,
     qualification: Option<QualificationAuthority>,
+    builtin_safety: Option<(ComponentVersion, BuiltinSafetyVerifier)>,
     #[cfg(feature = "collector")]
     profile_source: Option<ProfileSourceIntake>,
     #[cfg(feature = "collector")]
@@ -100,6 +104,7 @@ impl ProviderRegistration {
             construction,
             recipes,
             qualification: None,
+            builtin_safety: None,
             #[cfg(feature = "collector")]
             profile_source: None,
             #[cfg(feature = "collector")]
@@ -119,11 +124,36 @@ impl ProviderRegistration {
         component: ComponentVersion,
         verifier: RecipeCostVerifier,
     ) -> Result<Self> {
-        if !qualification_component_is_valid(&component) {
+        if !qualification_component_is_valid(&component)
+            || self.builtin_safety.as_ref().is_some_and(|(selected, _)| selected != &component)
+        {
             return Err(Error::invalid(culprit_core::t!("engine.registry.invalid_qualification")));
         }
         self.qualification = Some(QualificationAuthority { component, verifier });
         Ok(self)
+    }
+
+    /// Trusted source code supplies this verifier. Structural/deserialized policy data cannot install it.
+    pub fn with_builtin_safety(mut self, component: ComponentVersion, verifier: BuiltinSafetyVerifier) -> Result<Self> {
+        if !culprit_core::telemetry::BuiltinRecipeSafety::component_is_valid(&component)
+            || self.qualification.as_ref().is_some_and(|authority| authority.component != component)
+        {
+            return Err(Error::invalid(culprit_core::t!("engine.registry.invalid_qualification")));
+        }
+        self.builtin_safety = Some((component, verifier));
+        Ok(self)
+    }
+    pub fn verify_builtin_safety(&self, policy: &culprit_core::telemetry::BuiltinRecipeSafety) -> Result<bool> {
+        let Some((component, verifier)) = &self.builtin_safety else {
+            return Ok(false);
+        };
+        if !policy.is_valid() || &policy.component != component || !self.recipes.iter().any(|recipe| {
+            policy.matches_recipe(recipe)
+                && matches!(&recipe.admission, RecipeAdmission::BuiltinSafety(selected) if selected.as_ref()==policy)
+        }) {
+            return Ok(false);
+        }
+        verifier(policy)
     }
 
     /// Declare only the existing native routes that can enforce a source/profile expectation before reading.
@@ -155,18 +185,18 @@ impl ProviderRegistration {
 
     #[cfg(feature = "collector")]
     pub(crate) fn validate_profile(&self, request: &CollectionRequest, profile: &SourceProfileAdmission) -> Result<()> {
-        let receipt = profile.qualification();
-        let matches_selected = self.recipes.iter().any(|recipe| {
-            recipe.purpose == RecipePurpose::Baseline
-                && recipe.accepts(request)
-                && request.budget.intersection(&recipe.budget) == request.budget
-                && matches!(&recipe.cost, RecipeCostQualification::Measured(selected)
-                    if selected.as_ref() == receipt)
+        let selected = self.recipes.iter().any(|recipe| {
+            recipe.purpose == RecipePurpose::Baseline && recipe.accepts(request) && profile.matches_recipe(recipe)
         });
+        let authority = match (profile.qualification(), profile.builtin_policy()) {
+            (Some(receipt), None) => self.qualification_component() == Some(&receipt.component),
+            (None, Some(policy)) => self.verify_builtin_safety(policy)?,
+            _ => false,
+        };
         if !profile.matches_request(request)
-            || self.qualification_component() != Some(&receipt.component)
-            || !self.supports_profile_source(receipt.selector)
-            || !matches_selected
+            || !self.supports_profile_source(profile.selector())
+            || !selected
+            || !authority
         {
             return Err(Error::invalid(culprit_core::t!("engine.registry.invalid_qualification")));
         }
@@ -190,7 +220,10 @@ impl ProviderRegistration {
     }
 
     pub fn qualification_component(&self) -> Option<&ComponentVersion> {
-        self.qualification.as_ref().map(|authority| &authority.component)
+        self.qualification
+            .as_ref()
+            .map(|authority| &authority.component)
+            .or_else(|| self.builtin_safety.as_ref().map(|(component, _)| component))
     }
 
     /// The caller first authenticates the artifact's manifest membership and ordinal through outbox/recovery.
@@ -215,7 +248,7 @@ impl ProviderRegistration {
         else {
             return Ok(false);
         };
-        let RecipeCostQualification::Measured(selected) = &recipe.cost else {
+        let RecipeAdmission::Measured(selected) = &recipe.admission else {
             return Ok(false);
         };
         if !receipt.matches_recipe(recipe)
@@ -314,7 +347,7 @@ impl ProviderRegistration {
                 .find(|recipe| recipe.id == receipt.recipe_id && recipe.version == receipt.recipe_version)
                 && receipt.matches_recipe(recipe)
             {
-                recipe.cost = RecipeCostQualification::Measured(Box::new(receipt));
+                recipe.admission = RecipeAdmission::Measured(Box::new(receipt));
             }
         }
         if !recipe_catalog_is_valid(&self.recipes) {

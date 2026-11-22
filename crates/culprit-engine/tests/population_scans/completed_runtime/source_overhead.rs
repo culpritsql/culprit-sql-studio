@@ -1,9 +1,9 @@
 use super::*;
-use culprit_collector::analytical::test_support::{LocalCaptureFixture, SourceAcquisitionCase};
 use culprit_core::{HistoricalSourceOverhead, RecordedSourceAcquisition, limits::OperationGuard};
 use culprit_engine::{
     LocalCaptureAnalysisKind, LocalCaptureReader, LocalCaptureRequest, LocalCapturedAnalysis, OutboxCaptureReader,
 };
+use culprit_evidence::analytical::test_support::{LocalCaptureFixture, SourceAcquisitionCase};
 async fn read(connection: &str, fixture: &LocalCaptureFixture) -> Box<culprit_engine::LocalSourceOverhead> {
     let reader =
         OutboxCaptureReader::delivery(fixture.outbox.as_ref().unwrap().delivery(), Default::default()).unwrap();

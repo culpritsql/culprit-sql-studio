@@ -108,7 +108,7 @@ fn revision(row: &ExportedRecord) -> Result<&DiagnosticRevision> {
 }
 
 /// This checks canonical source/row binding; the caller must already own authenticated original bytes.
-#[cfg(feature = "collector")]
+#[cfg(any(feature = "collector", feature = "evidence"))]
 pub(crate) fn from_original(
     source: &CollectionDescription,
     original: &DiagnosticCaptureRef,

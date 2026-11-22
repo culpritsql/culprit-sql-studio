@@ -1,24 +1,29 @@
 //! Conditional S3 object transport. Credentials are injected; the adapter never discovers identities.
+#[cfg(feature = "write")]
+use std::io::{Read, Seek};
+#[cfg(feature = "write")]
+use std::path::Path;
 mod config;
 mod signing;
-#[cfg(test)]
+#[cfg(all(test, feature = "write"))]
 mod tests;
 use async_trait::async_trait;
 use config::Endpoint;
 pub use config::S3Config;
-use culprit_auth::{AccessKeyCredential, AccessKeyProvider, CredentialResolver};
-use culprit_collector::delivery::{
-    contract::{MAX_MANIFEST_BYTES, MAX_RANGE_BYTES},
-    object_store::{
-        bridge,
-        provider::{RecoveryProvider, RecoveryTarget},
-        transport::*,
-    },
-};
+#[cfg(feature = "write")]
+use culprit_auth::AccessKeyCredential;
+use culprit_auth::{AccessKeyProvider, CredentialResolver};
+#[cfg(feature = "write")]
+use culprit_collector::delivery::object_store::provider::RecoveryProvider;
+#[cfg(feature = "write")]
+use culprit_collector::delivery::object_store::provider::RecoveryTarget;
 use culprit_core::{Result, telemetry::DeliveryProblem};
+#[cfg(feature = "write")]
+use culprit_evidence::delivery::contract::MAX_MANIFEST_BYTES;
+use culprit_evidence::delivery::contract::MAX_RANGE_BYTES;
+use culprit_evidence::delivery::object_store::bridge;
+use culprit_evidence::delivery::object_store::transport::*;
 use std::{
-    io::{Read, Seek},
-    path::Path,
     sync::{Arc, OnceLock},
     time::Duration,
 };
@@ -39,6 +44,7 @@ impl S3Transport {
             requests: Arc::new(Semaphore::new(MAX_PARALLEL_REQUESTS)),
         })
     }
+    #[cfg(feature = "write")]
     async fn upload(&self, key: &str, body: Upload, condition: OwnedCondition) -> Result<ObjectWrite> {
         let path = self.endpoint.path(key)?;
         let credentials = self.credentials.access_keys().await?;
@@ -52,8 +58,26 @@ impl S3Transport {
         .map_err(|_| transport())?
     }
 }
+#[cfg(feature = "write")]
 #[async_trait]
 impl ObjectTransport for S3Transport {
+    async fn put(&self, key: &str, bytes: Vec<u8>, condition: WriteCondition<'_>) -> Result<ObjectWrite> {
+        if bytes.len() > MAX_MANIFEST_BYTES {
+            return Err(DeliveryProblem::Capacity.error());
+        }
+        self.upload(key, Upload::Bytes(bytes), condition.into()).await
+    }
+    async fn put_file(&self, key: &str, path: &Path, bytes: u64) -> Result<ObjectWrite> {
+        if bytes > MAX_RANGE_BYTES {
+            return Err(DeliveryProblem::Capacity.error());
+        }
+        // Open before yielding: a cancelled caller may retire its temporary pathname while the native worker owns it.
+        let file = bridge::open_upload(path, bytes)?;
+        self.upload(key, Upload::File { file, bytes }, OwnedCondition::Absent).await
+    }
+}
+#[async_trait]
+impl culprit_evidence::delivery::object_store::transport::ObjectReadTransport for S3Transport {
     async fn get(&self, key: &str) -> Result<Option<ObjectRead>> {
         let path = self.endpoint.path(key)?;
         let credentials = self.credentials.access_keys().await?;
@@ -79,25 +103,14 @@ impl ObjectTransport for S3Transport {
         })
         .await
     }
-    async fn put(&self, key: &str, bytes: Vec<u8>, condition: WriteCondition<'_>) -> Result<ObjectWrite> {
-        if bytes.len() > MAX_MANIFEST_BYTES {
-            return Err(DeliveryProblem::Capacity.error());
-        }
-        self.upload(key, Upload::Bytes(bytes), condition.into()).await
-    }
-    async fn put_file(&self, key: &str, path: &Path, bytes: u64) -> Result<ObjectWrite> {
-        if bytes > MAX_RANGE_BYTES {
-            return Err(DeliveryProblem::Capacity.error());
-        }
-        // Open before yielding: a cancelled caller may retire its temporary pathname while the native worker owns it.
-        let file = bridge::open_upload(path, bytes)?;
-        self.upload(key, Upload::File { file, bytes }, OwnedCondition::Absent).await
-    }
 }
+
+#[cfg(feature = "write")]
 enum OwnedCondition {
     Absent,
     Matches(String),
 }
+#[cfg(feature = "write")]
 impl From<WriteCondition<'_>> for OwnedCondition {
     fn from(value: WriteCondition<'_>) -> Self {
         match value {
@@ -106,10 +119,12 @@ impl From<WriteCondition<'_>> for OwnedCondition {
         }
     }
 }
+#[cfg(feature = "write")]
 enum Upload {
     Bytes(Vec<u8>),
     File { file: std::fs::File, bytes: u64 },
 }
+#[cfg(feature = "write")]
 impl Upload {
     fn len(&self) -> u64 {
         match self {
@@ -145,6 +160,7 @@ impl Upload {
         }
     }
 }
+#[cfg(feature = "write")]
 fn write(
     endpoint: &Endpoint,
     path: &str,
@@ -218,7 +234,9 @@ fn agent(secure: bool) -> &'static ureq::Agent {
             .into()
     })
 }
+#[cfg(feature = "write")]
 pub struct S3RecoveryProvider;
+#[cfg(feature = "write")]
 impl RecoveryProvider for S3RecoveryProvider {
     fn name(&self) -> &str {
         "s3"
@@ -229,13 +247,8 @@ impl RecoveryProvider for S3RecoveryProvider {
         profile: &str,
         credentials: &dyn CredentialResolver,
     ) -> Result<RecoveryTarget> {
-        let config: S3Config =
-            serde_json::from_value(options.clone()).map_err(|_| DeliveryProblem::InvalidContract.error())?;
-        let access_scope = config.access_scope()?;
-        Ok(RecoveryTarget {
-            transport: Arc::new(S3Transport::new(config, credentials.access_keys(profile)?)?),
-            access_scope,
-        })
+        let configured = configure_transport(options, profile, credentials)?;
+        Ok(RecoveryTarget { transport: configured.transport, access_scope: configured.access_scope })
     }
 }
 fn transport() -> culprit_core::Error {
@@ -248,3 +261,22 @@ fn integrity() -> culprit_core::Error {
 #[cfg(test)]
 #[path = "../../../../tests/support/http.rs"]
 mod http_fixture;
+
+pub struct ConfiguredTransport {
+    pub transport: Arc<S3Transport>,
+    pub access_scope: String,
+}
+/// Resolves only the explicitly selected recovery identity; no signing key, GET or PUT is acquired here.
+pub fn configure_transport(
+    options: &serde_json::Value,
+    profile: &str,
+    credentials: &dyn CredentialResolver,
+) -> Result<ConfiguredTransport> {
+    let config: S3Config =
+        serde_json::from_value(options.clone()).map_err(|_| DeliveryProblem::InvalidContract.error())?;
+    let access_scope = config.access_scope()?;
+    Ok(ConfiguredTransport {
+        transport: Arc::new(S3Transport::new(config, credentials.access_keys(profile)?)?),
+        access_scope,
+    })
+}

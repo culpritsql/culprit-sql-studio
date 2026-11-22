@@ -1,8 +1,9 @@
 use super::*;
-use culprit_collector::analytical::test_support::{
-    BackupHistoryCase, ColumnstoreRowgroupCase, backup_history_evidence, columnstore_rowgroup_evidence,
-};
 use culprit_core::SourceState;
+use culprit_evidence::analytical::test_support::BackupHistoryCase;
+use culprit_evidence::analytical::test_support::ColumnstoreRowgroupCase;
+use culprit_evidence::analytical::test_support::backup_history_evidence;
+use culprit_evidence::analytical::test_support::columnstore_rowgroup_evidence;
 async fn snapshot(
     reader: &OutboxCaptureReader,
     id: &str,

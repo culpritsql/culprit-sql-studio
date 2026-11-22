@@ -1,6 +1,6 @@
 //! Termination requests cancellation, then awaits the owned action without hiding unresolved native shutdown.
-use culprit_collector::capture::CollectionCancellation;
 use culprit_core::Result;
+use culprit_read::cancellation::CollectionCancellation;
 use std::future::Future;
 
 pub(crate) async fn run<T>(cancellation: &CollectionCancellation, work: impl Future<Output = Result<T>>) -> Result<T> {

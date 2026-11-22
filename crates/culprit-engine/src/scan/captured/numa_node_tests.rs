@@ -2,11 +2,11 @@ use super::*;
 use crate::{
     LocalCaptureAnalysisKind, LocalCaptureReader, LocalCaptureRequest, LocalCapturedAnalysis, OutboxCaptureReader,
 };
-use culprit_collector::{
-    analytical::test_support::{LocalCaptureFixture, NumaNodeCase, numa_node_evidence},
-    outbox::CompletedCaptureBudget,
-};
+use culprit_collector::analytical::test_support::LocalCaptureFixture;
+use culprit_collector::outbox::CompletedCaptureBudget;
 use culprit_core::{limits::OperationGuard, telemetry::*};
+use culprit_evidence::analytical::test_support::NumaNodeCase;
+use culprit_evidence::analytical::test_support::numa_node_evidence;
 #[tokio::test]
 async fn original_node_attachment_is_idempotent_and_a_changed_same_identity_withdraws_every_measured_survivor() {
     let (source, rows) = numa_node_evidence(NumaNodeCase::Exact);

@@ -1,7 +1,7 @@
 use super::*;
-use culprit_collector::analytical::test_support::{
-    SuspectPageHistoryCase, assert_suspect_page_history_capture, suspect_page_history_evidence,
-};
+use culprit_evidence::analytical::test_support::SuspectPageHistoryCase;
+use culprit_evidence::analytical::test_support::assert_suspect_page_history_capture;
+use culprit_evidence::analytical::test_support::suspect_page_history_evidence;
 #[tokio::test]
 async fn retained_history_uses_original_proof_and_one_canonical_explanation_without_recovery() {
     for case in SuspectPageHistoryCase::ALL {
@@ -9,7 +9,7 @@ async fn retained_history_uses_original_proof_and_one_canonical_explanation_with
         let fixture = Fixture::new(source.clone(), rows.clone()).await;
         let opened = fixture.recovery_object_reads();
         let capture =
-            fixture.read_families(&[culprit_collector::analytical::evidence::EvidenceFamily::OperationalSamples]).await;
+            fixture.read_families(&[culprit_evidence::analytical::evidence::EvidenceFamily::OperationalSamples]).await;
         assert_suspect_page_history_capture(&capture, &source, &rows);
         let analysis = culprit_engine::collected_resources::suspect_pages(&capture).unwrap();
         assert_eq!(analysis.context.source, source);
@@ -42,7 +42,7 @@ async fn absent_original_body_retains_a_gap_and_never_recovers_or_reports_zero()
     let opened = fixture.recovery_object_reads();
     fixture.remove_first_row(TelemetryStream::OperationalSamples);
     let capture =
-        fixture.read_families(&[culprit_collector::analytical::evidence::EvidenceFamily::OperationalSamples]).await;
+        fixture.read_families(&[culprit_evidence::analytical::evidence::EvidenceFamily::OperationalSamples]).await;
     let analysis = culprit_engine::collected_resources::suspect_pages(&capture).unwrap();
     assert_eq!(analysis.report.source_state, Some(culprit_core::SourceState::Partial));
     assert!(analysis.report.retained_rows.is_none());

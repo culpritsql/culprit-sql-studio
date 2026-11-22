@@ -1,7 +1,7 @@
 use super::*;
 use crate::test_support::{actual_plan_capture_admitted, owned_case};
-use culprit_collector::capture::CollectionCancellation;
 use culprit_core::telemetry::CachedStatementContext;
+use culprit_read::cancellation::CollectionCancellation;
 use futures_util::future::LocalBoxFuture;
 
 mod cache_observation;

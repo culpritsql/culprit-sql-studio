@@ -41,3 +41,39 @@ fn physical_storage_and_canonical_views_share_one_complete_contract() {
             .contains("ENGINE = ReplicatedMergeTree")
     );
 }
+
+#[test]
+fn gold_outputs_are_deployed_through_the_same_catalog_without_native_current_or_detector_rules() {
+    let assets = DeploymentAssets::new().unwrap();
+    let script = assets.script();
+    let catalog = SchemaCatalog::new().unwrap();
+    for (stream, name) in [
+        (culprit_core::telemetry::TelemetryStream::DerivedIncidents, "CulpritIncidentsV1"),
+        (culprit_core::telemetry::TelemetryStream::DerivedFindings, "CulpritFindingsV1"),
+        (culprit_core::telemetry::TelemetryStream::DerivedChanges, "CulpritChangesV1"),
+    ] {
+        let schema = catalog.get(stream).unwrap();
+        assert_eq!(schema.table(), name);
+        assert!(script.contains(&format!("{name}Rows")));
+        assert!(script.contains(&format!("{name}Eligible")));
+        assert!(
+            !script.contains(&format!("{name}Current")),
+            "native lifecycle is in the row, not synthesized by KQL/SQL"
+        );
+    }
+    for field in [
+        "VictimSummary",
+        "AffectedQueries",
+        "CulpritQueries",
+        "CandidateQueries",
+        "AttributionStatus",
+        "Mechanism",
+        "DeveloperAction",
+        "Verification",
+        "Caller",
+        "OriginalReference",
+        "InputReferences",
+    ] {
+        assert!(script.contains(field), "{field}");
+    }
+}

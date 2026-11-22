@@ -42,7 +42,7 @@ fn compilation_companions_select_query_definitions_and_share_the_original_action
 
 #[test]
 fn definition_read_profiles_require_their_actual_native_primary_dataset_and_engine() {
-    let case = culprit_collector::analytical::test_support::compilation_definition_evidence_cases().remove(0);
+    let case = culprit_evidence::analytical::test_support::compilation_definition_evidence_cases().remove(0);
     assert!(DefinitionKind::QueryStoreCompilation.accepts_primary(&case.current.0));
     assert!(!DefinitionKind::CachedStatement.accepts_primary(&case.current.0));
     assert!(!DefinitionKind::QueryStoreCompilation.accepts_primary(&case.definitions.unwrap().0));

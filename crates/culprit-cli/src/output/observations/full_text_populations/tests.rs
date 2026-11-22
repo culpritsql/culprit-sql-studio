@@ -1,6 +1,7 @@
 use super::*;
-use culprit_collector::analytical::test_support::{FullTextPopulationCase, full_text_population_evidence};
 use culprit_core::telemetry::TelemetryRecord;
+use culprit_evidence::analytical::test_support::FullTextPopulationCase;
+use culprit_evidence::analytical::test_support::full_text_population_evidence;
 fn report(case: FullTextPopulationCase) -> FullTextPopulationReport {
     let (source, records) = full_text_population_evidence(case);
     let rows = records

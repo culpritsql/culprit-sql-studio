@@ -1,6 +1,9 @@
 //! Original integer runtime attributes are compared while both selected native documents are borrowed.
 use super::*;
-use crate::plan_xml::{self, LocalName, StatementSelection, query_plan_of, select_native_statement};
+use crate::plan_xml;
+use crate::plan_xml::query_plan_of;
+use crate::plan_xml::select_native_statement;
+use crate::plan_xml::{LocalName, StatementSelection};
 use culprit_core::{
     Engine, Plan, PlanKind, PlanNode,
     plan_compare::{NativeRuntimeInputPair, NativeRuntimeInputRelation as Relation},

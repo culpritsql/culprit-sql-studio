@@ -1,9 +1,9 @@
 use super::fixture::Fixture;
-use culprit_collector::analytical::{
-    evidence::EvidenceFamily,
-    test_support::{TableMemoryCase, assert_operational_capture, table_memory_evidence},
-};
 use culprit_core::telemetry::*;
+use culprit_evidence::analytical::evidence::EvidenceFamily;
+use culprit_evidence::analytical::test_support::TableMemoryCase;
+use culprit_evidence::analytical::test_support::assert_operational_capture;
+use culprit_evidence::analytical::test_support::table_memory_evidence;
 #[tokio::test]
 async fn selected_table_memory_replays_exact_native_gauges_and_one_canonical_interpretation() {
     for case in TableMemoryCase::ALL {

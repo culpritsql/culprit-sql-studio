@@ -75,10 +75,15 @@ pub struct MonitoringEnrollmentSummary {
 #[derive(Clone)]
 pub struct SourceProfileAdmission {
     route_revision: String,
-    qualification: Box<RecipeCostReceipt>,
+    approval: SourceProfileApproval,
     budget: CollectionBudget,
     approval_is_active: std::sync::Arc<dyn Fn() -> bool + Send + Sync>,
     retired: std::sync::Arc<std::sync::atomic::AtomicBool>,
+}
+#[derive(Clone)]
+enum SourceProfileApproval {
+    Measured(Box<RecipeCostReceipt>),
+    Builtin { policy: Box<BuiltinRecipeSafety>, scope: Option<Box<RecipeCostScope>> },
 }
 impl SourceProfileAdmission {
     pub fn new(
@@ -97,7 +102,7 @@ impl SourceProfileAdmission {
         }
         Ok(Self {
             route_revision,
-            qualification: Box::new(qualification),
+            approval: SourceProfileApproval::Measured(Box::new(qualification)),
             budget,
             approval_is_active: std::sync::Arc::new(approval_is_active),
             retired: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
@@ -120,27 +125,105 @@ impl SourceProfileAdmission {
     pub fn route_revision(&self) -> &str {
         &self.route_revision
     }
-    pub fn qualification(&self) -> &RecipeCostReceipt {
-        &self.qualification
+    pub fn for_builtin(
+        route_revision: String,
+        policy: BuiltinRecipeSafety,
+        scope: Option<RecipeCostScope>,
+        budget: CollectionBudget,
+        approval_is_active: impl Fn() -> bool + Send + Sync + 'static,
+    ) -> Result<Self> {
+        budget.validate()?;
+        if !valid_digest(&route_revision)
+            || !policy.is_valid()
+            || budget.intersection(&policy.budget) != budget
+            || match policy.purpose {
+                RecipePurpose::Baseline => scope.is_some(),
+                RecipePurpose::Investigation => !scope.as_ref().is_some_and(|scope| {
+                    scope.is_valid() && scope.partition().is_qualified() && scope.native_epoch().is_some()
+                }),
+            }
+        {
+            return Err(CollectionStop::InvalidPage.error());
+        }
+        Ok(Self {
+            route_revision,
+            approval: SourceProfileApproval::Builtin { policy: Box::new(policy), scope: scope.map(Box::new) },
+            budget,
+            approval_is_active: std::sync::Arc::new(approval_is_active),
+            retired: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        })
+    }
+    pub fn qualification(&self) -> Option<&RecipeCostReceipt> {
+        match &self.approval {
+            SourceProfileApproval::Measured(receipt) => Some(receipt),
+            _ => None,
+        }
+    }
+    pub fn builtin_policy(&self) -> Option<&BuiltinRecipeSafety> {
+        match &self.approval {
+            SourceProfileApproval::Builtin { policy, .. } => Some(policy),
+            _ => None,
+        }
+    }
+    pub fn scope(&self) -> Option<&RecipeCostScope> {
+        match &self.approval {
+            SourceProfileApproval::Measured(receipt) => Some(&receipt.scope),
+            SourceProfileApproval::Builtin { scope, .. } => scope.as_deref(),
+        }
+    }
+    pub fn selector(&self) -> RecipeSelector {
+        match &self.approval {
+            SourceProfileApproval::Measured(receipt) => receipt.selector,
+            SourceProfileApproval::Builtin { policy, .. } => policy.selector,
+        }
+    }
+    pub fn matches_recipe(&self, recipe: &RecipeDescriptor) -> bool {
+        self.budget.intersection(&recipe.budget) == self.budget
+            && match (&self.approval, &recipe.admission) {
+                (SourceProfileApproval::Measured(receipt), RecipeAdmission::Measured(selected)) => {
+                    receipt.key().is_ok_and(|key| selected.key().is_ok_and(|selected| key == selected))
+                }
+                (SourceProfileApproval::Builtin { policy, .. }, RecipeAdmission::BuiltinSafety(selected)) => {
+                    policy == selected && policy.matches_recipe(recipe)
+                }
+                _ => false,
+            }
     }
     pub fn matches_request(&self, request: &CollectionRequest) -> bool {
         self.approval_is_active()
             && request.validate().is_ok()
             && self.budget == request.budget
-            && self.qualification.selector.matches(request)
-            && self.qualification.scope.subject() == request.subject
+            && self.selector().matches(request)
+            && self
+                .scope()
+                .map_or(request.subject == CollectionSubject::Database, |scope| scope.subject() == request.subject)
     }
-    /// Exact current native owner and known role, not a logical alias, current database name or old event label.
+    /// The first actual local member/role is frozen by SourceProfileGuard. A policy supplies no native incarnation.
     pub fn matches_native_context(&self, context: &NativeReadContext) -> bool {
         if !self.approval_is_active() || !context.is_valid() || !context.partition.is_qualified() {
             return false;
         }
-        match &self.qualification.scope {
-            RecipeCostScope::NativeRead(scope) => scope.matches_context(context),
-            RecipeCostScope::SharedResource { target, partition, .. } => {
-                context.target == CollectionTarget::Shared(target.clone()) && context.partition == *partition
+        match &self.approval {
+            SourceProfileApproval::Measured(receipt) => match &receipt.scope {
+                RecipeCostScope::NativeRead(scope) => scope.matches_context(context),
+                RecipeCostScope::SharedResource { target, partition, .. } => {
+                    context.target == CollectionTarget::Shared(target.clone()) && context.partition == *partition
+                }
+                RecipeCostScope::Activity(_) => false,
+            },
+            SourceProfileApproval::Builtin { scope, .. } => {
+                context.has_qualified_local_owner()
+                    && context.database_writable.is_some()
+                    && match scope.as_deref() {
+                        Some(RecipeCostScope::Activity(scope)) => {
+                            context.target == scope.target
+                                && context.partition == scope.partition
+                                && context.partition.native_epoch() == scope.native_epoch.as_deref()
+                        }
+                        None => context.target.database().is_some(),
+                        _ => false,
+                    }
             }
-            RecipeCostScope::Activity(_) => false,
         }
     }
 }
@@ -149,8 +232,7 @@ impl std::fmt::Debug for SourceProfileAdmission {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
             .debug_struct("SourceProfileAdmission")
-            .field("recipe_id", &self.qualification.recipe_id)
-            .field("recipe_version", &self.qualification.recipe_version)
+            .field("selector", &self.selector())
             .field("approval_active", &self.approval_is_active())
             .finish_non_exhaustive()
     }

@@ -1,6 +1,9 @@
 use super::*;
-use crate::delivery::{contract::Contract, file_store::FileRecoveryStore};
+use crate::delivery::file_store::FileRecoveryStore;
 use culprit_core::telemetry::{OutboxProblem, batch_id, digest};
+use culprit_evidence::delivery::contract::Contract;
+use culprit_evidence::delivery::recovery::RecoveryRead;
+use culprit_read::cancellation::CollectionCancellation;
 
 fn absent(reference: &DiagnosticEvidenceRef) -> DiagnosticEvidenceRef {
     let mut reference = reference.clone();
@@ -13,7 +16,7 @@ fn absent(reference: &DiagnosticEvidenceRef) -> DiagnosticEvidenceRef {
 #[tokio::test]
 async fn a_missing_optional_cost_capture_withholds_planning_without_source_work_or_new_history() {
     let mut harness = Harness::new(1).await;
-    let RecipeCostQualification::Measured(receipt) = &mut harness.backend.recipe.cost else { panic!() };
+    let RecipeAdmission::Measured(receipt) = &mut harness.backend.recipe.admission else { panic!() };
     receipt.evidence = absent(&receipt.evidence);
     let before = harness.outbox.diagnostic_checkpoints(DIAGNOSTIC_CONTROLLER_VERSION, None, 10).await.unwrap();
     assert!(harness.prepare(&CollectionCancellation::default()).await.unwrap().is_empty());
@@ -34,7 +37,7 @@ async fn an_uncommitted_archive_capture_is_temporarily_unavailable_without_becom
     let recovery = FileRecoveryStore::create(&archive.path().join("recovery"), contract).unwrap();
     let owner = recovery.acquire().await.unwrap();
     let mut harness = Harness::with_recovery_store(1, Some(owner.fence())).await;
-    let RecipeCostQualification::Measured(receipt) = &harness.backend.recipe.cost else { panic!() };
+    let RecipeAdmission::Measured(receipt) = &harness.backend.recipe.admission else { panic!() };
     let reference = absent(&receipt.evidence);
     assert_eq!(
         recovery.capture_manifest(&reference.capture).await.unwrap_err().detail,
@@ -56,7 +59,7 @@ async fn an_uncommitted_archive_capture_is_temporarily_unavailable_without_becom
 #[tokio::test]
 async fn a_forged_optional_receipt_still_fails_integrity_before_cost_verification_or_source_work() {
     let mut harness = Harness::new(1).await;
-    let RecipeCostQualification::Measured(receipt) = &mut harness.backend.recipe.cost else { panic!() };
+    let RecipeAdmission::Measured(receipt) = &mut harness.backend.recipe.admission else { panic!() };
     receipt.evidence.payload_sha256 = digest(b"forged native experiment payload");
     let error = harness.prepare(&CollectionCancellation::default()).await.err().unwrap();
     assert_eq!(error.detail, Some(ErrorDetail::Outbox(OutboxProblem::Integrity)));

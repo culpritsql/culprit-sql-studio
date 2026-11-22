@@ -3,6 +3,7 @@ use culprit_core::{
     Plan, PlanHistory, PlanHistoryKind, PlanVariant, QueryStat, Spread, collected_analysis::CollectedQueryInput,
     telemetry::*,
 };
+use culprit_evidence::original_projection::OriginalProjection;
 use std::collections::{BTreeMap, BTreeSet};
 
 pub(super) const MAX_EXACT_COUNT: u64 = 9_007_199_254_740_992;
@@ -17,7 +18,7 @@ pub(super) struct CapturedTotals {
 /// Unresolved original references or missing runtime withhold the denominator. If original references closed but
 /// a definition body was not retrieved, keep its known cost so the remaining queries cannot claim the whole.
 pub(super) fn captured_totals(
-    capture: &EvidenceCapture,
+    capture: &dyn OriginalProjection,
     definitions: &validation::Definitions<'_>,
     rows: &super::populations::NativeRows<'_>,
 ) -> Result<Option<CapturedTotals>> {
@@ -99,7 +100,7 @@ fn inclusion(query: Option<&QueryDefinition>) -> QueryInclusion {
 }
 
 pub(super) fn project(
-    capture: &EvidenceCapture,
+    capture: &dyn OriginalProjection,
     definitions: &validation::Definitions<'_>,
     population: &CollectedQueryPopulation,
     rows: &super::populations::NativeRows<'_>,
@@ -187,7 +188,7 @@ pub(super) fn project(
 }
 
 fn group_key(
-    capture: &EvidenceCapture,
+    capture: &dyn OriginalProjection,
     key: &NativeMeasurementKey,
     population: &CollectedQueryPopulation,
 ) -> Result<String> {
@@ -202,7 +203,7 @@ fn group_key(
     }
 }
 
-fn plan_key(capture: &EvidenceCapture, references: &StatementReferences) -> Result<String> {
+fn plan_key(capture: &dyn OriginalProjection, references: &StatementReferences) -> Result<String> {
     capture.source().scoped_id("collected-runtime-plan-v1", references)
 }
 
@@ -257,7 +258,7 @@ fn page_server_summary(
 }
 
 fn query(
-    capture: &EvidenceCapture,
+    capture: &dyn OriginalProjection,
     id: &str,
     groups: &[&NativeGroup<'_>],
     limitations: &mut Vec<CollectedAnalysisLimitation>,
@@ -355,7 +356,7 @@ fn query(
 }
 
 fn aggregate(
-    capture: &EvidenceCapture,
+    capture: &dyn OriginalProjection,
     id: &str,
     fragments: &[RuntimeRow<'_>],
     limitations: &mut Vec<CollectedAnalysisLimitation>,

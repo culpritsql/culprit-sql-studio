@@ -10,9 +10,13 @@ async fn collected_original(
     (source, rows): (CollectionDescription, Vec<TelemetryRecord>),
 ) -> (Fixture, CollectionDescription, Vec<TelemetryRecord>) {
     let catalog = Arc::new(SchemaCatalog::new().unwrap());
-    let recovery =
-        test_support::collected_resource_recovery("clickhouse:test", catalog.digest(), source.clone(), rows.clone())
-            .await;
+    let recovery = culprit_collector::analytical::test_support::collected_resource_recovery(
+        "clickhouse:test",
+        catalog.digest(),
+        source.clone(),
+        rows.clone(),
+    )
+    .await;
     (Fixture::from_recovery(catalog, Arc::new(recovery), &[TelemetryStream::OperationalSamples]).await, source, rows)
 }
 

@@ -1,6 +1,7 @@
 use super::*;
-use culprit_collector::analytical::test_support::{TableTemporalCase, table_temporal_evidence};
 use culprit_core::telemetry::*;
+use culprit_evidence::analytical::test_support::TableTemporalCase;
+use culprit_evidence::analytical::test_support::table_temporal_evidence;
 fn scan(case: TableTemporalCase) -> Report {
     let mut report: Report = serde_json::from_str(include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),

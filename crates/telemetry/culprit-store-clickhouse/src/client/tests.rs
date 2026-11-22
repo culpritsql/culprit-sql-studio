@@ -1,4 +1,5 @@
 use super::*;
+#[cfg(feature = "write")]
 use crate::ingestion::{ClickHouseIngestor, IngestionTransport, WritePolicy};
 use serde_json::json;
 use std::{io::Write, net::TcpListener};
@@ -34,22 +35,28 @@ fn configuration_is_canonical_and_cannot_hide_credentials_or_remote_plaintext() 
     assert!(Credentials::new("a\r\nx-secret: bad".into(), Zeroizing::new(String::new())).is_err());
 }
 
+#[cfg(feature = "write")]
 #[test]
-fn read_identity_does_not_depend_on_write_quorum_and_read_configuration_rejects_write_fields() {
+fn writer_quorum_does_not_change_read_identity_and_invalid_quorums_are_refused() {
     let config = config("https://warehouse.example".into());
     let destination = config.destination_id().unwrap();
     for insert_quorum in [None, Some(1), Some(2), Some(128)] {
         let ingestion = ClickHouseIngestor::new(config.clone(), credentials(), WritePolicy { insert_quorum }).unwrap();
         assert_eq!(ingestion.query_transport().destination(), destination);
     }
-    let mut mixed = serde_json::to_value(&config).unwrap();
-    mixed["insert_quorum"] = json!(2);
-    assert!(serde_json::from_value::<ClickHouseConfig>(mixed).is_err());
     for insert_quorum in [Some(0), Some(129)] {
         assert!(ClickHouseIngestor::new(config.clone(), credentials(), WritePolicy { insert_quorum }).is_err());
     }
 }
 
+#[test]
+fn read_configuration_rejects_writer_policy_fields() {
+    let mut mixed = serde_json::to_value(config("https://warehouse.example".into())).unwrap();
+    mixed["insert_quorum"] = json!(2);
+    assert!(serde_json::from_value::<ClickHouseConfig>(mixed).is_err());
+}
+
+#[cfg(feature = "write")]
 #[test]
 fn writer_composition_rejects_an_ingestor_bound_to_another_destination_before_io() {
     let query = Arc::new(ClickHouseClient::new(config("https://reader.example".into()), credentials()).unwrap());
@@ -61,6 +68,7 @@ fn writer_composition_rejects_an_ingestor_bound_to_another_destination_before_io
     assert_eq!(error.detail, Some(culprit_core::ErrorDetail::Delivery(DeliveryProblem::DestinationChanged)));
 }
 
+#[cfg(feature = "write")]
 #[tokio::test]
 async fn quorum_writer_keeps_insert_policy_and_sequential_verification_out_of_reader_configuration() {
     let body =
@@ -132,6 +140,7 @@ async fn queries_are_bounded_readonly_and_values_and_credentials_stay_out_of_sql
     assert!(sql.starts_with("/* culprit */ SELECT"));
     assert!(!sql.contains("canary"));
 }
+#[cfg(feature = "write")]
 #[tokio::test]
 async fn write_acks_are_hints_and_late_errors_are_ambiguous_without_leaking_bodies() {
     for (status, reply, accepted) in [
@@ -147,6 +156,10 @@ async fn write_acks_are_hints_and_late_errors_are_ambiguous_without_leaking_bodi
         let request = String::from_utf8(worker.join().unwrap()).unwrap();
         assert!(request.contains("async_insert=0"));
     }
+}
+
+#[tokio::test]
+async fn read_errors_do_not_expose_native_response_bodies() {
     let (endpoint, worker) = server(b"{\"private-header-canary\":true}".to_vec(), 200);
     let client = ClickHouseClient::new(config(endpoint), credentials()).unwrap();
     let error = client
@@ -196,12 +209,11 @@ async fn query_wire_reads_obey_the_smaller_request_limit() {
     assert!(request.contains("max_result_bytes=1024"));
 }
 
+#[cfg(feature = "write")]
 #[tokio::test]
 async fn cancelling_an_insert_keeps_its_batch_and_spool_owner_until_http_completion() {
-    use culprit_collector::{
-        analytical::{encoding::BatchEncoder, test_support::Recovery},
-        delivery::recovery::reopen,
-    };
+    use culprit_collector::analytical::encoding::BatchEncoder;
+    use culprit_evidence::{analytical::test_support::Recovery, delivery::recovery::reopen};
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let endpoint = format!("http://{}", listener.local_addr().unwrap());
     let (observed, received) = tokio::sync::oneshot::channel();

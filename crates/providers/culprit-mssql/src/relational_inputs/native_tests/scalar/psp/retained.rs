@@ -19,7 +19,7 @@ impl SavedVariants {
         probe: &probe::Probe<'_>,
         port: u16,
         runs: &[&probe::Run],
-        cancellation: &culprit_collector::capture::CollectionCancellation,
+        cancellation: &culprit_read::cancellation::CollectionCancellation,
     ) -> Self {
         let mut owner = OwnedCaptures::from_pool(probe.pool.clone(), port).unwrap();
         let capture = owner

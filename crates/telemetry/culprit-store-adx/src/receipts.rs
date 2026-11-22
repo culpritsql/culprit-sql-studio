@@ -5,9 +5,9 @@ use crate::{
     response::Column,
     schema::Schema,
 };
-use culprit_collector::analytical::read_store::AnalyticalReadPage;
-use culprit_collector::delivery::recovery::CommittedRange;
 use culprit_core::{Result, telemetry::DeliveryProblem};
+use culprit_evidence::analytical::read_store::AnalyticalReadPage;
+use culprit_evidence::delivery::recovery::CommittedRange;
 use serde_json::json;
 use std::{collections::BTreeMap, sync::Arc};
 
@@ -120,5 +120,5 @@ fn invalid() -> culprit_core::Error {
     DeliveryProblem::Integrity.error()
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "write"))]
 mod tests;

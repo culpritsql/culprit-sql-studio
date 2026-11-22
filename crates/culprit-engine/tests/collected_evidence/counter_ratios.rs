@@ -1,10 +1,10 @@
 use super::fixture::Fixture;
-use culprit_collector::analytical::{
-    evidence::{EvidenceFamily, EvidenceGapReason},
-    test_support::{self, CounterRatioCase},
-};
 use culprit_core::{Snapshot, SourceOutcome, telemetry::*};
 use culprit_engine::collected_resources;
+use culprit_evidence::analytical::evidence::EvidenceFamily;
+use culprit_evidence::analytical::evidence::EvidenceGapReason;
+use culprit_evidence::analytical::test_support;
+use culprit_evidence::analytical::test_support::CounterRatioCase;
 
 #[tokio::test]
 async fn captured_counter_ratios_reuse_the_scan_view_and_preserve_original_exact_inputs_and_scope() {

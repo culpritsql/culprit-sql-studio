@@ -1,14 +1,18 @@
 use super::*;
-use crate::delivery::{
-    contract::Contract,
-    diagnostic_recovery::{load_diagnostic_checkpoint, load_diagnostic_input},
-    evidence::{PreparedRange, RangeManifest},
-    file_store::{FileOwnership, FileRecoveryStore},
-    recovery::*,
-    sink::PublishedRange,
-};
+use crate::delivery::diagnostic_recovery::load_diagnostic_checkpoint;
+use crate::delivery::diagnostic_recovery::load_diagnostic_input;
+use crate::delivery::evidence::PreparedRange;
+use crate::delivery::file_store::FileOwnership;
+use crate::delivery::file_store::FileRecoveryStore;
+use crate::delivery::recovery::*;
+use crate::delivery::sink::PublishedRange;
 use crate::outbox::DiagnosticInputState;
 use culprit_core::{ErrorCode, ErrorDetail};
+use culprit_evidence::delivery::contract::Contract;
+use culprit_evidence::delivery::evidence::RangeManifest;
+use culprit_evidence::delivery::heads::DiagnosticHeadPage;
+use culprit_evidence::delivery::{mutations::*, recovery::*};
+use culprit_read::cancellation::CollectionCancellation;
 use std::{
     pin::Pin,
     task::{Context, Poll},
@@ -176,37 +180,10 @@ impl RecoveryStore for RecoveryProbe {
     async fn diagnostic_original_groups(
         &self,
         keys: &[String],
-    ) -> Result<crate::delivery::diagnostic_recovery::OriginalHistoryLookup> {
+    ) -> Result<culprit_evidence::delivery::originals::OriginalHistoryLookup> {
         self.store.diagnostic_original_groups(keys).await
     }
 
-    fn id(&self) -> &str {
-        self.store.id()
-    }
-    async fn capture_manifest(&self, capture: &CaptureIdentity) -> Result<RangeManifest> {
-        self.reads.metadata.fetch_add(1, Ordering::SeqCst);
-        match &self.advertised {
-            Some(manifest) => {
-                assert_eq!(&manifest.capture, capture);
-                Ok(manifest.clone())
-            }
-            None => self.store.capture_manifest(capture).await,
-        }
-    }
-    async fn load(&self, range_id: &str) -> Result<RangeManifest> {
-        self.reads.metadata.fetch_add(1, Ordering::SeqCst);
-        self.store.load(range_id).await
-    }
-    async fn open_object(&self, batch: &PayloadObject) -> Result<RecoveryReader> {
-        assert_eq!(batch.object, self.object, "hydrate only the exact archived parent payload");
-        let input = self.store.open_object(batch).await?;
-        self.reads.opened.fetch_add(1, Ordering::SeqCst);
-        if !self.stall_at_eof {
-            return Ok(input);
-        }
-        self.reads.active.fetch_add(1, Ordering::SeqCst);
-        Ok(Box::pin(EofStall { input, reads: self.reads.clone(), stalled: false }))
-    }
     async fn checkpoint_head(&self) -> Result<Option<String>> {
         panic!("parent lookup does not enumerate history")
     }
@@ -228,14 +205,48 @@ impl RecoveryStore for RecoveryProbe {
     async fn diagnostic_heads(&self, _: Option<&str>, _: u32) -> Result<DiagnosticHeadPage> {
         panic!("checkpoint is already restored")
     }
+
+    async fn retire(&self, _: &Fence, _: &PublishedRange) -> Result<()> {
+        panic!("analysis never retires delivery")
+    }
+}
+#[async_trait::async_trait]
+impl culprit_evidence::delivery::recovery::RecoveryRead for RecoveryProbe {
+    fn id(&self) -> &str {
+        self.store.id()
+    }
+    async fn load(&self, range_id: &str) -> Result<RangeManifest> {
+        self.reads.metadata.fetch_add(1, Ordering::SeqCst);
+        self.store.load(range_id).await
+    }
+    async fn capture_manifest(&self, capture: &CaptureIdentity) -> Result<RangeManifest> {
+        self.reads.metadata.fetch_add(1, Ordering::SeqCst);
+        match &self.advertised {
+            Some(manifest) => {
+                assert_eq!(&manifest.capture, capture);
+                Ok(manifest.clone())
+            }
+            None => self.store.capture_manifest(capture).await,
+        }
+    }
+    async fn open_object(&self, batch: &PayloadObject) -> Result<RecoveryReader> {
+        assert_eq!(batch.object, self.object, "hydrate only the exact archived parent payload");
+        let input = self.store.open_object(batch).await?;
+        self.reads.opened.fetch_add(1, Ordering::SeqCst);
+        if !self.stall_at_eof {
+            return Ok(input);
+        }
+        self.reads.active.fetch_add(1, Ordering::SeqCst);
+        Ok(Box::pin(EofStall { input, reads: self.reads.clone(), stalled: false }))
+    }
+}
+#[async_trait::async_trait]
+impl culprit_evidence::delivery::mutations::RecoveryWrite for RecoveryProbe {
     async fn stage(&self, _: &PayloadObject, _: &Path) -> Result<StagedBatch> {
         panic!("analysis never stages recovery objects")
     }
     async fn commit(&self, _: &Fence, _: Option<&str>, _: &RangeManifest, _: &[StagedBatch]) -> Result<CommitReceipt> {
         panic!("analysis never commits remote recovery")
-    }
-    async fn retire(&self, _: &Fence, _: &PublishedRange) -> Result<()> {
-        panic!("analysis never retires delivery")
     }
 }
 
@@ -362,7 +373,7 @@ impl ArchivedCost {
         .unwrap();
         let store = Arc::new(FileRecoveryStore::create(&archive.path().join("recovery"), contract.clone()).unwrap());
         let owner = store.acquire().await.unwrap();
-        let proof = crate::analytical::test_support::investigation_fixture();
+        let proof = culprit_evidence::analytical::test_support::investigation_fixture();
         let first = proof.record.record;
         let mut second = first.clone();
         let TelemetryRecord::Operational(observation) = &mut second else { panic!() };
@@ -489,11 +500,11 @@ async fn a_recovered_activity_parent_can_be_pinned_without_becoming_consumed_or_
     );
     assert_eq!(cold.harness.outbox.status(10, None).await.unwrap().captures, 0);
     let episode = &cold.checkpoint.episodes[0];
-    let mut intent = crate::analytical::test_support::investigation_fixture().intent;
+    let mut intent = culprit_evidence::analytical::test_support::investigation_fixture().intent;
     intent.focus = cold.focus.clone().into();
     intent.episode_id = episode.id.clone();
     intent.episode_revision = episode.revision.clone();
-    intent.qualification.scope = RecipeCostScope::Activity(episode.scope.clone());
+    intent.qualification.measured_mut().unwrap().scope = RecipeCostScope::Activity(episode.scope.clone());
     let key = intent.key().unwrap();
     cold.harness.outbox.pin_investigation_parent(&intent).await.unwrap();
     assert_eq!(cold.harness.outbox.investigation_parent_keys().await.unwrap().as_slice(), std::slice::from_ref(&key));

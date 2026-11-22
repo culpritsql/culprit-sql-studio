@@ -6,7 +6,7 @@ pub struct CollectorRuntime {
     pub(super) recovery: recovery::RecoveryRegistry,
     pub(super) providers: Vec<(culprit_core::Engine, crate::ProviderRegistration)>,
     pub(super) credentials: Option<Arc<dyn culprit_auth::CredentialResolver>>,
-    pub(super) evidence_stores: evidence::stores::StoreRegistry,
+    synthesizer: Option<Arc<dyn culprit_collector::synthesis::Synthesizer>>,
 }
 impl Default for CollectorRuntime {
     fn default() -> Self {
@@ -20,7 +20,7 @@ impl Default for CollectorRuntime {
             recovery: recovery::RecoveryRegistry::builtins(providers),
             providers: vec![],
             credentials: None,
-            evidence_stores: evidence::stores::StoreRegistry::builtins(),
+            synthesizer: None,
         }
     }
 }
@@ -30,7 +30,7 @@ impl CollectorRuntime {
             recovery: recovery::RecoveryRegistry::default(),
             providers: vec![],
             credentials: None,
-            evidence_stores: evidence::stores::StoreRegistry::default(),
+            synthesizer: None,
         }
     }
     /// Select the same trusted provider registration used by Workspace; configuration files cannot supply it.
@@ -52,6 +52,23 @@ impl CollectorRuntime {
     pub fn with_credentials(mut self, credentials: Arc<dyn culprit_auth::CredentialResolver>) -> Self {
         self.credentials = Some(credentials);
         self
+    }
+    /// Replace only pure retained-evidence analysis. Native collection and credential ownership stay unchanged.
+    pub fn with_synthesizer(mut self, synthesizer: Arc<dyn culprit_collector::synthesis::Synthesizer>) -> Self {
+        self.synthesizer = Some(synthesizer);
+        self
+    }
+    pub(super) fn synthesizer(
+        &self,
+        workspace: &Workspace,
+    ) -> Result<Arc<dyn culprit_collector::synthesis::Synthesizer>> {
+        if let Some(synthesizer) = &self.synthesizer {
+            return Ok(synthesizer.clone());
+        }
+        Ok(Arc::new(crate::checks_synthesis::ChecksSynthesizer::new(
+            Arc::new(culprit_checks::pipeline_with(&workspace.extra_checks)),
+            crate::checks_synthesis::BUILTIN_RULES_VERSION,
+        )?))
     }
     pub fn validate(&self, config: &CollectorConfig) -> Result<()> {
         ConfiguredAdapters::new(config, SourceMode::Collect, self).map(|_| ())

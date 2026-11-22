@@ -1,11 +1,15 @@
 //! Bounded ClickHouse HTTP operations. Credentials are supplied by the engine and never serialized or diagnosed.
-use crate::response::{self, Column, QueryTable};
+use crate::response;
+use crate::response::Column;
+use crate::response::QueryTable;
 use async_trait::async_trait;
-use culprit_collector::{
-    analytical::encoding::EncodedBatch,
-    delivery::{contract::MAX_RANGE_BYTES, sink::Submission},
-};
+#[cfg(feature = "write")]
+use culprit_collector::analytical::encoding::EncodedBatch;
+#[cfg(feature = "write")]
+use culprit_collector::delivery::sink::Submission;
 use culprit_core::{Result, telemetry::DeliveryProblem};
+#[cfg(feature = "write")]
+use culprit_evidence::delivery::contract::MAX_RANGE_BYTES;
 use ring::rand::SecureRandom;
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, sync::Arc};
@@ -100,14 +104,15 @@ impl QueryRequest {
             || self.text.len() > MAX_QUERY_BYTES
             || self.parameters.len() > MAX_PARAMETERS
             || self.columns.is_empty()
-            || self.columns.len() > culprit_collector::analytical::schema::MAX_COLUMNS
+            || self.columns.len() > culprit_evidence::analytical::schema::MAX_COLUMNS
             || self.row_limit == 0
             || self.row_limit > MAX_QUERY_ROWS
             || self.byte_limit == 0
             || self.byte_limit > response::MAX_RESPONSE_BYTES
-            || self.parameters.iter().any(|(name, value)| {
-                !culprit_collector::analytical::schema::identifier(name) || value.len() > 64 * 1024
-            })
+            || self
+                .parameters
+                .iter()
+                .any(|(name, value)| !culprit_evidence::analytical::schema::identifier(name) || value.len() > 64 * 1024)
             || self.text.len() + self.parameters.values().map(String::len).sum::<usize>() > MAX_REQUEST_BYTES
         {
             return Err(invalid());
@@ -115,10 +120,12 @@ impl QueryRequest {
         Ok(())
     }
 }
+#[cfg(feature = "write")]
 pub enum InsertData {
     Batch(Arc<EncodedBatch>),
     Control(Vec<u8>),
 }
+#[cfg(feature = "write")]
 impl InsertData {
     fn bytes(&self) -> u64 {
         match self {
@@ -151,6 +158,7 @@ impl ClickHouseClient {
             sequential_reads: false,
         })
     }
+    #[cfg(feature = "write")]
     pub(crate) fn with_sequential_reads(mut self, required: bool) -> Self {
         self.sequential_reads = required;
         self
@@ -175,6 +183,7 @@ impl QueryTransport for ClickHouseClient {
         .map_err(|_| transport())?
     }
 }
+#[cfg(feature = "write")]
 impl ClickHouseClient {
     pub(crate) async fn insert(
         &self,
@@ -182,7 +191,7 @@ impl ClickHouseClient {
         data: InsertData,
         policy: crate::ingestion::WritePolicy,
     ) -> Result<Submission> {
-        if !culprit_collector::analytical::schema::identifier(table) || data.bytes() > MAX_RANGE_BYTES {
+        if !culprit_evidence::analytical::schema::identifier(table) || data.bytes() > MAX_RANGE_BYTES {
             return Err(invalid());
         }
         if data.bytes() == 0 {

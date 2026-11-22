@@ -1,6 +1,7 @@
 use super::*;
-use culprit_collector::analytical::test_support::{ColumnstoreRowgroupCase, columnstore_rowgroup_evidence};
 use culprit_core::telemetry::TelemetryRecord;
+use culprit_evidence::analytical::test_support::ColumnstoreRowgroupCase;
+use culprit_evidence::analytical::test_support::columnstore_rowgroup_evidence;
 fn report(case: ColumnstoreRowgroupCase) -> ColumnstoreRowgroupReport {
     let (source, records) = columnstore_rowgroup_evidence(case);
     let rows = records

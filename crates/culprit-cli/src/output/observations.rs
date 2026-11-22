@@ -491,10 +491,9 @@ pub(crate) fn current_request_work(report: &culprit_core::CurrentRequestWorkRepo
 
 fn native_metrics(metrics: &[culprit_core::Metric]) -> impl Iterator<Item = String> + '_ {
     metrics.iter().filter_map(|metric| {
-        metric
-            .text
-            .as_ref()
-            .map(|value| format!("{}: {}", metric.label, statement::preview_bounded(value, OBSERVATION_DETAIL_CHARS)))
+        metric.text.as_ref().map(|value| {
+            format!("{}: {}", metric.label, culprit_core::format::escaped_preview(value, OBSERVATION_DETAIL_CHARS).text)
+        })
     })
 }
 
@@ -1341,8 +1340,8 @@ pub(crate) use group_replication::{compact as compact_group_replication, group_r
 #[cfg(test)]
 mod hyperscale_replication_tests {
     use super::*;
-    use culprit_collector::analytical::test_support::{ReplicationCase, replication_evidence};
     use culprit_core::telemetry::*;
+    use culprit_evidence::analytical::test_support::{ReplicationCase, replication_evidence};
     #[test]
     fn canonical_replication_text_keeps_hyperscale_roles_nullable_parents_and_bounded_next_steps() {
         let (source, records) = replication_evidence(ReplicationCase::MssqlHyperscale);
@@ -1391,3 +1390,6 @@ pub(crate) use indexed_views::{compact_indexed_views, indexed_views};
 
 mod provider_acquisition;
 pub(crate) use provider_acquisition::{provider_acquisition, provider_acquisition_brief};
+
+mod incidents;
+pub(crate) use incidents::incidents;

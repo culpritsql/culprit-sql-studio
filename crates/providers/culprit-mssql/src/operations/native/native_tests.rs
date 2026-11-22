@@ -8,8 +8,8 @@ use crate::{
         receipt_directory, save_cost_receipt,
     },
 };
-use culprit_collector::capture::CollectionCancellation;
 use culprit_core::telemetry::*;
+use culprit_read::cancellation::CollectionCancellation;
 use futures_util::FutureExt;
 use serde_json::json;
 use std::{panic::AssertUnwindSafe, path::Path, time::Duration};

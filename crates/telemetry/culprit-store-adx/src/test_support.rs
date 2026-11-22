@@ -1,19 +1,36 @@
+#[cfg(feature = "write")]
 use crate::{
     client::{QueryRequest, QueryTransport},
     response::QueryTable,
 };
+#[cfg(feature = "write")]
 use async_trait::async_trait;
-pub(crate) use culprit_collector::analytical::test_support::{
-    Blobs, Fault, Recovery, cumulative_queries, fixture, interval_queries, waits,
-};
+#[cfg(feature = "write")]
 use culprit_core::{Result, telemetry::DeliveryProblem};
+#[cfg(feature = "write")]
+pub(crate) use culprit_evidence::analytical::test_support::Blobs;
+#[cfg(feature = "write")]
+pub(crate) use culprit_evidence::analytical::test_support::Fault;
+#[cfg(feature = "write")]
+pub(crate) use culprit_evidence::analytical::test_support::Recovery;
+#[cfg(feature = "write")]
+pub(crate) use culprit_evidence::analytical::test_support::cumulative_queries;
+#[cfg(feature = "write")]
+pub(crate) use culprit_evidence::analytical::test_support::fixture;
+#[cfg(feature = "write")]
+pub(crate) use culprit_evidence::analytical::test_support::interval_queries;
+#[cfg(feature = "write")]
+pub(crate) use culprit_evidence::analytical::test_support::waits;
 use serde_json::{Value, json};
+#[cfg(feature = "write")]
 use std::collections::VecDeque;
+#[cfg(feature = "write")]
 use std::sync::Mutex;
 
+#[cfg(feature = "write")]
 pub(crate) fn event_grid_sink(
-    contract: culprit_collector::delivery::contract::Contract,
-    recovery: std::sync::Arc<dyn culprit_collector::delivery::recovery::RecoveryStore>,
+    contract: culprit_evidence::delivery::contract::Contract,
+    recovery: std::sync::Arc<dyn culprit_evidence::delivery::recovery::RecoveryRead>,
     blobs: std::sync::Arc<Blobs>,
     query: std::sync::Arc<dyn QueryTransport>,
     scratch: &std::path::Path,
@@ -28,16 +45,19 @@ pub(crate) fn event_grid_sink(
     )
 }
 
+#[cfg(feature = "write")]
 pub(super) enum Reply {
     Audit(u64),
     Rows(Vec<Vec<Value>>),
     Failure,
 }
+#[cfg(feature = "write")]
 #[derive(Default)]
 pub(super) struct Queries {
     pub(super) replies: Mutex<VecDeque<Reply>>,
     pub(super) requests: Mutex<Vec<QueryRequest>>,
 }
+#[cfg(feature = "write")]
 #[async_trait]
 impl QueryTransport for Queries {
     fn destination(&self) -> &str {

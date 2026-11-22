@@ -41,9 +41,8 @@ impl TelemetrySource for ProfileSource {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use culprit_collector::analytical::test_support::{
-        QualificationFixture, QualificationFixtureCase, baseline_profile_expectation,
-    };
+    use culprit_collector::analytical::test_support::{QualificationFixture, QualificationFixtureCase};
+    use culprit_evidence::analytical::test_support::baseline_profile_expectation;
     use std::sync::{
         Arc,
         atomic::{AtomicBool, Ordering},

@@ -1,4 +1,5 @@
 use super::*;
+use culprit_read::cancellation::CollectionCancellation;
 
 fn local_partition() -> SourcePartition {
     SourcePartition::InstanceLocal {
@@ -148,7 +149,7 @@ fn policies() -> DiagnosticPolicies {
                 selector: RecipeSelector::FocusedBlocking,
                 subjects: vec![RecipeSubject::Database],
                 budget: CollectionBudget::default(),
-                cost: RecipeCostQualification::Unqualified,
+                admission: RecipeAdmission::Unqualified,
             }],
         )
         .unwrap()

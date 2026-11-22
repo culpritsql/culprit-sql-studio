@@ -1,5 +1,5 @@
 use super::*;
-use crate::{NewConnection, credentials::CredentialProfile};
+use crate::{NewConnection, credentials::CredentialProfile, recovery_config::RecoveryConfig};
 use culprit_auth_azure::IdentityConfig;
 use culprit_blob_azure::AzureBlobConfig;
 use culprit_core::{AuthKind, Engine, Environment};
@@ -121,16 +121,19 @@ fn omitted_adx_transport_selects_queued_delivery_without_a_ready_container() {
 
 struct NoObjectWork;
 #[async_trait::async_trait]
-impl culprit_collector::delivery::object_store::transport::ObjectTransport for NoObjectWork {
-    async fn get(&self, _: &str) -> Result<Option<culprit_collector::delivery::object_store::transport::ObjectRead>> {
+impl culprit_evidence::delivery::object_store::transport::ObjectReadTransport for NoObjectWork {
+    async fn get(&self, _: &str) -> Result<Option<culprit_evidence::delivery::object_store::transport::ObjectRead>> {
         panic!("offline object read")
     }
+}
+#[async_trait::async_trait]
+impl culprit_evidence::delivery::object_store::transport::ObjectTransport for NoObjectWork {
     async fn put(
         &self,
         _: &str,
         _: Vec<u8>,
-        _: culprit_collector::delivery::object_store::transport::WriteCondition<'_>,
-    ) -> Result<culprit_collector::delivery::object_store::transport::ObjectWrite> {
+        _: culprit_evidence::delivery::object_store::transport::WriteCondition<'_>,
+    ) -> Result<culprit_evidence::delivery::object_store::transport::ObjectWrite> {
         panic!("offline object write")
     }
     async fn put_file(
@@ -138,7 +141,7 @@ impl culprit_collector::delivery::object_store::transport::ObjectTransport for N
         _: &str,
         _: &Path,
         _: u64,
-    ) -> Result<culprit_collector::delivery::object_store::transport::ObjectWrite> {
+    ) -> Result<culprit_evidence::delivery::object_store::transport::ObjectWrite> {
         panic!("offline object upload")
     }
 }

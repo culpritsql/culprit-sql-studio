@@ -1,5 +1,6 @@
 //! Paired page questions authenticate their original Activity and page receipts before a later result is used.
 use super::*;
+use culprit_read::cancellation::CollectionCancellation;
 
 pub(super) async fn verify_parents(
     outbox: &mut Outbox,

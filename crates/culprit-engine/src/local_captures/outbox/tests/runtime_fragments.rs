@@ -1,5 +1,5 @@
 use super::*;
-use culprit_collector::analytical::test_support::query_runtime_fragment_evidence;
+use culprit_evidence::analytical::test_support::query_runtime_fragment_evidence;
 #[tokio::test]
 async fn local_runtime_and_wait_views_select_the_same_original_history_without_losing_unknown_means_or_native_endpoints()
  {

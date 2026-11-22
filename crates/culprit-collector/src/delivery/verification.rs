@@ -1,13 +1,13 @@
 //! Durable, bounded verification pages. A private progress record is never an externally deserializable proof.
-use super::{
-    contract::MAX_RANGE_RECORDS,
-    recovery::CommittedRange,
-    sink::{ReceiptPage, TelemetrySink, VerificationBudget},
-};
+use super::sink::TelemetrySink;
+use super::sink::VerificationBudget;
 use culprit_core::{
     Result,
     telemetry::{DeliveryProblem, MAX_CURSOR_BYTES},
 };
+use culprit_evidence::delivery::contract::MAX_RANGE_RECORDS;
+use culprit_evidence::delivery::receipts::ReceiptPage;
+use culprit_evidence::delivery::recovery::CommittedRange;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 

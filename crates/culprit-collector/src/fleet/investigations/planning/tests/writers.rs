@@ -1,5 +1,6 @@
 use super::*;
 use crate::fleet::investigations::tests::page_writers;
+use culprit_read::cancellation::CollectionCancellation;
 
 async fn mapped_episode(harness: &Harness) -> DiagnosticEpisode {
     let checkpoints = harness.outbox.diagnostic_checkpoints(DIAGNOSTIC_CONTROLLER_VERSION, None, 10).await.unwrap();
@@ -87,18 +88,18 @@ async fn no_writer_recipe_or_wrong_cost_selector_can_borrow_the_mapping_approval
         let writer = &mut backend.additional_recipes[0];
         match policy {
             "missing" => backend.additional_recipes.clear(),
-            "unqualified" => writer.cost = RecipeCostQualification::Unqualified,
+            "unqualified" => writer.admission = RecipeAdmission::Unqualified,
             "selector" => {
                 writer.selector = RecipeSelector::FocusedCompilationAdmission;
-                let RecipeCostQualification::Measured(receipt) = &mut writer.cost else { panic!() };
+                let RecipeAdmission::Measured(receipt) = &mut writer.admission else { panic!() };
                 receipt.selector = writer.selector;
             }
             "cost" => {
-                let RecipeCostQualification::Measured(receipt) = &mut writer.cost else { panic!() };
+                let RecipeAdmission::Measured(receipt) = &mut writer.admission else { panic!() };
                 receipt.evidence.payload_sha256 = digest(b"wrong independent writer experiment");
             }
             "generation" => {
-                let RecipeCostQualification::Measured(receipt) = &mut writer.cost else { panic!() };
+                let RecipeAdmission::Measured(receipt) = &mut writer.admission else { panic!() };
                 let RecipeCostScope::Activity(scope) = &mut receipt.scope else { panic!() };
                 scope.native_epoch = Some("another-native-generation".into());
                 let SourcePartition::InstanceLocal { epoch, .. } = &mut scope.partition else { panic!() };

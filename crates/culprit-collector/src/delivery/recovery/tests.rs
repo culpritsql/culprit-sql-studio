@@ -1,6 +1,8 @@
 use super::*;
-use crate::analytical::test_support::{self, Fault, Recovery};
 use culprit_core::{ErrorDetail, telemetry::*};
+use culprit_evidence::analytical::test_support;
+use culprit_evidence::analytical::test_support::Fault;
+use culprit_evidence::analytical::test_support::Recovery;
 use std::sync::atomic::Ordering;
 
 fn foreign_population_binding(empty: bool) -> Recovery {

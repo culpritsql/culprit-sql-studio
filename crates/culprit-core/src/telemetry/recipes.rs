@@ -10,7 +10,7 @@ pub fn recipe_catalog_is_valid(recipes: &[RecipeDescriptor]) -> bool {
     recipes.len() <= MAX_TELEMETRY_RECIPES
         && recipes.iter().enumerate().all(|(index, recipe)| {
             recipe.is_valid()
-                && !matches!(recipe.selector, RecipeSelector::Collection(TelemetryCollection::Diagnostics))
+                && !matches!(recipe.selector, RecipeSelector::Collection(collection) if collection.is_local_output())
                 && ids.insert(&recipe.id)
                 && recipes[..index].iter().all(|before| {
                     before.selector != recipe.selector
@@ -133,12 +133,24 @@ impl RecipeSubject {
 #[derive(Serialize, Deserialize, TS, Clone, Debug, PartialEq)]
 #[serde(rename_all = "kebab-case")]
 #[ts(export)]
-pub enum RecipeCostQualification {
+pub enum RecipeAdmission {
     /// Bounded rows, read-only SQL and a passing local fixture are not production work-cost qualification.
     Unqualified,
+    /// Source-owned, versioned native safety policy. This is not measured CPU, grants or work-cost approval.
+    BuiltinSafety(Box<BuiltinRecipeSafety>),
     /// Source-issued approval for one exact native context. Authentication and the selected source's pure
     /// native-cost verifier are mandatory; structural receipt/accounting validity never grants native admission.
     Measured(Box<RecipeCostReceipt>),
+}
+
+impl RecipeAdmission {
+    pub fn matches_component(&self, component: &crate::ComponentVersion) -> bool {
+        match self {
+            Self::Unqualified => false,
+            Self::BuiltinSafety(policy) => policy.is_valid() && policy.component == *component,
+            Self::Measured(receipt) => receipt.is_valid() && receipt.component == *component,
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, TS, Clone, Copy, Debug, PartialEq, Eq)]
@@ -161,7 +173,7 @@ pub struct RecipeDescriptor {
     /// The same source-owned clamp supplies native construction and this declared upper envelope.
     pub budget: CollectionBudget,
     /// An implementation declaration does not establish live product/version/permission availability.
-    pub cost: RecipeCostQualification,
+    pub admission: RecipeAdmission,
 }
 
 impl RecipeDescriptor {
@@ -172,9 +184,10 @@ impl RecipeDescriptor {
             && self.subjects.len() <= 8
             && self.subjects.iter().enumerate().all(|(index, subject)| !self.subjects[..index].contains(subject))
             && self.budget.validate().is_ok()
-            && match &self.cost {
-                RecipeCostQualification::Unqualified => true,
-                RecipeCostQualification::Measured(receipt) => receipt.matches_recipe(self),
+            && match &self.admission {
+                RecipeAdmission::Unqualified => true,
+                RecipeAdmission::BuiltinSafety(policy) => policy.matches_recipe(self),
+                RecipeAdmission::Measured(receipt) => receipt.matches_recipe(self),
             }
     }
 

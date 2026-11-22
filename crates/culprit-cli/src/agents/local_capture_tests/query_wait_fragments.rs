@@ -1,5 +1,5 @@
 use super::*;
-use culprit_collector::analytical::test_support::query_wait_fragment_evidence;
+use culprit_evidence::analytical::test_support::query_wait_fragment_evidence;
 #[tokio::test]
 async fn local_wait_mcp_keeps_exact_native_fragment_metrics_and_context_without_original_proof_or_provider_work() {
     let (mut source, records) = query_wait_fragment_evidence();

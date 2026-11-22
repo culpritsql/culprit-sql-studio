@@ -1,5 +1,6 @@
 //! A captured history read answers its finite question through the same offline queue and CAS owner.
 use super::*;
+use culprit_read::cancellation::CollectionCancellation;
 
 pub(super) struct OriginalBasis {
     source: CollectionDescription,

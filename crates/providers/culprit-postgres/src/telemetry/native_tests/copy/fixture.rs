@@ -5,8 +5,8 @@ use crate::{
     connect::Connector,
     rows::{quote_ident, tagged},
 };
-use culprit_collector::capture::CollectionCancellation;
 use culprit_core::ConnectionSpec;
+use culprit_read::cancellation::CollectionCancellation;
 use futures_util::{FutureExt, SinkExt, future::LocalBoxFuture};
 use std::{panic::AssertUnwindSafe, time::Duration};
 use tokio::{sync::oneshot, task::JoinHandle};

@@ -7,6 +7,10 @@ use crate::dialect::{NewIndex, keys, unique};
 pub(super) struct Sqlite;
 
 impl EngineSpec for Sqlite {
+    fn default_port(&self) -> Option<u16> {
+        None
+    }
+
     fn session_id_format(&self) -> SessionIdFormat {
         SessionIdFormat::NativeId
     }

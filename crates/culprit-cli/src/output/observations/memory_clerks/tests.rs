@@ -1,7 +1,8 @@
 use super::*;
 use culprit_checks::memory_clerks::MemoryClerkEvidence;
-use culprit_collector::analytical::test_support::{MemoryClerkCase, memory_clerk_evidence};
 use culprit_core::telemetry::*;
+use culprit_evidence::analytical::test_support::MemoryClerkCase;
+use culprit_evidence::analytical::test_support::memory_clerk_evidence;
 
 fn report(case: MemoryClerkCase, missing: bool) -> MemoryClerkReport {
     let (source, records) = memory_clerk_evidence(case);

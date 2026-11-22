@@ -1,9 +1,8 @@
 //! Local observation artifacts. A manifest is incomplete until source verification and file sealing finish.
-use crate::{
-    collection_references::ObservationReferences,
-    durable_fs,
-    record_verification::{NoObservation, RecordFileErrors, RecordVerification},
-};
+use crate::durable_fs;
+use crate::record_verification::NoObservation;
+use crate::record_verification::RecordFileErrors;
+use crate::record_verification::RecordVerification;
 use chrono::Utc;
 use culprit_core::{
     Error, Result, t,
@@ -13,13 +12,15 @@ use culprit_core::{
         ReferenceCoverage, TelemetryRecord,
     },
 };
+use culprit_evidence::collection_references::ObservationReferences;
 use sha2::{Digest, Sha256};
-use std::{
-    collections::HashSet,
-    fs::{self, File},
-    io::{self, Write},
-    path::{Path, PathBuf},
-};
+use std::collections::HashSet;
+use std::fs;
+use std::fs::File;
+use std::io;
+use std::io::Write;
+use std::path::Path;
+use std::path::PathBuf;
 
 struct OutputFile {
     handle: Option<File>,
@@ -113,6 +114,25 @@ impl ObservationFiles {
         }
         self.manifest.description = Some(description);
         self.persist()
+    }
+
+    pub(crate) fn write_stream(&mut self, index: usize, records: &[TelemetryRecord]) -> Result<()> {
+        let mut offset = 0;
+        while offset < records.len() {
+            self.begin_page(index).map_err(CollectionStop::error)?;
+            let mut end = (offset + self.manifest.request.budget.page_rows as usize).min(records.len());
+            loop {
+                match self.write_page(index, &records[offset..end])? {
+                    None => break,
+                    Some(CollectionStop::ByteLimit | CollectionStop::RowLimit) if end - offset > 1 => {
+                        end = offset + (end - offset) / 2;
+                    }
+                    Some(reason) => return Err(reason.error()),
+                }
+            }
+            offset = end;
+        }
+        self.seal(index)
     }
 
     pub(crate) fn begin_page(&mut self, index: usize) -> std::result::Result<(), CollectionStop> {
@@ -380,7 +400,8 @@ mod tests {
         for change in ["clock", "member", "source", "bytes", "hash", "count"] {
             let temporary = tempfile::tempdir().unwrap();
             let directory = temporary.path().join("observation");
-            let (completed, records) = crate::analytical::test_support::node_statement_work_evidence_cases().remove(0);
+            let (completed, records) =
+                culprit_evidence::analytical::test_support::node_statement_work_evidence_cases().remove(0);
             let snapshot = completed.observation.snapshot().unwrap().clone();
             let mut provisional = completed.clone();
             provisional.observation = SourceObservation::PagedSnapshot(PagedSnapshotDescription {

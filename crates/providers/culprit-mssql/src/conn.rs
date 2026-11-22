@@ -19,7 +19,6 @@ pub(crate) type MsClient = Client<Compat<TcpStream>>;
 #[cfg(test)]
 mod native_tests;
 
-pub(crate) const DEFAULT_PORT: u16 = 1433;
 const TCP_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(15);
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(60);
@@ -45,7 +44,7 @@ pub(crate) fn build_config(spec: &ConnectionSpec) -> Result<Config> {
     }
     let mut config = Config::new();
     config.host(spec.host.trim());
-    config.port(spec.port.unwrap_or(DEFAULT_PORT));
+    config.port(culprit_core::Engine::Mssql.network_port(spec.port)?);
     if let Some(database) = spec.database.as_deref().filter(|d| !d.is_empty()) {
         config.database(database);
     }

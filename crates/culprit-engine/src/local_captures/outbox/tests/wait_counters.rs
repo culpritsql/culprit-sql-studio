@@ -1,5 +1,6 @@
 use super::*;
-use culprit_collector::analytical::test_support::{PoolWaitCounterCase, pool_wait_counter_evidence};
+use culprit_evidence::analytical::test_support::PoolWaitCounterCase;
+use culprit_evidence::analytical::test_support::pool_wait_counter_evidence;
 async fn analyze(reader: &OutboxCaptureReader, connection: &str, id: &str) -> Result<Box<LocalWaitCounters>> {
     let guard = OperationGuard::new(reader.timeout()).unwrap();
     let result = reader

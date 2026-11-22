@@ -1,6 +1,7 @@
 use super::*;
 use crate::NewConnection;
-use culprit_collector::analytical::test_support::{QualificationFixture, QualificationFixtureCase};
+use culprit_collector::analytical::test_support::QualificationFixture;
+use culprit_collector::analytical::test_support::QualificationFixtureCase;
 use culprit_core::{AuthKind, Engine, Error, RecipeQualificationState};
 use std::{path::Path, sync::Arc};
 
@@ -45,7 +46,7 @@ fn saved(workspace: &Workspace, name: &str) {
         .unwrap();
 }
 fn measured(workspace: &Workspace, name: &str) -> bool {
-    matches!(workspace.telemetry_recipes(name).unwrap()[0].cost, RecipeCostQualification::Measured(_))
+    matches!(workspace.telemetry_recipes(name).unwrap()[0].admission, RecipeAdmission::Measured(_))
 }
 async fn install(workspace: &Workspace, outbox: &mut Outbox, fixture: &QualificationFixture) {
     let report = workspace
@@ -71,8 +72,8 @@ async fn live_issuance_changes_only_the_original_saved_connection_and_restart_re
     assert!(!measured(&ws, "same-engine"));
     assert!(ws.connection_service().require_current_route(&before).is_err());
     let approved = ws.connection_service().saved_route("measured").unwrap();
-    let receipt = match &ws.telemetry_recipes("measured").unwrap()[0].cost {
-        RecipeCostQualification::Measured(receipt) => receipt.as_ref().clone(),
+    let receipt = match &ws.telemetry_recipes("measured").unwrap()[0].admission {
+        RecipeAdmission::Measured(receipt) => receipt.as_ref().clone(),
         _ => panic!(),
     };
     assert_eq!(

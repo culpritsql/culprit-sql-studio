@@ -1,5 +1,6 @@
 use super::*;
-use culprit_collector::analytical::test_support::{PoolWaitCounterCase, pool_wait_counter_evidence};
+use culprit_evidence::analytical::test_support::PoolWaitCounterCase;
+use culprit_evidence::analytical::test_support::pool_wait_counter_evidence;
 #[tokio::test]
 async fn actual_mcp_startup_pool_wait_analysis_uses_original_references_and_never_constructs_native_sources() {
     for case in PoolWaitCounterCase::ALL {

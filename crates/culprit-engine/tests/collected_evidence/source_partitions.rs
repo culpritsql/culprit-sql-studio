@@ -1,13 +1,11 @@
 use super::fixture::Fixture;
-use culprit_collector::analytical::{
-    evidence::EvidenceFamily,
-    test_support::{
-        assert_operational_capture, replica_activity_evidence_cases, replica_workload_evidence_cases,
-        replicated_history_evidence_cases,
-    },
-};
 use culprit_core::{CompletedSpillStatementBinding, telemetry::*};
 use culprit_engine::collected_resources;
+use culprit_evidence::analytical::evidence::EvidenceFamily;
+use culprit_evidence::analytical::test_support::assert_operational_capture;
+use culprit_evidence::analytical::test_support::replica_activity_evidence_cases;
+use culprit_evidence::analytical::test_support::replica_workload_evidence_cases;
+use culprit_evidence::analytical::test_support::replicated_history_evidence_cases;
 
 fn family(records: &[TelemetryRecord]) -> EvidenceFamily {
     match records[0].stream() {

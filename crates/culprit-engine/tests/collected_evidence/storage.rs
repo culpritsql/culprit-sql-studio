@@ -1,9 +1,9 @@
 use super::fixture::Fixture;
-use culprit_collector::analytical::{
-    evidence::{EvidenceFamily, EvidenceGapReason},
-    test_support::{self, StorageCase},
-};
 use culprit_core::{SourceState, telemetry::*};
+use culprit_evidence::analytical::evidence::EvidenceFamily;
+use culprit_evidence::analytical::evidence::EvidenceGapReason;
+use culprit_evidence::analytical::test_support;
+use culprit_evidence::analytical::test_support::StorageCase;
 #[tokio::test]
 async fn original_shared_tempdb_log_replay_preserves_data_separation_exact_free_bytes_and_independent_missingness() {
     for case in [

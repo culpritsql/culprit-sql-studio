@@ -1,5 +1,5 @@
 use super::*;
-use culprit_collector::analytical::test_support::hyperscale_log_component_evidence_cases;
+use culprit_evidence::analytical::test_support::hyperscale_log_component_evidence_cases;
 
 #[test]
 fn component_attachment_requires_exactly_one_explicit_original_and_a_local_outbox() {

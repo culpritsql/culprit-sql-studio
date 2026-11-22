@@ -101,15 +101,6 @@ impl MemoryBlobs {
 }
 #[async_trait]
 impl ObjectTransport for MemoryBlobs {
-    async fn get(&self, key: &str) -> Result<Option<ObjectRead>> {
-        let mut state = self.0.lock().unwrap();
-        *state.reads.entry(key.into()).or_default() += 1;
-        Ok(state.objects.get(key).cloned().map(|object| ObjectRead {
-            etag: object.etag,
-            bytes: object.bytes.len() as u64,
-            body: Box::pin(std::io::Cursor::new(object.bytes)),
-        }))
-    }
     async fn put(&self, key: &str, bytes: Vec<u8>, condition: WriteCondition<'_>) -> Result<ObjectWrite> {
         let pause = if key == ROOT_KEY { self.1.lock().unwrap().take() } else { None };
         if let Some(pause) = pause {
@@ -126,6 +117,18 @@ impl ObjectTransport for MemoryBlobs {
             return Err(integrity());
         }
         self.write(key, contents, WriteCondition::Absent)
+    }
+}
+#[async_trait]
+impl culprit_evidence::delivery::object_store::transport::ObjectReadTransport for MemoryBlobs {
+    async fn get(&self, key: &str) -> Result<Option<ObjectRead>> {
+        let mut state = self.0.lock().unwrap();
+        *state.reads.entry(key.into()).or_default() += 1;
+        Ok(state.objects.get(key).cloned().map(|object| ObjectRead {
+            etag: object.etag,
+            bytes: object.bytes.len() as u64,
+            body: Box::pin(std::io::Cursor::new(object.bytes)),
+        }))
     }
 }
 
@@ -172,7 +175,7 @@ async fn diagnostic_recovery_heads_follow_the_same_root_cas_even_when_index_writ
     let prepared = crate::delivery::batch_tests::empty_diagnostics(root.path(), native.manifest(), 2);
     let (blobs, store, fence) = fixture().await;
     let parent = stage_and_commit(&store, &fence, None, &native).await.unwrap();
-    let reference = super::super::diagnostic_recovery::capture_reference(parent.manifest()).unwrap();
+    let reference = culprit_evidence::delivery::heads::capture_reference(parent.manifest()).unwrap();
     assert!(store.diagnostic_input_pending(&reference, DIAGNOSTIC_CONTROLLER_VERSION).await.unwrap());
     let mut wrong = reference.clone();
     wrong.manifest_sha256 = culprit_core::telemetry::digest(b"wrong-original-manifest");

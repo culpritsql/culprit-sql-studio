@@ -1,12 +1,17 @@
 use super::*;
-use crate::{response, schema::quote};
-use std::{io::Read, sync::OnceLock, time::Duration};
+use crate::response;
+#[cfg(feature = "write")]
+use crate::schema::quote;
+#[cfg(feature = "write")]
+use std::io::Read;
+use std::{sync::OnceLock, time::Duration};
 const MAX_EXECUTION_SECONDS: u32 = 30;
 const MAX_THREADS: u32 = 2;
 const MAX_READ_ROWS: u32 = 1_000_000;
 const MAX_READ_BYTES: u32 = 256 * 1024 * 1024;
 const MAX_MEMORY_BYTES: u32 = 256 * 1024 * 1024;
 const TIMEOUT: Duration = Duration::from_secs(45);
+#[cfg(feature = "write")]
 const MAX_ACKNOWLEDGEMENT_BYTES: u64 = 64 * 1024;
 
 fn request(
@@ -64,6 +69,7 @@ pub(super) fn query(
         response.body_mut().with_config().limit(input.byte_limit as u64).read_to_vec().map_err(|_| transport())?;
     response::parse(&bytes, &input.columns, input.row_limit, input.byte_limit)
 }
+#[cfg(feature = "write")]
 pub(super) fn insert(
     origin: &str,
     config: &ClickHouseConfig,

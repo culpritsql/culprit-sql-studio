@@ -1,6 +1,7 @@
 use super::*;
-use culprit_collector::analytical::test_support::{MssqlAgentJobsCase, mssql_agent_jobs_evidence};
 use culprit_core::telemetry::*;
+use culprit_evidence::analytical::test_support::MssqlAgentJobsCase;
+use culprit_evidence::analytical::test_support::mssql_agent_jobs_evidence;
 #[test]
 fn agent_brief_preserves_exact_native_tokens_scope_limits_and_safe_verification_from_one_pure_report() {
     let (source, records) = mssql_agent_jobs_evidence(MssqlAgentJobsCase::Failed);
@@ -29,7 +30,7 @@ fn agent_brief_preserves_exact_native_tokens_scope_limits_and_safe_verification_
 
 #[test]
 fn scheduled_event_brief_uses_canonical_status_and_escapes_native_controls_without_sql_or_proof_payloads() {
-    use culprit_collector::analytical::test_support::{MysqlEventsCase, mysql_events_evidence};
+    use culprit_evidence::analytical::test_support::{MysqlEventsCase, mysql_events_evidence};
     let (source, records) = mysql_events_evidence(MysqlEventsCase::Disabled);
     let mut rows = records
         .into_iter()

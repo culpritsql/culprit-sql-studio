@@ -9,7 +9,6 @@ use culprit_core::{
 use mysql_async::prelude::Queryable;
 use mysql_async::{Conn, DriverError, IoError, OptsBuilder, SslOpts};
 
-pub const DEFAULT_PORT: u16 = 3306;
 /// Marks Culprit's own statements so workload collection leaves them out of the application's history.
 pub const TAG: &str = "/* culprit */";
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
@@ -147,7 +146,7 @@ impl Connector {
         if host.is_empty() {
             return Err(Error::invalid(t!("provider.mysql.connect.host_required")));
         }
-        let port = spec.port.unwrap_or(DEFAULT_PORT);
+        let port = culprit_core::Engine::Mysql.network_port(spec.port)?;
         let user = spec.user.clone().filter(|u| !u.is_empty()).ok_or_else(|| {
             Error::invalid(t!("provider.mysql.connect.user_required"))
                 .with_hint(t!("provider.mysql.connect.user_required_hint"))

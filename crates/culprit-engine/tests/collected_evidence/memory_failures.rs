@@ -1,9 +1,10 @@
 use super::fixture::Fixture;
-use culprit_collector::analytical::{evidence::EvidenceFamily, test_support::memory_failure_evidence};
 use culprit_core::{
     Engine, Snapshot, SourceOutcome, SourceState, operations::MemoryFailureSnapshot, source_id, telemetry::*,
 };
 use culprit_engine::collected_resources;
+use culprit_evidence::analytical::evidence::EvidenceFamily;
+use culprit_evidence::analytical::test_support::memory_failure_evidence;
 
 fn native(source: &mut CollectionDescription) -> &mut StateSnapshotDescription {
     let SourceObservation::Snapshot(snapshot) = &mut source.observation else { panic!("snapshot fixture") };
@@ -209,7 +210,7 @@ async fn other_subjects_and_datasets_cannot_acquire_native_memory_failure_semant
 #[tokio::test]
 async fn original_instance_qualification_and_missing_pool_process_authority_are_visible_without_hiding_failure_rows_or_recovery()
  {
-    use culprit_collector::analytical::test_support::{DiagnosticOriginalCase, diagnostic_original_evidence};
+    use culprit_evidence::analytical::test_support::{DiagnosticOriginalCase, diagnostic_original_evidence};
     for case in [DiagnosticOriginalCase::Memory, DiagnosticOriginalCase::MemoryAmbiguousPool] {
         let (source, records) = diagnostic_original_evidence(case);
         let fixture = Fixture::new(source.clone(), records).await;

@@ -1,6 +1,7 @@
 use super::*;
-use culprit_collector::analytical::test_support::{ChangeFeedCase, change_feed_evidence};
 use culprit_core::{t, telemetry::*};
+use culprit_evidence::analytical::test_support::ChangeFeedCase;
+use culprit_evidence::analytical::test_support::change_feed_evidence;
 fn report(case: ChangeFeedCase) -> ChangeFeedReport {
     let (source, rows) = change_feed_evidence(case);
     let rows = rows

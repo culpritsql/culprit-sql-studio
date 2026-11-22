@@ -1,6 +1,7 @@
 use super::*;
-use culprit_collector::analytical::test_support::{CounterRatioCase, counter_ratio_evidence};
 use culprit_core::{SourceOutcome, telemetry::*};
+use culprit_evidence::analytical::test_support::CounterRatioCase;
+use culprit_evidence::analytical::test_support::counter_ratio_evidence;
 
 fn report(case: CounterRatioCase) -> CounterRatioReport {
     let (source, records) = counter_ratio_evidence(case);

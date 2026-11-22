@@ -1,10 +1,10 @@
 use super::*;
-use culprit_collector::analytical::{
-    evidence::{EvidenceFamily, RecoveryPayloadBudget},
-    test_support::{self, TuningCase},
-};
 use culprit_core::SourceState;
 use culprit_engine::collected_resources;
+use culprit_evidence::analytical::evidence::EvidenceFamily;
+use culprit_evidence::analytical::evidence::RecoveryPayloadBudget;
+use culprit_evidence::analytical::test_support;
+use culprit_evidence::analytical::test_support::TuningCase;
 
 #[tokio::test]
 async fn authenticated_tuning_points_reuse_the_pure_view_without_inventing_query_or_management_authority() {
@@ -93,7 +93,7 @@ async fn wrong_dataset_family_or_shared_subject_cannot_be_reinterpreted_as_tunin
 
 #[tokio::test]
 async fn original_local_forcing_and_scalar_work_replay_as_independent_context_after_recovery() {
-    use culprit_collector::analytical::test_support::{ParameterEvidenceCase, parameter_evidence};
+    use culprit_evidence::analytical::test_support::{ParameterEvidenceCase, parameter_evidence};
     let (source, records) = test_support::tuning_evidence(TuningCase::LocalForcedRecovery);
     assert_eq!(source.target.database().unwrap().incarnation, None);
     let fixture = Fixture::new(source.clone(), records.clone()).await;

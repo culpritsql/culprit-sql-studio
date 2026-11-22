@@ -3,18 +3,18 @@ use super::{
     runtime::Runtime,
     support::{Harness, capture_frame},
 };
-use crate::{
-    capture::CollectionCancellation,
-    diagnostics::{analyze_pending, drain_pending},
-    fleet::{
-        FleetJournal, FleetRunner,
-        investigations::Investigations,
-        journal::FocusedStage,
-        scheduler::{Outcome, Scheduler},
-    },
-    outbox::{DiagnosticInputState, Outbox},
-};
+use crate::diagnostics::analyze_pending;
+use crate::diagnostics::drain_pending;
+use crate::fleet::FleetJournal;
+use crate::fleet::FleetRunner;
+use crate::fleet::investigations::Investigations;
+use crate::fleet::journal::FocusedStage;
+use crate::fleet::scheduler::Outcome;
+use crate::fleet::scheduler::Scheduler;
+use crate::outbox::DiagnosticInputState;
+use crate::outbox::Outbox;
 use culprit_core::telemetry::*;
+use culprit_read::cancellation::CollectionCancellation;
 use std::{path::Path, sync::atomic::Ordering, time::Duration};
 use tokio::time::Instant;
 
@@ -52,7 +52,7 @@ async fn shared_owner_executes_exact_question_and_updates_only_its_original_data
         owner_source.partition.native_epoch(),
         intent.focus.activity_participant().unwrap().partition.native_epoch()
     );
-    assert_eq!(intent.qualification.scope.target(), owner_source.target);
+    assert_eq!(intent.qualification.scope().target(), owner_source.target);
     assert!(matches!(intent.selection().unwrap(), CollectionSelection::SharedPageWaitFocus { .. }));
     let original = runtime.fixture.outbox.diagnostic_evidence(intent.focus.parent()).await.unwrap();
     let owner_before = (owner_source, owner_row);
@@ -75,7 +75,7 @@ async fn shared_owner_executes_exact_question_and_updates_only_its_original_data
         .await
         .unwrap();
     assert_eq!(input.controller_target().unwrap(), intent.focus.target());
-    assert_eq!(input.source.target, intent.qualification.scope.target());
+    assert_eq!(input.source.target, intent.qualification.scope().target());
     assert!(input.rows.is_empty(), "a disappeared participant supplies no borrowed SQL, plan or page participant");
     runtime.finish(result.outcome).await;
 
@@ -245,7 +245,7 @@ async fn shared_cost_refusal_and_changed_saved_alias_stop_before_focused_native_
 #[tokio::test]
 async fn shared_receipt_cannot_exceed_the_selected_baseline_budget() {
     let mut fixture = Harness::shared().await;
-    let RecipeCostQualification::Measured(receipt) = &fixture.backend.recipe.cost else { panic!() };
+    let RecipeAdmission::Measured(receipt) = &fixture.backend.recipe.admission else { panic!() };
     let stricter = receipt.tested_budget.max_queries - 1;
     fixture.inventory.targets[0].schedules[0].budget.max_queries = stricter;
     // The two-query baseline fits; the three-query focused receipt does not.

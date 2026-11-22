@@ -1,9 +1,8 @@
 use super::fixture::Fixture;
-use culprit_collector::analytical::{
-    evidence::{EvidenceFamily, EvidenceGapReason},
-    test_support,
-};
 use culprit_core::telemetry::*;
+use culprit_evidence::analytical::evidence::EvidenceFamily;
+use culprit_evidence::analytical::evidence::EvidenceGapReason;
+use culprit_evidence::analytical::test_support;
 
 #[tokio::test]
 async fn sdk_readback_retains_native_accounting_scope_and_exact_historical_wait_mechanisms() {

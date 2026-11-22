@@ -1,9 +1,10 @@
 use super::*;
-use culprit_collector::analytical::test_support::{
-    maintenance_memory_evidence_cases, request_memory_evidence, request_memory_evidence_cases,
-    reservation_demand_evidence_cases, session_memory_evidence_cases,
-};
 use culprit_core::telemetry::*;
+use culprit_evidence::analytical::test_support::maintenance_memory_evidence_cases;
+use culprit_evidence::analytical::test_support::request_memory_evidence;
+use culprit_evidence::analytical::test_support::request_memory_evidence_cases;
+use culprit_evidence::analytical::test_support::reservation_demand_evidence_cases;
+use culprit_evidence::analytical::test_support::session_memory_evidence_cases;
 
 fn source_outcome(source: &CollectionDescription) -> SourceOutcome {
     let coverage = &source.observation.snapshot().unwrap().sources[0];

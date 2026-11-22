@@ -1,0 +1,27 @@
+[package]
+name = "culprit-evidence"
+description = "Read-only warehouse evidence contracts and canonical committed-capture verification"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lib]
+doctest = false
+
+[features]
+default = []
+test-support = []
+
+[dependencies]
+culprit-core.workspace = true
+culprit-read.workspace = true
+async-trait.workspace = true
+chrono.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+tokio = { workspace = true, features = ["io-util"] }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }

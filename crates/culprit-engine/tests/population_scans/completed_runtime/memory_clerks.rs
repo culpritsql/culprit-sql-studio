@@ -1,10 +1,11 @@
 //! The actual shared Operational acquisition shape reaches a normal saved report through the existing owners.
 use super::*;
-use culprit_collector::analytical::test_support::{MemoryClerkCase, memory_clerk_evidence};
 use culprit_core::Report;
 use culprit_engine::{
     LocalCaptureAnalysisKind, LocalCaptureRequest, LocalCapturedAnalysis, LocalMemoryClerks, OutboxCaptureReader,
 };
+use culprit_evidence::analytical::test_support::MemoryClerkCase;
+use culprit_evidence::analytical::test_support::memory_clerk_evidence;
 
 async fn capture(partial: bool) -> Captured {
     let (mut source, rows) = memory_clerk_evidence(MemoryClerkCase::SharedInstance);

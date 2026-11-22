@@ -3,10 +3,9 @@ use crate::{
     test_support::{Blobs, Fault, Queries, Recovery},
 };
 use culprit_collector::analytical::encoding::{BatchEncoder, TEMP_PREFIX};
-use culprit_collector::delivery::{
-    recovery::reopen,
-    sink::{DeliveryAttempt, TelemetrySink},
-};
+use culprit_collector::delivery::sink::DeliveryAttempt;
+use culprit_collector::delivery::sink::TelemetrySink;
+use culprit_evidence::delivery::recovery::reopen;
 use std::{path::Path, sync::Arc};
 
 struct HeldUpload {
@@ -15,19 +14,22 @@ struct HeldUpload {
     finished: tokio::sync::Notify,
 }
 #[async_trait::async_trait]
-impl culprit_collector::delivery::object_store::transport::ObjectTransport for HeldUpload {
+impl culprit_evidence::delivery::object_store::transport::ObjectReadTransport for HeldUpload {
     async fn get(
         &self,
         _: &str,
-    ) -> culprit_core::Result<Option<culprit_collector::delivery::object_store::transport::ObjectRead>> {
+    ) -> culprit_core::Result<Option<culprit_evidence::delivery::object_store::transport::ObjectRead>> {
         unreachable!()
     }
+}
+#[async_trait::async_trait]
+impl culprit_evidence::delivery::object_store::transport::ObjectTransport for HeldUpload {
     async fn put(
         &self,
         _: &str,
         _: Vec<u8>,
-        _: culprit_collector::delivery::object_store::transport::WriteCondition<'_>,
-    ) -> culprit_core::Result<culprit_collector::delivery::object_store::transport::ObjectWrite> {
+        _: culprit_evidence::delivery::object_store::transport::WriteCondition<'_>,
+    ) -> culprit_core::Result<culprit_evidence::delivery::object_store::transport::ObjectWrite> {
         unreachable!()
     }
     async fn put_file(
@@ -35,12 +37,12 @@ impl culprit_collector::delivery::object_store::transport::ObjectTransport for H
         _: &str,
         path: &Path,
         bytes: u64,
-    ) -> culprit_core::Result<culprit_collector::delivery::object_store::transport::ObjectWrite> {
+    ) -> culprit_core::Result<culprit_evidence::delivery::object_store::transport::ObjectWrite> {
         self.started.notify_one();
         self.release.notified().await;
         assert_eq!(std::fs::read(path).unwrap().len() as u64, bytes);
         self.finished.notify_one();
-        Ok(culprit_collector::delivery::object_store::transport::ObjectWrite::Written)
+        Ok(culprit_evidence::delivery::object_store::transport::ObjectWrite::Written)
     }
 }
 

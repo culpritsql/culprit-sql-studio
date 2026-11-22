@@ -1,5 +1,6 @@
 use super::*;
-use culprit_collector::analytical::test_support::{ManagedInstanceResourceCase, managed_instance_resource_case};
+use culprit_evidence::analytical::test_support::ManagedInstanceResourceCase;
+use culprit_evidence::analytical::test_support::managed_instance_resource_case;
 fn report(case: ManagedInstanceResourceCase) -> ManagedInstanceResourceReport {
     let (source, rows) = managed_instance_resource_case(case);
     let rows = rows

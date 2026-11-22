@@ -573,12 +573,74 @@ fn source_labels_follow_the_reader_without_changing_counter_identity() {
             );
         });
     }
+    // Replacing the source also replaces its presentation owner. A reader must not infer that a retained
+    // explicit label became stale from its words or from a plugin's classification.
+    (workload.kind, workload.source, workload.source_label) = (None, "private collector".into(), None);
     // A plugin's unclassified source is native text, never inferred from its spelling.
-    workload.kind = None;
-    workload.source = "private collector".into();
     workload.refresh_language();
     assert!(workload.source_label.is_none());
     assert_eq!(workload.source_name(), "private collector");
+}
+
+#[test]
+fn source_labels_preserve_explicit_provider_authority_and_counter_identity_through_serde_and_reader_languages() {
+    let snapshot: Snapshot = serde_json::from_str(include_str!("../../../../fixtures/mssql-demo.json")).unwrap();
+    let mut workload = snapshot.workload.unwrap();
+    workload.source = "native-plugin-counter-series".into();
+    workload.kind = Some(WorkloadKind::PlanCache);
+    let message = crate::message!(
+        "model.workload.source.ysql",
+        scope = "node",
+        node = "native-plugin-node",
+        limited = "yes",
+        role = "42"
+    );
+    workload.set_source_label(message.clone());
+    let counters =
+        serde_json::to_value((&workload.source, workload.kind, &workload.counter_set, &workload.queries)).unwrap();
+    let encoded = serde_json::to_vec(&workload).unwrap();
+    let mut restored: Workload = serde_json::from_slice(&encoded).unwrap();
+    for language in ["en", "fr", "de", "es", "en"] {
+        crate::i18n::scope(language, || {
+            restored.refresh_language();
+            assert_eq!(restored.source_message(), message);
+            assert_eq!(restored.source_name(), message.render());
+            assert_eq!(restored.source_label.as_ref().unwrap().source(), Some(&message));
+            assert_eq!(
+                serde_json::to_value((&restored.source, restored.kind, &restored.counter_set, &restored.queries))
+                    .unwrap(),
+                counters
+            );
+        });
+    }
+}
+
+#[test]
+fn source_labels_keep_literal_plugin_words_and_only_explicit_clearing_restores_derived_presentation() {
+    let snapshot: Snapshot = serde_json::from_str(include_str!("../../../../fixtures/mssql-demo.json")).unwrap();
+    let mut workload = snapshot.workload.unwrap();
+    workload.source = "native-plugin-counter-series".into();
+    workload.kind = Some(WorkloadKind::PlanCache);
+    let literal = "model.workload.source.plan_cache";
+    workload.set_source_label(literal);
+    for language in ["en", "fr", "de", "es"] {
+        crate::i18n::scope(language, || {
+            workload.refresh_language();
+            assert_eq!(workload.source_name(), literal);
+            assert!(workload.source_label.as_ref().unwrap().source().is_none());
+            assert_eq!(workload.source, "native-plugin-counter-series");
+        });
+    }
+    workload.source_label = None;
+    crate::i18n::scope("fr", || {
+        workload.refresh_language();
+        assert_eq!(workload.source_name(), crate::t!("model.workload.source.plan_cache"));
+        assert_eq!(workload.source, "native-plugin-counter-series");
+    });
+    (workload.kind, workload.source, workload.source_label) = (None, literal.into(), None);
+    workload.refresh_language();
+    assert_eq!(workload.source_name(), literal);
+    assert!(workload.source_label.is_none());
 }
 
 #[test]

@@ -6,17 +6,19 @@ use crate::{
     ingestion::{ClickHouseIngestor, IngestionTransport, WritePolicy},
     response::Column,
 };
-use culprit_collector::{
-    analytical::{
-        sink::AnalyticalSink,
-        test_support::{self, Blobs, Fault, Recovery},
-    },
-    delivery::{
-        recovery::{CommittedRange, reopen},
-        sink::{DeliveryAttempt, TelemetrySink, VerificationBudget, dispatch_range, verify},
-    },
-};
+use culprit_collector::analytical::sink::AnalyticalSink;
+use culprit_collector::delivery::sink::DeliveryAttempt;
+use culprit_collector::delivery::sink::TelemetrySink;
+use culprit_collector::delivery::sink::VerificationBudget;
+use culprit_collector::delivery::sink::dispatch_range;
+use culprit_collector::delivery::sink::verify;
 use culprit_core::telemetry::*;
+use culprit_evidence::analytical::test_support;
+use culprit_evidence::analytical::test_support::Blobs;
+use culprit_evidence::analytical::test_support::Fault;
+use culprit_evidence::analytical::test_support::Recovery;
+use culprit_evidence::delivery::recovery::CommittedRange;
+use culprit_evidence::delivery::recovery::reopen;
 use serde_json::{Value, json};
 use std::{collections::BTreeMap, sync::Arc};
 use zeroize::Zeroizing;
@@ -294,7 +296,7 @@ async fn shared_resource_scopes(server: &Server, catalog: &SchemaCatalog) {
 }
 
 async fn native_scalar_roundtrip(server: &Server) {
-    use culprit_collector::analytical::{
+    use culprit_evidence::analytical::{
         RowProjection,
         projection::{ScalarType, digest},
         schema::{Field, LogicalSchema},

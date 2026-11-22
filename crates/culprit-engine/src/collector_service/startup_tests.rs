@@ -1,13 +1,16 @@
 use super::*;
-use culprit_collector::{
-    capture::{self, SourceFactory},
-    delivery::{
-        diagnostic_recovery::{DiagnosticHeadPage, OriginalHistoryLookup},
-        evidence::{PreparedRange, RangeManifest},
-        file_store::FileRecoveryStore,
-        recovery::*,
-    },
-    outbox::DiagnosticUpdate,
+use culprit_collector::capture;
+use culprit_collector::capture::SourceFactory;
+use culprit_collector::delivery::evidence::PreparedRange;
+use culprit_collector::delivery::file_store::FileRecoveryStore;
+use culprit_collector::delivery::recovery::*;
+use culprit_collector::outbox::DiagnosticUpdate;
+use culprit_evidence::delivery::evidence::RangeManifest;
+use culprit_evidence::delivery::heads::DiagnosticHeadPage;
+use culprit_evidence::delivery::mutations::{CommitReceipt, Fence, StagedBatch};
+use culprit_evidence::delivery::originals::OriginalHistoryLookup;
+use culprit_evidence::delivery::recovery::{
+    CommittedRange, PayloadObject, RecoveryOrder, RecoveryPage, RecoveryReader,
 };
 use culprit_read::{FrozenObservation, FrozenSource, ObservationReader, admission::SourceGate};
 use std::{collections::VecDeque, sync::Mutex};
@@ -105,7 +108,7 @@ async fn cold_start_restores_full_checkpoint_then_only_owed_native_inputs_withou
     let mut original = Outbox::create_remote(&original_path, OutboxLimits::default(), store.id()).unwrap();
     original.recover().await.unwrap();
     original.begin_remote_epoch(owner.fence(), 0).await.unwrap();
-    let (source, rows) = culprit_collector::analytical::test_support::activity_evidence_cases().remove(0);
+    let (source, rows) = culprit_evidence::analytical::test_support::activity_evidence_cases().remove(0);
     let first = capture_frame(&mut original, NativeFrame { source: source.clone(), rows }).await;
     archive(&store, owner.fence(), &original, &first.capture, &contract).await;
     let input = original.next_diagnostic_input(DIAGNOSTIC_CONTROLLER_VERSION).await.unwrap().unwrap();
@@ -217,9 +220,6 @@ impl ScriptedStore {
 }
 #[async_trait::async_trait]
 impl RecoveryStore for ScriptedStore {
-    fn id(&self) -> &str {
-        &self.id
-    }
     async fn diagnostic_original_groups(&self, _: &[String]) -> Result<OriginalHistoryLookup> {
         Err(DeliveryProblem::UnsupportedSchema.error())
     }
@@ -253,11 +253,15 @@ impl RecoveryStore for ScriptedStore {
     async fn captured_range(&self, _: &CapturedRange) -> Result<Option<CaptureIdentity>> {
         panic!("no native lookup")
     }
-    async fn stage(&self, _: &PayloadObject, _: &Path) -> Result<StagedBatch> {
-        panic!("no staging")
+
+    async fn retire(&self, _: &Fence, _: &culprit_collector::delivery::sink::PublishedRange) -> Result<()> {
+        panic!("no retirement")
     }
-    async fn commit(&self, _: &Fence, _: Option<&str>, _: &RangeManifest, _: &[StagedBatch]) -> Result<CommitReceipt> {
-        panic!("no commit")
+}
+#[async_trait::async_trait]
+impl culprit_evidence::delivery::recovery::RecoveryRead for ScriptedStore {
+    fn id(&self) -> &str {
+        &self.id
     }
     async fn load(&self, _: &str) -> Result<RangeManifest> {
         panic!("empty pages have no object")
@@ -265,13 +269,20 @@ impl RecoveryStore for ScriptedStore {
     async fn capture_manifest(&self, _: &CaptureIdentity) -> Result<RangeManifest> {
         panic!("empty restore pages have no focused parent")
     }
-    async fn retire(&self, _: &Fence, _: &culprit_collector::delivery::sink::PublishedRange) -> Result<()> {
-        panic!("no retirement")
-    }
     async fn open_object(&self, _: &PayloadObject) -> Result<RecoveryReader> {
         panic!("empty pages have no payload")
     }
 }
+#[async_trait::async_trait]
+impl culprit_evidence::delivery::mutations::RecoveryWrite for ScriptedStore {
+    async fn stage(&self, _: &PayloadObject, _: &Path) -> Result<StagedBatch> {
+        panic!("no staging")
+    }
+    async fn commit(&self, _: &Fence, _: Option<&str>, _: &RangeManifest, _: &[StagedBatch]) -> Result<CommitReceipt> {
+        panic!("no commit")
+    }
+}
+
 fn heads(sequence: u64, next: Option<&str>) -> DiagnosticHeadPage {
     DiagnosticHeadPage { heads: vec![], high_sequence: sequence, next_cursor: next.map(str::to_owned) }
 }

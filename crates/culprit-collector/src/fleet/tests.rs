@@ -4,7 +4,9 @@ use crate::fleet::{
     scheduler::{Job, Work, state_failed},
     work::Checkpoint,
 };
+use chrono::Timelike;
 use culprit_core::{DatabaseIdentity, Engine};
+use culprit_read::cancellation::CollectionCancellation;
 use std::sync::Mutex;
 mod completion;
 mod remote_receipts;
@@ -34,7 +36,7 @@ impl Backend {
             status: Mutex::new(CollectionStatus::Complete),
             state_sources: Mutex::new(None),
             reference_coverage: Mutex::new(
-                crate::collection_references::ObservationReferences::default().coverage(true, None),
+                culprit_evidence::collection_references::ObservationReferences::default().coverage(true, None),
             ),
             description_override: Mutex::new(None),
         }
@@ -162,7 +164,6 @@ impl FleetBackend for Backend {
         FleetCaptureOutcome { result, source_work: SourceWorkState::Quiescent, attempt: None }
     }
 }
-use chrono::Timelike;
 fn interval(hour: u32) -> TelemetryInterval {
     TelemetryInterval {
         native_id: hour.to_string(),

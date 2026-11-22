@@ -1,11 +1,14 @@
 //! Local protocol destination for executable recovery tests. It does not establish cloud durability guarantees.
-use super::{contract::*, evidence::*, recovery::*};
+use super::recovery::*;
 use crate::{blocking_state::BlockingState, durable_fs};
 use async_trait::async_trait;
 use culprit_core::{
     Result,
     telemetry::{DeliveryProblem, digest},
 };
+use culprit_evidence::delivery::evidence::*;
+use culprit_evidence::delivery::{contract::*, coverage::coverage_key};
+use culprit_evidence::delivery::{mutations::*, recovery::*};
 use rusqlite::{Connection, OptionalExtension, params};
 use sha2::{Digest, Sha256};
 use std::{
@@ -230,7 +233,7 @@ impl RecoveryFiles {
         expected_head: Option<&str>,
         manifest: &RangeManifest,
         staged: &[StagedBatch],
-        original_heads: &[super::diagnostic_recovery::OriginalHistoryPointer],
+        original_heads: &[culprit_evidence::delivery::originals::OriginalHistoryPointer],
     ) -> Result<CommitReceipt> {
         manifest.validate()?;
         if manifest.contract != self.contract {
@@ -324,18 +327,27 @@ impl RecoveryFiles {
                 .map_err(storage)?;
         }
         let pending: String = tx.query_row("SELECT pending FROM identity", [], |r| r.get(0)).map_err(storage)?;
-        let mut pending: super::pending::PendingRanges = serde_json::from_str(&pending).map_err(|_| integrity())?;
+        let mut pending: culprit_evidence::delivery::pending::PendingRanges =
+            serde_json::from_str(&pending).map_err(|_| integrity())?;
         pending.validate()?;
-        pending.observe(commit_order, manifest)?;
+        pending.observe(
+            commit_order,
+            manifest,
+            crate::outbox::diagnostic_manifest_eligible(
+                &manifest.source,
+                manifest.investigation.as_ref(),
+                &manifest.reference_coverage,
+            )?,
+        )?;
         let diagnostics: String =
             tx.query_row("SELECT diagnostic_heads FROM identity", [], |row| row.get(0)).map_err(storage)?;
-        let mut diagnostics: super::diagnostic_recovery::DiagnosticHeads =
+        let mut diagnostics: culprit_evidence::delivery::heads::DiagnosticHeads =
             serde_json::from_str(&diagnostics).map_err(|_| integrity())?;
         diagnostics.validate()?;
         diagnostics.observe(manifest, &sha)?;
         let original_json: String =
             tx.query_row("SELECT original_groups FROM identity", [], |row| row.get(0)).map_err(storage)?;
-        let mut originals: super::diagnostic_recovery::OriginalGroupHeads =
+        let mut originals: culprit_evidence::delivery::originals::OriginalGroupHeads =
             serde_json::from_str(&original_json).map_err(|_| integrity())?;
         originals.validate()?;
         for pointer in original_heads {
@@ -346,7 +358,7 @@ impl RecoveryFiles {
                 let mut stored = Vec::new();
                 durable_fs::regular_file(&path)
                     .map_err(storage)?
-                    .take(super::diagnostic_recovery::MAX_POINTER_BYTES as u64 + 1)
+                    .take(culprit_evidence::delivery::originals::MAX_POINTER_BYTES as u64 + 1)
                     .read_to_end(&mut stored)
                     .map_err(storage)?;
                 if stored != bytes {
@@ -359,7 +371,7 @@ impl RecoveryFiles {
             }
         }
         let original_json = serde_json::to_string(&originals).map_err(|_| integrity())?;
-        if original_json.len() > super::diagnostic_recovery::MAX_ORIGINAL_INDEX_BYTES {
+        if original_json.len() > culprit_evidence::delivery::originals::MAX_ORIGINAL_INDEX_BYTES {
             return Err(DeliveryProblem::Capacity.error());
         }
         tx.execute("UPDATE identity SET original_groups=?1", [original_json]).map_err(storage)?;
@@ -472,14 +484,11 @@ impl FileRecoveryStore {
 }
 #[async_trait]
 impl RecoveryStore for FileRecoveryStore {
-    fn id(&self) -> &str {
-        &self.id
-    }
     async fn diagnostic_original_groups(
         &self,
         keys: &[String],
-    ) -> Result<super::diagnostic_recovery::OriginalHistoryLookup> {
-        super::diagnostic_recovery::validate_original_group_keys(keys)?;
+    ) -> Result<culprit_evidence::delivery::originals::OriginalHistoryLookup> {
+        culprit_evidence::delivery::originals::validate_original_group_keys(keys)?;
         self.files
             .run(|| {
                 let keys = keys.to_vec();
@@ -492,10 +501,10 @@ impl RecoveryStore for FileRecoveryStore {
                         .journal
                         .query_row("SELECT original_groups FROM identity", [], |row| row.get(0))
                         .map_err(storage)?;
-                    if json.len() > super::diagnostic_recovery::MAX_ORIGINAL_INDEX_BYTES {
+                    if json.len() > culprit_evidence::delivery::originals::MAX_ORIGINAL_INDEX_BYTES {
                         return Err(DeliveryProblem::Capacity.error());
                     }
-                    let heads: super::diagnostic_recovery::OriginalGroupHeads =
+                    let heads: culprit_evidence::delivery::originals::OriginalGroupHeads =
                         serde_json::from_str(&json).map_err(|_| integrity())?;
                     let mut entries = std::collections::BTreeMap::new();
                     for (key, hash) in heads.selected(&keys)? {
@@ -504,16 +513,18 @@ impl RecoveryStore for FileRecoveryStore {
                             let mut bytes = Vec::new();
                             durable_fs::regular_file(&path)
                                 .map_err(storage)?
-                                .take(super::diagnostic_recovery::MAX_POINTER_BYTES as u64 + 1)
+                                .take(culprit_evidence::delivery::originals::MAX_POINTER_BYTES as u64 + 1)
                                 .read_to_end(&mut bytes)
                                 .map_err(storage)?;
-                            Some(super::diagnostic_recovery::OriginalHistoryPointer::from_bytes(&bytes, &hash)?)
+                            Some(culprit_evidence::delivery::originals::OriginalHistoryPointer::from_bytes(
+                                &bytes, &hash,
+                            )?)
                         } else {
                             None
                         };
                         entries.insert(key, pointer);
                     }
-                    super::diagnostic_recovery::OriginalHistoryLookup::new(&keys, entries)
+                    culprit_evidence::delivery::originals::OriginalHistoryLookup::new(&keys, entries)
                 }
             })
             .await
@@ -530,7 +541,7 @@ impl RecoveryStore for FileRecoveryStore {
                         .journal
                         .query_row("SELECT pending,high_sequence FROM identity", [], |r| Ok((r.get(0)?, r.get(1)?)))
                         .map_err(storage)?;
-                    let pending: super::pending::PendingRanges =
+                    let pending: culprit_evidence::delivery::pending::PendingRanges =
                         serde_json::from_str(&pending).map_err(|_| integrity())?;
                     // A native manifest may occupy the full 32 MiB page budget by itself.
                     let committed_order: i64 = files
@@ -565,7 +576,7 @@ impl RecoveryStore for FileRecoveryStore {
                             Ok((row.get(0)?, row.get(1)?))
                         })
                         .map_err(storage)?;
-                    let pending: super::pending::PendingRanges =
+                    let pending: culprit_evidence::delivery::pending::PendingRanges =
                         serde_json::from_str(&pending).map_err(|_| integrity())?;
                     let committed: i64 = files
                         .journal
@@ -602,7 +613,7 @@ impl RecoveryStore for FileRecoveryStore {
                         .journal
                         .query_row("SELECT pending FROM identity", [], |row| row.get(0))
                         .map_err(storage)?;
-                    let pending: super::pending::PendingRanges =
+                    let pending: culprit_evidence::delivery::pending::PendingRanges =
                         serde_json::from_str(&json).map_err(|_| integrity())?;
                     pending.diagnostic_input_pending(&input)
                 }
@@ -637,7 +648,7 @@ impl RecoveryStore for FileRecoveryStore {
                     if sha != range.manifest_digest() {
                         return Err(integrity());
                     }
-                    let mut pending: super::pending::PendingRanges =
+                    let mut pending: culprit_evidence::delivery::pending::PendingRanges =
                         serde_json::from_str(&pending).map_err(|_| integrity())?;
                     pending.validate()?;
                     pending.retire(&range.manifest().range_id);
@@ -648,21 +659,12 @@ impl RecoveryStore for FileRecoveryStore {
             })
             .await
     }
-    async fn capture_manifest(&self, capture: &culprit_core::telemetry::CaptureIdentity) -> Result<RangeManifest> {
-        self.files
-            .run(|| {
-                let capture = capture.clone();
-                move |files| {
-                    let manifest = files.load(&range_id_for(&files.contract, &capture)?)?;
-                    if manifest.capture != capture {
-                        return Err(integrity());
-                    }
-                    Ok(manifest)
-                }
-            })
-            .await
-    }
-    async fn diagnostic_heads(&self, cursor: Option<&str>, limit: u32) -> Result<super::recovery::DiagnosticHeadPage> {
+
+    async fn diagnostic_heads(
+        &self,
+        cursor: Option<&str>,
+        limit: u32,
+    ) -> Result<culprit_evidence::delivery::heads::DiagnosticHeadPage> {
         self.files
             .run(|| {
                 let cursor = cursor.map(str::to_owned);
@@ -673,7 +675,7 @@ impl RecoveryStore for FileRecoveryStore {
                             Ok((row.get(0)?, row.get(1)?))
                         })
                         .map_err(storage)?;
-                    let heads: super::diagnostic_recovery::DiagnosticHeads =
+                    let heads: culprit_evidence::delivery::heads::DiagnosticHeads =
                         serde_json::from_str(&json).map_err(|_| integrity())?;
                     heads.page(cursor.as_deref(), limit, u64::try_from(high).map_err(|_| integrity())?)
                 }
@@ -710,6 +712,62 @@ impl RecoveryStore for FileRecoveryStore {
             })
             .await
     }
+
+    async fn recover(&self, cursor: Option<&str>, limit: u32) -> Result<RecoveryPage> {
+        self.files
+            .run(|| {
+                let cursor = cursor.map(str::to_owned);
+                move |files: &mut RecoveryFiles| files.recover(cursor.as_deref(), limit)
+            })
+            .await
+    }
+}
+#[async_trait::async_trait]
+#[async_trait::async_trait]
+#[async_trait::async_trait]
+impl culprit_evidence::delivery::recovery::RecoveryRead for FileRecoveryStore {
+    fn id(&self) -> &str {
+        &self.id
+    }
+    async fn load(&self, range_id: &str) -> Result<RangeManifest> {
+        self.files
+            .run(|| {
+                let id = range_id.to_owned();
+                move |files: &mut RecoveryFiles| files.load(&id)
+            })
+            .await
+    }
+    async fn capture_manifest(&self, capture: &culprit_core::telemetry::CaptureIdentity) -> Result<RangeManifest> {
+        self.files
+            .run(|| {
+                let capture = capture.clone();
+                move |files| {
+                    let manifest = files.load(&range_id_for(&files.contract, &capture)?)?;
+                    if manifest.capture != capture {
+                        return Err(integrity());
+                    }
+                    Ok(manifest)
+                }
+            })
+            .await
+    }
+    async fn open_object(&self, batch: &PayloadObject) -> Result<RecoveryReader> {
+        self.files
+            .run(|| {
+                let batch = batch.clone();
+                move |files: &mut RecoveryFiles| {
+                    #[cfg(test)]
+                    {
+                        *files.object_reads.entry(batch.object.clone()).or_default() += 1;
+                    }
+                    files.open_object(&batch)
+                }
+            })
+            .await
+    }
+}
+#[async_trait::async_trait]
+impl culprit_evidence::delivery::mutations::RecoveryWrite for FileRecoveryStore {
     async fn stage(&self, batch: &PayloadObject, path: &Path) -> Result<StagedBatch> {
         self.files
             .run(|| {
@@ -735,36 +793,6 @@ impl RecoveryStore for FileRecoveryStore {
                 let staged = staged.to_vec();
                 move |files: &mut RecoveryFiles| {
                     files.commit(&fence, head.as_deref(), &manifest, &staged, &original_heads)
-                }
-            })
-            .await
-    }
-    async fn load(&self, range_id: &str) -> Result<RangeManifest> {
-        self.files
-            .run(|| {
-                let id = range_id.to_owned();
-                move |files: &mut RecoveryFiles| files.load(&id)
-            })
-            .await
-    }
-    async fn recover(&self, cursor: Option<&str>, limit: u32) -> Result<RecoveryPage> {
-        self.files
-            .run(|| {
-                let cursor = cursor.map(str::to_owned);
-                move |files: &mut RecoveryFiles| files.recover(cursor.as_deref(), limit)
-            })
-            .await
-    }
-    async fn open_object(&self, batch: &PayloadObject) -> Result<RecoveryReader> {
-        self.files
-            .run(|| {
-                let batch = batch.clone();
-                move |files: &mut RecoveryFiles| {
-                    #[cfg(test)]
-                    {
-                        *files.object_reads.entry(batch.object.clone()).or_default() += 1;
-                    }
-                    files.open_object(&batch)
                 }
             })
             .await

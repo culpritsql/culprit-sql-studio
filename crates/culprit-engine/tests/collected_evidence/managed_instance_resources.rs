@@ -1,10 +1,9 @@
 mod interpretation;
 use super::fixture::Fixture;
 use super::*;
-use culprit_collector::analytical::{
-    evidence::EvidenceFamily,
-    test_support::{ManagedInstanceResourceCase, managed_instance_resource_case},
-};
+use culprit_evidence::analytical::evidence::EvidenceFamily;
+use culprit_evidence::analytical::test_support::ManagedInstanceResourceCase;
+use culprit_evidence::analytical::test_support::managed_instance_resource_case;
 #[tokio::test]
 async fn original_mi_history_reuses_one_report_without_current_member_or_operational_pressure() {
     for case in ManagedInstanceResourceCase::ALL {

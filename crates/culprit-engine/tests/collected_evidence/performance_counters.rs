@@ -1,11 +1,11 @@
 use super::fixture::Fixture;
 use culprit_checks::performance_counters::PerformanceCounterEvidence;
-use culprit_collector::analytical::{
-    evidence::{EvidenceFamily, EvidenceGapReason},
-    test_support::{self, PerformanceCounterCase},
-};
 use culprit_core::{MeasurementScope, SourceState, telemetry::*};
 use culprit_engine::collected_resources;
+use culprit_evidence::analytical::evidence::EvidenceFamily;
+use culprit_evidence::analytical::evidence::EvidenceGapReason;
+use culprit_evidence::analytical::test_support;
+use culprit_evidence::analytical::test_support::PerformanceCounterCase;
 
 #[tokio::test]
 async fn original_governor_counters_keep_native_group_pool_ids_without_database_ownership_or_cooked_rates() {

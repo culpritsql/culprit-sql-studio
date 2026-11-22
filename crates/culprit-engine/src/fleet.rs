@@ -1,11 +1,11 @@
 //! Background execution is an adapter over the existing workspace lifecycle, never a second provider stack.
 use crate::Workspace;
-use culprit_collector::{
-    capture::CollectionCancellation,
-    fleet::{FleetBackend, FleetCaptureOutcome, FleetSourceAdmission},
-    outbox::Outbox,
-};
+use culprit_collector::fleet::FleetBackend;
+use culprit_collector::fleet::FleetCaptureOutcome;
+use culprit_collector::fleet::FleetSourceAdmission;
+use culprit_collector::outbox::Outbox;
 use culprit_core::{AuthKind, Error, Result, telemetry::*};
+use culprit_read::cancellation::CollectionCancellation;
 
 #[async_trait::async_trait]
 impl FleetBackend for Workspace {
@@ -17,6 +17,13 @@ impl FleetBackend for Workspace {
     }
     fn qualification_component(&self, connection: &str) -> Result<Option<culprit_core::ComponentVersion>> {
         self.telemetry_qualification_component(connection)
+    }
+    fn verify_builtin_safety(
+        &self,
+        connection: &str,
+        policy: &culprit_core::telemetry::BuiltinRecipeSafety,
+    ) -> Result<bool> {
+        self.connection_service().verify_builtin_safety(connection, policy)
     }
     fn verify_cost(
         &self,

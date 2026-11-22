@@ -4,6 +4,7 @@ use culprit_core::telemetry::{
     ExportedRecord, NativeIdentity, QueryExecutionPopulation, QueryHistoryPopulationBinding, RuntimeMeasurement,
     TelemetryRecord, WaitMeasurement,
 };
+use culprit_evidence::original_projection::OriginalProjection;
 use std::collections::BTreeMap;
 
 #[derive(Default)]
@@ -19,7 +20,7 @@ pub(super) struct PopulationIndex<'a> {
 }
 
 impl<'a> PopulationIndex<'a> {
-    pub fn new(capture: &'a EvidenceCapture, requested: Option<&NativeIdentity>) -> Result<Self> {
+    pub fn new(capture: &'a dyn OriginalProjection, requested: Option<&NativeIdentity>) -> Result<Self> {
         let selected = selected(capture, requested)?;
         let history = capture.source().query_history().ok_or_else(invalid)?;
         let partitioned = history
@@ -67,7 +68,10 @@ impl<'a> PopulationIndex<'a> {
     }
 }
 
-fn selected(capture: &EvidenceCapture, requested: Option<&NativeIdentity>) -> Result<Vec<CollectedQueryPopulation>> {
+fn selected(
+    capture: &dyn OriginalProjection,
+    requested: Option<&NativeIdentity>,
+) -> Result<Vec<CollectedQueryPopulation>> {
     let history = capture.source().query_history().ok_or_else(invalid)?;
     if requested.is_some_and(|population| !population.is_valid()) {
         return Err(culprit_core::Error::invalid(culprit_core::t!("engine.changes.population_invalid")));

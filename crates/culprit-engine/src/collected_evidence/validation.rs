@@ -1,9 +1,10 @@
 use super::*;
-use culprit_collector::analytical::evidence::EvidenceCapture;
 use culprit_core::{DatabaseIdentity, telemetry::*};
+use culprit_evidence::analytical::evidence::EvidenceCapture;
+use culprit_evidence::original_projection::OriginalProjection;
 use std::collections::{BTreeMap, BTreeSet};
 
-pub(super) fn capture(capture: &EvidenceCapture) -> Result<DatabaseIdentity> {
+pub(super) fn warehouse_capture(capture: &EvidenceCapture) -> Result<DatabaseIdentity> {
     let source = capture.source();
     let CollectionTarget::Database(database) = &source.target else {
         return Err(invalid());
@@ -31,12 +32,26 @@ pub(super) fn capture(capture: &EvidenceCapture) -> Result<DatabaseIdentity> {
             || record.row_ordinal() == 0
             || !valid_digest(record.native_payload_sha256())
             || !rows.insert((record.batch_id(), record.row_ordinal()))
-            || culprit_collector::delivery::evidence::RowReceipt::from_export(row, record.row_ordinal())?.payload_digest
+            || culprit_evidence::delivery::evidence::RowReceipt::from_export(row, record.row_ordinal())?.payload_digest
                 != record.native_payload_sha256()
             || ExportedRecord::new(source, capture.capture(), row.record.clone())? != *row
         {
             return Err(invalid());
         }
+    }
+    Ok(database.clone())
+}
+
+pub(super) fn capture(capture: &dyn OriginalProjection) -> Result<DatabaseIdentity> {
+    let CollectionTarget::Database(database) = &capture.source().target else { return Err(invalid()) };
+    let history = capture.source().query_history().ok_or_else(|| DeliveryProblem::UnsupportedSchema.error())?;
+    if !capture.original().is_valid()
+        || !capture.source().partition_is_consistent()
+        || !history.is_valid()
+        || hours(&history.interval.from, &history.interval.until)? <= 0.0
+        || ObservationBounds::new(capture.collected_from(), capture.collected_until()).is_none()
+    {
+        return Err(invalid());
     }
     Ok(database.clone())
 }
@@ -65,7 +80,7 @@ pub(super) struct Joined<'a> {
     pub plan: Option<&'a PlanDefinition>,
 }
 impl<'a> Definitions<'a> {
-    pub fn new(capture: &'a EvidenceCapture) -> Result<Self> {
+    pub fn new(capture: &'a dyn OriginalProjection) -> Result<Self> {
         let mut definitions = Self { source: capture.source(), queries: BTreeMap::new(), plans: BTreeMap::new() };
         for record in capture.records() {
             match &record.row().record {

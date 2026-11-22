@@ -4,6 +4,7 @@ use crate::native::{
     activity as native_activity,
     local_context::{self, Context},
 };
+use crate::read::NativeRead;
 use culprit_read::{FrozenObservation, FrozenSource, ObservationReader};
 use std::collections::BTreeSet;
 
@@ -28,21 +29,39 @@ pub(super) fn bounded_budget(requested: &CollectionBudget) -> CollectionBudget {
 }
 
 pub(super) fn source(connector: Connector, request: &CollectionRequest) -> Result<Box<dyn TelemetrySource>> {
+    open(connector, request, None)
+}
+pub(super) fn profile_source(
+    connector: Connector,
+    request: &CollectionRequest,
+    admission: &SourceProfileAdmission,
+) -> Result<Box<dyn TelemetrySource>> {
+    if bounded_budget(&request.budget) != request.budget {
+        return Err(native::invalid());
+    }
+    open(connector, request, Some(culprit_read::SourceProfileGuard::new(request, admission)?))
+}
+fn open(
+    connector: Connector,
+    request: &CollectionRequest,
+    profile: Option<culprit_read::SourceProfileGuard>,
+) -> Result<Box<dyn TelemetrySource>> {
     request.validate()?;
     request.subject.require_database()?;
-    let CollectionSelection::FocusedBlocking { focus } = &request.selection else { return Err(native::invalid()) };
+    let CollectionSelection::FocusedBlocking { focus } = &request.selection else {
+        return Err(native::invalid());
+    };
     if focus.target.engine() != culprit_core::Engine::Postgres {
         return Err(native::invalid());
     }
     pid(&focus.original.key.session.id)?;
     let mut request = request.clone();
     request.budget = bounded_budget(&request.budget);
-    let reader = Reader {
-        host: connector.host.clone(),
-        port: connector.port,
-        io: ReadSession::new(connector, request.budget.clone()),
-        verified: None,
-    };
+    let mut io = ReadSession::new(connector.clone(), request.budget.clone());
+    if let Some(profile) = &profile {
+        io = io.with_profile(profile.clone());
+    }
+    let reader = Reader { host: connector.host.clone(), port: connector.port, io, verified: None, profile };
     Ok(Box::new(FrozenSource::new(reader, &request)?))
 }
 
@@ -51,16 +70,21 @@ struct Reader<R = ReadSession> {
     host: String,
     port: u16,
     verified: Option<CollectionDescription>,
+    profile: Option<culprit_read::SourceProfileGuard>,
 }
 
 #[async_trait::async_trait]
 impl<R: NativeRead> ObservationReader for Reader<R> {
     async fn observe(&mut self, request: &CollectionRequest) -> Result<FrozenObservation> {
-        let observation = capture(&mut self.io, &self.host, self.port, request).await?;
+        let observation =
+            capture_with_profile(&mut self.io, &self.host, self.port, request, self.profile.as_ref()).await?;
         self.verified = Some(observation.description.clone());
         Ok(observation)
     }
     async fn verify(&mut self, source: &CollectionDescription) -> Result<bool> {
+        if let Some(profile) = &self.profile {
+            profile.verify_final(&NativeReadContext::from_activity(source)?, self.io.connection_generation())?;
+        }
         Ok(self.verified.as_ref() == Some(source))
     }
     fn query_count(&self) -> u32 {
@@ -74,18 +98,36 @@ impl<R: NativeRead> ObservationReader for Reader<R> {
     }
 }
 
+#[cfg(test)]
 async fn capture<R: NativeRead>(
     reader: &mut R,
     host: &str,
     port: u16,
     request: &CollectionRequest,
 ) -> Result<FrozenObservation> {
+    capture_with_profile(reader, host, port, request, None).await
+}
+async fn capture_with_profile<R: NativeRead>(
+    reader: &mut R,
+    host: &str,
+    port: u16,
+    request: &CollectionRequest,
+    profile: Option<&culprit_read::SourceProfileGuard>,
+) -> Result<FrozenObservation> {
+    if let Some(profile) = profile {
+        profile.ensure_active()?;
+    }
     request.validate()?;
-    let CollectionSelection::FocusedBlocking { focus } = &request.selection else { return Err(native::invalid()) };
+    let CollectionSelection::FocusedBlocking { focus } = &request.selection else {
+        return Err(native::invalid());
+    };
     let pid = pid(&focus.original.key.session.id)?;
     let before = metadata::activity(reader, host, port).await?;
     if before.version < 120_000 {
         return Err(Error::new(ErrorCode::Unsupported, culprit_core::t!("collection.unsupported")));
+    }
+    if let Some(policy) = profile.and_then(|profile| profile.builtin_policy()) {
+        crate::builtin_safety::verify_native(policy, before.version)?;
     }
     let owner = Context::observe(reader, &before).await?;
     let initial = match &owner {
@@ -93,6 +135,9 @@ async fn capture<R: NativeRead>(
         None => local_context::unknown(&before, &before.at)?,
     };
     validate_original(focus, &initial)?;
+    if let Some(profile) = profile {
+        profile.bind_native(&initial, reader.connection_generation())?;
+    }
     let mut frame = actor(reader, &before, pid, &request.budget).await?;
     let current = visible_actor(&frame)?;
     let binding = binding(focus, &initial, current);
@@ -133,6 +178,9 @@ async fn capture<R: NativeRead>(
     }
     let completion = local_context::complete(reader, host, port, &before, owner.as_ref()).await?;
     let context = completion.context;
+    if let Some(profile) = profile {
+        profile.verify_final(&context, reader.connection_generation())?;
+    }
     let observations = if membership == FocusedRequestMembership::Observed { frame.observations() } else { vec![] };
     let count = observations.len().try_into().map_err(|_| native::invalid())?;
     let mut coverage = StateSourceCoverage::observed(SOURCE.into(), count, false);

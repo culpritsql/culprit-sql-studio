@@ -1,0 +1,388 @@
+//! Definition closure belongs to an observation; native IDs and optional plans have no engine-specific meaning here.
+mod compiler_admission;
+mod memory;
+use culprit_core::telemetry::{
+    CollectionDescription, DIAGNOSTICS_SOURCE, DefinitionCoverage, DiagnosticCheckpoint, DiagnosticCheckpointPart,
+    DiagnosticRevision, NativeDefinitionReference, NativeIdentity, OperationalFact, ReferenceCoverage,
+    SourceObservation, TelemetryRecord,
+};
+use std::collections::{BTreeMap, BTreeSet};
+
+#[derive(Default)]
+struct RequiredDefinitions(BTreeMap<NativeIdentity, Option<String>>);
+impl RequiredDefinitions {
+    fn accepts(&self, reference: &NativeDefinitionReference) -> bool {
+        self.0.get(&reference.native).is_none_or(|before| *before == reference.definition_id)
+    }
+    fn record(&mut self, reference: &NativeDefinitionReference) {
+        self.0.insert(reference.native.clone(), reference.definition_id.clone());
+    }
+    fn coverage(&self, available: impl Fn(&NativeIdentity, &str) -> bool, unidentified: usize) -> DefinitionCoverage {
+        let resolved =
+            self.0.iter().filter(|(native, id)| id.as_deref().is_some_and(|id| available(native, id))).count() as u32;
+        let required = (self.0.len() + unidentified) as u32;
+        DefinitionCoverage { required, resolved, unresolved: required - resolved }
+    }
+    fn declared_references_resolve(&self, available: impl Fn(&NativeIdentity, &str) -> bool) -> bool {
+        self.0.iter().all(|(native, id)| id.as_deref().is_none_or(|id| available(native, id)))
+    }
+}
+struct ObservedPlan {
+    native: NativeIdentity,
+    query_native: NativeIdentity,
+    query_definition_id: Option<String>,
+}
+#[derive(Default)]
+pub struct ObservationReferences {
+    required_queries: RequiredDefinitions,
+    required_plans: RequiredDefinitions,
+    unidentified_queries: BTreeSet<NativeIdentity>,
+    plans: BTreeMap<String, ObservedPlan>,
+    plan_queries: BTreeMap<NativeIdentity, Option<NativeDefinitionReference>>,
+    queries: BTreeMap<String, NativeIdentity>,
+    unavailable_payloads: u32,
+    state_rows: BTreeMap<String, u32>,
+    pub diagnostic_revisions: Vec<DiagnosticRevision>,
+    pub diagnostic_parts: Vec<DiagnosticCheckpointPart>,
+    pub activity: crate::collection_activity::ActivityRecords,
+    memory: memory::GrantReferences,
+    compiler_admission: compiler_admission::CompilerAdmissionReferences,
+}
+impl ObservationReferences {
+    pub fn accepts_page(&self, records: &[TelemetryRecord]) -> bool {
+        let mut queries = RequiredDefinitions::default();
+        let mut plans = RequiredDefinitions::default();
+        let mut plan_queries = BTreeMap::new();
+        for key in records.iter().filter_map(TelemetryRecord::measurement_key) {
+            if let Some(plan) = &key.references.plan {
+                let query = &key.references.query;
+                if self.plan_queries.get(&plan.native).is_some_and(|before| before != query)
+                    || plan_queries.get(&plan.native).is_some_and(|before| before != query)
+                {
+                    return false;
+                }
+                plan_queries.insert(plan.native.clone(), query.clone());
+            }
+            for (reference, known, page) in [
+                (key.references.query.as_ref(), &self.required_queries, &mut queries),
+                (key.references.plan.as_ref(), &self.required_plans, &mut plans),
+            ] {
+                if let Some(reference) = reference {
+                    if !known.accepts(reference) || !page.accepts(reference) {
+                        return false;
+                    }
+                    page.record(reference);
+                }
+            }
+        }
+        true
+    }
+    pub fn record(&mut self, record: &TelemetryRecord) {
+        self.activity.record(record);
+        self.unavailable_payloads +=
+            record.definition_payloads().map(|field| u32::from(!field.payload.is_available())).sum::<u32>();
+        match record {
+            TelemetryRecord::QueryDefinition(row) => {
+                self.queries.insert(row.id.clone(), row.identity.native());
+            }
+            TelemetryRecord::PlanDefinition(row) => {
+                self.plans.insert(
+                    row.id.clone(),
+                    ObservedPlan {
+                        native: row.identity.native(),
+                        query_native: row.identity.query.native(),
+                        query_definition_id: row.query_definition_id.clone(),
+                    },
+                );
+            }
+            TelemetryRecord::Operational(row) => {
+                self.compiler_admission.record(row);
+                if let OperationalFact::ExecutionGrant(grant) = &row.fact {
+                    self.memory.record(grant);
+                }
+                if let OperationalFact::DiagnosticRevision(revision) = &row.fact {
+                    self.diagnostic_revisions.push((**revision).clone());
+                }
+                *self.state_rows.entry(row.source.clone()).or_default() += 1;
+            }
+            TelemetryRecord::DiagnosticCheckpoint(part) => {
+                self.diagnostic_parts.push(part.clone());
+            }
+            TelemetryRecord::ObjectDefinition(row) => {
+                *self.state_rows.entry(row.source.clone()).or_default() += 1;
+            }
+            TelemetryRecord::WaitCounter(row) => {
+                *self.state_rows.entry(row.source.clone()).or_default() += 1;
+            }
+            TelemetryRecord::Replication(row) => {
+                *self.state_rows.entry(row.source.clone()).or_default() += 1;
+            }
+            TelemetryRecord::Tuning(row) => {
+                *self.state_rows.entry(row.source.clone()).or_default() += 1;
+            }
+            TelemetryRecord::Setting(row) => {
+                *self.state_rows.entry(row.source.clone()).or_default() += 1;
+            }
+            _ => {
+                if let Some(key) = record.measurement_key() {
+                    if let Some(query) = &key.references.query {
+                        self.required_queries.record(query);
+                    } else {
+                        self.unidentified_queries.insert(key.native.clone());
+                    }
+                    if let Some(plan) = &key.references.plan {
+                        self.required_plans.record(plan);
+                        self.plan_queries.insert(plan.native.clone(), key.references.query.clone());
+                    }
+                }
+            }
+        }
+    }
+    fn plan_is_resolved(&self, native: &NativeIdentity, id: &str) -> bool {
+        let Some(plan) = self.plans.get(id) else { return false };
+        let Some(query_definition_id) = plan.query_definition_id.as_ref() else { return false };
+        let Some(query) = self.plan_queries.get(native).and_then(Option::as_ref) else { return false };
+        plan.native == *native
+            && plan.query_native == query.native
+            && query.definition_id.as_ref() == Some(query_definition_id)
+            && self.queries.get(query_definition_id) == Some(&query.native)
+    }
+    fn diagnostics_complete(&self, source: Option<&CollectionDescription>) -> bool {
+        let Some(source) = source else {
+            return self.diagnostic_parts.is_empty() && self.diagnostic_revisions.is_empty();
+        };
+        let SourceObservation::Diagnostics(description) = &source.observation else {
+            return self.diagnostic_parts.is_empty() && self.diagnostic_revisions.is_empty();
+        };
+        if source.source != DIAGNOSTICS_SOURCE
+            || self.diagnostic_revisions.len() != description.records as usize
+            || self.diagnostic_parts.len() != description.checkpoint_records as usize
+        {
+            return false;
+        }
+        let Ok(checkpoint) = DiagnosticCheckpointPart::assemble(self.diagnostic_parts.clone()) else {
+            return false;
+        };
+        checkpoint.controller_version == description.controller_version
+            && checkpoint.target == source.target
+            && checkpoint.input == description.parent
+            && self.diagnostic_revisions.iter().all(|revision| {
+                revision.is_valid()
+                    && revision.controller_version == description.controller_version
+                    && revision.analyzed_at == description.analyzed_at
+                    && revision.episode.scope.target == source.target
+            })
+    }
+    pub fn diagnostic_checkpoint(&self) -> Option<DiagnosticCheckpoint> {
+        (!self.diagnostic_parts.is_empty())
+            .then(|| DiagnosticCheckpointPart::assemble(self.diagnostic_parts.clone()).ok())
+            .flatten()
+    }
+    pub fn coverage(&self, source_rechecked: bool, source: Option<&CollectionDescription>) -> ReferenceCoverage {
+        let queries = self
+            .required_queries
+            .coverage(|native, id| self.queries.get(id) == Some(native), self.unidentified_queries.len());
+        let plans = self.required_plans.coverage(|native, id| self.plan_is_resolved(native, id), 0);
+        let activity =
+            source.and_then(|source| source.observation.activity()).map(|snapshot| self.activity.coverage(snapshot));
+        let integrity_complete = source_rechecked
+            && self.diagnostics_complete(source)
+            && self.memory.complete(source)
+            && self.compiler_admission.complete(source)
+            && self.required_queries.declared_references_resolve(|native, id| self.queries.get(id) == Some(native))
+            && self.required_plans.declared_references_resolve(|native, id| self.plan_is_resolved(native, id))
+            && self.plans.values().all(|plan| {
+                plan.query_definition_id.as_ref().is_none_or(|id| self.queries.get(id) == Some(&plan.query_native))
+            })
+            && source.and_then(|source| source.observation.snapshot()).is_none_or(|snapshot| {
+                snapshot
+                    .sources
+                    .iter()
+                    .all(|source| self.state_rows.get(&source.source).copied().unwrap_or(0) == source.records)
+            })
+            && activity.as_ref().is_none_or(|activity| activity.complete);
+        ReferenceCoverage {
+            complete: integrity_complete && queries.complete() && plans.complete(),
+            integrity_complete,
+            queries,
+            plans,
+            unavailable_payloads: self.unavailable_payloads,
+            activity,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use culprit_core::telemetry::*;
+    fn query(id: &str) -> QueryDefinition {
+        QueryDefinition {
+            variant_family: None,
+            id: digest(id.as_bytes()),
+            origin: StatementOrigin::Unknown,
+            monitoring_template_id: None,
+            identity: NativeQueryIdentity { query_id: id.into(), qualifiers: Default::default() },
+            context: Default::default(),
+            context_available: false,
+            source_text_bytes: None,
+            sql: DefinitionPayload::Unavailable { reason: PayloadUnavailable::NotCollected },
+        }
+    }
+    fn reference(query: &QueryDefinition) -> NativeDefinitionReference {
+        NativeDefinitionReference { native: query.identity.native(), definition_id: Some(query.id.clone()) }
+    }
+    fn measurement(query: &QueryDefinition, plan: Option<NativeDefinitionReference>) -> TelemetryRecord {
+        TelemetryRecord::QueryRuntime(RuntimeMeasurement {
+            key: NativeMeasurementKey {
+                cohort: None,
+                native: NativeIdentity::new("row"),
+                references: StatementReferences { query: Some(reference(query)), plan },
+            },
+            executions: "1".into(),
+            metrics: vec![],
+            page_server_reads: None,
+            first_execution_at: None,
+            last_execution_at: None,
+        })
+    }
+    #[test]
+    fn query_only_measurements_require_the_exact_query_definition() {
+        let mut references = ObservationReferences::default();
+        let query = query("opaque-query");
+        references.record(&measurement(&query, None));
+        assert!(!references.coverage(true, None).complete);
+        references.record(&TelemetryRecord::QueryDefinition(query));
+        let coverage = references.coverage(true, None);
+        assert!(coverage.complete);
+        assert_eq!(coverage.queries.required, 1);
+        assert_eq!(coverage.plans.required, 0);
+    }
+    #[test]
+    fn an_unlinked_native_plan_cannot_close_a_runtime_reference() {
+        let query = query("native-query");
+        let plan = PlanDefinition {
+            id: digest(b"independent-cache-plan"),
+            identity: NativePlanIdentity {
+                plan_id: "plan".into(),
+                query: query.identity.clone(),
+                qualifiers: Default::default(),
+            },
+            query_definition_id: None,
+            engine_version: None,
+            native_properties: Default::default(),
+            source_text_bytes: None,
+            plan: DefinitionPayload::Unavailable { reason: PayloadUnavailable::NotCollected },
+        };
+        let required =
+            NativeDefinitionReference { native: plan.identity.native(), definition_id: Some(plan.id.clone()) };
+        let mut references = ObservationReferences::default();
+        for record in [
+            measurement(&query, Some(required)),
+            TelemetryRecord::QueryDefinition(query),
+            TelemetryRecord::PlanDefinition(plan),
+        ] {
+            references.record(&record);
+        }
+        assert_eq!(references.coverage(true, None).plans.unresolved, 1);
+    }
+    #[test]
+    fn an_unrelated_query_definition_cannot_close_a_plan_reference() {
+        let expected = query("expected");
+        let other = query("other");
+        let plan = PlanDefinition {
+            id: digest(b"plan"),
+            identity: NativePlanIdentity {
+                plan_id: "plan".into(),
+                query: other.identity.clone(),
+                qualifiers: Default::default(),
+            },
+            query_definition_id: Some(other.id.clone()),
+            engine_version: None,
+            native_properties: Default::default(),
+            source_text_bytes: None,
+            plan: DefinitionPayload::Unavailable { reason: PayloadUnavailable::NotCollected },
+        };
+        let required =
+            NativeDefinitionReference { native: plan.identity.native(), definition_id: Some(plan.id.clone()) };
+        let row = measurement(&expected, Some(required.clone()));
+        let mut references = ObservationReferences::default();
+        assert!(references.accepts_page(std::slice::from_ref(&row)));
+        for record in [
+            row,
+            TelemetryRecord::QueryDefinition(expected),
+            TelemetryRecord::QueryDefinition(other.clone()),
+            TelemetryRecord::PlanDefinition(plan),
+        ] {
+            references.record(&record);
+        }
+        let coverage = references.coverage(true, None);
+        assert!(coverage.queries.complete());
+        assert_eq!(coverage.plans.unresolved, 1);
+        assert!(!coverage.complete);
+        let changed = measurement(&other, Some(required));
+        assert!(!references.accepts_page(&[changed]), "a native plan cannot change its parent during a capture");
+    }
+
+    #[test]
+    fn explicit_unresolved_native_references_preserve_integrity_without_semantic_closure() {
+        let mut row = measurement(&query("original"), None);
+        let TelemetryRecord::QueryRuntime(runtime) = &mut row else { unreachable!() };
+        runtime.key.references = StatementReferences {
+            query: Some(NativeDefinitionReference {
+                native: NativeIdentity::new("known-native-query"),
+                definition_id: None,
+            }),
+            plan: Some(NativeDefinitionReference {
+                native: NativeIdentity::new("known-native-plan"),
+                definition_id: None,
+            }),
+        };
+        let mut references = ObservationReferences::default();
+        references.record(&row);
+        let coverage = references.coverage(true, None);
+        assert!(coverage.is_valid());
+        assert!(coverage.integrity_complete);
+        assert!(!coverage.complete);
+        assert_eq!(coverage.queries.unresolved, 1);
+        assert_eq!(coverage.plans.unresolved, 1);
+        assert!(!references.coverage(false, None).integrity_complete);
+    }
+
+    #[test]
+    fn an_informational_row_cannot_cover_a_dangling_declared_definition() {
+        let required = query("required");
+        let mut unidentified = measurement(&query("unidentified"), None);
+        let TelemetryRecord::QueryRuntime(runtime) = &mut unidentified else { unreachable!() };
+        runtime.key.native = NativeIdentity::new("another-native-runtime");
+        runtime.key.references = StatementReferences::default();
+        let mut references = ObservationReferences::default();
+        references.record(&unidentified);
+        references.record(&measurement(&required, None));
+        assert!(!references.coverage(true, None).integrity_complete);
+        references.record(&TelemetryRecord::QueryDefinition(required));
+        let coverage = references.coverage(true, None);
+        assert!(coverage.integrity_complete);
+        assert!(!coverage.complete);
+    }
+
+    #[test]
+    fn a_plan_definition_cannot_claim_an_absent_query_even_without_runtime() {
+        let query = query("absent-query");
+        let mut references = ObservationReferences::default();
+        references.record(&TelemetryRecord::PlanDefinition(PlanDefinition {
+            id: digest(b"plan-with-dangling-query"),
+            identity: NativePlanIdentity {
+                plan_id: "plan".into(),
+                query: query.identity,
+                qualifiers: Default::default(),
+            },
+            query_definition_id: Some(query.id),
+            engine_version: None,
+            native_properties: Default::default(),
+            source_text_bytes: None,
+            plan: DefinitionPayload::Unavailable { reason: PayloadUnavailable::NotCollected },
+        }));
+        assert!(!references.coverage(true, None).integrity_complete);
+    }
+}

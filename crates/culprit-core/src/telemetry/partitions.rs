@@ -41,6 +41,11 @@ pub struct MssqlPartitionBoundary {
     pub display_value: Option<CatalogExpression>,
 }
 impl MssqlPartitionBoundary {
+    /// An observed non-NULL native value needs both its typed binary version and native type.
+    pub fn value_identity_complete(&self) -> bool {
+        self.value_is_null != Some(false) || self.native_value_sha256.is_some() && self.native_value_type.is_some()
+    }
+
     pub fn key(&self) -> crate::Result<String> {
         if !self.is_valid() {
             return Err(CollectionStop::InvalidPage.error());

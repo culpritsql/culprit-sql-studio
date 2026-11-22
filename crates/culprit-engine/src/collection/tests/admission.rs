@@ -230,8 +230,8 @@ async fn standalone_parent_dependent_selections_stop_before_route_authentication
             // Standalone collection must refuse even a structurally qualified context before authenticating it.
             original_context: Box::new(
                 NativeReadContext::from_activity(
-                    &culprit_collector::analytical::test_support::page_task_holder_fixture(
-                        culprit_collector::analytical::test_support::PageTaskHolderCase::QualifiedBoth,
+                    &culprit_evidence::analytical::test_support::page_task_holder_fixture(
+                        culprit_evidence::analytical::test_support::PageTaskHolderCase::QualifiedBoth,
                     )
                     .activity_source,
                 )

@@ -219,7 +219,7 @@ mod tests {
     #[test]
     fn native_current_work_cannot_supply_another_displayed_sessions_report_or_cache() {
         let (source, records) =
-            culprit_collector::analytical::test_support::current_request_work_evidence_cases().remove(0);
+            culprit_evidence::analytical::test_support::current_request_work_evidence_cases().remove(0);
         let SourceObservation::CurrentRequestWork { profile, snapshot, result } = &source.observation else { panic!() };
         let [
             TelemetryRecord::Operational(OperationalObservation {

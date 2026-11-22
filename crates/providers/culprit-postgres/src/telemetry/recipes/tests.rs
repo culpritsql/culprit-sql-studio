@@ -62,14 +62,14 @@ fn every_public_declaration_has_one_actual_offline_constructor_and_no_native_cos
     for (registration, descriptor) in REGISTRATIONS.iter().zip(declarations) {
         let request = request(registration, CollectionBudget::default());
         assert_eq!(descriptor, registration.descriptor());
-        assert_eq!(descriptor.cost, RecipeCostQualification::Unqualified);
+        assert!(!matches!(descriptor.admission, RecipeAdmission::Measured(_)));
         assert_eq!(
             descriptor.version,
             match registration.route {
-                Route::Jobs | Route::Activity => 3,
+                Route::Activity => 4,
+                Route::Jobs | Route::Blocking => 3,
                 Route::MaintenanceProgress
                 | Route::CurrentRequestWork
-                | Route::Blocking
                 | Route::Snapshot(Recipe::Operational | Recipe::Statements) => 2,
                 _ => 1,
             }

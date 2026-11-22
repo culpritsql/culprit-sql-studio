@@ -1,10 +1,10 @@
 //! A case deadline signals cancellation, then awaits the same body. Only a borrowed query future may be
 //! interrupted: its caller retains the native reader and must close it before returning.
-use culprit_collector::capture::CollectionCancellation;
 use culprit_core::{
     Result,
     telemetry::{CollectionStop, SourceShutdown},
 };
+use culprit_read::cancellation::CollectionCancellation;
 use futures_util::{FutureExt, future::LocalBoxFuture};
 use std::{future::Future, panic::AssertUnwindSafe, time::Duration};
 use tokio::time::Instant;

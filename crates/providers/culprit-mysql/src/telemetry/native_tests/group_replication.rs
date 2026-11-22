@@ -103,8 +103,12 @@ async fn owned_group_replication_factory_outbox_preserves_real_member_roles_and_
     assert_eq!(snapshot.records, capture.records.len() as u32);
     assert!(capture.manifest.source_queries <= 23);
     assert_eq!(
-        crate::telemetry::recipes().into_iter().find(|recipe| recipe.id == "mysql.group-replication").unwrap().cost,
-        RecipeCostQualification::Unqualified
+        crate::telemetry::recipes()
+            .into_iter()
+            .find(|recipe| recipe.id == "mysql.group-replication")
+            .unwrap()
+            .admission,
+        RecipeAdmission::Unqualified
     );
     eprintln!(
         "owned Group Replication acceptance: members={} statistics={} source_queries={}; native source cost remains unqualified",

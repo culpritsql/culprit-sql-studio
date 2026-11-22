@@ -9,10 +9,15 @@ publish.workspace = true
 [lib]
 doctest = false
 
+[features]
+default = ["write"]
+write = ["dep:culprit-collector"]
+
 [dependencies]
+culprit-evidence.workspace = true
 culprit-auth.workspace = true
 culprit-core.workspace = true
-culprit-collector.workspace = true
+culprit-collector = { workspace = true, optional = true }
 async-trait.workspace = true
 chrono.workspace = true
 ring.workspace = true
@@ -23,6 +28,7 @@ ureq.workspace = true
 zeroize.workspace = true
 
 [dev-dependencies]
+culprit-evidence = { workspace = true, features = ["test-support"] }
 culprit-collector = { workspace = true, features = ["test-support"] }
 base64.workspace = true
 tempfile.workspace = true

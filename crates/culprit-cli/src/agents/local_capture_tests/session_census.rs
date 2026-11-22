@@ -1,6 +1,7 @@
 use super::*;
-use culprit_collector::analytical::test_support::{SessionCensusCase, session_census_evidence};
 use culprit_engine::LocalCaptureAnalysisKind;
+use culprit_evidence::analytical::test_support::SessionCensusCase;
+use culprit_evidence::analytical::test_support::session_census_evidence;
 
 #[tokio::test]
 async fn actual_startup_mcp_route_reanalyzes_one_original_census_with_exact_values_and_no_native_or_private_authority()

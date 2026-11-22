@@ -1,9 +1,9 @@
 use super::*;
-use crate::delivery::{
-    contract::Contract,
-    file_store::{FileOwnership, FileRecoveryStore},
-    recovery::*,
-};
+use crate::delivery::file_store::FileOwnership;
+use crate::delivery::file_store::FileRecoveryStore;
+use crate::delivery::recovery::*;
+use culprit_evidence::delivery::contract::Contract;
+use culprit_evidence::delivery::recovery::*;
 
 pub(super) async fn remote_box(root: &Path) -> (FileRecoveryStore, FileOwnership, Contract, Outbox) {
     let contract = Contract::new("pipeline".into(), "shard-0".into(), "file:test".into(), digest(b"schema")).unwrap();

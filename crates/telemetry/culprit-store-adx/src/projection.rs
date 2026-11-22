@@ -1,7 +1,8 @@
 //! Kusto physical types and documented timestamp precision; logical scalars and digests remain shared.
 use chrono::{SecondsFormat, Timelike};
-pub use culprit_collector::analytical::projection::{ScalarType, digest};
 use culprit_core::{Result, telemetry::DeliveryProblem};
+pub use culprit_evidence::analytical::projection::ScalarType;
+pub use culprit_evidence::analytical::projection::digest;
 use serde_json::Value;
 
 pub trait KustoType {

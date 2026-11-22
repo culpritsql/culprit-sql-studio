@@ -169,7 +169,9 @@ fn scheduler_text(report: &SchedulerReport) -> String {
                         t!("view.counter_ratios.cli.metric", label = statement::preview(&field.label), value = value);
                     if let Some(explanation) = &field.explanation {
                         line.push(' ');
-                        line.push_str(&statement::preview_bounded(explanation, OBSERVATION_DETAIL_CHARS));
+                        line.push_str(
+                            &culprit_core::format::escaped_preview(explanation, OBSERVATION_DETAIL_CHARS).text,
+                        );
                     }
                     line
                 })
@@ -192,7 +194,7 @@ fn scheduler_text(report: &SchedulerReport) -> String {
     ));
     for limitation in report.limitations.iter().skip(1).take(MAX_SCHEDULER_LIMITATIONS - 1) {
         text.push('\n');
-        text.push_str(&statement::preview_bounded(limitation, OBSERVATION_DETAIL_CHARS));
+        text.push_str(&culprit_core::format::escaped_preview(limitation, OBSERVATION_DETAIL_CHARS).text);
     }
     text
 }
@@ -213,7 +215,7 @@ const CPU_LIMITATION_LIMIT: usize = 3;
 fn append_cpu_qualifications(text: &mut String, limitations: &[String]) {
     for limitation in limitations.iter().skip(1).take(CPU_LIMITATION_LIMIT - 1) {
         text.push('\n');
-        text.push_str(&statement::preview_bounded(limitation, OBSERVATION_DETAIL_CHARS));
+        text.push_str(&culprit_core::format::escaped_preview(limitation, OBSERVATION_DETAIL_CHARS).text);
     }
 }
 

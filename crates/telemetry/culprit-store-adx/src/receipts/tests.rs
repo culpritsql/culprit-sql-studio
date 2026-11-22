@@ -5,8 +5,11 @@ use crate::{
     test_support::{Blobs, Queries, Recovery, Reply},
 };
 use async_trait::async_trait;
-use culprit_collector::analytical::{indexes::ProjectionIndexes, receipts::ReceiptReader};
-use culprit_collector::delivery::{recovery::reopen, sink::*};
+use culprit_collector::delivery::sink::*;
+use culprit_evidence::analytical::indexes::ProjectionIndexes;
+use culprit_evidence::analytical::receipts::ReceiptReader;
+use culprit_evidence::delivery::receipts::ReceiptPage;
+use culprit_evidence::delivery::recovery::reopen;
 use serde_json::Value;
 use std::sync::Mutex;
 
@@ -79,8 +82,8 @@ impl Fixture {
 }
 #[tokio::test]
 async fn shared_resources_survive_recovery_dispatch_and_exact_readback_without_database_attribution() {
-    use culprit_collector::analytical::test_support::shared_resource;
     use culprit_core::telemetry::SharedResourceKind;
+    use culprit_evidence::analytical::test_support::shared_resource;
     let catalog = SchemaCatalog::new().unwrap();
     for kind in
         [SharedResourceKind::Instance, SharedResourceKind::Pool, SharedResourceKind::Cluster, SharedResourceKind::Node]
@@ -151,7 +154,7 @@ async fn count_matches_and_opaque_native_hashes_cannot_hide_wrong_typed_values_o
 struct Sink(ReceiptReader);
 #[async_trait]
 impl TelemetrySink for Sink {
-    async fn validate_contract(&self, _: &culprit_collector::delivery::contract::Contract) -> Result<()> {
+    async fn validate_contract(&self, _: &culprit_evidence::delivery::contract::Contract) -> Result<()> {
         Ok(())
     }
     async fn dispatch(&self, _: &CommittedRange, _: &DeliveryAttempt, _: &str) -> Result<Submission> {
@@ -198,8 +201,8 @@ async fn stale_or_out_of_bounds_receipt_cursors_are_refused_before_a_destination
 
 #[tokio::test]
 async fn observed_wait_resources_survive_exact_readback_and_a_changed_native_target_is_rejected() {
-    use culprit_collector::analytical::test_support::activity_with_wait_resource;
     use culprit_core::WaitResourceKind;
+    use culprit_evidence::analytical::test_support::activity_with_wait_resource;
     let catalog = SchemaCatalog::new().unwrap();
     for kind in [WaitResourceKind::MemoryPage, WaitResourceKind::PageIo, WaitResourceKind::DataLock] {
         let fixture = Fixture::from_recovery(activity_with_wait_resource("adx:test", catalog.digest(), 2, kind)).await;
@@ -223,7 +226,7 @@ async fn observed_wait_resources_survive_exact_readback_and_a_changed_native_tar
 #[tokio::test]
 async fn native_query_compilation_memory_survives_readback_and_changed_memory_cannot_verify() {
     let catalog = SchemaCatalog::new().unwrap();
-    let recovery = culprit_collector::analytical::test_support::query_compilation("adx:test", catalog.digest());
+    let recovery = culprit_evidence::analytical::test_support::query_compilation("adx:test", catalog.digest());
     let fixture = Fixture::from_recovery(recovery).await;
     let schema = fixture.catalog.get(fixture.range.manifest().batches[0].stream).unwrap();
     let column = schema.columns().iter().position(|column| column.name == "Details").unwrap();

@@ -1,13 +1,13 @@
 //! One bounded canonical file proof shared by capture finalization, Outbox publication and replay.
-use crate::{collection_references::ObservationReferences, durable_fs};
+use crate::durable_fs;
 use culprit_core::{Error, Result, telemetry::*};
+use culprit_evidence::collection_references::ObservationReferences;
 use sha2::{Digest, Sha256};
-use std::{
-    collections::HashSet,
-    fs::File,
-    io::{self, BufRead, BufReader, Read, Write},
-    path::Path,
-};
+use std::collections::HashSet;
+use std::fs::File;
+use std::io;
+use std::io::{BufRead, BufReader, Read, Write};
+use std::path::Path;
 
 /// The two owners preserve their established error domains; row-validation policy is shared here once.
 #[derive(Clone, Copy)]

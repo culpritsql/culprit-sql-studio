@@ -1,10 +1,11 @@
 use super::*;
-use crate::delivery::{
-    contract::Contract,
-    evidence::{BatchManifest, PreparedRange, RangeManifest},
-    file_store::FileRecoveryStore,
-    recovery::stage_and_commit,
-};
+use crate::delivery::evidence::PreparedRange;
+use crate::delivery::file_store::FileRecoveryStore;
+use crate::delivery::recovery::stage_and_commit;
+use culprit_evidence::delivery::contract::Contract;
+use culprit_evidence::delivery::evidence::BatchManifest;
+use culprit_evidence::delivery::evidence::RangeManifest;
+use culprit_read::cancellation::CollectionCancellation;
 use std::sync::Arc;
 
 fn backfill_job(inventory: &FleetInventory) -> Job {
@@ -70,7 +71,7 @@ fn prepared_interval(root: &std::path::Path, backend: &Backend, contract: Contra
             contract,
             range_id,
             capture,
-            reference_coverage: crate::collection_references::ObservationReferences::default()
+            reference_coverage: culprit_evidence::collection_references::ObservationReferences::default()
                 .coverage(true, Some(&source)),
             source,
             collected_from: "2026-11-10T12:00:00Z".into(),

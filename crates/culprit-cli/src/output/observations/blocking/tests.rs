@@ -1,6 +1,7 @@
 use super::*;
-use culprit_collector::analytical::test_support::{BlockingCase, blocking_evidence};
 use culprit_core::{SourceState, telemetry::*};
+use culprit_evidence::analytical::test_support::BlockingCase;
+use culprit_evidence::analytical::test_support::blocking_evidence;
 
 fn report(case: BlockingCase) -> BlockingReport {
     let (source, rows) = blocking_evidence(case);

@@ -50,7 +50,7 @@ async fn real_factory_construction_discovery_and_recipe_are_explicit_and_cost_un
     assert_eq!(source.query_count(), 0);
     assert_eq!(source.close().await, SourceShutdown::Quiescent);
     let recipe = crate::telemetry::recipes().into_iter().find(|recipe| recipe.id == "mysql.group-replication").unwrap();
-    assert_eq!(recipe.cost, RecipeCostQualification::Unqualified);
+    assert_eq!(recipe.admission, RecipeAdmission::Unqualified);
     assert_eq!(recipe.purpose, RecipePurpose::Investigation);
     assert_eq!(recipe.budget.max_queries, 23);
     let mut wrong = request();

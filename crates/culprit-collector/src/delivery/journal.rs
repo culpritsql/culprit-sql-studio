@@ -1,10 +1,14 @@
 //! Side effects have a durable intent. Notification cursors and the resulting work hints commit together.
-use super::{contract::*, evidence::*, recovery::CommittedRange, sink::*};
+use super::sink::*;
+use crate::delivery::evidence::PreparedRange;
 use crate::{blocking_state::BlockingState, durable_fs};
 use culprit_core::{
     Result,
     telemetry::{DeliveryBacklog, DeliveryEntry, DeliveryPhase, DeliveryProblem, digest},
 };
+use culprit_evidence::delivery::contract::*;
+use culprit_evidence::delivery::evidence::*;
+use culprit_evidence::delivery::recovery::CommittedRange;
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use std::{
@@ -66,7 +70,7 @@ pub(crate) struct State {
     pub reconcile: bool,
     pub problem: Option<DeliveryProblem>,
     pub verification: Option<super::verification::VerificationProgress>,
-    pub staged: Vec<super::recovery::StagedBatch>,
+    pub staged: Vec<culprit_evidence::delivery::mutations::StagedBatch>,
     pub dispatched_batches: usize,
 }
 impl Default for State {

@@ -1,8 +1,9 @@
 //! Real COPY is fixture-only work; collection uses the ordinary read-only focused source and native owner.
 use super::{Factory, owned_fixture, retained_activity};
-use culprit_collector::capture::{CollectionCancellation, collect_once};
+use culprit_collector::capture::collect_once;
 use culprit_core::{ConnectionSpec, Provider, telemetry::*};
 use culprit_read::admission::SourceGate;
+use culprit_read::cancellation::CollectionCancellation;
 
 mod fixture;
 use fixture::{COPY_BYTES, COPY_ROWS, Fixture};
@@ -59,8 +60,8 @@ async fn genuine_copy_stdin_retains_exact_original_native_scope_request_and_prog
                     .into_iter()
                     .find(|recipe| recipe.id == "postgres.current-request-work")
                     .unwrap()
-                    .cost,
-                RecipeCostQualification::Unqualified
+                    .admission,
+                RecipeAdmission::Unqualified
             );
             fixture.release_and_complete().await;
             let absent =

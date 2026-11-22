@@ -18,7 +18,7 @@ pub(crate) struct Seed {
 
 pub(crate) async fn seed(
     client: &mut MsClient,
-    cancellation: &culprit_collector::capture::CollectionCancellation,
+    cancellation: &culprit_read::cancellation::CollectionCancellation,
 ) -> Seed {
     active(cancellation);
     bound_owned_files(client, cancellation).await;
@@ -73,13 +73,13 @@ fn finite_psp_population_has_two_distinct_demands_and_equal_semantics_for_rare_c
     assert_eq!(expected_result(2), expected_result(3));
 }
 
-fn active(cancellation: &culprit_collector::capture::CollectionCancellation) {
+fn active(cancellation: &culprit_read::cancellation::CollectionCancellation) {
     assert!(!cancellation.is_cancelled(), "owned PSP setup cancelled before next statement");
 }
 
 /// This helper is called only after nonce admission and creation of a new disposable database. Exact native file
 /// names remain quoted. Hard native caps prevent a test seed from silently growing data/log beyond its policy.
-async fn bound_owned_files(client: &mut MsClient, cancellation: &culprit_collector::capture::CollectionCancellation) {
+async fn bound_owned_files(client: &mut MsClient, cancellation: &culprit_read::cancellation::CollectionCancellation) {
     let files=crate::conn::query(client,"SELECT TOP(3) /* culprit fixture */ DB_NAME() AS database_name,name,type,CONVERT(bigint,size) AS pages FROM sys.database_files ORDER BY file_id").await.unwrap();
     assert_eq!(files.len(), 2, "the disposable seed requires one native ROWS and one LOG file");
     let mut kinds = std::collections::BTreeSet::new();

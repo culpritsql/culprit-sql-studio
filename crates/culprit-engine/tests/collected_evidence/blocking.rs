@@ -1,10 +1,12 @@
 use super::fixture::Fixture;
-use culprit_collector::analytical::{
-    evidence::{EvidenceFamily, EvidenceGapReason},
-    test_support::{BlockingCase, assert_blocking_capture, blocking_evidence, blocking_evidence_cases},
-};
 use culprit_core::{HeadKind, MaintenanceDirection, SourceState, telemetry::*};
 use culprit_engine::collected_resources;
+use culprit_evidence::analytical::evidence::EvidenceFamily;
+use culprit_evidence::analytical::evidence::EvidenceGapReason;
+use culprit_evidence::analytical::test_support::BlockingCase;
+use culprit_evidence::analytical::test_support::assert_blocking_capture;
+use culprit_evidence::analytical::test_support::blocking_evidence;
+use culprit_evidence::analytical::test_support::blocking_evidence_cases;
 
 const FAMILY: &[EvidenceFamily] = &[EvidenceFamily::ActivityObservations];
 
@@ -138,7 +140,7 @@ async fn an_unselected_activity_family_and_an_ordinary_unfocused_frame_cannot_be
     let fixture = Fixture::new(source, records).await;
     let capture = fixture.read_families(&[EvidenceFamily::OperationalSamples]).await;
     assert!(collected_resources::blocking(&capture).is_err());
-    let (source, records) = culprit_collector::analytical::test_support::activity_evidence_cases().remove(0);
+    let (source, records) = culprit_evidence::analytical::test_support::activity_evidence_cases().remove(0);
     let fixture = Fixture::new(source, records).await;
     assert!(collected_resources::blocking(&fixture.read_families(FAMILY).await).is_err());
 }

@@ -1,6 +1,7 @@
 use super::*;
-use culprit_collector::analytical::test_support::{self, StorageCase};
 use culprit_core::telemetry::*;
+use culprit_evidence::analytical::test_support;
+use culprit_evidence::analytical::test_support::StorageCase;
 #[test]
 fn exact_native_bytes_and_unknown_used_space_keep_the_same_shared_interpretation_without_sql_or_disk_claims() {
     let (source, rows) = test_support::storage_evidence(StorageCase::Unknown);

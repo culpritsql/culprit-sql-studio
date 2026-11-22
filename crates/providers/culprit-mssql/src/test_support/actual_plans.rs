@@ -5,7 +5,7 @@ use crate::{
     read::{Parameter, value_bytes},
     value::{Rec, Val},
 };
-use culprit_collector::capture::CollectionCancellation;
+use culprit_read::cancellation::CollectionCancellation;
 use futures_util::TryStreamExt;
 use std::time::Duration;
 use tiberius::QueryItem;

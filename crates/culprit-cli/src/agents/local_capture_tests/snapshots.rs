@@ -1,13 +1,15 @@
 use super::*;
-use culprit_collector::analytical::test_support::{
-    DatabasePropertiesCase, PerformanceCounterCase, compilation_definition_evidence_cases,
-    database_properties_evidence, local_snapshot_evidence_cases, performance_counter_evidence,
-};
+use culprit_collector::analytical::test_support::local_snapshot_evidence_cases;
 use culprit_engine::LocalCaptureAnalysisKind;
+use culprit_evidence::analytical::test_support::DatabasePropertiesCase;
+use culprit_evidence::analytical::test_support::PerformanceCounterCase;
+use culprit_evidence::analytical::test_support::compilation_definition_evidence_cases;
+use culprit_evidence::analytical::test_support::database_properties_evidence;
+use culprit_evidence::analytical::test_support::performance_counter_evidence;
 
 #[tokio::test]
 async fn original_governor_context_reaches_bounded_mcp_without_native_labels_new_reads_or_reset_claims() {
-    use culprit_collector::analytical::test_support::{
+    use culprit_evidence::analytical::test_support::{
         ResourceGovernorCounterCase as Case, resource_governor_counter_evidence,
     };
     for case in Case::ALL {
@@ -200,7 +202,7 @@ async fn compiled_native_integer_counts_remain_exact_and_independent_from_bounde
 #[tokio::test]
 async fn compilation_retains_verified_bounded_sql_and_historical_incarnation_without_private_receipts() {
     for payload in ["available", "restricted", "unknown-namespace"] {
-        let (mut source, mut rows) = culprit_collector::analytical::test_support::query_compilation_evidence();
+        let (mut source, mut rows) = culprit_evidence::analytical::test_support::query_compilation_evidence();
         if payload == "unknown-namespace" {
             let CollectionTarget::Database(database) = &mut source.target else { panic!() };
             database.incarnation = None;
@@ -281,7 +283,7 @@ async fn failed_or_unconfirmed_completed_snapshots_never_fall_back_to_a_saved_de
 
 #[tokio::test]
 async fn mysql_event_originals_reach_mcp_with_native_source_gaps_and_no_execution_inference() {
-    use culprit_collector::analytical::test_support::mysql_events_evidence_cases;
+    use culprit_evidence::analytical::test_support::mysql_events_evidence_cases;
     for (source, rows) in mysql_events_evidence_cases() {
         let native = source.observation.snapshot().unwrap().clone();
         let coverage = native.sources[0].clone();
@@ -368,7 +370,7 @@ async fn mysql_event_originals_reach_mcp_with_native_source_gaps_and_no_executio
 
 #[tokio::test]
 async fn selected_database_counters_reach_the_existing_mcp_analysis_without_native_work_or_proof_disclosure() {
-    use culprit_collector::analytical::test_support::{
+    use culprit_evidence::analytical::test_support::{
         DatabasePerformanceCounterCase as Case, database_performance_counter_evidence,
     };
     for case in Case::ALL {
@@ -414,7 +416,7 @@ async fn selected_database_counters_reach_the_existing_mcp_analysis_without_nati
 
 #[tokio::test]
 async fn canonical_file_census_summary_reaches_bounded_local_mcp_with_no_native_factory_or_extra_original_read() {
-    use culprit_collector::analytical::test_support::{StorageCase, storage_evidence};
+    use culprit_evidence::analytical::test_support::{StorageCase, storage_evidence};
     for case in [
         StorageCase::FileCensusLarge,
         StorageCase::FileCensusPartial,

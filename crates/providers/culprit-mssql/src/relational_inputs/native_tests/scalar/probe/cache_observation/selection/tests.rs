@@ -7,7 +7,7 @@ use crate::{
     test_support::owned_case,
     value::{Rec, Val},
 };
-use culprit_collector::capture::CollectionCancellation;
+use culprit_read::cancellation::CollectionCancellation;
 
 fn original() -> (CachedStatementContext, i64) {
     let row = metadata::tests::row();

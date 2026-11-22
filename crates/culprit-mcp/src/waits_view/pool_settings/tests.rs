@@ -1,5 +1,6 @@
 use super::*;
-use culprit_collector::analytical::test_support::{PoolSettingsCase, pool_settings_evidence};
+use culprit_evidence::analytical::test_support::PoolSettingsCase;
+use culprit_evidence::analytical::test_support::pool_settings_evidence;
 fn report(case: PoolSettingsCase) -> PoolSettingsReport {
     let (source, rows) = pool_settings_evidence(case);
     let rows = rows

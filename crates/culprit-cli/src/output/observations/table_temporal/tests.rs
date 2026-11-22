@@ -1,6 +1,7 @@
 use super::*;
-use culprit_collector::analytical::test_support::{TableTemporalCase, table_temporal_evidence};
 use culprit_core::telemetry::*;
+use culprit_evidence::analytical::test_support::TableTemporalCase;
+use culprit_evidence::analytical::test_support::table_temporal_evidence;
 fn report(case: TableTemporalCase) -> TableTemporalReport {
     let (description, records) = table_temporal_evidence(case);
     let coverage = &description.observation.snapshot().unwrap().sources[0];

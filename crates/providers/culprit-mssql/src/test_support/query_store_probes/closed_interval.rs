@@ -4,6 +4,7 @@ use crate::{
     read::{integer, signed_integer, text},
     value::Rec,
 };
+use futures_util::FutureExt;
 use std::time::Duration;
 const MAX_INTERVAL_WAIT_MS: u64 = 60_000;
 const CONFIGURE: &str = "ALTER DATABASE /* culprit */ CURRENT SET QUERY_STORE (INTERVAL_LENGTH_MINUTES=1)";

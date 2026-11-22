@@ -1,9 +1,8 @@
 //! An explicit local capture attachment reuses the ordinary scan owner and performs no additional native read.
 use crate::{PopulationReports, Workspace};
-use culprit_collector::{
-    capture::CollectionCancellation,
-    outbox::{CompletedCaptureBudget, OutboxDelivery},
-};
+use culprit_collector::outbox::CompletedCaptureBudget;
+use culprit_collector::outbox::OutboxDelivery;
+use culprit_read::cancellation::CollectionCancellation;
 use tokio::time::Instant;
 
 use culprit_core::{

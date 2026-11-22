@@ -3,14 +3,15 @@ use super::{
     runtime::Runtime,
     support::{Frame, Harness},
 };
-use crate::{
-    analytical::test_support::investigation_fixture,
-    capture::CollectionCancellation,
-    diagnostics::analyze_pending,
-    fleet::{journal::FocusedStage, scheduler::Outcome},
-    outbox::{DiagnosticInputState, DiagnosticUpdate, Outbox},
-};
+use crate::diagnostics::analyze_pending;
+use crate::fleet::journal::FocusedStage;
+use crate::fleet::scheduler::Outcome;
+use crate::outbox::DiagnosticInputState;
+use crate::outbox::DiagnosticUpdate;
+use crate::outbox::Outbox;
 use culprit_core::{DatabaseIdentity, Engine, telemetry::*};
+use culprit_evidence::analytical::test_support::investigation_fixture;
+use culprit_read::cancellation::CollectionCancellation;
 use std::sync::atomic::Ordering;
 
 fn activity() -> Frame {
@@ -58,7 +59,7 @@ async fn fixture() -> Harness {
     let mut fixture = Harness::with_activity(activity()).await;
     fixture.backend.recipe.id = "synthetic.current-request-work".into();
     fixture.backend.recipe.selector = RecipeSelector::CurrentRequestWork;
-    let RecipeCostQualification::Measured(receipt) = &mut fixture.backend.recipe.cost else { panic!() };
+    let RecipeAdmission::Measured(receipt) = &mut fixture.backend.recipe.admission else { panic!() };
     receipt.recipe_id = fixture.backend.recipe.id.clone();
     receipt.selector = RecipeSelector::CurrentRequestWork;
     assert!(fixture.backend.recipe.is_valid());
@@ -270,9 +271,9 @@ async fn unqualified_or_selector_mismatched_cost_never_enrolls_a_current_work_so
     for unqualified in [true, false] {
         let mut fixture = fixture().await;
         if unqualified {
-            fixture.backend.recipe.cost = RecipeCostQualification::Unqualified;
+            fixture.backend.recipe.admission = RecipeAdmission::Unqualified;
         } else {
-            let RecipeCostQualification::Measured(receipt) = &mut fixture.backend.recipe.cost else { panic!() };
+            let RecipeAdmission::Measured(receipt) = &mut fixture.backend.recipe.admission else { panic!() };
             receipt.selector = RecipeSelector::FocusedRequestMemory;
             assert!(!fixture.backend.recipe.is_valid());
         }

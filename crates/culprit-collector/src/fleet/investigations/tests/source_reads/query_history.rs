@@ -1,10 +1,14 @@
 //! Automatic question planning/capture/CAS over controlled originals; no cost/native qualification.
 use super::*;
-use crate::analytical::test_support::{
-    DiagnosticOriginalCase, QueryCompilationFollowupCase, diagnostic_original_evidence,
-    query_compilation_followup_result,
-};
 use crate::fleet::investigations::tests::support::capture_frame;
+use culprit_evidence::analytical::test_support::DiagnosticOriginalCase;
+use culprit_evidence::analytical::test_support::QueryCompilationFollowupCase;
+use culprit_evidence::analytical::test_support::diagnostic_original_evidence;
+use culprit_evidence::analytical::test_support::query_compilation_followup_result;
+use culprit_evidence::delivery::contract::Contract;
+use culprit_evidence::delivery::recovery::RecoveryRead as _;
+use culprit_read::cancellation::CollectionCancellation;
+use std::sync::atomic::Ordering;
 
 pub(in crate::fleet::investigations) fn frame(
     original: &Frame,
@@ -23,7 +27,7 @@ pub(in crate::fleet::investigations) fn frame(
 async fn fixture() -> Harness {
     fixture_with_fence(None).await
 }
-async fn fixture_with_fence(fence: Option<&crate::delivery::recovery::Fence>) -> Harness {
+async fn fixture_with_fence(fence: Option<&culprit_evidence::delivery::mutations::Fence>) -> Harness {
     let (source, records) = diagnostic_original_evidence(DiagnosticOriginalCase::HistoryException);
     let frame = Frame { source, records };
     let mut fixture = match fence {
@@ -37,7 +41,7 @@ async fn fixture_with_fence(fence: Option<&crate::delivery::recovery::Fence>) ->
         &SourceReadExecutionScope::context_from_source(&fixture.backend.activity.source).unwrap(),
     )
     .unwrap();
-    let RecipeCostQualification::Measured(receipt) = &mut fixture.backend.recipe.cost else { panic!() };
+    let RecipeAdmission::Measured(receipt) = &mut fixture.backend.recipe.admission else { panic!() };
     receipt.recipe_id = fixture.backend.recipe.id.clone();
     receipt.selector = fixture.backend.recipe.selector;
     receipt.scope = RecipeCostScope::NativeRead(execution);
@@ -68,7 +72,7 @@ async fn working_episode(runtime: &Runtime) -> DiagnosticEpisode {
 async fn replay_episode(outbox: &crate::outbox::Outbox, reference: &DiagnosticEvidenceRef) -> DiagnosticEpisode {
     let (source, original) = outbox.diagnostic_evidence(reference).await.unwrap();
     reference.validate_canonical_record(&source, &original.record).unwrap();
-    let revision = crate::delivery::diagnostic_recovery::original_revision(&original.record).unwrap();
+    let revision = culprit_evidence::delivery::originals::original_revision(&original.record).unwrap();
     assert_eq!(revision.controller_version, DIAGNOSTIC_CONTROLLER_VERSION);
     revision.episode.clone()
 }
@@ -173,7 +177,7 @@ async fn unqualified_cancelled_or_changed_execution_routes_never_open_the_questi
     for reason in ["cost", "cancel", "process", "role"] {
         let mut fixture = fixture().await;
         match reason {
-            "cost" => fixture.backend.recipe.cost = RecipeCostQualification::Unqualified,
+            "cost" => fixture.backend.recipe.admission = RecipeAdmission::Unqualified,
             "process" | "role" => {
                 let SourceObservation::QueryHistory(history) = &mut fixture.backend.activity.source.observation else {
                     panic!()
@@ -201,14 +205,14 @@ async fn unqualified_cancelled_or_changed_execution_routes_never_open_the_questi
     }
 }
 
-async fn large_runtime(fence: Option<&crate::delivery::recovery::Fence>) -> Runtime {
+async fn large_runtime(fence: Option<&culprit_evidence::delivery::mutations::Fence>) -> Runtime {
     let mut fixture = fixture_with_fence(fence).await;
     let mut budget = fixture.backend.recipe.budget.clone();
     // A bounded controlled source response, within the existing ordinary caller envelope. Not native qualification.
     budget.page_rows = 64;
     budget.max_snapshot_rows = 64;
     fixture.backend.recipe.budget = budget.clone();
-    let RecipeCostQualification::Measured(receipt) = &mut fixture.backend.recipe.cost else { panic!() };
+    let RecipeAdmission::Measured(receipt) = &mut fixture.backend.recipe.admission else { panic!() };
     receipt.tested_budget = budget;
     let mut runtime = Runtime::from_captured_fixture(fixture).await;
     assert!(runtime.enroll().await);
@@ -282,7 +286,6 @@ async fn large_unrelated_roster_keeps_one_original_position_through_local_restar
 #[tokio::test]
 async fn large_pending_original_cold_restore_keeps_selected_ordinal_and_cancelled_analysis_cannot_open_a_source() {
     use crate::delivery::{
-        contract::Contract,
         diagnostic_recovery::{load_diagnostic_checkpoint, load_diagnostic_input},
         file_store::FileRecoveryStore,
         recovery::RecoveryStore,

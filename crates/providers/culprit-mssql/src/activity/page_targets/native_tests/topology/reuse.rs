@@ -2,6 +2,7 @@
 use super::*;
 use crate::activity::page_targets::rows::HeaderRecord;
 use culprit_core::SourceOutcome;
+use futures_util::FutureExt;
 use std::collections::BTreeSet;
 
 // Two identical native observation flows: authority3 + exact PAGE locator1 + headers2 + final authority3.

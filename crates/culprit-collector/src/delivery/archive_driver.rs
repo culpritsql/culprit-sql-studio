@@ -1,14 +1,14 @@
 //! Native recovery advances independently of analytical credentials, requests and local target queue capacity.
-use super::{
-    driver::DeliveryPolicy,
-    journal::{DeliveryJournal, PendingRange},
-    operation,
-    recovery::{self, Fence, RecoveryStore},
-};
+use super::driver::DeliveryPolicy;
+use super::journal::DeliveryJournal;
+use super::journal::PendingRange;
+use super::operation;
+use super::recovery::RecoveryStore;
 use culprit_core::{
     Result,
     telemetry::{DeliveryEntry, DeliveryPhase, DeliveryProblem},
 };
+use culprit_evidence::delivery::mutations::Fence;
 use std::time::Duration;
 
 pub(super) struct ArchiveDriver<'a> {
@@ -43,7 +43,7 @@ pub(super) async fn advance(
     fence: &Fence,
     now: i64,
 ) -> Result<()> {
-    match recovery::reopen(store, entry.id()).await {
+    match culprit_evidence::delivery::recovery::reopen(store, entry.id()).await {
         Ok(committed) => check(entry, &committed)?,
         Err(error) if error.detail == Some(culprit_core::ErrorDetail::Delivery(DeliveryProblem::NotReady)) => {
             if !entry.state.head_known {
@@ -56,12 +56,17 @@ pub(super) async fn advance(
                 return Err(DeliveryProblem::Integrity.error());
             }
             if let Some(batch) = entry.manifest.batches.get(entry.state.staged.len()) {
-                let receipt = recovery::stage_batch(store, batch, &entry.prepared().batch_path(batch)).await?;
+                let receipt = culprit_evidence::delivery::mutations::stage_batch(
+                    store,
+                    batch,
+                    &entry.prepared().batch_path(batch),
+                )
+                .await?;
                 entry.state.staged.push(receipt);
                 journal.save(entry).await?;
                 return Ok(());
             }
-            let committed = recovery::commit_staged(
+            let committed = culprit_evidence::delivery::mutations::commit_staged(
                 store,
                 fence,
                 entry.state.expected_head.as_deref(),
@@ -81,7 +86,7 @@ pub(super) async fn advance(
     entry.state.verification = None;
     journal.save(entry).await
 }
-pub(super) fn check(entry: &PendingRange, range: &recovery::CommittedRange) -> Result<()> {
+pub(super) fn check(entry: &PendingRange, range: &culprit_evidence::delivery::recovery::CommittedRange) -> Result<()> {
     if range.manifest() != entry.manifest.as_ref() {
         return Err(DeliveryProblem::Integrity.error());
     }

@@ -1,6 +1,8 @@
 //! Reconcile historical native groups before a new original observation can enroll a follow-up.
 use super::*;
-use crate::delivery::diagnostic_recovery::{MAX_ORIGINAL_HISTORY_LOOKUP_GROUPS, authenticate_original_capture};
+use crate::delivery::diagnostic_recovery::authenticate_original_capture;
+use culprit_evidence::delivery::originals::MAX_ORIGINAL_HISTORY_LOOKUP_GROUPS;
+use culprit_read::cancellation::CollectionCancellation;
 
 pub(super) async fn reconcile(
     outbox: &mut Outbox,

@@ -1,9 +1,10 @@
 use super::*;
-use culprit_collector::analytical::test_support::{
-    current_request_work_evidence_cases, focused_request_memory_evidence, request_memory_evidence_cases,
-    reservation_demand_evidence_cases, task_space_evidence_cases,
-};
 use culprit_engine::LocalCaptureAnalysisKind;
+use culprit_evidence::analytical::test_support::current_request_work_evidence_cases;
+use culprit_evidence::analytical::test_support::focused_request_memory_evidence;
+use culprit_evidence::analytical::test_support::request_memory_evidence_cases;
+use culprit_evidence::analytical::test_support::reservation_demand_evidence_cases;
+use culprit_evidence::analytical::test_support::task_space_evidence_cases;
 
 #[tokio::test]
 async fn grant_participants_keep_native_amounts_and_checked_request_context_without_transferring_a_statement() {

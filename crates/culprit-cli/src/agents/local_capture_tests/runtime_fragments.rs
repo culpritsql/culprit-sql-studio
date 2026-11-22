@@ -1,5 +1,5 @@
 use super::*;
-use culprit_collector::analytical::test_support::query_runtime_fragment_evidence;
+use culprit_evidence::analytical::test_support::query_runtime_fragment_evidence;
 #[tokio::test]
 async fn runtime_mcp_reuses_original_local_history_and_keeps_unknown_means_exact_counts_and_endpoint_units_without_sql_or_native_proofs()
  {

@@ -6,8 +6,8 @@ use crate::{
     read::measurement::{MeasuredRead, assert_no_followup, shutdown_state},
     test_support::{OwnedSourceFixture, receipt_directory, save_cost_receipt},
 };
-use culprit_collector::capture::CollectionCancellation;
 use culprit_core::telemetry::*;
+use culprit_read::cancellation::CollectionCancellation;
 use futures_util::FutureExt;
 use serde_json::{Value, json};
 use std::{collections::BTreeMap, panic::AssertUnwindSafe, path::Path, time::Duration};

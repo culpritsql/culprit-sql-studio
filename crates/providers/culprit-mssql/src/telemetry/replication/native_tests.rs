@@ -38,7 +38,7 @@ fn recipe() -> RecipeDescriptor {
         .into_iter()
         .find(|recipe| recipe.id == "mssql.replication")
         .expect("selected source-owned replication recipe");
-    assert_eq!(recipe.cost, RecipeCostQualification::Unqualified);
+    assert_eq!(recipe.admission, RecipeAdmission::Unqualified);
     recipe
 }
 
@@ -132,7 +132,7 @@ async fn owned_replication_profile_measures_the_actual_reader_scope_limits_and_s
     if cancellation["shutdown"] == json!("quiescent") {
         assert_eq!(cancellation["independently_observed_quiet"], json!(true), "{cancellation}");
     }
-    assert_eq!(recipe().cost, RecipeCostQualification::Unqualified);
+    assert_eq!(recipe().admission, RecipeAdmission::Unqualified);
 }
 
 fn assert_populated_topology(capture: &capture::Capture) {

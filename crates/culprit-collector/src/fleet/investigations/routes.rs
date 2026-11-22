@@ -60,12 +60,21 @@ impl RouteBinding {
             .is_ok_and(|context| ObservationBounds::new(at, &context.observed_until).is_some())
     }
 
-    pub fn budget<'a>(&self, target: &'a FleetTarget) -> Option<&'a CollectionBudget> {
-        target.schedules.iter().find_map(|schedule| {
-            let matches = schedule.collection.collection() == self.source.observation.collection()
-                && (self.shared_owner.is_some() || RouteBindings::accepts_source(&self.source));
-            matches.then_some(&schedule.budget)
-        })
+    pub fn budget(
+        &self,
+        backend: &dyn super::super::FleetBackend,
+        target: &FleetTarget,
+    ) -> Result<Option<CollectionBudget>> {
+        let schedule = target.schedules.iter().find(|schedule| {
+            schedule.collection.collection() == self.source.observation.collection()
+                && (self.shared_owner.is_some() || RouteBindings::accepts_source(&self.source))
+        });
+        let Some(schedule) = schedule else { return Ok(None) };
+        let selected = backend
+            .investigation_budget(&target.connection, &target.subject, schedule.collection.collection())?
+            .unwrap_or_else(|| schedule.budget.clone());
+        selected.validate()?;
+        Ok(Some(selected))
     }
 }
 

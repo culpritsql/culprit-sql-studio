@@ -18,7 +18,12 @@ impl TelemetryRecord {
             Self::Operational(row) => return row.fact.definition_fields().into_iter(),
             Self::Tuning(row) => return row.fact.definition_fields().into_iter(),
             Self::ObjectDefinition(row) => return row.fact.definition_fields().into_iter(),
-            Self::QueryRuntime(_)
+            // Redacted derived SQL is intentionally retained directly in Gold. It is not a native definition
+            // payload; canonical export sanitizes it and the derived row validates its typed payloads.
+            Self::DerivedIncident(_)
+            | Self::DerivedFinding(_)
+            | Self::DerivedChange(_)
+            | Self::QueryRuntime(_)
             | Self::QueryWaits(_)
             | Self::ResourceSample(_)
             | Self::DiagnosticCheckpoint(_)

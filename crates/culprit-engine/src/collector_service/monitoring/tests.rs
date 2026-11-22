@@ -1,10 +1,9 @@
 use super::*;
 use crate::{NewConnection, ProviderConstructionPolicy, ProviderRegistration};
-use culprit_collector::{
-    analytical::test_support::{QualificationFixture, QualificationFixtureCase},
-    fleet::FleetJournal,
-    outbox::{NativeQualificationSource, Outbox},
-};
+use culprit_collector::analytical::test_support::QualificationFixture;
+use culprit_collector::analytical::test_support::QualificationFixtureCase;
+use culprit_collector::fleet::FleetJournal;
+use culprit_collector::outbox::{NativeQualificationSource, Outbox};
 use culprit_core::{
     AuthKind, Engine, ExplainMode, LiveState, Plan, Provider, RecipeQualificationState, ResultSet, ServerInfo,
     Snapshot, SnapshotOptions,
@@ -268,11 +267,16 @@ async fn unqualified_and_missing_native_profile_intake_are_explicit_gaps_without
         let (config, _, workspace, native) = setup(root.path(), &fixture, intake);
         let plan = Enrollment::resolve(&workspace, &config).unwrap();
         assert!(plan.inventory.is_none());
-        assert_eq!(plan.summary.gaps[0].reason, MonitoringGapReason::Unqualified);
+        assert_eq!(plan.summary.gaps.len(), 1);
+        assert_eq!(
+            plan.summary.gaps[0].reason,
+            if intake { MonitoringGapReason::Unqualified } else { MonitoringGapReason::AdmissionUnsupported }
+        );
         let mut outbox = Outbox::create(&root.path().join("outbox"), Default::default()).unwrap();
         qualify(&workspace, &mut outbox, &fixture, "fixture").await;
         let plan = Enrollment::resolve(&workspace, &config).unwrap();
         if intake {
+            assert!(plan.inventory.is_some());
             assert!(plan.summary.gaps.is_empty());
         } else {
             assert!(plan.inventory.is_none());
@@ -518,7 +522,7 @@ async fn caller_created_liveness_cannot_resurrect_an_approval_after_its_original
     let original = plan.profiles.values().next().unwrap();
     let counterfeit = SourceProfileAdmission::new(
         original.route_revision().into(),
-        original.qualification().clone(),
+        original.qualification().unwrap().clone(),
         fixture.request().budget,
         || true,
     )
@@ -604,4 +608,120 @@ async fn a_genuine_activity_collection_can_be_issued_restored_and_enrolled_witho
     assert_eq!(original.records().len(), fixture.source.observation.activity().unwrap().observations as usize);
     assert_eq!(native.source_queries.load(Ordering::SeqCst), 2);
     assert!(fixture.closed());
+}
+
+#[cfg(feature = "postgres")]
+fn builtin_pg_workspace(root: &Path) -> (CollectorConfig, Workspace, Arc<AtomicUsize>) {
+    let mut config = super::super::tests::config(root);
+    config.inventory.targets[0].schedules.clear();
+    config.source_credentials.clear();
+    config.monitoring = MonitoringPolicy::Standard { budget: CollectionBudget::default() };
+    let calls = Arc::new(AtomicUsize::new(0));
+    let count = calls.clone();
+    let registration = ProviderRegistration::new(
+        Arc::new(move |_, _| {
+            count.fetch_add(1, Ordering::SeqCst);
+            panic!("metadata-only enrollment cannot open a provider")
+        }),
+        ProviderConstructionPolicy::DeferredNativeWork,
+        culprit_postgres::telemetry_recipes(),
+    )
+    .unwrap()
+    .with_builtin_safety(culprit_postgres::component_version(), Arc::new(culprit_postgres::verify_builtin_safety))
+    .unwrap()
+    .with_profile_source(
+        vec![RecipeSelector::Collection(TelemetryCollection::Activity)],
+        Arc::new(|provider, request, profile| provider.telemetry_source_for_profile(request, profile)),
+    )
+    .unwrap();
+    let runtime = CollectorRuntime::empty().with_provider(Engine::Postgres, registration);
+    let workspace = runtime.workspace(&config.workspace);
+    let mut stored = workspace.store.get("fixture").unwrap();
+    stored.engine = Engine::Postgres;
+    stored.auth = AuthKind::None;
+    workspace.store.put("fixture", stored).unwrap();
+    (config, workspace, calls)
+}
+
+#[cfg(feature = "postgres")]
+#[test]
+fn standard_builtin_pg_enrollment_needs_no_operator_receipt_and_never_constructs_a_provider() {
+    let root = tempfile::tempdir().unwrap();
+    let (config, workspace, calls) = builtin_pg_workspace(root.path());
+    let plan = Enrollment::resolve(&workspace, &config).unwrap();
+    assert_eq!(calls.load(Ordering::SeqCst), 0);
+    assert_eq!(plan.summary.automatic.len(), 1);
+    assert_eq!(plan.summary.automatic[0].recipe_id, "postgres.activity");
+    assert!(plan.summary.gaps.iter().all(|gap| gap.recipe_id.as_deref() != Some("postgres.activity")));
+    assert!(
+        plan.profiles.values().all(|profile| profile.qualification().is_none() && profile.builtin_policy().is_some())
+    );
+}
+
+#[cfg(feature = "postgres")]
+#[test]
+fn automatic_activity_preserves_its_six_queries_and_the_exact_distinct_followup_caller_ceiling() {
+    for queries in [64, 25, 7, 2] {
+        let root = tempfile::tempdir().unwrap();
+        let (mut config, workspace, calls) = builtin_pg_workspace(root.path());
+        let caller = CollectionBudget {
+            max_queries: queries,
+            page_rows: 100,
+            max_snapshot_rows: 100,
+            statement_timeout_ms: 900,
+            total_timeout_ms: 4_000,
+            ..CollectionBudget::default()
+        };
+        config.monitoring = MonitoringPolicy::Standard { budget: caller.clone() };
+        let plan = Enrollment::resolve(&workspace, &config).unwrap();
+        let inventory = plan.inventory.as_ref().unwrap();
+        let target = &inventory.targets[0];
+        let baseline = &target.schedules[0];
+        assert_eq!(baseline.budget.max_queries, queries.min(6));
+        assert_eq!(baseline.budget.statement_timeout_ms, 900);
+        assert_eq!(baseline.budget.total_timeout_ms, 4_000);
+        let backend = plan.backend(&workspace);
+        let retained = backend
+            .investigation_budget("fixture", &CollectionSubject::Database, TelemetryCollection::Activity)
+            .unwrap()
+            .unwrap();
+        assert_eq!(retained, caller, "capture the caller choice once, including all independent dimensions");
+        let blocking = workspace
+            .telemetry_recipes("fixture")
+            .unwrap()
+            .into_iter()
+            .find(|recipe| recipe.selector == RecipeSelector::FocusedBlocking)
+            .unwrap();
+        assert_eq!(blocking.budget.max_queries, 25);
+        assert_eq!(blocking.budget.intersection(&retained).max_queries, queries.min(25));
+        assert_eq!(blocking.budget.intersection(&retained).statement_timeout_ms, 900);
+        assert!(
+            backend
+                .investigation_budget("foreign", &CollectionSubject::Database, TelemetryCollection::Activity)
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            backend
+                .investigation_budget(
+                    "fixture",
+                    &CollectionSubject::Database,
+                    TelemetryCollection::Snapshot(SnapshotDataset::Operational)
+                )
+                .unwrap()
+                .is_none()
+        );
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+        config.monitoring = MonitoringPolicy::Explicit;
+        config.inventory.targets[0].schedules = target.schedules.clone();
+        let explicit = Enrollment::resolve(&workspace, &config).unwrap();
+        assert!(
+            explicit
+                .backend(&workspace)
+                .investigation_budget("fixture", &CollectionSubject::Database, TelemetryCollection::Activity)
+                .unwrap()
+                .is_none(),
+            "an explicit schedule keeps its own existing caller limits"
+        );
+    }
 }

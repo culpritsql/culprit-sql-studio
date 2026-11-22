@@ -1,10 +1,10 @@
 use super::fixture::Fixture;
-use culprit_collector::analytical::{
-    evidence::{EvidenceFamily, EvidenceGapReason},
-    test_support::{self, WaitCounterCase},
-};
 use culprit_core::{Snapshot, SourceState, telemetry::*};
 use culprit_engine::collected_resources;
+use culprit_evidence::analytical::evidence::EvidenceFamily;
+use culprit_evidence::analytical::evidence::EvidenceGapReason;
+use culprit_evidence::analytical::test_support;
+use culprit_evidence::analytical::test_support::WaitCounterCase;
 
 #[tokio::test]
 async fn authentic_wait_captures_and_saved_scans_share_exact_rows_counts_clocks_and_qualification() {

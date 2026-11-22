@@ -7,8 +7,9 @@ use crate::{
     read::{NativeRead, Parameter, ReadError, ReadResult, ReadSession, session_work::Observation},
     value::Rec,
 };
-use culprit_collector::capture::{CollectionCancellation, SourceFactory};
+use culprit_collector::capture::SourceFactory;
 use culprit_core::{Result, telemetry::*};
+use culprit_read::cancellation::CollectionCancellation;
 use std::{
     sync::{Arc, Mutex},
     time::{Duration, Instant},

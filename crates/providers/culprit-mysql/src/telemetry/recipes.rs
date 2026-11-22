@@ -105,7 +105,7 @@ impl Registration {
             selector: self.selector(),
             subjects: vec![self.acquisition.subject()],
             budget: self.acquisition.budget(),
-            cost: RecipeCostQualification::Unqualified,
+            admission: RecipeAdmission::Unqualified,
         }
     }
     fn accepts(&self, request: &CollectionRequest) -> bool {

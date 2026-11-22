@@ -1,17 +1,18 @@
 use super::*;
-use culprit_collector::analytical::test_support::{
-    CleanupCase, assert_cleanup_capture, cleanup_evidence, cleanup_evidence_cases,
-};
 use culprit_core::{
     CleanupMechanism, CleanupReport, SourceState, collected_resource_analysis::CollectedCleanupAnalysis, source_id,
 };
 use culprit_engine::collected_resources;
+use culprit_evidence::analytical::test_support::CleanupCase;
+use culprit_evidence::analytical::test_support::assert_cleanup_capture;
+use culprit_evidence::analytical::test_support::cleanup_evidence;
+use culprit_evidence::analytical::test_support::cleanup_evidence_cases;
 
 async fn analyze_case(case: CleanupCase) -> CollectedCleanupAnalysis {
     let (source, records) = cleanup_evidence(case);
     let fixture = Fixture::new(source.clone(), records.clone()).await;
     let capture =
-        fixture.read_families(&[culprit_collector::analytical::evidence::EvidenceFamily::OperationalSamples]).await;
+        fixture.read_families(&[culprit_evidence::analytical::evidence::EvidenceFamily::OperationalSamples]).await;
     assert_cleanup_capture(&capture, &source, &records);
     let analysis = collected_resources::cleanup(&capture).unwrap();
     assert_eq!(analysis.context.source, source);
@@ -135,7 +136,7 @@ async fn local_cleanup_intake_refuses_unqualified_members_target_scope_and_unrel
         }
         let fixture = Fixture::new(source, records.clone()).await;
         let capture =
-            fixture.read_families(&[culprit_collector::analytical::evidence::EvidenceFamily::OperationalSamples]).await;
+            fixture.read_families(&[culprit_evidence::analytical::evidence::EvidenceFamily::OperationalSamples]).await;
         assert!(collected_resources::cleanup(&capture).is_err());
     }
     for engine in [culprit_core::Engine::Postgres, culprit_core::Engine::Mysql] {
@@ -151,7 +152,7 @@ async fn local_cleanup_intake_refuses_unqualified_members_target_scope_and_unrel
         );
         let fixture = Fixture::new(source, records.clone()).await;
         let capture =
-            fixture.read_families(&[culprit_collector::analytical::evidence::EvidenceFamily::OperationalSamples]).await;
+            fixture.read_families(&[culprit_evidence::analytical::evidence::EvidenceFamily::OperationalSamples]).await;
         assert!(
             collected_resources::cleanup(&capture).is_err(),
             "{engine:?} cannot supply the SQL Server native cleanup interpretation"
@@ -175,7 +176,7 @@ async fn local_cleanup_intake_refuses_unqualified_members_target_scope_and_unrel
     snapshot.sources.iter_mut().find(|coverage| coverage.source == source_id::OPEN_TRANSACTIONS).unwrap().records = 2;
     let fixture = Fixture::new(duplicate_source, duplicate_rows).await;
     let capture =
-        fixture.read_families(&[culprit_collector::analytical::evidence::EvidenceFamily::OperationalSamples]).await;
+        fixture.read_families(&[culprit_evidence::analytical::evidence::EvidenceFamily::OperationalSamples]).await;
     assert!(collected_resources::cleanup(&capture).is_err(), "one local native horizon source is a singleton point");
     for mutation in ["source", "scope", "unit", "native-name"] {
         let mut rows = records.clone();
@@ -206,7 +207,7 @@ async fn local_cleanup_intake_refuses_unqualified_members_target_scope_and_unrel
         assert!(rows.iter().all(TelemetryRecord::is_valid));
         let fixture = Fixture::new(source, rows).await;
         let capture =
-            fixture.read_families(&[culprit_collector::analytical::evidence::EvidenceFamily::OperationalSamples]).await;
+            fixture.read_families(&[culprit_evidence::analytical::evidence::EvidenceFamily::OperationalSamples]).await;
         assert!(collected_resources::cleanup(&capture).is_err(), "{mutation}");
     }
 }
@@ -389,7 +390,7 @@ async fn losing_the_pg_metadata_row_in_the_warehouse_keeps_holder_prose_without_
     let fixture = Fixture::new(source, records).await;
     fixture.remove_first_row(TelemetryStream::OperationalSamples);
     let capture =
-        fixture.read_families(&[culprit_collector::analytical::evidence::EvidenceFamily::OperationalSamples]).await;
+        fixture.read_families(&[culprit_evidence::analytical::evidence::EvidenceFamily::OperationalSamples]).await;
     assert!(!capture.is_read_complete());
     let analysis = collected_resources::cleanup(&capture).unwrap();
     assert_eq!(analysis.report.entries.len(), 2);
@@ -408,7 +409,7 @@ async fn losing_the_pg_metadata_row_in_the_warehouse_keeps_holder_prose_without_
 
 #[tokio::test]
 async fn cleanup_rejects_unrelated_datasets_and_operational_populations_without_a_declared_cleanup_family() {
-    let (source, records) = culprit_collector::analytical::test_support::query_evidence();
+    let (source, records) = culprit_evidence::analytical::test_support::query_evidence();
     let fixture = Fixture::new(source, records).await;
     let capture = fixture.read().await;
     assert_eq!(
@@ -422,7 +423,7 @@ async fn cleanup_rejects_unrelated_datasets_and_operational_populations_without_
     native.records = records.len() as u32;
     let fixture = Fixture::new(source, records).await;
     let capture =
-        fixture.read_families(&[culprit_collector::analytical::evidence::EvidenceFamily::OperationalSamples]).await;
+        fixture.read_families(&[culprit_evidence::analytical::evidence::EvidenceFamily::OperationalSamples]).await;
     assert_eq!(
         collected_resources::cleanup(&capture).unwrap_err().detail,
         Some(culprit_core::ErrorDetail::Delivery(DeliveryProblem::UnsupportedSchema))
@@ -460,7 +461,7 @@ async fn database_capture_rejects_foreign_unlabelled_and_other_scope_holders_eve
         assert!(holder.is_valid(), "{defect}: the raw native fact is valid independently of database admission");
         let fixture = Fixture::new(source.clone(), records.clone()).await;
         let capture =
-            fixture.read_families(&[culprit_collector::analytical::evidence::EvidenceFamily::OperationalSamples]).await;
+            fixture.read_families(&[culprit_evidence::analytical::evidence::EvidenceFamily::OperationalSamples]).await;
         assert_cleanup_capture(&capture, &source, &records);
         assert!(capture.is_read_complete());
         assert_eq!(
@@ -490,7 +491,7 @@ async fn server_scoped_slot_and_walsender_horizons_preserve_foreign_database_con
         }
         let fixture = Fixture::new(source.clone(), records.clone()).await;
         let capture =
-            fixture.read_families(&[culprit_collector::analytical::evidence::EvidenceFamily::OperationalSamples]).await;
+            fixture.read_families(&[culprit_evidence::analytical::evidence::EvidenceFamily::OperationalSamples]).await;
         assert_cleanup_capture(&capture, &source, &records);
         let analysis = collected_resources::cleanup(&capture).unwrap();
         assert_eq!(analysis.report.entries.len(), 2);

@@ -1,5 +1,6 @@
 //! Inspect actual production future/output types without creating a native client or polling a future.
 use super::*;
+use culprit_read::cancellation::CollectionCancellation;
 use std::{future::Future, mem::size_of};
 
 // The exact crashed binary stored 30,920 bytes in analyze_pending and 26,072 in parents; its poll frames

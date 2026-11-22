@@ -1,10 +1,11 @@
 //! Runtime composition owns credentials and adapters; capture, recovery and delivery retain their own lifecycles.
+use culprit_evidence::delivery::recovery::RecoveryRead as _;
 pub mod config;
 mod destination;
-pub mod evidence;
 mod monitoring;
 mod recovery;
 mod runtime;
+mod synthesis;
 pub use runtime::CollectorRuntime;
 #[cfg(test)]
 mod startup_tests;
@@ -12,24 +13,28 @@ mod startup_tests;
 mod tests;
 use crate::Workspace;
 use config::*;
-use culprit_collector::{
-    capture::CollectionCancellation,
-    delivery::{
-        contract::Contract,
-        journal::{DeliveryHealthReader, DeliveryJournal},
-        object_store::ObjectRecoveryStore,
-        recovery::RecoveryStore,
-        restore::{restore_diagnostic_inputs_page, restore_diagnostics_page},
-        worker::{DeliveryJournals, DeliveryWorker},
-    },
-    diagnostics::{DiagnosticPolicies, drain_pending as drain_diagnostics},
-    fleet::{FleetBackend, FleetJournal, FleetRunner},
-    health::{CollectorHealth, HealthServer},
-    lifecycle::with_background,
-    outbox::Outbox,
-    service::{CollectorService, ServiceReporter, run_delivery},
-};
+use culprit_collector::delivery::journal::DeliveryHealthReader;
+use culprit_collector::delivery::journal::DeliveryJournal;
+use culprit_collector::delivery::object_store::ObjectRecoveryStore;
+use culprit_collector::delivery::recovery::RecoveryStore;
+use culprit_collector::delivery::restore::restore_diagnostic_inputs_page;
+use culprit_collector::delivery::restore::restore_diagnostics_page;
+use culprit_collector::delivery::worker::DeliveryJournals;
+use culprit_collector::delivery::worker::DeliveryWorker;
+use culprit_collector::diagnostics::DiagnosticPolicies;
+use culprit_collector::diagnostics::drain_pending as drain_diagnostics;
+use culprit_collector::fleet::FleetRunner;
+use culprit_collector::fleet::{FleetBackend, FleetJournal};
+use culprit_collector::health::CollectorHealth;
+use culprit_collector::health::HealthServer;
+use culprit_collector::lifecycle::with_background;
+use culprit_collector::outbox::Outbox;
+use culprit_collector::service::CollectorService;
+use culprit_collector::service::ServiceReporter;
+use culprit_collector::service::run_delivery;
 use culprit_core::{Result, telemetry::*};
+use culprit_evidence::delivery::contract::Contract;
+use culprit_read::cancellation::CollectionCancellation;
 use std::{collections::BTreeSet, path::Path, sync::Arc};
 
 /// Delivery-only recovery never opens a native connection or enables native capture allocation.
@@ -49,7 +54,7 @@ struct Adapters {
 struct ConfiguredAdapters {
     workspace: Workspace,
     credentials: Arc<dyn culprit_auth::CredentialResolver>,
-    recovery: Arc<dyn culprit_collector::delivery::object_store::transport::ObjectTransport>,
+    recovery: Arc<dyn culprit_evidence::delivery::object_store::transport::ObjectTransport>,
     destination: Box<dyn destination::SinkFactory>,
     contract: Contract,
 }
@@ -204,6 +209,12 @@ async fn run_configured(
     if outbox.status(1, None).await?.limits != config.limits {
         return Err(DeliveryProblem::InvalidContract.error());
     }
+    let automatic = synthesis::configured(runtime, &adapters.workspace)?;
+    synthesis::install(&mut outbox, &automatic, cancellation).await?;
+    if cancellation.is_cancelled() {
+        return Ok(FleetSummary::default());
+    }
+    health.synthesis_registered()?;
     // Inspect the independent native admission journal before acquiring a new remote write epoch.
     let source_paused = mode == SourceMode::Collect
         && (recovered.source_debts > 0
@@ -265,6 +276,7 @@ async fn run_configured(
         reporter.source_paused(&CollectionStop::CancellationUnconfirmed.error())?;
     }
     health.initialized()?;
+    let synthesis_delivery = outbox.delivery();
     let work = async {
         if mode == SourceMode::DeliveryOnly || source_paused {
             run_delivery(&mut delivery, cancellation, &reporter).await?;
@@ -287,7 +299,12 @@ async fn run_configured(
             .with_recovery(&*adapters.recovery)?;
         CollectorService::new(source, delivery).run(cancellation, max_work, &reporter).await
     };
-    with_background(cancellation, work, refresh_health(health_sources, health, cancellation)).await
+    let background = with_background(
+        cancellation,
+        refresh_health(health_sources, health, cancellation),
+        synthesis::run(synthesis_delivery, &automatic, cancellation, health, &reporter),
+    );
+    with_background(cancellation, work, background).await
 }
 
 fn open_journal(path: &Path, contract: &Contract) -> Result<DeliveryJournal> {
@@ -305,6 +322,9 @@ struct ObservedReporter<'a> {
 impl ServiceReporter for ObservedReporter<'_> {
     fn enrollment(&self, summary: &MonitoringEnrollmentSummary) -> Result<()> {
         self.delegate.enrollment(summary)
+    }
+    fn synthesis(&self, turn: &culprit_collector::synthesis::SynthesisTurn) -> Result<()> {
+        self.delegate.synthesis(turn)
     }
     fn source_paused(&self, error: &culprit_core::Error) -> Result<()> {
         self.health.source_paused()?;

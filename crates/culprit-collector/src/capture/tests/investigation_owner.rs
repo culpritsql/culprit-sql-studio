@@ -1,5 +1,6 @@
 use super::*;
-use crate::analytical::test_support::investigation_fixture;
+use culprit_evidence::analytical::test_support::investigation_fixture;
+use culprit_read::cancellation::CollectionCancellation;
 use std::{
     path::PathBuf,
     sync::atomic::{AtomicU32, Ordering},

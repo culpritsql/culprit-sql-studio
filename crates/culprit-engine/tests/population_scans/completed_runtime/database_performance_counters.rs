@@ -1,13 +1,13 @@
 //! Original database counter populations attach after the one native scan owner settles; no counter query is added.
 use super::*;
-use culprit_collector::analytical::test_support::{
-    DatabasePerformanceCounterCase as Case, PerformanceCounterCase, database_performance_counter_evidence,
-    performance_counter_evidence,
-};
 use culprit_core::{PerformanceCounterPopulation as Population, PerformanceCounterReport, Report};
 use culprit_engine::{
     LocalCaptureAnalysisKind, LocalCaptureRequest, LocalCapturedAnalysis, LocalSnapshotAnalysis, OutboxCaptureReader,
 };
+use culprit_evidence::analytical::test_support::DatabasePerformanceCounterCase as Case;
+use culprit_evidence::analytical::test_support::PerformanceCounterCase;
+use culprit_evidence::analytical::test_support::database_performance_counter_evidence;
+use culprit_evidence::analytical::test_support::performance_counter_evidence;
 
 fn with_shared_counters() -> PopulationSnapshots {
     let mut batch = snapshots();
@@ -327,7 +327,7 @@ async fn cancelled_local_verification_or_foreign_capture_receipt_cannot_open_the
 
 #[tokio::test]
 async fn saved_common_inputs_replay_independently_of_selected_database_counters_and_withdraw_on_sharing() {
-    use culprit_collector::analytical::test_support::{
+    use culprit_evidence::analytical::test_support::{
         CommonPerformanceCounterCase, common_performance_counter_evidence,
     };
     let (source, rows) = database_performance_counter_evidence(Case::Exact);

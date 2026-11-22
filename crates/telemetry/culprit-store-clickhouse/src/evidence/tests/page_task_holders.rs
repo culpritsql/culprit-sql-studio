@@ -183,7 +183,7 @@ async fn read(fixture: &Fixture, recovery: Option<RecoveryPayloadBudget>) -> cul
             &fixture.range,
             FAMILY,
             EvidenceReadBudget { recovery_payloads: recovery, ..Default::default() },
-            enabled.then_some(fixture.recovery.as_ref() as &dyn culprit_collector::delivery::recovery::RecoveryStore),
+            enabled.then_some(fixture.recovery.as_ref() as &dyn culprit_evidence::delivery::recovery::RecoveryRead),
         )
         .await
 }

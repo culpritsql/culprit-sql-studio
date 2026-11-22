@@ -1,6 +1,7 @@
 use super::*;
-use culprit_collector::analytical::{evidence::EvidenceCapture, test_support::activity_evidence_cases};
 use culprit_core::{PageWaitActivityEvidence, PageWaitBlockingIssue};
+use culprit_evidence::analytical::evidence::EvidenceCapture;
+use culprit_evidence::analytical::test_support::activity_evidence_cases;
 
 const PARENT_SEQUENCE: u64 = 910_001;
 const PAGE_SEQUENCE: u64 = 910_002;
@@ -101,7 +102,7 @@ fn local_partition() -> SourcePartition {
 }
 
 fn owner_context(index: u32) -> ActivityObservation {
-    let mut owner = culprit_collector::analytical::test_support::activity_observation(DefinitionPayload::sql(
+    let mut owner = culprit_evidence::analytical::test_support::activity_observation(DefinitionPayload::sql(
         "UPDATE dbo.original_owner_context_canary SET field = 17 WHERE field = 19",
         culprit_core::Engine::Mssql,
     ));
@@ -118,7 +119,7 @@ fn owner_context(index: u32) -> ActivityObservation {
 
 fn reference(
     capture: &EvidenceCapture,
-    row: &culprit_collector::analytical::evidence::VerifiedEvidenceRecord,
+    row: &culprit_evidence::analytical::evidence::VerifiedEvidenceRecord,
 ) -> DiagnosticEvidenceRef {
     DiagnosticEvidenceRef::from_export(
         capture.source(),

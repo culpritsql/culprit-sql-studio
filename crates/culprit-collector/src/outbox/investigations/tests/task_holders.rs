@@ -1,6 +1,7 @@
 use super::shared::seal;
 use super::*;
-use crate::analytical::test_support::{PageTaskHolderCase, page_task_holder_fixture};
+use culprit_evidence::analytical::test_support::PageTaskHolderCase;
+use culprit_evidence::analytical::test_support::page_task_holder_fixture;
 
 fn request(
     activity: DiagnosticCaptureRef,

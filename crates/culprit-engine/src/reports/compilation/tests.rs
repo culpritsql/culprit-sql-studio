@@ -1,9 +1,9 @@
 use super::*;
-use culprit_collector::analytical::test_support::compilation_interval_evidence;
 use culprit_core::{
     BaselinePurpose, CompilationComparisonIssue, Snapshot, SourceOutcome, SourceState,
     telemetry::{CompilationSnapshot, NativeIdentity, NativeReadContext, TelemetryRecord},
 };
+use culprit_evidence::analytical::test_support::compilation_interval_evidence;
 
 fn snapshot(point: usize) -> Snapshot {
     let (source, records) = compilation_interval_evidence().into_iter().nth(point).unwrap();

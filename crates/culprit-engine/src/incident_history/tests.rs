@@ -1,6 +1,7 @@
 use super::*;
-use culprit_collector::analytical::test_support::{IncidentHistoryCase, incident_history_evidence};
 use culprit_core::{ErrorDetail, limits::OperationGuard};
+use culprit_evidence::analytical::test_support::IncidentHistoryCase;
+use culprit_evidence::analytical::test_support::incident_history_evidence;
 fn bytes(case: IncidentHistoryCase) -> Vec<u8> {
     let (source, records) = incident_history_evidence(case);
     let capture = CaptureIdentity {

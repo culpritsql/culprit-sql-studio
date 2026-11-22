@@ -4,15 +4,12 @@ mod blocking;
 #[cfg(test)]
 mod native_tests;
 mod recipes;
-use crate::{
-    connect::Connector,
-    native::{
-        self,
-        metadata::{self, Metadata},
-    },
-    read::{NativeRead, ReadSession},
-    rows::Row,
-};
+use crate::connect::Connector;
+use crate::native;
+use crate::native::metadata;
+use crate::native::metadata::Metadata;
+use crate::read::{NativeRead, ReadSession};
+use crate::rows::Row;
 pub(crate) use activity::profile_source;
 use culprit_core::{Error, ErrorCode, Result, telemetry::*};
 use culprit_read::{ReadBatch, SnapshotReader, SnapshotRecheck, SnapshotRecord, SnapshotScope, SnapshotSource};
@@ -445,5 +442,17 @@ impl SnapshotReader for PostgresSnapshotReader {
     }
     async fn close(&mut self) -> SourceShutdown {
         self.io.close().await
+    }
+}
+
+pub(crate) fn safety_source(
+    connector: Connector,
+    request: &CollectionRequest,
+    profile: &SourceProfileAdmission,
+) -> Result<Box<dyn TelemetrySource>> {
+    match &request.selection {
+        CollectionSelection::Activity => activity::profile_source(connector, request, profile),
+        CollectionSelection::FocusedBlocking { .. } => blocking::profile_source(connector, request, profile),
+        _ => Err(CollectionStop::SourceChanged.error()),
     }
 }

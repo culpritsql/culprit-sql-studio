@@ -87,7 +87,14 @@ impl Registration {
             selector: self.route.selector(),
             subjects: vec![self.subject],
             budget: self.native_budget(),
-            cost: RecipeCostQualification::Unqualified,
+            admission: crate::builtin_safety::policy(
+                self.id,
+                self.version,
+                self.route.selector(),
+                &self.native_budget(),
+            )
+            .map(|policy| RecipeAdmission::BuiltinSafety(Box::new(policy)))
+            .unwrap_or(RecipeAdmission::Unqualified),
         }
     }
     fn accepts(&self, request: &CollectionRequest) -> bool {
@@ -113,7 +120,7 @@ const REGISTRATIONS: &[Registration] = &[
     },
     Registration {
         id: "postgres.activity",
-        version: 3,
+        version: 4,
         purpose: RecipePurpose::Baseline,
         subject: RecipeSubject::Database,
         route: Route::Activity,
@@ -134,7 +141,7 @@ const REGISTRATIONS: &[Registration] = &[
     },
     Registration {
         id: "postgres.blocking",
-        version: 2,
+        version: 3,
         purpose: RecipePurpose::Investigation,
         subject: RecipeSubject::Database,
         route: Route::Blocking,

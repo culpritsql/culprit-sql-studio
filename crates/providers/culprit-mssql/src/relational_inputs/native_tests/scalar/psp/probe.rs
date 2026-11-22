@@ -1,16 +1,15 @@
 //! Application execution and actual XML/results retain one existing owner. Metadata rechecks are bounded and
 //! close their native reader even when a fixture assertion panics; no new production instrumentation exists.
-use super::{
-    identity::{self, RoutingExpectation},
-    *,
-};
+use super::identity;
+use super::identity::RoutingExpectation;
+use super::*;
 use crate::{
     conn::{MsClient, Pool, SessionKind},
     read::ReadSession,
     test_support::{actual_plan_capture, batch, config, parameter_variants as skew, verify_owned_source},
 };
-use culprit_collector::capture::CollectionCancellation;
 use culprit_core::telemetry::CachedStatementContext;
+use culprit_read::cancellation::CollectionCancellation;
 use std::sync::Arc;
 
 pub(super) const CALLS_PER_VARIANT: usize = 50;

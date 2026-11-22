@@ -1,9 +1,10 @@
 //! One real capture owner for local-original consumer conformance. It does not contact a database.
-use super::*;
-use crate::{
-    capture::{self, CollectionCancellation, SourceFactory},
-    outbox::Outbox,
-};
+use crate::capture;
+use crate::capture::SourceFactory;
+use crate::outbox::Outbox;
+use culprit_core::telemetry::*;
+use culprit_evidence::analytical::test_support::*;
+use culprit_read::cancellation::CollectionCancellation;
 use std::{
     path::PathBuf,
     sync::{
@@ -30,47 +31,166 @@ pub struct LocalSnapshotCase {
 pub fn local_snapshot_evidence_cases() -> Vec<LocalSnapshotCase> {
     let case = |analysis, (source, records)| LocalSnapshotCase { analysis, source, records };
     vec![
-        case("performance_counters", super::performance_counter_evidence(super::PerformanceCounterCase::Exact)),
+        case(
+            "performance_counters",
+            culprit_evidence::analytical::test_support::performance_counter_evidence(
+                culprit_evidence::analytical::test_support::PerformanceCounterCase::Exact,
+            ),
+        ),
         case(
             "tempdb_metadata_memory",
-            super::tempdb_metadata_memory_evidence(super::TempdbMetadataMemoryCase::Reserved),
+            culprit_evidence::analytical::test_support::tempdb_metadata_memory_evidence(
+                culprit_evidence::analytical::test_support::TempdbMetadataMemoryCase::Reserved,
+            ),
         ),
-        case("table_memory", super::table_memory_evidence(super::TableMemoryCase::Exact)),
-        case("full_text_populations", super::full_text_population_evidence(super::FullTextPopulationCase::Processing)),
-        case("instance_resources", super::instance_resource_scheduler_evidence(super::SchedulerCase::Exact)),
-        case("database_properties", super::database_properties_evidence(super::DatabasePropertiesCase::Exact)),
-        case("table_full_text", super::table_full_text_evidence(super::TableFullTextCase::Enabled)),
-        case("table_temporal", super::table_temporal_evidence(super::TableTemporalCase::SystemVersioned)),
-        case("index_configuration", super::index_configuration_evidence(super::IndexConfigurationCase::Mixed)),
-        case("indexed_views", super::indexed_views_evidence(super::IndexedViewsCase::Present)),
-        case("compilation", super::query_compilation_evidence()),
-        case("configured_log_rates", super::configured_log_rate_evidence_cases().remove(0)),
-        case("connection_outcomes", super::connection_outcome_evidence_cases().remove(0)),
-        case("jobs", super::jobs_evidence(super::JobsCase::Failed)),
-        case("cdc", super::cdc_evidence(super::CdcCase::ErrorAndProgress)),
-        case("change_feed", super::change_feed_evidence(super::ChangeFeedCase::ProgressAndError)),
-        case("columnstore_rowgroups", super::columnstore_rowgroup_evidence(super::ColumnstoreRowgroupCase::States)),
-        case("suspect_pages", super::suspect_page_history_evidence(super::SuspectPageHistoryCase::RepairedOnly)),
-        case("backup_history", super::backup_history_evidence(super::BackupHistoryCase::MultipleRecords)),
-        case("request_memory", super::request_memory_evidence_cases().remove(0)),
-        case("task_space", super::task_space_evidence_cases().remove(0)),
-        case("current_request_work", super::current_request_work_evidence_cases().remove(0)),
-        case("statement_work", super::statement_work_evidence_cases().remove(0)),
-        case("maintenance_progress", super::maintenance_progress_evidence_cases().remove(0)),
+        case(
+            "table_memory",
+            culprit_evidence::analytical::test_support::table_memory_evidence(
+                culprit_evidence::analytical::test_support::TableMemoryCase::Exact,
+            ),
+        ),
+        case(
+            "full_text_populations",
+            culprit_evidence::analytical::test_support::full_text_population_evidence(
+                culprit_evidence::analytical::test_support::FullTextPopulationCase::Processing,
+            ),
+        ),
+        case(
+            "instance_resources",
+            culprit_evidence::analytical::test_support::instance_resource_scheduler_evidence(
+                culprit_evidence::analytical::test_support::SchedulerCase::Exact,
+            ),
+        ),
+        case(
+            "database_properties",
+            culprit_evidence::analytical::test_support::database_properties_evidence(
+                culprit_evidence::analytical::test_support::DatabasePropertiesCase::Exact,
+            ),
+        ),
+        case(
+            "table_full_text",
+            culprit_evidence::analytical::test_support::table_full_text_evidence(
+                culprit_evidence::analytical::test_support::TableFullTextCase::Enabled,
+            ),
+        ),
+        case(
+            "table_temporal",
+            culprit_evidence::analytical::test_support::table_temporal_evidence(
+                culprit_evidence::analytical::test_support::TableTemporalCase::SystemVersioned,
+            ),
+        ),
+        case(
+            "index_configuration",
+            culprit_evidence::analytical::test_support::index_configuration_evidence(
+                culprit_evidence::analytical::test_support::IndexConfigurationCase::Mixed,
+            ),
+        ),
+        case(
+            "indexed_views",
+            culprit_evidence::analytical::test_support::indexed_views_evidence(
+                culprit_evidence::analytical::test_support::IndexedViewsCase::Present,
+            ),
+        ),
+        case("compilation", culprit_evidence::analytical::test_support::query_compilation_evidence()),
+        case(
+            "configured_log_rates",
+            culprit_evidence::analytical::test_support::configured_log_rate_evidence_cases().remove(0),
+        ),
+        case(
+            "connection_outcomes",
+            culprit_evidence::analytical::test_support::connection_outcome_evidence_cases().remove(0),
+        ),
+        case(
+            "jobs",
+            culprit_evidence::analytical::test_support::jobs_evidence(
+                culprit_evidence::analytical::test_support::JobsCase::Failed,
+            ),
+        ),
+        case(
+            "cdc",
+            culprit_evidence::analytical::test_support::cdc_evidence(
+                culprit_evidence::analytical::test_support::CdcCase::ErrorAndProgress,
+            ),
+        ),
+        case(
+            "change_feed",
+            culprit_evidence::analytical::test_support::change_feed_evidence(
+                culprit_evidence::analytical::test_support::ChangeFeedCase::ProgressAndError,
+            ),
+        ),
+        case(
+            "columnstore_rowgroups",
+            culprit_evidence::analytical::test_support::columnstore_rowgroup_evidence(
+                culprit_evidence::analytical::test_support::ColumnstoreRowgroupCase::States,
+            ),
+        ),
+        case(
+            "suspect_pages",
+            culprit_evidence::analytical::test_support::suspect_page_history_evidence(
+                culprit_evidence::analytical::test_support::SuspectPageHistoryCase::RepairedOnly,
+            ),
+        ),
+        case(
+            "backup_history",
+            culprit_evidence::analytical::test_support::backup_history_evidence(
+                culprit_evidence::analytical::test_support::BackupHistoryCase::MultipleRecords,
+            ),
+        ),
+        case("request_memory", culprit_evidence::analytical::test_support::request_memory_evidence_cases().remove(0)),
+        case("task_space", culprit_evidence::analytical::test_support::task_space_evidence_cases().remove(0)),
+        case(
+            "current_request_work",
+            culprit_evidence::analytical::test_support::current_request_work_evidence_cases().remove(0),
+        ),
+        case("statement_work", culprit_evidence::analytical::test_support::statement_work_evidence_cases().remove(0)),
+        case(
+            "maintenance_progress",
+            culprit_evidence::analytical::test_support::maintenance_progress_evidence_cases().remove(0),
+        ),
         case(
             "completed_spills",
-            super::completed_spill_evidence_cases()
+            culprit_evidence::analytical::test_support::completed_spill_evidence_cases()
                 .into_iter()
                 .find(|case| case.name == "recorded_spills")
                 .unwrap()
                 .runtime,
         ),
-        case("storage", super::storage_evidence(super::StorageCase::Exact)),
-        case("pool_settings", super::pool_settings_evidence(super::PoolSettingsCase::Exact)),
-        case("wait_counters", super::pool_wait_counter_evidence(super::PoolWaitCounterCase::GeneralPurpose)),
-        case("replication", super::replication_evidence(super::ReplicationCase::MssqlHyperscale)),
-        case("group_replication", super::group_replication_evidence(super::GroupReplicationCase::Queued)),
-        case("galera", super::galera_evidence(super::GaleraCase::Queued)),
+        case(
+            "storage",
+            culprit_evidence::analytical::test_support::storage_evidence(
+                culprit_evidence::analytical::test_support::StorageCase::Exact,
+            ),
+        ),
+        case(
+            "pool_settings",
+            culprit_evidence::analytical::test_support::pool_settings_evidence(
+                culprit_evidence::analytical::test_support::PoolSettingsCase::Exact,
+            ),
+        ),
+        case(
+            "wait_counters",
+            culprit_evidence::analytical::test_support::pool_wait_counter_evidence(
+                culprit_evidence::analytical::test_support::PoolWaitCounterCase::GeneralPurpose,
+            ),
+        ),
+        case(
+            "replication",
+            culprit_evidence::analytical::test_support::replication_evidence(
+                culprit_evidence::analytical::test_support::ReplicationCase::MssqlHyperscale,
+            ),
+        ),
+        case(
+            "group_replication",
+            culprit_evidence::analytical::test_support::group_replication_evidence(
+                culprit_evidence::analytical::test_support::GroupReplicationCase::Queued,
+            ),
+        ),
+        case(
+            "galera",
+            culprit_evidence::analytical::test_support::galera_evidence(
+                culprit_evidence::analytical::test_support::GaleraCase::Queued,
+            ),
+        ),
     ]
 }
 /// These modes exercise real local manifest settlement, never native database behavior or cost.
@@ -85,7 +205,7 @@ impl LocalCaptureFixture {
         Self::source_acquisition_for("local-evidence", case).await
     }
     pub async fn source_acquisition_for(connection: &str, case: SourceAcquisitionCase) -> Self {
-        let source = super::page_server_read_evidence_cases().remove(0).source;
+        let source = culprit_evidence::analytical::test_support::page_server_read_evidence_cases().remove(0).source;
         let records = vec![];
         let temporary = tempfile::tempdir().unwrap();
         let directory = temporary.path().join("outbox");
@@ -136,6 +256,39 @@ impl LocalCaptureFixture {
         let selection = selection(&source);
         let (capture_directory, manifest) = collect_original(&mut outbox, source, records, selection, shutdown).await;
         Self { outbox: Some(outbox), directory, capture_directory, manifest, _temporary: temporary }
+    }
+
+    pub fn original_reference(&self) -> DiagnosticCaptureRef {
+        DiagnosticCaptureRef {
+            capture: self.manifest.capture.clone(),
+            manifest_sha256: digest(&std::fs::read(self.capture_directory.join("manifest.json")).unwrap()),
+            source_scope_id: self.manifest.description.as_ref().unwrap().captured_range().unwrap().scope_id,
+        }
+    }
+    /// Add another genuine sealed fixture original through the same capture/close owner and journal.
+    pub async fn append_original(
+        &mut self,
+        mut source: CollectionDescription,
+        records: Vec<TelemetryRecord>,
+    ) -> DiagnosticCaptureRef {
+        let outbox = self.outbox.as_mut().unwrap();
+        retain_focused_parent(outbox, &mut source).await;
+        let selected = selection(&source);
+        let collection = source.observation.collection();
+        let (directory, manifest) =
+            Box::pin(collect_original(outbox, source, records, selected, SourceShutdown::Quiescent)).await;
+        assert_eq!(
+            manifest.status,
+            CollectionStatus::Complete,
+            "appended {collection:?}: integrity={}, queries={:?}, plans={:?}, unavailable_payloads={}",
+            manifest.references.integrity_complete,
+            manifest.references.queries,
+            manifest.references.plans,
+            manifest.references.unavailable_payloads
+        );
+        self.capture_directory = directory;
+        self.manifest = manifest;
+        self.original_reference()
     }
 
     pub fn original_bytes(&self) -> u64 {
@@ -335,7 +488,7 @@ impl TelemetrySource for OriginalSource {
     }
     fn read_metrics(&self) -> Option<ReadWorkMetrics> {
         self.acquisition.map(|case| {
-            let mut metrics = super::native_source_overhead_read_metrics();
+            let mut metrics = culprit_evidence::analytical::test_support::native_source_overhead_read_metrics();
             if case == SourceAcquisitionCase::Unconfirmed {
                 metrics.active_tasks = 1;
             }
@@ -354,7 +507,14 @@ impl TelemetrySource for OriginalSource {
         })
     }
     async fn finish(&mut self) -> culprit_core::Result<SourceCompletion> {
-        Ok(SourceCompletion::Verified)
+        Ok(match &self.source.observation {
+            // History with a retained acquisition owner requires the typed final confirmation, even
+            // when this controlled source's original owner and final observed bounds are unchanged.
+            SourceObservation::QueryHistory(history) if history.acquisition_owner.is_some() => {
+                SourceCompletion::QueryHistory(Box::new(history.clone()))
+            }
+            _ => SourceCompletion::Verified,
+        })
     }
     async fn close(&mut self) -> SourceShutdown {
         self.closed.store(true, Ordering::SeqCst);

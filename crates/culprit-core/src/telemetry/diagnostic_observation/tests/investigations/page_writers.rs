@@ -23,7 +23,7 @@ fn mapping_and_writer_questions_have_distinct_finite_stages_on_the_same_incident
     let (writer, episode, mut recipe, component) = writer_intent();
     let DiagnosticFocus::PageWaitWriters { focus } = &writer.focus else { panic!() };
     recipe.selector = RecipeSelector::FocusedPageWait;
-    let RecipeCostQualification::Measured(receipt) = &mut recipe.cost else { panic!() };
+    let RecipeAdmission::Measured(receipt) = &mut recipe.admission else { panic!() };
     receipt.selector = RecipeSelector::FocusedPageWait;
     let mapping = DiagnosticInvestigationIntent::new(
         &episode,
@@ -37,7 +37,7 @@ fn mapping_and_writer_questions_have_distinct_finite_stages_on_the_same_incident
     assert_ne!(writer.episode_stage_key().unwrap(), mapping.episode_stage_key().unwrap());
     let mut newer = writer.clone();
     newer.recipe_version += 1;
-    newer.qualification.recipe_version = newer.recipe_version;
+    newer.qualification.measured_mut().unwrap().recipe_version = newer.recipe_version;
     assert!(newer.is_valid());
     assert_eq!(newer.episode_stage_key().unwrap(), writer.episode_stage_key().unwrap());
     assert_ne!(newer.key().unwrap(), writer.key().unwrap());
@@ -47,13 +47,15 @@ fn mapping_and_writer_questions_have_distinct_finite_stages_on_the_same_incident
 fn a_mapping_cost_receipt_cannot_be_reinterpreted_as_writer_work_or_shared_ownership() {
     let (intent, episode, mut recipe, component) = writer_intent();
     let measured_key = intent.qualification.key().unwrap();
-    let RecipeCostQualification::Measured(receipt) = &mut recipe.cost else { panic!() };
+    let RecipeAdmission::Measured(receipt) = &mut recipe.admission else { panic!() };
     receipt.selector = RecipeSelector::FocusedPageWait;
     assert_ne!(receipt.key().unwrap(), measured_key);
     assert!(!recipe.is_valid());
     assert!(!intent.matches_admission(&episode, &recipe, &component, &CollectionBudget::default()));
     let mut shared = intent;
-    shared.execution = DiagnosticExecutionBinding::Shared { owner: Box::new(shared.qualification.evidence.clone()) };
+    shared.execution = DiagnosticExecutionBinding::Shared {
+        owner: Box::new(shared.qualification.measured().unwrap().evidence.clone()),
+    };
     assert!(!shared.is_valid(), "a database writer question never borrows shared execution authority");
 }
 

@@ -21,14 +21,18 @@ impl DiagnosticExecutionBinding {
     pub(super) fn matches_focus(&self, scope: &RecipeCostScope, focus: &DiagnosticFocus) -> bool {
         match (self, scope) {
             (Self::Database, RecipeCostScope::Activity(scope)) => {
-                let Some(participant) = focus.activity_participant() else { return false };
+                let Some(participant) = focus.activity_participant() else {
+                    return false;
+                };
                 scope.source == participant.source
                     && scope.native_epoch.as_deref() == Some(participant.epoch.as_str())
                     && scope.partition == participant.partition
                     && scope.target.telemetry_id().ok() == participant.target.telemetry_id().ok()
             }
             (Self::Shared { owner }, RecipeCostScope::SharedResource { target, .. }) => {
-                let Some(participant) = focus.activity_participant() else { return false };
+                let Some(participant) = focus.activity_participant() else {
+                    return false;
+                };
                 owner.is_valid()
                     && owner.stream == TelemetryStream::OperationalSamples
                     && matches!(owner.native_key, NativeRecordIdentity::Operational { .. })
@@ -48,7 +52,7 @@ impl DiagnosticExecutionBinding {
 
 impl DiagnosticInvestigationIntent {
     pub fn subject(&self) -> CollectionSubject {
-        self.qualification.scope.subject()
+        self.qualification.scope().subject()
     }
 
     pub fn selection(&self) -> Result<CollectionSelection> {
@@ -56,13 +60,13 @@ impl DiagnosticInvestigationIntent {
             (DiagnosticFocus::PageWait { focus }, DiagnosticExecutionBinding::Shared { .. }) => {
                 CollectionSelection::SharedPageWaitFocus {
                     focus: focus.clone(),
-                    partition: self.qualification.scope.partition().clone(),
+                    partition: self.qualification.scope().partition().clone(),
                 }
             }
             (DiagnosticFocus::CompilationAdmission { focus }, DiagnosticExecutionBinding::Shared { .. }) => {
                 CollectionSelection::SharedCompilationAdmissionFocus {
                     focus: focus.clone(),
-                    partition: self.qualification.scope.partition().clone(),
+                    partition: self.qualification.scope().partition().clone(),
                 }
             }
             (DiagnosticFocus::SourceRead { focus }, DiagnosticExecutionBinding::NativeRead { execution }) => {
@@ -92,7 +96,7 @@ impl DiagnosticInvestigationIntent {
         let DiagnosticExecutionBinding::Shared { owner } = &self.execution else {
             return false;
         };
-        if !self.is_valid() || !self.qualification.scope.matches_source(source) {
+        if !self.is_valid() || !self.qualification.scope().matches_source(source) {
             return false;
         }
         let TelemetryRecord::Operational(observation) = &row.record else {
@@ -119,7 +123,7 @@ impl DiagnosticInvestigationIntent {
             && super::super::diagnostics::positive(&episode.revision)
                 >= super::super::diagnostics::positive(&self.episode_revision)
             && episode.matches_focus(&self.focus)
-            && match &self.qualification.scope {
+            && match self.qualification.scope() {
                 RecipeCostScope::Activity(scope) => scope.key().ok() == episode.scope.key().ok(),
                 RecipeCostScope::SharedResource { .. } | RecipeCostScope::NativeRead(_) => true,
             }
@@ -131,8 +135,12 @@ impl DiagnosticInvestigationIntent {
         if self.matches_episode(episode) {
             return true;
         }
-        let DiagnosticFocus::PageWaitTasks { focus, .. } = &self.focus else { return false };
-        let RecipeCostScope::Activity(scope) = &self.qualification.scope else { return false };
+        let DiagnosticFocus::PageWaitTasks { focus, .. } = &self.focus else {
+            return false;
+        };
+        let RecipeCostScope::Activity(scope) = self.qualification.scope() else {
+            return false;
+        };
         self.is_valid()
             && episode.is_valid()
             && episode.scope == *scope
@@ -142,7 +150,9 @@ impl DiagnosticInvestigationIntent {
 
     /// Native result facts must retain this exact question and the separately admitted execution generation.
     pub fn matches_result_source(&self, source: &CollectionDescription) -> bool {
-        let Ok(selection) = self.selection() else { return false };
+        let Ok(selection) = self.selection() else {
+            return false;
+        };
         self.is_valid()
             && match &self.execution {
                 DiagnosticExecutionBinding::NativeRead { execution } => {
@@ -154,8 +164,8 @@ impl DiagnosticInvestigationIntent {
                             .is_some_and(|context| execution.matches_context(context))
                 }
                 _ => {
-                    source.target == self.qualification.scope.target()
-                        && source.partition == *self.qualification.scope.partition()
+                    source.target == self.qualification.scope().target()
+                        && source.partition == *self.qualification.scope().partition()
                 }
             }
             && source.matches_request(&CollectionRequest {

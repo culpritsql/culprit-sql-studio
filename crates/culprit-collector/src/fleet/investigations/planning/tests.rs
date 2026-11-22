@@ -2,6 +2,7 @@ use super::super::tests::support::*;
 use super::*;
 use crate::fleet::scheduler::{FocusEnrollment, Scheduler};
 use culprit_core::ErrorDetail;
+use culprit_read::cancellation::CollectionCancellation;
 use std::sync::atomic::Ordering;
 mod optional_evidence;
 mod task_holders;
@@ -25,7 +26,7 @@ async fn sealed_original_and_cost_evidence_prepare_one_verified_candidate_withou
 
 #[tokio::test]
 async fn a_native_lock_wait_without_duration_selects_its_question_but_unqualified_cost_cannot_open_or_enroll_it() {
-    let fixture = crate::analytical::test_support::investigation_fixture();
+    let fixture = culprit_evidence::analytical::test_support::investigation_fixture();
     let mut record = fixture.baseline_record.record;
     let TelemetryRecord::Activity(row) = &mut record else { panic!("original native Activity point") };
     row.waiting_on_lock = Some(true);
@@ -40,7 +41,7 @@ async fn a_native_lock_wait_without_duration_selects_its_question_but_unqualifie
     let mut harness = Harness::with_activity(Frame { source: fixture.baseline_source, records: vec![record] }).await;
     harness.backend.recipe.id = "fixture.focused-blocking".into();
     harness.backend.recipe.selector = RecipeSelector::FocusedBlocking;
-    harness.backend.recipe.cost = RecipeCostQualification::Unqualified;
+    harness.backend.recipe.admission = RecipeAdmission::Unqualified;
     let page = harness.outbox.diagnostic_checkpoints(DIAGNOSTIC_CONTROLLER_VERSION, None, 10).await.unwrap();
     let episodes = &page.checkpoints[0].episodes;
     let [episode] = episodes.as_slice() else { panic!("one native lock question, without invented timed symptoms") };
@@ -59,7 +60,7 @@ async fn unqualified_unknown_activation_changed_routes_and_stricter_caller_caps_
     for withheld in ["unqualified", "activation", "clock", "route", "budget"] {
         let mut harness = Harness::new(1).await;
         match withheld {
-            "unqualified" => harness.backend.recipe.cost = RecipeCostQualification::Unqualified,
+            "unqualified" => harness.backend.recipe.admission = RecipeAdmission::Unqualified,
             "activation" => harness.bindings.invalidate("target"),
             "clock" => {
                 let mut source = harness.bindings.get("target").unwrap().source.clone();
@@ -122,10 +123,53 @@ async fn cancellation_discards_prepared_candidates_without_enrollment_or_native_
 #[tokio::test]
 async fn bounded_scans_resume_after_a_withheld_prefix_instead_of_starving_later_episodes() {
     let mut harness = Harness::new(MAX_QUESTIONS_PER_PASS + 2).await;
-    harness.backend.recipe.cost = RecipeCostQualification::Unqualified;
+    harness.backend.recipe.admission = RecipeAdmission::Unqualified;
     assert!(harness.prepare(&CollectionCancellation::default()).await.unwrap().is_empty());
     assert_eq!(harness.bindings.planning_position().1, MAX_QUESTIONS_PER_PASS);
     assert!(harness.prepare(&CollectionCancellation::default()).await.unwrap().is_empty());
     assert_eq!(harness.bindings.planning_position(), (None, 0));
     assert_eq!(harness.backend.verified.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn the_real_planner_resolves_a_distinct_followup_ceiling_without_repaying_or_widening_the_baseline() {
+    for caller in [None, Some(2), Some(7), Some(64)] {
+        let mut harness = Harness::new(1).await;
+        harness.inventory.targets[0].schedules[0].budget.max_queries = 6;
+        harness.backend.recipe.budget.max_queries = 25;
+        let recipe = &harness.backend.recipe;
+        harness.backend.recipe.admission = RecipeAdmission::BuiltinSafety(Box::new(BuiltinRecipeSafety {
+            id: "fixture.source-safety".into(),
+            version: 1,
+            recipe_id: recipe.id.clone(),
+            recipe_version: recipe.version,
+            purpose: recipe.purpose,
+            selector: recipe.selector,
+            component: harness.backend.component.clone(),
+            templates_sha256: digest(b"exact-controlled-reader"),
+            budget: recipe.budget.clone(),
+        }));
+        harness.backend.followup_budget =
+            caller.map(|max_queries| CollectionBudget { max_queries, ..CollectionBudget::default() });
+        let candidate = harness.prepare(&CollectionCancellation::default()).await.unwrap().pop().unwrap();
+        assert_eq!(candidate.intent.budget.max_queries, caller.unwrap_or(6).min(25));
+        assert_eq!(harness.inventory.targets[0].schedules[0].budget.max_queries, 6);
+        assert!(candidate.intent.qualification.cost_evidence().is_none());
+        assert_eq!(harness.backend.verified.load(Ordering::SeqCst), 0, "no measured artifact is invented or resolved");
+        assert_eq!(harness.backend.builtin_verified.load(Ordering::SeqCst), 1);
+        assert_eq!(harness.backend.calls.captured.load(Ordering::SeqCst), 0);
+        let budget = harness
+            .bindings
+            .get("target")
+            .unwrap()
+            .budget(&harness.backend, &harness.inventory.targets[0])
+            .unwrap()
+            .unwrap();
+        assert_eq!(budget.max_queries, caller.unwrap_or(6));
+        harness.backend.accept = false;
+        assert!(
+            harness.prepare(&CollectionCancellation::default()).await.unwrap().is_empty(),
+            "caller budget is never safety authority"
+        );
+    }
 }

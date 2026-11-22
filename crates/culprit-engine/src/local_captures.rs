@@ -12,6 +12,8 @@ mod outbox;
 #[cfg(feature = "collector")]
 pub use outbox::OutboxCaptureReader;
 mod operational;
+#[cfg(any(feature = "collector", feature = "evidence"))]
+mod reports;
 pub use operational::{LocalOperationalCapture, LocalSnapshotAnalysis, LocalSnapshotReport};
 mod blocking;
 pub use blocking::{LocalActivityRead, LocalBlockingAnalysis};
@@ -120,17 +122,15 @@ impl LocalCaptureAnalysisKind {
         Self::SessionCensus,
     ];
 
-    #[cfg(feature = "collector")]
+    #[cfg(any(feature = "collector", feature = "evidence"))]
     fn read_plan(self) -> LocalCaptureReadPlan {
-        use LocalCaptureReadPlan::{Activity, Blocking, QueryHistory, Snapshot};
+        use LocalCaptureReadPlan::{Activity, Blocking, Snapshot};
         use culprit_core::telemetry::SnapshotDataset as Dataset;
         match self {
             Self::IncidentHistory => LocalCaptureReadPlan::IncidentHistory,
             Self::SourceOverhead => LocalCaptureReadPlan::SourceOverhead,
-            Self::PageServerReads | Self::RuntimeFragments => {
-                QueryHistory(culprit_collector::outbox::QueryHistoryReadKind::Runtime)
-            }
-            Self::QueryWaitFragments => QueryHistory(culprit_collector::outbox::QueryHistoryReadKind::Waits),
+            Self::PageServerReads | Self::RuntimeFragments => LocalCaptureReadPlan::QueryRuntime,
+            Self::QueryWaitFragments => LocalCaptureReadPlan::QueryWaits,
             Self::Replication => LocalCaptureReadPlan::Replication,
             Self::PoolSettings => LocalCaptureReadPlan::PoolSettings,
             Self::WaitCounters => LocalCaptureReadPlan::WaitCounters,
@@ -168,13 +168,13 @@ impl LocalCaptureAnalysisKind {
             Self::CompletedSpills => Snapshot(&[Dataset::CachedRuntime]),
         }
     }
-    #[cfg(feature = "collector")]
+    #[cfg(any(feature = "collector", feature = "evidence"))]
     pub(crate) fn accepts_snapshot_dataset(self, dataset: culprit_core::telemetry::SnapshotDataset) -> bool {
         matches!(self.read_plan(),LocalCaptureReadPlan::Snapshot(datasets) if datasets.contains(&dataset))
     }
 }
 
-#[cfg(feature = "collector")]
+#[cfg(any(feature = "collector", feature = "evidence"))]
 enum LocalCaptureReadPlan {
     IncidentHistory,
     SourceOverhead,
@@ -183,7 +183,8 @@ enum LocalCaptureReadPlan {
     PoolSettings,
     WaitCounters,
     Activity,
-    QueryHistory(culprit_collector::outbox::QueryHistoryReadKind),
+    QueryRuntime,
+    QueryWaits,
     Snapshot(&'static [culprit_core::telemetry::SnapshotDataset]),
     Blocking,
 }
@@ -372,3 +373,6 @@ impl LocalRuntimeFragments {
         self.read
     }
 }
+
+#[cfg(any(feature = "collector", feature = "evidence"))]
+pub(crate) use reports::explain as explain_operational_report;

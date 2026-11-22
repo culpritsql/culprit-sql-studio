@@ -6,8 +6,8 @@ use crate::{
     read::invalid_data,
     test_support::{owned_case::until_cancelled, save_cost_receipt},
 };
-use culprit_collector::capture::CollectionCancellation;
 use culprit_core::{MemoryParticipantsReport, Result, SourceOutcome, source_id, telemetry::*};
+use culprit_read::cancellation::CollectionCancellation;
 use futures_util::FutureExt;
 use std::{panic::AssertUnwindSafe, path::Path, sync::Arc};
 

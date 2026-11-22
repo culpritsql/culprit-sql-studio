@@ -6,8 +6,8 @@ use crate::{
     read::{NativeRead, ReadSession},
     test_support::recorded_runtime::{RecordedRuntime, same_duration},
 };
-use culprit_collector::capture::CollectionCancellation;
 use culprit_core::{Capability, Environment, ServerInfo, Snapshot, SnapshotOptions};
+use culprit_read::cancellation::CollectionCancellation;
 use std::{collections::BTreeSet, sync::Arc};
 
 pub(super) async fn read(

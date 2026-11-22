@@ -70,9 +70,9 @@ fn an_explicit_page_server_definition_companion_keeps_the_same_single_action_and
     assert_eq!(companion.range, range);
     assert_eq!(companion.kind, super::super::selection::DefinitionKind::QueryStoreRuntime);
     assert_eq!(companion.kind.family(), EvidenceFamily::QueryDefinitions);
-    let case = culprit_collector::analytical::test_support::page_server_read_evidence_cases().remove(0);
+    let case = culprit_evidence::analytical::test_support::page_server_read_evidence_cases().remove(0);
     assert!(companion.kind.accepts_primary(&case.source));
-    let compiler = culprit_collector::analytical::test_support::compilation_definition_evidence_cases().remove(0);
+    let compiler = culprit_evidence::analytical::test_support::compilation_definition_evidence_cases().remove(0);
     assert!(!companion.kind.accepts_primary(&compiler.current.0));
 }
 

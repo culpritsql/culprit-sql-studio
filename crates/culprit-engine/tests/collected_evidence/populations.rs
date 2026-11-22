@@ -1,8 +1,9 @@
 use super::*;
-use culprit_collector::analytical::test_support::{query_population_evidence, query_population_evidence_cases};
 use culprit_core::collected_analysis::{
     CollectedQueryAnalysis, CollectedQueryAnalysisResult, CollectedQueryPopulation,
 };
+use culprit_evidence::analytical::test_support::query_population_evidence;
+use culprit_evidence::analytical::test_support::query_population_evidence_cases;
 
 fn identities(source: &CollectionDescription) -> Vec<NativeIdentity> {
     source

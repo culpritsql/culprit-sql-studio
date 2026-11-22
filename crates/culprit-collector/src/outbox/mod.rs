@@ -12,9 +12,13 @@ mod completed_query_history;
 pub use completed_query_history::{CompletedQueryHistory, QueryHistoryReadKind};
 mod completed_snapshot;
 pub use completed_snapshot::CompletedSnapshot;
+mod completed_synthesis;
+pub use completed_synthesis::SynthesisCapture;
 mod artifacts;
 mod attempts;
+mod automatic_synthesis;
 mod metadata;
+mod synthesized_output;
 pub use metadata::InspectedCaptureManifest;
 mod eviction;
 mod investigations;
@@ -75,6 +79,8 @@ struct Files {
     epoch: Option<i64>,
     native_epoch_enabled: bool,
     recovered: bool,
+    synthesis_registered: bool,
+    native_reservation_started: bool,
     authority: RevisionAuthority,
 }
 
@@ -104,7 +110,7 @@ impl Files {
         )
     }
     fn create_remote(path: &Path, limits: OutboxLimits, store_id: &str) -> Result<Self> {
-        if !crate::delivery::contract::valid_digest(store_id) {
+        if !culprit_evidence::delivery::contract::valid_digest(store_id) {
             return Err(problem(OutboxProblem::Integrity));
         }
         Self::create_with_identity(
@@ -138,6 +144,8 @@ impl Files {
             epoch: None,
             native_epoch_enabled: false,
             recovered: false,
+            synthesis_registered: false,
+            native_reservation_started: false,
             authority: identity.authority,
         })
     }
@@ -153,6 +161,8 @@ impl Files {
             epoch: None,
             native_epoch_enabled: false,
             recovered: false,
+            synthesis_registered: false,
+            native_reservation_started: false,
             authority: identity.authority,
         })
     }
@@ -247,8 +257,8 @@ impl Files {
     pub fn prepare_delivery(
         &mut self,
         observation_id: &str,
-        contract: crate::delivery::contract::Contract,
-        advances: Vec<crate::delivery::evidence::StreamAdvance>,
+        contract: culprit_evidence::delivery::contract::Contract,
+        advances: Vec<culprit_evidence::delivery::evidence::StreamAdvance>,
     ) -> Result<crate::delivery::evidence::PreparedRange> {
         let validated = self.validated(observation_id)?;
         let prepared = crate::delivery::evidence::PreparedRange::from_validated(
@@ -287,12 +297,12 @@ impl Files {
 
     pub fn reserve(&mut self, connection: &str, request: &CollectionRequest) -> Result<Reservation> {
         if matches!(self.authority, RevisionAuthority::Recovery { .. })
-            && (self.epoch.is_none()
-                || request.collection() != TelemetryCollection::Diagnostics && !self.native_epoch_enabled)
+            && (self.epoch.is_none() || !request.collection().is_local_output() && !self.native_epoch_enabled)
         {
             return Err(problem(OutboxProblem::RecoveryRequired));
         }
         request.validate()?;
+        self.synthesis_host_ready(request)?;
         if connection.is_empty() || connection.len() > 256 || connection.chars().any(char::is_control) {
             return Err(problem(OutboxProblem::Integrity));
         }
@@ -316,13 +326,20 @@ impl Files {
             self.verify_focus_parent(focus)?;
         }
         let capture = self.journal.reserve(connection, request, &mut self.epoch)?;
+        if !request.collection().is_local_output() {
+            self.native_reservation_started = true;
+        }
         let directory = self.directory(&capture.identity.observation_id);
         Ok(Reservation { entry: capture, directory })
     }
     fn directory(&self, id: &str) -> PathBuf {
         self.root.join("captures").join(id)
     }
-    fn begin_remote_epoch(&mut self, fence: &crate::delivery::recovery::Fence, high_sequence: u64) -> Result<()> {
+    fn begin_remote_epoch(
+        &mut self,
+        fence: &culprit_evidence::delivery::mutations::Fence,
+        high_sequence: u64,
+    ) -> Result<()> {
         let RevisionAuthority::Recovery { store_id } = &self.authority else {
             return Err(problem(OutboxProblem::Integrity));
         };
@@ -349,7 +366,11 @@ impl Files {
         self.native_epoch_enabled = true;
         Ok(())
     }
-    fn begin_diagnostic_epoch(&mut self, fence: &crate::delivery::recovery::Fence, high_sequence: u64) -> Result<()> {
+    fn begin_diagnostic_epoch(
+        &mut self,
+        fence: &culprit_evidence::delivery::mutations::Fence,
+        high_sequence: u64,
+    ) -> Result<()> {
         if !matches!(&self.authority,RevisionAuthority::Recovery {store_id} if *store_id==fence.store_id()) {
             return Err(DeliveryProblem::DestinationChanged.error());
         }
@@ -483,7 +504,8 @@ fn read_identity(root: &Path) -> Result<Identity> {
         return Err(problem(OutboxProblem::UnsupportedFormat));
     }
     if let RevisionAuthority::Recovery { store_id } = &identity.authority
-        && (!crate::delivery::contract::valid_digest(store_id) || identity.id != digest(store_id.as_bytes())[..32])
+        && (!culprit_evidence::delivery::contract::valid_digest(store_id)
+            || identity.id != digest(store_id.as_bytes())[..32])
     {
         return Err(problem(OutboxProblem::Integrity));
     }

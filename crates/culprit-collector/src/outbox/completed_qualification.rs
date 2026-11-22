@@ -3,8 +3,8 @@ use super::{
     OutboxDelivery,
     completed_capture::{CompletedCapture, CompletedCaptureBudget, CompletedCaptureRead},
 };
-use crate::capture::CollectionCancellation;
 use culprit_core::{Result, telemetry::*};
+use culprit_read::cancellation::CollectionCancellation;
 
 /// Private-construction authenticated originals for native qualification policy, regardless of source family.
 /// No serialized receipt or caller-supplied source can construct this value or confer native cost authority.

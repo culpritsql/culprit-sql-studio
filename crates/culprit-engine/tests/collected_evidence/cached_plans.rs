@@ -1,11 +1,4 @@
 use super::fixture::Fixture;
-use culprit_collector::analytical::{
-    evidence::{EvidenceFamily, EvidenceGapReason, RecoveryPayloadBudget},
-    test_support::{
-        memory_failure_evidence, object_definition_bound_join_evidence, object_definition_evidence_cases,
-        object_definition_hydration_evidence, object_definition_retained_input_evidence,
-    },
-};
 #[cfg(feature = "mssql")]
 use culprit_core::plan_facts::RelationalInputKind;
 use culprit_core::{
@@ -13,6 +6,14 @@ use culprit_core::{
     telemetry::*,
 };
 use culprit_engine::collected_resources;
+use culprit_evidence::analytical::evidence::EvidenceFamily;
+use culprit_evidence::analytical::evidence::EvidenceGapReason;
+use culprit_evidence::analytical::evidence::RecoveryPayloadBudget;
+use culprit_evidence::analytical::test_support::memory_failure_evidence;
+use culprit_evidence::analytical::test_support::object_definition_bound_join_evidence;
+use culprit_evidence::analytical::test_support::object_definition_evidence_cases;
+use culprit_evidence::analytical::test_support::object_definition_hydration_evidence;
+use culprit_evidence::analytical::test_support::object_definition_retained_input_evidence;
 
 mod memory_feedback;
 mod page_server_io;

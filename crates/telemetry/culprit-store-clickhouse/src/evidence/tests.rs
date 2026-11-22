@@ -1,3 +1,5 @@
+use culprit_evidence::analytical::RowProjection;
+use culprit_evidence::analytical::indexes::ProjectionIndexWriter;
 mod columnstore;
 mod columnstore_rowgroups;
 mod full_text_populations;
@@ -48,18 +50,16 @@ mod tempdb_metadata_memory;
 mod tuning;
 use crate::{catalog::SchemaCatalog, client::QueryRequest, response::QueryTable, schema::Schema};
 use async_trait::async_trait;
-use culprit_collector::{
-    analytical::{
-        RowProjection,
-        encoding::BatchEncoder,
-        evidence::*,
-        projection::ScalarType,
-        publication,
-        test_support::{self, Blobs, Fault, Recovery},
-    },
-    delivery::recovery::reopen,
-};
+use culprit_collector::analytical::encoding::BatchEncoder;
 use culprit_core::{Result, telemetry::*};
+use culprit_evidence::analytical::evidence::*;
+use culprit_evidence::analytical::projection::ScalarType;
+use culprit_evidence::analytical::publication;
+use culprit_evidence::analytical::test_support;
+use culprit_evidence::analytical::test_support::Blobs;
+use culprit_evidence::analytical::test_support::Fault;
+use culprit_evidence::analytical::test_support::Recovery;
+use culprit_evidence::delivery::recovery::reopen;
 use serde_json::{Value, json};
 use std::{collections::VecDeque, sync::Mutex};
 
@@ -107,7 +107,7 @@ fn returned(schema: &Schema, encoded: &Value) -> Vec<Value> {
 struct Fixture {
     catalog: Arc<SchemaCatalog>,
     recovery: Arc<Recovery>,
-    range: culprit_collector::delivery::recovery::CommittedRange,
+    range: culprit_evidence::delivery::recovery::CommittedRange,
     reader: EvidenceReader,
     query: Arc<Queries>,
     rows: Vec<Vec<Value>>,
@@ -146,7 +146,7 @@ impl Fixture {
     }
     async fn from_recovery(catalog: Arc<SchemaCatalog>, recovery: Arc<Recovery>, streams: &[TelemetryStream]) -> Self {
         let range = reopen(recovery.as_ref(), &recovery.manifest.range_id).await.unwrap();
-        let indexes = Arc::new(ProjectionIndexes::new(Arc::new(Blobs::default())));
+        let indexes = Arc::new(ProjectionIndexWriter::new(Arc::new(Blobs::default())));
         let scratch = tempfile::tempdir().unwrap();
         let encoder = BatchEncoder::new(catalog.clone(), recovery.clone(), scratch.path()).unwrap();
         let mut rows = Vec::new();
@@ -170,7 +170,7 @@ impl Fixture {
         );
         let query = Arc::new(Queries::default());
         *recovery.fault.lock().unwrap() = Fault::Stall;
-        let reader = super::new(query.clone(), indexes).unwrap();
+        let reader = super::new(query.clone(), indexes.reader()).unwrap();
         Self { catalog, recovery, range, reader, query, rows, publication }
     }
     fn replies(&self, pages: Vec<Vec<Vec<Value>>>) {
@@ -666,3 +666,9 @@ mod pool_settings;
 mod managed_instance_resources;
 
 mod pool_wait_counters;
+
+mod incident_discovery;
+
+mod derived_outputs;
+
+mod resource_discovery;

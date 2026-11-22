@@ -1,10 +1,10 @@
 use super::*;
-use culprit_collector::{
-    analytical::test_support::{LocalCaptureFixture, ManagedInstanceResourceCase, managed_instance_resource_case},
-    outbox::CompletedCaptureBudget,
-};
+use culprit_collector::analytical::test_support::LocalCaptureFixture;
+use culprit_collector::outbox::CompletedCaptureBudget;
 use culprit_core::telemetry::SourceShutdown;
 use culprit_engine::OutboxCaptureReader;
+use culprit_evidence::analytical::test_support::ManagedInstanceResourceCase;
+use culprit_evidence::analytical::test_support::managed_instance_resource_case;
 #[tokio::test]
 async fn selected_local_history_uses_canonical_values_and_preserves_all_three_clock_scopes() {
     for case in ManagedInstanceResourceCase::ALL {

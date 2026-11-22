@@ -1,6 +1,7 @@
 use super::*;
-use culprit_collector::analytical::test_support::{IndexConfigurationCase, index_configuration_evidence};
 use culprit_core::telemetry::*;
+use culprit_evidence::analytical::test_support::IndexConfigurationCase;
+use culprit_evidence::analytical::test_support::index_configuration_evidence;
 fn report(case: IndexConfigurationCase) -> IndexConfigurationReport {
     let (description, records) = index_configuration_evidence(case);
     let coverage = &description.observation.snapshot().unwrap().sources[0];

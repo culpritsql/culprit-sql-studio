@@ -10,12 +10,11 @@ mod work;
 pub use journal::FleetJournal;
 pub use scheduler::{MIN_RESOURCE_GAP_SECONDS, minimum_collection_slot};
 
-use crate::{
-    capture::{CollectionAdmissionWindow, CollectionCancellation},
-    outbox::Outbox,
-};
+use crate::capture::CollectionAdmissionWindow;
+use crate::outbox::Outbox;
 use async_trait::async_trait;
 use culprit_core::{Result, telemetry::*};
+use culprit_read::cancellation::CollectionCancellation;
 use scheduler::Scheduler;
 use std::time::Duration;
 use storage::CaptureStorage;
@@ -51,11 +50,24 @@ pub trait FleetBackend: Send + Sync {
     fn route_revision(&self, _connection: &str) -> Result<Option<String>> {
         Ok(None)
     }
+    /// A host may retain the caller-selected ceiling for a separately admitted follow-up. The completed
+    /// baseline's own source envelope stays unchanged. None preserves the existing explicit schedule limit.
+    fn investigation_budget(
+        &self,
+        _connection: &str,
+        _subject: &CollectionSubject,
+        _baseline: TelemetryCollection,
+    ) -> Result<Option<CollectionBudget>> {
+        Ok(None)
+    }
     /// Identify the selected source's qualification authority without resolving credentials or opening it.
     fn qualification_component(&self, _connection: &str) -> Result<Option<culprit_core::ComponentVersion>> {
         Ok(None)
     }
     /// Interpret an independently authenticated cost artifact. A structural receipt alone grants no permission.
+    fn verify_builtin_safety(&self, _connection: &str, _policy: &BuiltinRecipeSafety) -> Result<bool> {
+        Ok(false)
+    }
     fn verify_cost(
         &self,
         _connection: &str,

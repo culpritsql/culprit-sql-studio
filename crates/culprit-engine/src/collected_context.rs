@@ -1,6 +1,7 @@
 //! Both archived-analysis views retain the same authenticated capture and native-row identity.
-use culprit_collector::analytical::evidence::{EvidenceCapture, EvidenceReadMetrics};
 use culprit_core::collected_analysis::{CollectedAnalysisRecord, CollectedEvidenceContext, CollectedEvidenceMetrics};
+use culprit_evidence::analytical::evidence::EvidenceCapture;
+use culprit_evidence::analytical::evidence::EvidenceReadMetrics;
 
 pub(crate) fn from_capture(capture: &EvidenceCapture) -> CollectedEvidenceContext {
     CollectedEvidenceContext {

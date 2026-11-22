@@ -1011,6 +1011,7 @@ dependencies = [
  "culprit-auth",
  "culprit-collector",
  "culprit-core",
+ "culprit-evidence",
  "ring",
  "serde",
  "serde_json",
@@ -1029,6 +1030,7 @@ dependencies = [
  "culprit-auth",
  "culprit-collector",
  "culprit-core",
+ "culprit-evidence",
  "culprit-store-clickhouse",
  "ring",
  "serde",
@@ -1060,7 +1062,9 @@ dependencies = [
  "culprit-collector",
  "culprit-core",
  "culprit-engine",
+ "culprit-evidence",
  "culprit-mcp",
+ "culprit-read",
  "culprit-store-adx",
  "culprit-store-clickhouse",
  "ring",
@@ -1095,6 +1099,7 @@ dependencies = [
  "chrono",
  "culprit-auth",
  "culprit-core",
+ "culprit-evidence",
  "culprit-read",
  "ring",
  "rusqlite",
@@ -1137,6 +1142,7 @@ dependencies = [
  "culprit-cloud",
  "culprit-collector",
  "culprit-core",
+ "culprit-evidence",
  "culprit-mssql",
  "culprit-mysql",
  "culprit-postgres",
@@ -1165,6 +1171,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "culprit-evidence"
+version = "0.5.6"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "culprit-core",
+ "culprit-read",
+ "serde",
+ "serde_json",
+ "sha2 0.11.1",
+ "tokio",
+]
+
+[[package]]
 name = "culprit-mcp"
 version = "0.5.6"
 dependencies = [
@@ -1174,6 +1194,8 @@ dependencies = [
  "culprit-collector",
  "culprit-core",
  "culprit-engine",
+ "culprit-read",
+ "culprit-evidence",
  "rmcp",
  "schemars 1.2.3",
  "serde",
@@ -1190,6 +1212,7 @@ dependencies = [
  "culprit-checks",
  "culprit-collector",
  "culprit-core",
+ "culprit-evidence",
  "culprit-read",
  "futures-util",
  "roxmltree",
@@ -1225,6 +1248,7 @@ dependencies = [
  "culprit-checks",
  "culprit-collector",
  "culprit-core",
+ "culprit-evidence",
  "culprit-read",
  "futures-util",
  "rustls",
@@ -1283,6 +1307,7 @@ dependencies = [
  "culprit-auth",
  "culprit-collector",
  "culprit-core",
+ "culprit-evidence",
  "ring",
  "serde",
  "serde_json",
@@ -1301,6 +1326,7 @@ dependencies = [
  "chrono",
  "culprit-collector",
  "culprit-core",
+ "culprit-evidence",
  "ring",
  "serde",
  "serde_json",

@@ -1,8 +1,10 @@
 //! Controlled presentation cases through the canonical native-history interpreters, never native qualification.
-use culprit_collector::analytical::test_support::{
-    CdcCase, ChangeFeedCase, cdc_evidence, change_capture_multiple_errors, change_feed_evidence,
-};
 use culprit_core::{Result, telemetry::*};
+use culprit_evidence::analytical::test_support::CdcCase;
+use culprit_evidence::analytical::test_support::ChangeFeedCase;
+use culprit_evidence::analytical::test_support::cdc_evidence;
+use culprit_evidence::analytical::test_support::change_capture_multiple_errors;
+use culprit_evidence::analytical::test_support::change_feed_evidence;
 use std::{collections::BTreeMap, path::PathBuf};
 fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     culprit_core::i18n::scope("en", generate)

@@ -1,8 +1,9 @@
 //! The demo and UI controls consume the same structural artifact reader as the real desktop workflow.
-use culprit_collector::analytical::test_support::{
-    IncidentHistoryCase, QueryCompilationFollowupCase, incident_history_evidence, query_compilation_followup_evidence,
-};
 use culprit_core::{limits::OperationGuard, telemetry::*};
+use culprit_evidence::analytical::test_support::IncidentHistoryCase;
+use culprit_evidence::analytical::test_support::QueryCompilationFollowupCase;
+use culprit_evidence::analytical::test_support::incident_history_evidence;
+use culprit_evidence::analytical::test_support::query_compilation_followup_evidence;
 use std::{collections::BTreeMap, path::PathBuf};
 fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     culprit_core::i18n::scope("en", generate)

@@ -1,5 +1,5 @@
 use super::*;
-use crate::analytical::test_support::hyperscale_log_component_evidence_cases;
+use culprit_evidence::analytical::test_support::hyperscale_log_component_evidence_cases;
 
 #[tokio::test]
 async fn genuine_ready_component_captures_keep_original_native_coverage_all_bodies_and_positions() {

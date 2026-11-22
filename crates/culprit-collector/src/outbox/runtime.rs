@@ -32,7 +32,11 @@ impl Outbox {
     /// Initialize allocation from a freshly acquired remote epoch and the recovered sequence high-water mark.
     /// The caller must establish source quiescence separately before resuming after volume loss. This method
     /// never clears an existing source-work debt and refuses local-only namespaces.
-    pub async fn begin_remote_epoch(&mut self, fence: &delivery::recovery::Fence, high_sequence: u64) -> Result<()> {
+    pub async fn begin_remote_epoch(
+        &mut self,
+        fence: &culprit_evidence::delivery::mutations::Fence,
+        high_sequence: u64,
+    ) -> Result<()> {
         self.files
             .run(|| {
                 let fence = fence.clone();
@@ -43,7 +47,7 @@ impl Outbox {
     /// Bind allocation for local-only diagnostics while native source activation remains independently fenced.
     pub async fn begin_diagnostic_epoch(
         &mut self,
-        fence: &delivery::recovery::Fence,
+        fence: &culprit_evidence::delivery::mutations::Fence,
         high_sequence: u64,
     ) -> Result<()> {
         self.files
@@ -63,7 +67,7 @@ impl Outbox {
         if self.recovery_store_id() != Some(recovery.id()) || range.store_id() != recovery.id() {
             return Err(DeliveryProblem::DestinationChanged.error());
         }
-        let parent = delivery::diagnostic_recovery::capture_reference(range.manifest())?;
+        let parent = culprit_evidence::delivery::heads::capture_reference(range.manifest())?;
         let generation =
             self.files.run(|| |files| super::investigations::retirement::generation(&files.journal.conn)).await?;
         if !recovery.diagnostic_input_pending(&parent, DIAGNOSTIC_CONTROLLER_VERSION).await? {
@@ -86,7 +90,7 @@ impl Outbox {
         recovered: delivery::diagnostic_recovery::RecoveredDiagnosticInput,
     ) -> Result<()> {
         let (range, rows) = recovered.into_parts();
-        let parent = delivery::diagnostic_recovery::capture_reference(range.manifest())?;
+        let parent = culprit_evidence::delivery::heads::capture_reference(range.manifest())?;
         let input = super::investigations::RestoredInput {
             store_id: range.store_id().into(),
             parent,
@@ -368,7 +372,10 @@ impl OutboxDelivery {
             })
             .await
     }
-    pub(crate) async fn mark_archived(&self, range: &delivery::recovery::CommittedRange) -> Result<()> {
+    pub(crate) async fn mark_archived(
+        &self,
+        range: &culprit_evidence::delivery::recovery::CommittedRange,
+    ) -> Result<()> {
         self.files
             .run(|| {
                 let range = range.clone();
@@ -396,7 +403,7 @@ impl OutboxDelivery {
             .await
     }
     /// Returns false while the capture is the latest activity checkpoint required by the next source poll.
-    pub async fn evict(&self, committed: &delivery::recovery::CommittedRange) -> Result<bool> {
+    pub async fn evict(&self, committed: &culprit_evidence::delivery::recovery::CommittedRange) -> Result<bool> {
         self.files
             .run(|| {
                 let committed = committed.clone();
@@ -415,8 +422,8 @@ impl OutboxDelivery {
     pub async fn prepare(
         &self,
         observation_id: &str,
-        contract: delivery::contract::Contract,
-        advances: Vec<delivery::evidence::StreamAdvance>,
+        contract: culprit_evidence::delivery::contract::Contract,
+        advances: Vec<culprit_evidence::delivery::evidence::StreamAdvance>,
     ) -> Result<delivery::evidence::PreparedRange> {
         self.files
             .run(|| {

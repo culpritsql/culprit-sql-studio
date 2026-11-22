@@ -1,14 +1,17 @@
 //! Closed intervals are discovered once per bounded scan; cursors and unconsumed intervals survive restarts.
-use super::{
-    admission::AdmittedBackend,
-    journal::FleetJournal,
-    scheduler::{Job, Outcome, state_failed},
-    storage::CaptureStorage,
-    work::{self, Checkpoint, WorkResult, parse_time},
-};
-use crate::capture::CollectionCancellation;
+use super::admission::AdmittedBackend;
+use super::journal::FleetJournal;
+use super::scheduler::Job;
+use super::scheduler::Outcome;
+use super::scheduler::state_failed;
+use super::storage::CaptureStorage;
+use super::work;
+use super::work::Checkpoint;
+use super::work::WorkResult;
+use super::work::parse_time;
 use chrono::{DateTime, TimeDelta, Utc};
 use culprit_core::{Result, telemetry::*};
+use culprit_read::cancellation::CollectionCancellation;
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 

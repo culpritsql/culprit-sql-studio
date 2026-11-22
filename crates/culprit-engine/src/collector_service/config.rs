@@ -1,5 +1,6 @@
 //! Static assignments and explicit source/recovery/target dependencies; configuration contains no credentials.
 use crate::credentials::CredentialProfile;
+use crate::recovery_config::RecoveryConfig;
 #[cfg(feature = "store-adx")]
 use culprit_blob_azure::AzureBlobConfig;
 use culprit_core::{Result, telemetry::*};
@@ -24,6 +25,7 @@ pub struct CollectorConfig {
     pub workspace: PathBuf,
     pub state: PathBuf,
     pub inventory: FleetInventory,
+    #[serde(default = "standard_monitoring")]
     pub monitoring: MonitoringPolicy,
     pub credentials: BTreeMap<String, CredentialProfile>,
     #[serde(default)]
@@ -32,13 +34,6 @@ pub struct CollectorConfig {
     pub target: TargetConfig,
     pub limits: OutboxLimits,
     pub health_listen: std::net::SocketAddr,
-}
-#[derive(Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct RecoveryConfig {
-    pub provider: String,
-    pub options: serde_json::Value,
-    pub credential: String,
 }
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "kebab-case", deny_unknown_fields)]
@@ -105,7 +100,7 @@ impl CollectorConfig {
                 let budget = &schedule.budget;
                 // Refuse captures that cannot fit the archive contract before spending source work.
                 if u64::from(budget.page_rows) * u64::from(budget.max_pages)
-                    > culprit_collector::delivery::contract::MAX_RANGE_RECORDS as u64
+                    > culprit_evidence::delivery::contract::MAX_RANGE_RECORDS as u64
                 {
                     return Err(invalid());
                 }
@@ -124,12 +119,11 @@ impl CollectorConfig {
         Ok(())
     }
 }
-pub(super) fn valid_provider_name(name: &str) -> bool {
-    !name.is_empty()
-        && name.len() <= 64
-        && name.bytes().all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
-}
 
 fn invalid() -> culprit_core::Error {
     DeliveryProblem::InvalidContract.error()
+}
+
+fn standard_monitoring() -> MonitoringPolicy {
+    MonitoringPolicy::Standard { budget: CollectionBudget::default() }
 }

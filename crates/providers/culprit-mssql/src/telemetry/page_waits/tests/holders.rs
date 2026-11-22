@@ -48,7 +48,7 @@ async fn holder_recipe_is_selector_required_investigation_only_lazy_and_respects
         crate::telemetry_recipes().into_iter().find(|row| row.id == "mssql.focused-page-task-holders").unwrap();
     assert_eq!(recipe.selector, RecipeSelector::FocusedPageTaskHolders);
     assert_eq!(recipe.purpose, RecipePurpose::Investigation);
-    assert_eq!(recipe.cost, RecipeCostQualification::Unqualified);
+    assert_eq!(recipe.admission, RecipeAdmission::Unqualified);
     assert_eq!(recipe.subjects, [RecipeSubject::Database]);
     assert_eq!(recipe.budget.max_queries, 29, "twenty-eight reader queries and one possible session SET batch");
     assert_eq!(recipe.budget.statement_timeout_ms, 1000);

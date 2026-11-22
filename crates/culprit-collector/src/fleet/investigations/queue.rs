@@ -1,15 +1,15 @@
 //! Parent evidence is pinned before canonical enrollment; journal acknowledgement precedes pin release.
 use super::*;
-use crate::{
-    capture::CollectionCancellation,
-    diagnostics::resolve_evidence,
-    fleet::{
-        FleetBackend, FleetJournal,
-        scheduler::{FocusEnrollment, FocusStatus, Scheduler, state_failed},
-        storage::CaptureStorage,
-    },
-    outbox::DiagnosticInputState,
-};
+use crate::diagnostics::resolve_evidence;
+use crate::fleet::FleetBackend;
+use crate::fleet::FleetJournal;
+use crate::fleet::scheduler::FocusEnrollment;
+use crate::fleet::scheduler::FocusStatus;
+use crate::fleet::scheduler::Scheduler;
+use crate::fleet::scheduler::state_failed;
+use crate::fleet::storage::CaptureStorage;
+use crate::outbox::DiagnosticInputState;
+use culprit_read::cancellation::CollectionCancellation;
 use std::{collections::BTreeSet, time::Duration};
 
 const MAX_MAINTENANCE_JOBS: usize = 8;
@@ -234,7 +234,9 @@ impl Investigations {
             Err(error) if super::evidence::evidence_unavailable(&error) => return Ok(()),
             Err(error) => return Err(error),
         };
-        let Some((source, row)) = evidence else { return Ok(()) };
+        let Some((source, row)) = evidence else {
+            return Ok(());
+        };
         if !intent.matches_parent_record(&source, &row) {
             return Err(DeliveryProblem::Integrity.error());
         }
@@ -243,11 +245,15 @@ impl Investigations {
             .outbox
             .diagnostic_input(&intent.focus.parent().capture.observation_id, DIAGNOSTIC_CONTROLLER_VERSION)
             .await?;
-        let Some(checkpoint) = current.checkpoint else { return Ok(()) };
+        let Some(checkpoint) = current.checkpoint else {
+            return Ok(());
+        };
         let episode = checkpoint.episodes.iter().find(|episode| episode.id == intent.episode_id);
         let decision = match episode {
             None => Some((DiagnosticAnalysisIssue::PolicyChanged, None)),
-            Some(episode) if !episode.matches_focus(&intent.focus) => return Err(DeliveryProblem::Integrity.error()),
+            Some(episode) if !episode.matches_focus(&intent.focus) => {
+                return Err(DeliveryProblem::Integrity.error());
+            }
             Some(episode) if !episode.needs_question(&intent.focus) => {
                 Some((DiagnosticAnalysisIssue::PolicyChanged, None))
             }
@@ -255,7 +261,9 @@ impl Investigations {
                 .metadata_issue(owners.backend, job, intent, episode)?
                 .map(|issue| (issue, Some(DiagnosticAnalysisStatus::Deferred))),
         };
-        let Some((issue, status)) = decision else { return Ok(()) };
+        let Some((issue, status)) = decision else {
+            return Ok(());
+        };
         if cancellation.is_cancelled() {
             return Ok(());
         }
@@ -279,7 +287,7 @@ impl Investigations {
             return Ok(Some(DiagnosticAnalysisIssue::PolicyChanged));
         };
         let binding = self.bindings.get(&job.target).ok_or_else(state_failed)?;
-        if !binding.matches_scope(&intent.qualification.scope) {
+        if !binding.matches_scope(intent.qualification.scope()) {
             return Ok(Some(DiagnosticAnalysisIssue::SourceChanged));
         }
         let Some(revision) = planning::metadata(backend.route_revision(&target.connection))?.flatten() else {
@@ -305,8 +313,9 @@ impl Investigations {
         let Some(component) = component else {
             return Ok(Some(DiagnosticAnalysisIssue::CostUnqualified));
         };
-        let budget = binding.budget(target);
+        let budget = binding.budget(backend, target)?;
         Ok(budget
+            .as_ref()
             .is_none_or(|budget| !intent.matches_admission(episode, recipe, &component, budget))
             .then_some(DiagnosticAnalysisIssue::PolicyChanged))
     }
@@ -395,7 +404,9 @@ impl Investigations {
                 }
                 DiagnosticInputState::Missing => false,
             };
-        let Some(recovery) = storage.recovery else { return Ok(locally_consumed) };
+        let Some(recovery) = storage.recovery else {
+            return Ok(locally_consumed);
+        };
         if storage.outbox.recovery_store_id() != Some(recovery.id()) {
             return Err(DeliveryProblem::DestinationChanged.error());
         }
@@ -403,14 +414,14 @@ impl Investigations {
             _ = cancellation.cancelled() => return Ok(false),
             result = tokio::time::timeout(Duration::from_secs(30), async {
                 let manifest = recovery.capture_manifest(&result.capture).await?;
-                if crate::delivery::diagnostic_recovery::capture_reference(&manifest)? != *result
+                if culprit_evidence::delivery::heads::capture_reference(&manifest)? != *result
                     || !result_matches_intent(&manifest.source, manifest.investigation.as_ref(), intent)?
                 {
                     return Err(DeliveryProblem::Integrity.error());
                 }
                 let recovered = crate::delivery::diagnostic_recovery::load_diagnostic_input(recovery, &manifest.range_id).await?;
                 if recovered.range().manifest_digest() != manifest.digest()?
-                    || crate::delivery::diagnostic_recovery::capture_reference(recovered.range().manifest())? != *result
+                    || culprit_evidence::delivery::heads::capture_reference(recovered.range().manifest())? != *result
                     || !result_matches_intent(&recovered.range().manifest().source, recovered.range().manifest().investigation.as_ref(), intent)?
                 {
                     return Err(DeliveryProblem::Integrity.error());
@@ -433,7 +444,9 @@ pub(super) fn result_matches_intent(
     lineage: Option<&DiagnosticInvestigationLineage>,
     intent: &DiagnosticInvestigationIntent,
 ) -> Result<bool> {
-    let Some(lineage) = lineage else { return Ok(false) };
+    let Some(lineage) = lineage else {
+        return Ok(false);
+    };
     let actual = lineage.reconstruct(&lineage.focus).map_err(|_| DeliveryProblem::Integrity.error())?;
     Ok(actual.key()? == intent.key()?
         && actual.matches_result_source(source)

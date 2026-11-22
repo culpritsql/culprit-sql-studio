@@ -1,11 +1,12 @@
 use super::*;
 mod comparison;
-use culprit_collector::analytical::{
-    evidence::{EvidenceFamily, EvidenceGapReason, RecoveryPayloadBudget},
-    test_support::{self, CacheEntryMemoryCase},
-};
 use culprit_core::{ErrorDetail, SourceOutcome, SourceState, t};
 use culprit_engine::collected_resources;
+use culprit_evidence::analytical::evidence::EvidenceFamily;
+use culprit_evidence::analytical::evidence::EvidenceGapReason;
+use culprit_evidence::analytical::evidence::RecoveryPayloadBudget;
+use culprit_evidence::analytical::test_support;
+use culprit_evidence::analytical::test_support::CacheEntryMemoryCase;
 
 const FAMILY: &[EvidenceFamily] = &[EvidenceFamily::OperationalSamples];
 

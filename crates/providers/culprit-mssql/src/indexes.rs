@@ -190,67 +190,22 @@ pub(crate) async fn application<R: NativeRead>(reader: &mut R, with_dmvs: bool) 
 
 impl NativeIndex {
     fn project(self) -> Result<IndexStat> {
-        let index = self.snapshot;
-        if index.parent_kind != MssqlIndexParentKind::Table {
+        if self.snapshot.parent_kind != MssqlIndexParentKind::Table {
             return Err(invalid_data());
         }
-        if let Some(filter) = &index.filter {
+        if let Some(filter) = &self.snapshot.filter {
             crate::catalog_expression::require_available(filter)?;
         }
-        let counter = |field: fn(&MssqlIndexUsageCounters) -> &Option<String>| match &index.usage {
-            MssqlIndexUsage::Observed(usage) if !usage.row_present => Some(0.0),
-            MssqlIndexUsage::Observed(usage) => {
-                field(usage).as_ref().and_then(|value| value.parse::<u64>().ok()).map(|value| value as f64)
-            }
-            _ => None,
-        };
-        let (seeks, scans, lookups, writes) = (
-            counter(|v| &v.user_seeks),
-            counter(|v| &v.user_scans),
-            counter(|v| &v.user_lookups),
-            counter(|v| &v.user_updates),
-        );
-        let mut keys = index.columns.iter().filter(|column| column.key_ordinal > 0).collect::<Vec<_>>();
-        keys.sort_by_key(|column| column.key_ordinal);
-        let columns = keys
-            .into_iter()
-            .map(|column| if column.descending { format!("{} DESC", column.name) } else { column.name.clone() })
-            .collect();
-        Ok(IndexStat {
-            mssql_columnstore: index.columnstore,
-            mssql_configuration: index.configuration,
-            docdb: None,
-            filter_facts: None,
-            schema: index.parent_schema,
-            table: index.parent_name,
-            name: index.name,
-            kind: index.native_type.to_ascii_lowercase(),
-            columns,
-            include: index.columns.into_iter().filter(|column| column.included).map(|column| column.name).collect(),
-            filter: self.raw_filter,
-            is_unique: index.unique,
-            is_primary_key: index.primary_key,
-            is_clustered: matches!(index.type_code, 1 | 5),
-            is_disabled: index.disabled,
-            state: None,
-            maintained: None,
-            has_statistics: None,
-            size_bytes: index.reserved_bytes.and_then(|value| value.parse::<u64>().ok()).map(|value| value as f64),
-            reads: seeks.zip(scans).zip(lookups).map(|((a, b), c)| a + b + c),
-            writes,
-            seeks,
-            scans,
-            lookups,
-            last_read: self.display_last_read,
-            definition: None,
-            contention: None,
-            created_at_latest: None,
-            partition_of: None,
-            opclasses: None,
-            counters_since: None,
-        })
+        self.snapshot
+            .into_index_stat(MssqlIndexPresentation {
+                filter: self.raw_filter,
+                filter_facts: None,
+                last_read: self.display_last_read,
+            })
+            .ok_or_else(invalid_data)
     }
 }
+
 #[cfg(test)]
 pub(crate) mod tests;
 

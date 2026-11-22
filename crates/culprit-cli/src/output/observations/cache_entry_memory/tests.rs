@@ -1,6 +1,7 @@
 use super::*;
-use culprit_collector::analytical::test_support::{CacheEntryMemoryCase, cache_entry_memory_evidence};
 use culprit_core::telemetry::*;
+use culprit_evidence::analytical::test_support::CacheEntryMemoryCase;
+use culprit_evidence::analytical::test_support::cache_entry_memory_evidence;
 
 fn report(case: CacheEntryMemoryCase) -> CacheEntryMemoryReport {
     let (source, records) = cache_entry_memory_evidence(case);
@@ -31,7 +32,7 @@ fn assert_no_original_sql(text: &str) {
 
 fn population_report() -> CacheEntryMemoryReport {
     let [(before_source, before_records), (after_source, after_records)] =
-        culprit_collector::analytical::test_support::cache_entry_memory_comparison_evidence();
+        culprit_evidence::analytical::test_support::cache_entry_memory_comparison_evidence();
     let evidence = |source: &CollectionDescription| {
         let mut context = NativeReadContext::from_snapshot(source).unwrap();
         let SourceObservation::CacheEntryMemory { focus, snapshot } = &source.observation else { panic!() };

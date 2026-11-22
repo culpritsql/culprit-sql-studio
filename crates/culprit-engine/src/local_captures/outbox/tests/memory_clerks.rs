@@ -1,6 +1,7 @@
 use super::*;
-use culprit_collector::analytical::test_support::{MemoryClerkCase, memory_clerk_evidence};
 use culprit_core::{SourceState, source_id};
+use culprit_evidence::analytical::test_support::MemoryClerkCase;
+use culprit_evidence::analytical::test_support::memory_clerk_evidence;
 
 async fn clerks(reader: &OutboxCaptureReader, id: &str) -> Result<LocalMemoryClerks> {
     let guard = OperationGuard::new(reader.timeout()).unwrap();

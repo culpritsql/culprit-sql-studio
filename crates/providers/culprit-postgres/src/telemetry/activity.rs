@@ -126,6 +126,9 @@ async fn capture_with_profile<R: crate::read::QueryRead>(
     if before.version < 120_000 {
         return Err(Error::new(ErrorCode::Unsupported, culprit_core::t!("collection.unsupported")));
     }
+    if let Some(policy) = profile.and_then(|profile| profile.builtin_policy()) {
+        crate::builtin_safety::verify_native(policy, before.version)?;
+    }
     let owner = Context::observe(reader, &before).await?;
     if let Some(profile) = profile {
         let owner = owner.as_ref().ok_or_else(|| CollectionStop::SourceChanged.error())?;

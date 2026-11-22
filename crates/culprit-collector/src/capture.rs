@@ -1,4 +1,5 @@
 //! One bounded observation. Source ownership, cancellation and file completion have one controller.
+use culprit_read::cancellation::CollectionCancellation;
 mod writer;
 use crate::outbox::CaptureLease;
 use culprit_core::{
@@ -11,7 +12,7 @@ use culprit_core::{
 };
 use culprit_read::admission::SourceGate;
 use std::{collections::HashSet, path::Path, time::Duration};
-use tokio::{sync::watch, time::Instant};
+use tokio::time::Instant;
 use writer::ObservationWriter;
 
 pub(crate) const SOURCE_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(2);
@@ -50,28 +51,6 @@ impl CollectionAdmissionWindow {
     }
     pub fn settle_before(&self) -> Instant {
         self.settle_before
-    }
-}
-
-#[derive(Clone)]
-pub struct CollectionCancellation {
-    sender: watch::Sender<bool>,
-}
-impl Default for CollectionCancellation {
-    fn default() -> Self {
-        Self { sender: watch::channel(false).0 }
-    }
-}
-impl CollectionCancellation {
-    pub fn is_cancelled(&self) -> bool {
-        *self.sender.borrow()
-    }
-    pub fn cancel(&self) {
-        self.sender.send_replace(true);
-    }
-    pub async fn cancelled(&self) {
-        let mut receiver = self.sender.subscribe();
-        let _ = receiver.wait_for(|cancelled| *cancelled).await;
     }
 }
 

@@ -1,17 +1,16 @@
 //! Revalidate one admitted question before delegating to the shared native capture lifecycle.
 use super::evidence::resolve_optional_evidence;
 use super::*;
-use crate::{
-    capture::CollectionCancellation,
-    diagnostics::record_investigation,
-    fleet::{
-        FleetBackend, FleetJournal,
-        admission::AdmittedBackend,
-        scheduler::{FocusRetry, FocusedJob, Outcome},
-        storage::CaptureStorage,
-        work,
-    },
-};
+use crate::diagnostics::record_investigation;
+use crate::fleet::FleetBackend;
+use crate::fleet::FleetJournal;
+use crate::fleet::admission::AdmittedBackend;
+use crate::fleet::scheduler::FocusRetry;
+use crate::fleet::scheduler::FocusedJob;
+use crate::fleet::scheduler::Outcome;
+use crate::fleet::storage::CaptureStorage;
+use crate::fleet::work;
+use culprit_read::cancellation::CollectionCancellation;
 
 struct ReadyInvestigation {
     intent: DiagnosticInvestigationIntent,
@@ -201,7 +200,7 @@ impl Investigations {
                 stopped: None,
             }));
         };
-        if !binding.matches_scope(&intent.qualification.scope) {
+        if !binding.matches_scope(intent.qualification.scope()) {
             return Ok(Revalidation::Withheld(DiagnosticAnalysisIssue::SourceChanged));
         }
         let Some(revision) = planning::metadata(backend.route_revision(&target.connection))?.flatten() else {
@@ -273,21 +272,25 @@ impl Investigations {
         if !binding.observed_after(&episode.last_seen_at) {
             return Ok(Revalidation::Withheld(DiagnosticAnalysisIssue::SourceChanged));
         }
-        let caller_budget = binding.budget(target);
-        if caller_budget.is_none_or(|budget| !intent.matches_admission(episode, recipe, &component, budget)) {
+        let caller_budget = binding.budget(backend, target)?;
+        if caller_budget.as_ref().is_none_or(|budget| !intent.matches_admission(episode, recipe, &component, budget)) {
             return Ok(Revalidation::Withheld(DiagnosticAnalysisIssue::PolicyChanged));
         }
-        let cost = resolve_optional_evidence(
+        let authority = super::evidence::verify_execution_admission(
+            backend,
             storage.outbox,
             &job.connection,
-            &intent.qualification.evidence,
+            &intent.qualification,
             storage.recovery,
             cancellation,
         )
         .await?;
-        let Some((cost_source, artifact)) = cost else { return Ok(missing_evidence(cancellation)) };
-        if !backend.verify_cost(&job.connection, &intent.qualification, &cost_source, &artifact)? {
-            return Ok(Revalidation::Withheld(DiagnosticAnalysisIssue::CostUnqualified));
+        match authority {
+            super::evidence::ExecutionAdmissionStatus::Verified => {}
+            super::evidence::ExecutionAdmissionStatus::EvidenceUnavailable => {
+                return Ok(missing_evidence(cancellation));
+            }
+            super::evidence::ExecutionAdmissionStatus::Refused(issue) => return Ok(Revalidation::Withheld(issue)),
         }
         Ok(Revalidation::Ready(Box::new(ReadyInvestigation {
             intent: intent.clone(),

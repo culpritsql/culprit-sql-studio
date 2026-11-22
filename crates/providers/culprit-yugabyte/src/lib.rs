@@ -65,7 +65,7 @@ impl YugabyteProvider {
             return Err(Error::invalid(t!("provider.yugabyte.error.auth")));
         }
         let mut spec = spec.clone();
-        spec.port = Some(spec.port.unwrap_or(5433));
+        spec.port = Some(culprit_core::Engine::Yugabyte.network_port(spec.port)?);
         if spec.user.is_none() {
             spec.user = Some("yugabyte".into());
         }

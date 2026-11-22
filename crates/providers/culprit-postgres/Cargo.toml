@@ -10,7 +10,12 @@ publish.workspace = true
 # Its doc comments hold no Rust examples: rustdoc would have nothing to test.
 doctest = false
 
+[features]
+# Only ignored owned-native acceptance tests opt into this fixture owner. Ordinary builds do not link Collector.
+native-test-support = ["dep:culprit-collector"]
+
 [dependencies]
+culprit-collector = { workspace = true, optional = true }
 culprit-core.workspace = true
 culprit-read.workspace = true
 async-trait.workspace = true
@@ -25,6 +30,7 @@ tokio-postgres-rustls.workspace = true
 webpki-roots.workspace = true
 
 [dev-dependencies]
+culprit-evidence = { workspace = true, features = ["test-support"] }
 culprit-checks.workspace = true
 culprit-collector = { workspace = true, features = ["test-support"] }
 tempfile.workspace = true

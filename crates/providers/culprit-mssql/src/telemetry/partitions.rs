@@ -24,6 +24,6 @@ impl SnapshotRecipe for Partitions {
     }
     fn complete_record_scope(&self, record: &TelemetryRecord) -> bool {
         matches!(record,TelemetryRecord::ObjectDefinition(ObjectDefinitionRecord {fact:ObjectDefinitionFact::MssqlPartitionBoundary(boundary),..})
-            if boundary.value_is_null!=Some(false) || boundary.native_value_sha256.is_some() && boundary.native_value_type.is_some())
+            if boundary.value_identity_complete())
     }
 }

@@ -1,7 +1,7 @@
 //! Credential composition; native acquisition belongs to the authentication provider crates.
 mod authentication;
 pub(crate) use authentication::AuthenticationRegistry;
-#[cfg(feature = "collector")]
+#[cfg(any(feature = "collector", feature = "evidence"))]
 mod profiles;
 #[cfg(feature = "auth-aws")]
 use crate::private_fs;
@@ -11,7 +11,7 @@ use crate::program::{self, Cli};
 use culprit_auth::CommandRunner;
 #[cfg(feature = "auth-aws")]
 use culprit_core::Result;
-#[cfg(feature = "collector")]
+#[cfg(any(feature = "collector", feature = "evidence"))]
 pub use profiles::{ConfiguredCredentials, CredentialProfile};
 #[cfg(feature = "auth-aws")]
 use std::path::{Path, PathBuf};
@@ -37,7 +37,7 @@ impl CommandRunner for CloudCommand {
 pub(crate) fn entra() -> culprit_auth_azure::entra::EntraAuth {
     culprit_auth_azure::entra::EntraAuth::new(Arc::new(CloudCommand(Cli::Azure)))
 }
-#[cfg(all(feature = "collector", feature = "auth-aws"))]
+#[cfg(all(any(feature = "collector", feature = "evidence"), feature = "auth-aws"))]
 pub(crate) fn aws_profile(profile: Option<String>) -> Result<culprit_auth_aws::AwsCli> {
     culprit_auth_aws::AwsCli::with_profile(Arc::new(CloudCommand(Cli::Aws)), profile)
 }

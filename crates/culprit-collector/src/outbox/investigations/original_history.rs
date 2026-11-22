@@ -1,6 +1,6 @@
 //! Native-group hints and selected reconciliation reuse the current journal and immutable artifact reader.
 use super::*;
-use crate::delivery::diagnostic_recovery::original_revision;
+use culprit_evidence::delivery::originals::original_revision;
 
 const ORIGINAL_INDEX_CHARGE: u32 = 128;
 
@@ -51,7 +51,7 @@ impl Files {
         keys: &[String],
         archived: Option<&BTreeMap<String, Option<DiagnosticEvidenceRef>>>,
     ) -> Result<OriginalHistorySelection> {
-        crate::delivery::diagnostic_recovery::validate_original_group_keys(keys)?;
+        culprit_evidence::delivery::originals::validate_original_group_keys(keys)?;
         if archived
             .is_some_and(|entries| entries.len() != keys.len() || keys.iter().any(|key| !entries.contains_key(key)))
         {

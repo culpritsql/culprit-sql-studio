@@ -1,6 +1,7 @@
 use super::*;
-use culprit_collector::analytical::test_support::{SourceAcquisitionCase, assert_native_source_overhead_summary};
+use culprit_collector::analytical::test_support::SourceAcquisitionCase;
 use culprit_core::{HistoricalSourceOverhead, SourceAcquisitionSeal};
+use culprit_evidence::analytical::test_support::assert_native_source_overhead_summary;
 async fn analyze(reader: &OutboxCaptureReader, connection: &str, id: &str) -> Result<Box<LocalSourceOverhead>> {
     let guard = OperationGuard::new(reader.timeout()).unwrap();
     let result = reader

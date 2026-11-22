@@ -1,10 +1,9 @@
 use super::fixture::Fixture;
-use culprit_collector::analytical::{
-    evidence::{EvidenceFamily, RecoveryPayloadBudget},
-    test_support::completed_spill_evidence_cases,
-};
 use culprit_core::{CompletedSpillState, CompletedSpillStatementBinding, SourceState, telemetry::*};
 use culprit_engine::collected_resources;
+use culprit_evidence::analytical::evidence::EvidenceFamily;
+use culprit_evidence::analytical::evidence::RecoveryPayloadBudget;
+use culprit_evidence::analytical::test_support::completed_spill_evidence_cases;
 
 const RUNTIME: &[EvidenceFamily] = &[EvidenceFamily::OperationalSamples];
 const DEFINITIONS: &[EvidenceFamily] = &[EvidenceFamily::ObjectDefinitions];

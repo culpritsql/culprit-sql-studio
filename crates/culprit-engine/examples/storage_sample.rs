@@ -1,6 +1,7 @@
 //! Controlled native-shaped corpus through the actual pure view, not a live measurement or source approval.
-use culprit_collector::analytical::test_support::{StorageCase, storage_evidence};
 use culprit_core::telemetry::*;
+use culprit_evidence::analytical::test_support::StorageCase;
+use culprit_evidence::analytical::test_support::storage_evidence;
 use std::{collections::BTreeMap, path::PathBuf};
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     culprit_core::i18n::scope("en", generate)

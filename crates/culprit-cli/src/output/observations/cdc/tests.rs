@@ -1,6 +1,7 @@
 use super::*;
-use culprit_collector::analytical::test_support::{CdcCase, cdc_evidence};
 use culprit_core::telemetry::*;
+use culprit_evidence::analytical::test_support::CdcCase;
+use culprit_evidence::analytical::test_support::cdc_evidence;
 fn report(case: CdcCase) -> CdcReport {
     let (source, rows) = cdc_evidence(case);
     let rows = rows

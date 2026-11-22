@@ -6,12 +6,8 @@ use super::{
 };
 #[cfg(test)]
 use super::{artifacts, completed_capture::ReadControl};
-use crate::capture::CollectionCancellation;
-#[cfg(test)]
-use culprit_core::ErrorDetail;
 use culprit_core::{Error, Result, limits::OperationHandle, telemetry::*};
-#[cfg(test)]
-use std::time::Duration;
+use culprit_read::cancellation::CollectionCancellation;
 
 /// Authenticated local originals, deliberately distinct from an archive EvidenceCapture. Construction is private;
 /// only the original Outbox journal/manifest/file verifier may publish this value. Structural receipts remain

@@ -1,10 +1,11 @@
 //! One opaque local read attaches only after the scan owner settles; no native tempdb query is added.
 use super::*;
-use culprit_collector::analytical::test_support::{TempdbMetadataMemoryCase, tempdb_metadata_memory_evidence};
 use culprit_core::Report;
 use culprit_engine::{
     LocalCaptureAnalysisKind, LocalCaptureRequest, LocalCapturedAnalysis, LocalSnapshotAnalysis, OutboxCaptureReader,
 };
+use culprit_evidence::analytical::test_support::TempdbMetadataMemoryCase;
+use culprit_evidence::analytical::test_support::tempdb_metadata_memory_evidence;
 
 async fn analyze(workspace: &Workspace, captured: &Captured, kind: LocalCaptureAnalysisKind) -> LocalSnapshotAnalysis {
     let reader = OutboxCaptureReader::delivery(captured.outbox.delivery(), CompletedCaptureBudget::default()).unwrap();
@@ -94,8 +95,8 @@ async fn wrong_connection_or_selected_report_kind_refuses_before_any_native_scan
         .detail,
         Some(culprit_core::ErrorDetail::Delivery(DeliveryProblem::InvalidContract))
     );
-    let (source, rows) = culprit_collector::analytical::test_support::performance_counter_evidence(
-        culprit_collector::analytical::test_support::PerformanceCounterCase::Exact,
+    let (source, rows) = culprit_evidence::analytical::test_support::performance_counter_evidence(
+        culprit_evidence::analytical::test_support::PerformanceCounterCase::Exact,
     );
     let wrong = Captured::from_source("shop", source, rows).await;
     let original = analyze(&workspace, &wrong, LocalCaptureAnalysisKind::PerformanceCounters).await;

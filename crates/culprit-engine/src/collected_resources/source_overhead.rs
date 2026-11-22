@@ -1,6 +1,6 @@
 //! Source-read overhead is already in the authenticated capture manifest; native records need not be reread.
-use culprit_collector::analytical::evidence::EvidenceCaptureMetadata;
 use culprit_core::{CollectedSourceOverheadAnalysis, Result, SourceOverheadEvidence, t, telemetry::CollectionStatus};
+use culprit_evidence::analytical::evidence::EvidenceCaptureMetadata;
 
 pub fn source_overhead(metadata: &EvidenceCaptureMetadata) -> Result<CollectedSourceOverheadAnalysis> {
     let evidence = SourceOverheadEvidence {

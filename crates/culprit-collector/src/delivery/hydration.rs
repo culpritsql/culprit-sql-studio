@@ -1,11 +1,12 @@
 //! Current observations and cold history have independent, bounded metadata admission.
-use super::{
-    driver::DeliveryPolicy,
-    journal::{DeliveryJournal, HydrationPriority},
-    recovery::{self, CommittedRange, RecoveryOrder, RecoveryStore},
-    worker::fatal,
-};
+use super::driver::DeliveryPolicy;
+use super::journal::DeliveryJournal;
+use super::journal::HydrationPriority;
+use super::recovery::RecoveryStore;
+use super::worker::fatal;
 use culprit_core::{Result, telemetry::DeliveryProblem};
+use culprit_evidence::delivery::recovery::CommittedRange;
+use culprit_evidence::delivery::recovery::RecoveryOrder;
 
 const DISCOVERY_INTERVAL_MS: i64 = 60_000;
 const CURRENT_DISCOVERY_WINDOW: u32 = 32;
@@ -106,7 +107,7 @@ impl Lane {
                 Err(error) if error.detail == Some(culprit_core::ErrorDetail::Delivery(DeliveryProblem::NotReady)) => {}
                 Err(error) => return Err(error),
             }
-            let committed = recovery::reopen(store, &manifest.range_id).await?;
+            let committed = culprit_evidence::delivery::recovery::reopen(store, &manifest.range_id).await?;
             if committed.manifest() != manifest {
                 return Err(DeliveryProblem::Integrity.error());
             }

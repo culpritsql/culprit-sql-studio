@@ -24,6 +24,7 @@ tokio.workspace = true
 tokio-util.workspace = true
 
 [dev-dependencies]
+culprit-evidence = { workspace = true, features = ["test-support"] }
 culprit-checks.workspace = true
 culprit-collector = { workspace = true, features = ["test-support"] }
 tempfile.workspace = true

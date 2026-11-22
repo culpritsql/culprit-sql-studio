@@ -1,10 +1,13 @@
 use super::*;
-use crate::delivery::{
-    contract::Contract,
-    diagnostic_recovery::{authenticate_original_history, original_revision},
-    file_store::{FileOwnership, FileRecoveryStore},
-    recovery::{CommittedRange, RecoveryStore},
-};
+use crate::delivery::diagnostic_recovery::authenticate_original_history;
+use crate::delivery::file_store::FileOwnership;
+use crate::delivery::file_store::FileRecoveryStore;
+use crate::delivery::recovery::RecoveryStore;
+use culprit_evidence::delivery::contract::Contract;
+use culprit_evidence::delivery::originals::original_revision;
+use culprit_evidence::delivery::recovery::CommittedRange;
+use culprit_evidence::delivery::recovery::RecoveryRead;
+use culprit_read::cancellation::CollectionCancellation;
 use std::collections::BTreeSet;
 
 const GROUPS: u32 = 64;
@@ -260,7 +263,7 @@ async fn unavailable_missing_tampered_or_partial_history_defers_without_new_epis
 }
 #[test]
 fn canonical_answered_question_is_unchanged_after_reobserving_its_original_without_new_question_or_recovery() {
-    use crate::analytical::test_support::{
+    use culprit_evidence::analytical::test_support::{
         QueryCompilationFollowupCase, query_compilation_followup_evidence, query_compilation_followup_original,
     };
     let basis = query_compilation_followup_original();
@@ -297,7 +300,7 @@ fn canonical_answered_question_is_unchanged_after_reobserving_its_original_witho
 }
 #[test]
 fn an_owed_original_question_stays_working_and_cannot_be_installed_as_retired_history() {
-    use crate::analytical::test_support::query_compilation_followup_original;
+    use culprit_evidence::analytical::test_support::query_compilation_followup_original;
     let basis = query_compilation_followup_original();
     let owed = basis
         .episode

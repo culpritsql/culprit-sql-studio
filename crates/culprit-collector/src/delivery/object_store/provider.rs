@@ -1,7 +1,7 @@
 //! Runtime-pluggable recovery adapters. Configuration creates credential owners without acquiring secrets or tokens.
-use super::transport::ObjectTransport;
 use culprit_auth::CredentialResolver;
 use culprit_core::Result;
+use culprit_evidence::delivery::object_store::transport::ObjectTransport;
 use serde_json::Value;
 use std::sync::Arc;
 

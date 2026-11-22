@@ -1,9 +1,10 @@
 use super::*;
-use culprit_collector::analytical::test_support::{MemoryFeedbackCase, memory_feedback_evidence};
 #[cfg(feature = "mssql")]
 use culprit_core::plan_facts::{
     PlanMemoryGrantFeedback, PlanMemoryGrantFeedbackIssue as Issue, PlanMemoryGrantFeedbackState as State,
 };
+use culprit_evidence::analytical::test_support::MemoryFeedbackCase;
+use culprit_evidence::analytical::test_support::memory_feedback_evidence;
 
 const FAMILY: &[EvidenceFamily] = &[EvidenceFamily::ObjectDefinitions];
 

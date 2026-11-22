@@ -1,10 +1,9 @@
 //! A durable reservation grants a bounded start window; waiting on disk cannot authorize a late native start.
 use super::{FleetBackend, FleetSourceAdmission, scheduler::ADMISSION_START_WINDOW};
-use crate::{
-    capture::{CollectionAdmissionWindow, CollectionCancellation},
-    outbox::Outbox,
-};
+use crate::capture::CollectionAdmissionWindow;
+use crate::outbox::Outbox;
 use culprit_core::{Result, telemetry::*};
+use culprit_read::cancellation::CollectionCancellation;
 use std::sync::{
     Mutex, OnceLock,
     atomic::{AtomicBool, Ordering},

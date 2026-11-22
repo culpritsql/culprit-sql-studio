@@ -1,14 +1,11 @@
 use super::*;
-use crate::{
-    analytical::test_support::investigation_fixture,
-    collection_files::ObservationFiles,
-    delivery::{
-        contract::Contract,
-        evidence::PreparedRange,
-        file_store::{FileOwnership, FileRecoveryStore},
-        recovery::stage_and_commit,
-    },
-};
+use crate::collection_files::ObservationFiles;
+use crate::delivery::evidence::PreparedRange;
+use crate::delivery::file_store::FileOwnership;
+use crate::delivery::file_store::FileRecoveryStore;
+use crate::delivery::recovery::stage_and_commit;
+use culprit_evidence::analytical::test_support::investigation_fixture;
+use culprit_evidence::delivery::contract::Contract;
 use std::path::Path;
 
 mod page_writers;
@@ -65,7 +62,7 @@ impl CapturedInvestigation {
         intent.focus.activity_participant_mut().unwrap().parent = original.clone();
         intent.episode_id = episode.id.clone();
         intent.episode_revision = episode.revision.clone();
-        intent.qualification.read_metrics.templates[0].client_elapsed_ms = 0.0;
+        intent.qualification.measured_mut().unwrap().read_metrics.templates[0].client_elapsed_ms = 0.0;
         assert!(intent.is_valid(), "this structural fixture does not qualify any production recipe");
         let result = ActivityWaitFocusResult {
             focus: intent.focus.page_wait().unwrap().clone(),
@@ -263,7 +260,7 @@ async fn captured_event_rejects_wrong_native_digest_or_absent_or_numerically_equ
                 event.attempt.as_mut().unwrap().manifest_sha256 = Some(capture.manifest_sha256.clone());
             }
             "different-owner" => {
-                event.intent.qualification.read_metrics.templates[0].client_elapsed_ms = -0.0;
+                event.intent.qualification.measured_mut().unwrap().read_metrics.templates[0].client_elapsed_ms = -0.0;
                 assert_eq!(event.intent.as_ref(), &fixture.intent);
                 assert_ne!(event.intent.key().unwrap(), fixture.intent.key().unwrap());
                 assert!(
@@ -320,7 +317,7 @@ async fn owned_report_rejects_replaced_lineage_even_when_native_payload_and_rece
     assert_eq!(authenticated.key().unwrap(), fixture.intent.key().unwrap());
 
     let mut other_intent = fixture.intent.clone();
-    other_intent.qualification.read_metrics.templates[0].client_elapsed_ms = -0.0;
+    other_intent.qualification.measured_mut().unwrap().read_metrics.templates[0].client_elapsed_ms = -0.0;
     assert_eq!(other_intent, fixture.intent, "numeric equality cannot replace exact admission lineage");
     let mut replaced = fixture.native.clone();
     replaced.investigation = Some(DiagnosticInvestigationLineage::from_intent(&other_intent).unwrap());

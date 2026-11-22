@@ -84,14 +84,14 @@ pub fn infos() -> Vec<CheckInfo> {
     infos_with(&[])
 }
 
-/// The built-in pipeline with checks plugged in by an embedding application.
-fn with_extra(extra: &[Arc<dyn Check>]) -> Pipeline {
+/// The same built-in pipeline used by scans, with the embedding application's additional checks.
+pub fn pipeline_with(extra: &[Arc<dyn Check>]) -> Pipeline {
     extra.iter().fold(Pipeline::builtin(), |pipeline, check| pipeline.with_check(check.clone()))
 }
 
 /// Every check's metadata, including plugged-in ones. A plugged-in check whose id is already taken is ignored.
 pub fn infos_with(extra: &[Arc<dyn Check>]) -> Vec<CheckInfo> {
-    with_extra(extra).checks().iter().map(|c| c.info()).collect()
+    pipeline_with(extra).checks().iter().map(|c| c.info()).collect()
 }
 
 fn missing_for(info: &CheckInfo, server: &ServerInfo) -> Vec<Capability> {
@@ -123,7 +123,7 @@ pub fn analyze(snapshot: Snapshot) -> Report {
 /// [`analyze`] with extra checks plugged in by an embedding application. Plugged-in findings are refined, ranked and
 /// summarized exactly like built-in ones; a plugged-in check whose id is already taken is ignored.
 pub fn analyze_with(snapshot: Snapshot, extra: &[Arc<dyn Check>]) -> Report {
-    with_extra(extra).run(snapshot)
+    pipeline_with(extra).run(snapshot)
 }
 
 #[cfg(test)]

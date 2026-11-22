@@ -99,7 +99,7 @@ fn activity_inputs_and_direct_references_use_verified_originals_when_same_length
 fn a_shared_owner_never_resigns_a_changed_counter_under_the_original_manifest_receipt() {
     let root = tempfile::tempdir().unwrap();
     let mut files = Files::create(&root.path().join("outbox"), Default::default()).unwrap();
-    let fixture = crate::analytical::test_support::shared_investigation_fixture();
+    let fixture = culprit_evidence::analytical::test_support::shared_investigation_fixture();
     let CollectionTarget::Shared(resource) = fixture.owner_source.target.clone() else { panic!() };
     let capture = shared::seal(
         &mut files,
@@ -301,7 +301,7 @@ fn unconfirmed_native_work_cannot_publish_a_buffer_and_generic_cached_runtime_ca
     assert_eq!(state.state, OutboxCaptureState::Quarantined);
 
     let mut unrelated = Files::create(&root.path().join("unrelated"), Default::default()).unwrap();
-    let (source, rows) = crate::analytical::test_support::cached_runtime_evidence_cases().pop().unwrap();
+    let (source, rows) = culprit_evidence::analytical::test_support::cached_runtime_evidence_cases().pop().unwrap();
     let capture = shared::seal(
         &mut unrelated,
         CollectionRequest {

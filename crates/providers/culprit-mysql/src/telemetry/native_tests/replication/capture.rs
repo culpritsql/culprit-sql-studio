@@ -1,7 +1,8 @@
 use super::*;
 use crate::telemetry::native_tests::capture::{Capture, Factory, read_capture};
-use culprit_collector::capture::{CollectionCancellation, collect_once};
+use culprit_collector::capture::collect_once;
 use culprit_read::admission::SourceGate;
+use culprit_read::cancellation::CollectionCancellation;
 use std::path::Path;
 
 pub(in crate::telemetry::native_tests) fn request(budget: CollectionBudget) -> CollectionRequest {

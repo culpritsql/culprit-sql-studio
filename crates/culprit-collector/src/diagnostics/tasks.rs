@@ -1,5 +1,6 @@
 //! Paired populations name their exact original frame in the authenticated source manifest before acquisition.
 use super::*;
+use culprit_read::cancellation::CollectionCancellation;
 
 pub(crate) async fn resolve_original_activity(
     outbox: &mut Outbox,
@@ -23,12 +24,12 @@ pub(crate) async fn resolve_original_activity(
         }
         let read = async {
             let advertised = recovery.capture_manifest(&reference.capture).await?;
-            if diagnostic_recovery::capture_reference(&advertised)? != *reference {
+            if culprit_evidence::delivery::heads::capture_reference(&advertised)? != *reference {
                 return Err(DeliveryProblem::Integrity.error());
             }
             let recovered = diagnostic_recovery::load_diagnostic_input(recovery, &advertised.range_id).await?;
             if recovered.range().manifest_digest() != advertised.digest()?
-                || diagnostic_recovery::capture_reference(recovered.range().manifest())? != *reference
+                || culprit_evidence::delivery::heads::capture_reference(recovered.range().manifest())? != *reference
             {
                 return Err(DeliveryProblem::Integrity.error());
             }

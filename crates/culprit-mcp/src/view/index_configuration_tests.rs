@@ -1,6 +1,7 @@
 use super::*;
-use culprit_collector::analytical::test_support::{IndexConfigurationCase, index_configuration_evidence};
 use culprit_core::{SourceState, telemetry::*};
+use culprit_evidence::analytical::test_support::IndexConfigurationCase;
+use culprit_evidence::analytical::test_support::index_configuration_evidence;
 fn scan(case: IndexConfigurationCase) -> Report {
     let mut report: Report = serde_json::from_str(include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),

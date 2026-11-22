@@ -1,13 +1,13 @@
 //! Persistent local analytical test destination. Network, cloud ingestion and cloud capacity need separate validation.
-use super::{
-    contract::*,
-    evidence::*,
-    recovery::{CommittedRange, RecoveryStore},
-    sink::*,
-};
+use super::recovery::RecoveryStore;
+use super::sink::*;
 use crate::{blocking_state::BlockingState, durable_fs};
 use async_trait::async_trait;
 use culprit_core::{Result, telemetry::DeliveryProblem};
+use culprit_evidence::delivery::contract::*;
+use culprit_evidence::delivery::evidence::*;
+use culprit_evidence::delivery::receipts::ReceiptPage;
+use culprit_evidence::delivery::recovery::CommittedRange;
 use rusqlite::{Connection, OptionalExtension, params};
 use std::{path::Path, sync::Arc};
 fn storage(_: impl std::fmt::Display) -> culprit_core::Error {
@@ -102,7 +102,8 @@ impl TelemetrySink for FileTelemetrySink {
             .iter()
             .find(|batch| batch.batch_id == batch_id && batch.delivery_required)
             .ok_or_else(integrity)?;
-        let mut records = super::recovery::RecoveryRecords::open(self.recovery.as_ref(), batch).await?;
+        let mut records =
+            culprit_evidence::delivery::object::RecoveryRecords::open(self.recovery.as_ref(), batch).await?;
         while let Some(row) = records.next().await? {
             let receipt =
                 batch.validate_row(&range.manifest().source, &range.manifest().capture, receipts.len() + 1, &row)?;

@@ -87,7 +87,7 @@ fn malformed_reference_does_not_get_a_fabricated_hash_or_empty_success() {
 
 #[test]
 fn canonical_tempdb_answer_survives_the_existing_compact_history_projection_without_native_authority() {
-    use culprit_collector::analytical::test_support::{IncidentHistoryCase, incident_history_evidence};
+    use culprit_evidence::analytical::test_support::{IncidentHistoryCase, incident_history_evidence};
     let (source, rows) = incident_history_evidence(IncidentHistoryCase::TemporaryResources);
     let capture = CaptureIdentity {
         observation_id: "tempdb-history".into(),

@@ -3,8 +3,9 @@ use crate::{
     catalog::SchemaCatalog,
     schema::{Schema, quote},
 };
-use culprit_collector::analytical::semantics::{CurrentScope, stream_semantics};
 use culprit_core::Result;
+use culprit_evidence::analytical::semantics::CurrentScope;
+use culprit_evidence::analytical::semantics::stream_semantics;
 use serde::Serialize;
 
 #[derive(Clone, Copy, Default)]

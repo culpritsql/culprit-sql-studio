@@ -1,6 +1,7 @@
 use super::*;
-use culprit_collector::analytical::test_support::{ChangeFeedCase, change_feed_evidence};
 use culprit_engine::LocalCaptureAnalysisKind;
+use culprit_evidence::analytical::test_support::ChangeFeedCase;
+use culprit_evidence::analytical::test_support::change_feed_evidence;
 #[tokio::test]
 async fn local_mcp_change_feed_uses_original_source_rows_limits_unknowns_and_references_without_live_calls() {
     for case in ChangeFeedCase::ALL {

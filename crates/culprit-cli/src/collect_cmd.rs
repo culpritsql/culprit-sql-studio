@@ -1,12 +1,12 @@
 mod qualification;
 use crate::output::{Format, Out};
 use clap::{Args, Subcommand, ValueEnum};
-use culprit_collector::capture::CollectionCancellation;
 use culprit_core::{
     Result,
     telemetry::{CollectionBudget, CollectionRequest, CollectionStatus},
 };
 use culprit_engine::Workspace;
+use culprit_read::cancellation::CollectionCancellation;
 use std::path::PathBuf;
 
 #[derive(Subcommand)]

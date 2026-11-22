@@ -79,6 +79,10 @@ fn postgres_registration() -> Result<ProviderRegistration> {
         crate::ProviderConstructionPolicy::DeferredNativeWork,
         culprit_postgres::telemetry_recipes(),
     )?;
+    let registration = registration.with_builtin_safety(
+        culprit_postgres::component_version(),
+        Arc::new(culprit_postgres::verify_builtin_safety),
+    )?;
     profile_intake(registration)
 }
 
@@ -163,7 +167,9 @@ mod tests {
     fn baseline_profile_intake_is_explicit_activity_only_without_approving_builtin_costs() {
         use culprit_core::telemetry::*;
         for engine in Engine::ALL {
-            let Ok(registration) = registration(engine) else { continue };
+            let Ok(registration) = registration(engine) else {
+                continue;
+            };
             let native_activity = match engine {
                 #[cfg(feature = "mssql")]
                 Engine::Mssql => true,
@@ -176,7 +182,7 @@ mod tests {
                 native_activity
             );
             for recipe in registration.telemetry_recipes() {
-                assert!(matches!(recipe.cost, RecipeCostQualification::Unqualified));
+                assert!(!matches!(recipe.admission, RecipeAdmission::Measured(_)));
                 if recipe.selector != RecipeSelector::Collection(TelemetryCollection::Activity) {
                     assert!(!registration.supports_profile_source(recipe.selector));
                 }
@@ -226,5 +232,59 @@ mod tests {
         let Err(e) = provider(&ConnectionSpec::default()) else { panic!("no engine, no provider") };
         assert_eq!(e.message, "Can't tell which database engine this is");
         assert_eq!(e.hint.as_deref(), Some("Use a postgres://, mssql://, mysql:// or sqlite:// URL, or pass --engine"));
+    }
+}
+
+#[cfg(all(test, feature = "postgres", feature = "collector"))]
+mod builtin_safety_tests {
+    use super::*;
+    use culprit_core::telemetry::*;
+    #[test]
+    fn selected_registration_not_a_deserialized_policy_admits_the_two_builtin_pg_readers() {
+        let registration = postgres_registration().unwrap();
+        for recipe in registration
+            .telemetry_recipes()
+            .iter()
+            .filter(|recipe| matches!(recipe.admission, RecipeAdmission::BuiltinSafety(_)))
+        {
+            let RecipeAdmission::BuiltinSafety(policy) = &recipe.admission else { unreachable!() };
+            assert!(registration.verify_builtin_safety(policy).unwrap());
+            let mut forged = policy.as_ref().clone();
+            forged.templates_sha256 = digest(b"not-the-selected-reader");
+            assert!(!registration.verify_builtin_safety(&forged).unwrap());
+            if recipe.purpose == RecipePurpose::Baseline {
+                let request = CollectionRequest {
+                    subject: CollectionSubject::Database,
+                    selection: CollectionSelection::Activity,
+                    budget: recipe.budget.clone(),
+                };
+                let profile = SourceProfileAdmission::for_builtin(
+                    digest(b"saved-native-route"),
+                    policy.as_ref().clone(),
+                    None,
+                    request.budget.clone(),
+                    || true,
+                )
+                .unwrap();
+                assert!(profile.qualification().is_none());
+                registration.validate_profile(&request, &profile).unwrap();
+                let untrusted = ProviderRegistration::new(
+                    Arc::new(|_, _| panic!("listing/admission never opens a factory")),
+                    crate::ProviderConstructionPolicy::DeferredNativeWork,
+                    registration.telemetry_recipes().to_vec(),
+                )
+                .unwrap();
+                assert!(!untrusted.verify_builtin_safety(policy).unwrap());
+                assert!(untrusted.validate_profile(&request, &profile).is_err());
+            }
+        }
+        #[cfg(feature = "mssql")]
+        assert!(
+            mssql_registration()
+                .unwrap()
+                .telemetry_recipes()
+                .iter()
+                .all(|recipe| matches!(recipe.admission, RecipeAdmission::Unqualified))
+        );
     }
 }

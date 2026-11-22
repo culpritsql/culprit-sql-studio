@@ -1,6 +1,6 @@
 use super::*;
-use culprit_collector::analytical::test_support::maintenance_activity_evidence;
 use culprit_core::{MaintenanceDirection, MaintenanceReport, telemetry::*};
+use culprit_evidence::analytical::test_support::maintenance_activity_evidence;
 
 fn report(direction: MaintenanceDirection) -> MaintenanceReport {
     let (source, rows) = maintenance_activity_evidence(direction);

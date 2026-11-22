@@ -18,6 +18,5 @@ pub(super) fn value(
         "fields":entry.fields.iter().take(DISPLAY_FIELDS).map(|field|json!({"key":field.key,"label":field.label,"value":field.value})).collect::<Vec<_>>(),
         "investigation":entry.investigation,"verify":entry.verify,
     })).collect();
-    let value = super::summary(title, summary, Some(state), &None, limitations, entries.len(), displayed_entries);
-    value
+    super::summary(title, summary, Some(state), &None, limitations, entries.len(), displayed_entries)
 }

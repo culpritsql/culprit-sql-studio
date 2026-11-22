@@ -1,6 +1,7 @@
 use super::*;
-use culprit_collector::analytical::test_support::{TableMemoryCase, table_memory_evidence};
 use culprit_core::telemetry::TelemetryRecord;
+use culprit_evidence::analytical::test_support::TableMemoryCase;
+use culprit_evidence::analytical::test_support::table_memory_evidence;
 fn report(case: TableMemoryCase) -> TableMemoryReport {
     let (source, records) = table_memory_evidence(case);
     let rows = records

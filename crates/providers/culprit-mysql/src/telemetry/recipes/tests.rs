@@ -55,7 +55,7 @@ async fn every_static_declaration_selects_one_real_native_constructor_without_op
         let request = request(registration);
         request.validate().unwrap_or_else(|error| panic!("{}: {error}", descriptor.id));
         assert!(descriptor.accepts(&request));
-        assert_eq!(descriptor.cost, RecipeCostQualification::Unqualified);
+        assert_eq!(descriptor.admission, RecipeAdmission::Unqualified);
         assert_eq!(REGISTRATIONS.iter().filter(|candidate| candidate.accepts(&request)).count(), 1);
         let mut source = crate::telemetry::source(connector(), &request).unwrap();
         assert_eq!(source.query_count(), 0, "{}", descriptor.id);
@@ -81,7 +81,7 @@ fn native_projection_revisions_invalidate_only_changed_recipe_identities_without
         };
         assert_eq!(recipe.version, expected, "{}", recipe.id);
     }
-    assert!(declarations.iter().all(|recipe| recipe.cost == RecipeCostQualification::Unqualified));
+    assert!(declarations.iter().all(|recipe| recipe.admission == RecipeAdmission::Unqualified));
 }
 
 #[test]
@@ -101,10 +101,11 @@ fn baseline_and_investigation_meaning_is_explicit_without_qualifying_native_cost
     ] {
         assert_eq!(declarations.iter().find(|recipe| recipe.id == id).unwrap().purpose, RecipePurpose::Investigation);
     }
-    assert!(declarations.iter().all(|recipe| recipe.cost == RecipeCostQualification::Unqualified));
+    assert!(declarations.iter().all(|recipe| recipe.admission == RecipeAdmission::Unqualified));
     assert!(declarations.iter().all(|recipe| !matches!(
         recipe.selector,
-        RecipeSelector::FocusedPageWait | RecipeSelector::Collection(TelemetryCollection::Diagnostics)
+        RecipeSelector::FocusedPageWait
+            | RecipeSelector::Collection(TelemetryCollection::Diagnostics | TelemetryCollection::DerivedDiagnosis)
     )));
 }
 
@@ -257,7 +258,7 @@ fn current_request_work_requires_its_database_subject_and_exact_source_statement
 fn galera_is_an_explicit_shared_investigation_with_one_original_point_and_no_cost_or_default_approval() {
     let recipe = declarations().into_iter().find(|recipe| recipe.id == "mariadb.galera").unwrap();
     assert_eq!(recipe.purpose, RecipePurpose::Investigation);
-    assert_eq!(recipe.cost, RecipeCostQualification::Unqualified);
+    assert_eq!(recipe.admission, RecipeAdmission::Unqualified);
     assert_eq!(recipe.subjects, [RecipeSubject::Shared(SharedResourceKind::Instance)]);
     assert_eq!((recipe.budget.max_queries, recipe.budget.max_snapshot_rows), (17, 1));
     for wrong in

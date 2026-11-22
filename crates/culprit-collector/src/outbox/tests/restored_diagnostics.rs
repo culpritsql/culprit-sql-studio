@@ -1,5 +1,6 @@
 use super::*;
 use crate::delivery::{diagnostic_recovery::*, recovery::*};
+use culprit_evidence::delivery::{mutations::Fence, recovery::CommittedRange};
 
 fn observation() -> ActivityObservation {
     serde_json::from_value(serde_json::json!({"key":{"session":{"id":"61","generation":"login-1"},"request":{"id":"0","generation":"request-1"}},"blocking_status":"known","idle":false,"scope":"request-database","state":"running","open_transactions":0,"elapsed_ms":"120000","session_counters":{},"request_counters":{},"statement":{"state":"unavailable","reason":"not-collected"}})).unwrap()
@@ -36,7 +37,7 @@ async fn archive_input_and_update(
     outbox: &mut Outbox,
     store: &dyn RecoveryStore,
     fence: &Fence,
-    contract: &crate::delivery::contract::Contract,
+    contract: &culprit_evidence::delivery::contract::Contract,
 ) -> CommittedRange {
     let input = outbox.next_diagnostic_input(DIAGNOSTIC_CONTROLLER_VERSION).await.unwrap().unwrap();
     let prepared =

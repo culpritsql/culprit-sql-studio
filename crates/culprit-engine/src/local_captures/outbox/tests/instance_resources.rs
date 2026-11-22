@@ -1,5 +1,6 @@
 use super::*;
-use culprit_collector::analytical::test_support::{InstanceResourceCase, instance_resource_evidence};
+use culprit_evidence::analytical::test_support::InstanceResourceCase;
+use culprit_evidence::analytical::test_support::instance_resource_evidence;
 
 #[tokio::test]
 async fn local_shared_instance_points_keep_the_same_original_owner_all_rows_and_independent_native_gaps() {
@@ -104,7 +105,7 @@ async fn cold_instance_point_refuses_foreign_journal_cancel_byte_budget_and_modi
 
 #[tokio::test]
 async fn cold_scheduler_originals_keep_the_native_row_counts_and_typed_detail_on_the_existing_capture_owner() {
-    use culprit_collector::analytical::test_support::{SchedulerCase, instance_resource_scheduler_evidence};
+    use culprit_evidence::analytical::test_support::{SchedulerCase, instance_resource_scheduler_evidence};
     for case in SchedulerCase::ALL {
         let (source, rows) = instance_resource_scheduler_evidence(case);
         let mut fixture = LocalCaptureFixture::snapshot(source.clone(), rows).await;
@@ -149,7 +150,7 @@ async fn cold_scheduler_originals_keep_the_native_row_counts_and_typed_detail_on
 
 #[tokio::test]
 async fn cold_scheduler_analysis_refuses_changed_original_state_without_any_live_fallback() {
-    use culprit_collector::analytical::test_support::{SchedulerCase, instance_resource_scheduler_evidence};
+    use culprit_evidence::analytical::test_support::{SchedulerCase, instance_resource_scheduler_evidence};
     let (source, rows) = instance_resource_scheduler_evidence(SchedulerCase::Exact);
     let mut fixture = LocalCaptureFixture::snapshot(source, rows).await;
     drop(fixture.outbox.take());
@@ -175,8 +176,8 @@ async fn cold_scheduler_analysis_refuses_changed_original_state_without_any_live
 
 #[tokio::test]
 async fn cold_cpu_profile_uses_the_existing_local_instance_resource_interpreter_without_new_source_work() {
-    for (source, rows) in culprit_collector::analytical::test_support::process_cpu_interval_evidence(
-        culprit_collector::analytical::test_support::ProcessCpuIntervalCase::Exact,
+    for (source, rows) in culprit_evidence::analytical::test_support::process_cpu_interval_evidence(
+        culprit_evidence::analytical::test_support::ProcessCpuIntervalCase::Exact,
     ) {
         let fixture = LocalCaptureFixture::snapshot(source.clone(), rows).await;
         let reader = OutboxCaptureReader::delivery(

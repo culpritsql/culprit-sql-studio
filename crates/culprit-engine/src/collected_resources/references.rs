@@ -1,8 +1,8 @@
 //! Original archive receipts share one validation path across native point and Activity explanations.
 use super::*;
-use culprit_collector::analytical::evidence::VerifiedEvidenceRecord;
+use culprit_evidence::analytical::evidence::VerifiedEvidenceRecord;
 
-pub(super) fn validate_capture(capture: &EvidenceCapture) -> Result<()> {
+pub(crate) fn validate_capture(capture: &EvidenceCapture) -> Result<()> {
     if !valid_digest(capture.range_id())
         || !valid_digest(capture.recovery_manifest_sha256())
         || !valid_digest(capture.capture_manifest_sha256())
@@ -13,9 +13,46 @@ pub(super) fn validate_capture(capture: &EvidenceCapture) -> Result<()> {
     Ok(())
 }
 
-pub(super) fn from_record(capture: &EvidenceCapture, record: &VerifiedEvidenceRecord) -> Result<DiagnosticEvidenceRef> {
+pub(crate) fn from_record(capture: &EvidenceCapture, record: &VerifiedEvidenceRecord) -> Result<DiagnosticEvidenceRef> {
     let ordinal = original_ordinal(capture, record)?;
     DiagnosticEvidenceRef::from_export(capture.source(), capture.capture_manifest_sha256(), record.row(), ordinal)
+}
+
+/// An exact historical pointer must match the independently authenticated original, never a latest same-name source.
+pub(crate) fn validate_capture_reference(capture: &EvidenceCapture, reference: &DiagnosticCaptureRef) -> Result<()> {
+    validate_capture(capture)?;
+    if !reference.is_valid()
+        || capture.capture() != &reference.capture
+        || capture.capture_manifest_sha256() != reference.manifest_sha256
+        || capture.source().captured_range()?.scope_id != reference.source_scope_id
+    {
+        return Err(invalid());
+    }
+    Ok(())
+}
+
+/// A read gap may withhold this row; an actually returned different row at its original position is an integrity error.
+pub(crate) fn selected_record<'a>(
+    capture: &'a EvidenceCapture,
+    reference: &DiagnosticEvidenceRef,
+) -> Result<Option<&'a VerifiedEvidenceRecord>> {
+    if !reference.is_valid() {
+        return Err(invalid());
+    }
+    validate_capture_reference(capture, &reference.capture_ref())?;
+    if capture.captured_rows(reference.stream).is_none_or(|count| reference.row_ordinal >= count) {
+        return Err(invalid());
+    }
+    for record in capture.records() {
+        if record.batch_id() == reference.batch_id && record.row_ordinal().checked_sub(1) == Some(reference.row_ordinal)
+        {
+            if from_record(capture, record)? != *reference {
+                return Err(invalid());
+            }
+            return Ok(Some(record));
+        }
+    }
+    Ok(None)
 }
 
 pub(super) fn captured_read(capture: &EvidenceCapture) -> Result<CapturedReadRef> {

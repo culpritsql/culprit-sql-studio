@@ -1,17 +1,19 @@
 //! Functional query/mapping correctness only. The Kusto emulator is never used for capacity or performance tests.
-use super::{
-    catalog::SchemaCatalog,
-    client::{self, QueryRequest, QueryTransport},
-    deployment::DeploymentAssets,
-    response::{Column, QueryTable},
-    test_support::{self, Blobs, Recovery},
-};
+use super::catalog::SchemaCatalog;
+use super::client;
+use super::client::QueryRequest;
+use super::client::QueryTransport;
+use super::deployment::DeploymentAssets;
+use super::response::Column;
+use super::response::QueryTable;
+use super::test_support;
+use super::test_support::Blobs;
+use super::test_support::Recovery;
 use async_trait::async_trait;
-use culprit_collector::delivery::{
-    recovery::{CommittedRange, reopen},
-    sink::*,
-};
+use culprit_collector::delivery::sink::*;
 use culprit_core::{Result, telemetry::*};
+use culprit_evidence::delivery::recovery::CommittedRange;
+use culprit_evidence::delivery::recovery::reopen;
 use serde_json::{Value, json};
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -220,7 +222,7 @@ async fn functional_contract_and_canonical_sets() {
     let [(source, records), partial, (mut empty_source, empty_records), unavailable]: [(
         CollectionDescription,
         Vec<TelemetryRecord>,
-    ); 4] = culprit_collector::analytical::test_support::activity_evidence_cases().try_into().unwrap();
+    ); 4] = culprit_evidence::analytical::test_support::activity_evidence_cases().try_into().unwrap();
     let expected_active = records.len() as u64;
     let active =
         Scenario::new(Recovery::capture("adx:test", catalog.digest(), source, records, 4), emulator.clone()).await;
@@ -329,7 +331,7 @@ async fn shared_resource_scopes(emulator: &Arc<Emulator>, catalog: &SchemaCatalo
         [SharedResourceKind::Instance, SharedResourceKind::Pool, SharedResourceKind::Cluster, SharedResourceKind::Node]
     {
         for namespace in ["native-namespace-a", "native-namespace-b"] {
-            let (source, record) = culprit_collector::analytical::test_support::shared_resource(kind, namespace);
+            let (source, record) = culprit_evidence::analytical::test_support::shared_resource(kind, namespace);
             let scenario = Scenario::new(
                 Recovery::capture("adx:test", catalog.digest(), source, vec![record], sequence),
                 emulator.clone(),

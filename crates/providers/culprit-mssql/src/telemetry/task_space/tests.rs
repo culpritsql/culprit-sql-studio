@@ -329,7 +329,7 @@ async fn wrong_or_focused_selections_and_expanded_subjects_do_not_enter_the_task
     );
     let recipe = crate::telemetry::recipes().into_iter().find(|recipe| recipe.id == "mssql.task-space").unwrap();
     assert_eq!(recipe.version, 6);
-    assert_eq!(recipe.cost, RecipeCostQualification::Unqualified);
+    assert_eq!(recipe.admission, RecipeAdmission::Unqualified);
 }
 
 // Controlled original facts exercise the production reader/profile seam; this is not native-cost approval.
@@ -342,7 +342,7 @@ async fn question_request() -> CollectionRequest {
     };
     let context = crate::local_source::Context::read(&mut io, "fixture.invalid", 1433).await.unwrap();
     let execution = context.completed(&context).unwrap();
-    let (mut source, records) = culprit_collector::analytical::test_support::temporary_resource_basis();
+    let (mut source, records) = culprit_evidence::analytical::test_support::temporary_resource_basis();
     source.target = execution.target.clone();
     source.partition = execution.partition.clone();
     let SourceObservation::LocalResource { snapshot, .. } = &mut source.observation else { panic!() };

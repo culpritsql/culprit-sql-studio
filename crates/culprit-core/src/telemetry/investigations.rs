@@ -37,7 +37,7 @@ impl RecipeCostReceipt {
                 RecipePurpose::Baseline => {
                     matches!(&self.scope, RecipeCostScope::NativeRead(_) | RecipeCostScope::SharedResource { .. })
                         && matches!(self.selector,
-                            RecipeSelector::Collection(collection) if collection != TelemetryCollection::Diagnostics)
+                            RecipeSelector::Collection(collection) if !collection.is_local_output())
                 }
                 RecipePurpose::Investigation => self.investigation_selector_is_valid(),
             }
@@ -101,7 +101,7 @@ pub struct DiagnosticInvestigationIntent {
     pub focus: DiagnosticFocus,
     pub execution: DiagnosticExecutionBinding,
     pub budget: CollectionBudget,
-    pub qualification: RecipeCostReceipt,
+    pub qualification: RecipeExecutionAdmission,
 }
 
 /// Owner-written provenance retained before source authentication or description. The complete admitted question
@@ -120,7 +120,7 @@ pub struct DiagnosticInvestigationLineage {
     pub recipe_id: String,
     pub recipe_version: u32,
     pub budget: CollectionBudget,
-    pub qualification: RecipeCostReceipt,
+    pub qualification: RecipeExecutionAdmission,
     pub execution: DiagnosticExecutionBinding,
 }
 
@@ -204,9 +204,7 @@ impl DiagnosticInvestigationIntent {
         component: &ComponentVersion,
         caller_budget: &CollectionBudget,
     ) -> Result<Self> {
-        let RecipeCostQualification::Measured(receipt) = &recipe.cost else {
-            return Err(invalid());
-        };
+        let qualification = RecipeExecutionAdmission::for_recipe(recipe, &episode.scope, caller_budget)?;
         let value = Self {
             episode_id: episode.id.clone(),
             episode_revision: episode.revision.clone(),
@@ -214,8 +212,8 @@ impl DiagnosticInvestigationIntent {
             recipe_version: recipe.version,
             focus,
             execution: DiagnosticExecutionBinding::Database,
-            budget: receipt.tested_budget.clone(),
-            qualification: receipt.as_ref().clone(),
+            budget: qualification.budget().clone(),
+            qualification,
         };
         if !value.matches_admission(episode, recipe, component, caller_budget) {
             return Err(invalid());
@@ -233,7 +231,7 @@ impl DiagnosticInvestigationIntent {
         component: &ComponentVersion,
         caller_budget: &CollectionBudget,
     ) -> Result<Self> {
-        let RecipeCostQualification::Measured(receipt) = &recipe.cost else {
+        let RecipeAdmission::Measured(receipt) = &recipe.admission else {
             return Err(invalid());
         };
         let value = Self {
@@ -244,7 +242,7 @@ impl DiagnosticInvestigationIntent {
             focus: DiagnosticFocus::SourceRead { focus: Box::new(focus) },
             execution: DiagnosticExecutionBinding::NativeRead { execution: Box::new(execution.into()) },
             budget: receipt.tested_budget.clone(),
-            qualification: receipt.as_ref().clone(),
+            qualification: receipt.as_ref().clone().into(),
         };
         if !value.matches_admission(episode, recipe, component, caller_budget) {
             return Err(invalid());
@@ -261,7 +259,7 @@ impl DiagnosticInvestigationIntent {
         caller_budget: &CollectionBudget,
         owner: DiagnosticSharedOwner<'_>,
     ) -> Result<Self> {
-        let RecipeCostQualification::Measured(receipt) = &recipe.cost else {
+        let RecipeAdmission::Measured(receipt) = &recipe.admission else {
             return Err(invalid());
         };
         let value = Self {
@@ -272,7 +270,7 @@ impl DiagnosticInvestigationIntent {
             focus,
             execution: DiagnosticExecutionBinding::Shared { owner: Box::new(owner.reference.clone()) },
             budget: receipt.tested_budget.clone(),
-            qualification: receipt.as_ref().clone(),
+            qualification: receipt.as_ref().clone().into(),
         };
         if !value.matches_admission(episode, recipe, component, caller_budget)
             || !value.matches_shared_owner(owner.source, owner.row)
@@ -290,12 +288,12 @@ impl DiagnosticInvestigationIntent {
             && self.recipe_version > 0
             && self.focus.is_valid()
             && self.qualification.is_valid()
-            && self.qualification.purpose == RecipePurpose::Investigation
-            && self.focus.selector() == self.qualification.selector
-            && self.recipe_id == self.qualification.recipe_id
-            && self.recipe_version == self.qualification.recipe_version
-            && self.budget == self.qualification.tested_budget
-            && self.execution.matches_focus(&self.qualification.scope, &self.focus)
+            && self.qualification.purpose() == RecipePurpose::Investigation
+            && self.focus.selector() == self.qualification.selector()
+            && self.recipe_id == self.qualification.recipe_id()
+            && self.recipe_version == self.qualification.recipe_version()
+            && self.budget == *self.qualification.budget()
+            && self.execution.matches_focus(self.qualification.scope(), &self.focus)
     }
 
     pub fn key(&self) -> Result<String> {
@@ -313,9 +311,9 @@ impl DiagnosticInvestigationIntent {
         if let DiagnosticFocus::PageWaitTasks { focus, .. } = &self.focus {
             // One native population belongs to this exact original capture, even if several incident rows
             // can justify it. Another trigger cannot spend the same population stage again after restart.
-            return page_wait_tasks_stage_key(&focus.parent.capture_ref(), &self.qualification.scope.target());
+            return page_wait_tasks_stage_key(&focus.parent.capture_ref(), &self.qualification.scope().target());
         }
-        question_stage_key(&self.episode_id, self.focus.selector(), &self.qualification.scope.target())
+        question_stage_key(&self.episode_id, self.focus.selector(), &self.qualification.scope().target())
     }
 
     /// Revalidate the immutable question against current, authenticated context. A newer same-episode revision
@@ -328,17 +326,13 @@ impl DiagnosticInvestigationIntent {
         component: &ComponentVersion,
         caller_budget: &CollectionBudget,
     ) -> bool {
-        let RecipeCostQualification::Measured(receipt) = &recipe.cost else {
-            return false;
-        };
         self.is_valid()
             && self.matches_episode(episode)
             && episode.needs_question(&self.focus)
             && recipe.is_valid()
             && self.qualification.matches_recipe(recipe)
-            && self.qualification.key().ok() == receipt.key().ok()
-            && qualification_component_is_valid(component)
-            && *component == self.qualification.component
+            && recipe.admission.matches_component(component)
+            && *component == *self.qualification.component()
             && within(&self.budget, caller_budget)
     }
 }

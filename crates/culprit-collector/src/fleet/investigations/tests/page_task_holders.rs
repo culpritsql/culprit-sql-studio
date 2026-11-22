@@ -3,13 +3,13 @@ use super::{
     runtime::Runtime,
     support::{Frame, Harness, capture_frame},
 };
-use crate::{
-    analytical::test_support::{PageTaskHolderCase, page_task_holder_fixture},
-    capture::CollectionCancellation,
-    diagnostics::{DiagnosticPolicies, drain_pending},
-    fleet::scheduler::Outcome,
-};
+use crate::diagnostics::DiagnosticPolicies;
+use crate::diagnostics::drain_pending;
+use crate::fleet::scheduler::Outcome;
 use culprit_core::telemetry::*;
+use culprit_evidence::analytical::test_support::PageTaskHolderCase;
+use culprit_evidence::analytical::test_support::page_task_holder_fixture;
+use culprit_read::cancellation::CollectionCancellation;
 
 pub(in crate::fleet::investigations) fn focused_frame(focus: &PageTaskHolderFocus) -> Frame {
     let fixture = page_task_holder_fixture(PageTaskHolderCase::QualifiedBoth);
@@ -53,7 +53,7 @@ pub(in crate::fleet::investigations) async fn paired_harness() -> Harness {
     let recipe = &mut harness.backend.recipe;
     recipe.id = "fixture.task-holders".into();
     recipe.selector = RecipeSelector::FocusedPageTaskHolders;
-    let RecipeCostQualification::Measured(receipt) = &mut recipe.cost else { panic!() };
+    let RecipeAdmission::Measured(receipt) = &mut recipe.admission else { panic!() };
     receipt.recipe_id = recipe.id.clone();
     receipt.selector = recipe.selector;
     receipt.scope = RecipeCostScope::Activity(episode.scope.clone());

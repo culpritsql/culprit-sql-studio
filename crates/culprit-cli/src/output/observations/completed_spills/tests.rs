@@ -1,7 +1,8 @@
 use super::*;
 use culprit_checks::completed_spills::{CompletedSpillEvidence, CompletedSpillRecord};
-use culprit_collector::analytical::test_support::{Recovery, completed_spill_evidence_cases};
 use culprit_core::telemetry::*;
+use culprit_evidence::analytical::test_support::Recovery;
+use culprit_evidence::analytical::test_support::completed_spill_evidence_cases;
 
 fn report() -> CompletedSpillReport {
     report_for("recorded_spills")

@@ -1,10 +1,13 @@
 use super::*;
-use crate::delivery::{
-    diagnostic_recovery::{OriginalHistoryLookup, authenticate_original_capture},
-    evidence::PreparedRange,
-    object_store::{ObjectRecoveryStore, tests::MemoryBlobs},
-    recovery::{PayloadObject, stage_and_commit},
-};
+use crate::delivery::diagnostic_recovery::authenticate_original_capture;
+use crate::delivery::evidence::PreparedRange;
+use crate::delivery::object_store::ObjectRecoveryStore;
+use crate::delivery::object_store::tests::MemoryBlobs;
+use crate::delivery::recovery::stage_and_commit;
+use culprit_evidence::delivery::originals::OriginalHistoryLookup;
+use culprit_evidence::delivery::recovery::PayloadObject;
+use culprit_evidence::delivery::recovery::RecoveryRead;
+use culprit_read::cancellation::CollectionCancellation;
 use std::{collections::BTreeMap, sync::Arc};
 use tokio::io::AsyncReadExt;
 
@@ -160,7 +163,7 @@ async fn a_missing_or_tampered_selected_pointer_and_late_body_failure_never_beco
 async fn mirror_archive(
     fixture: &History,
     store: &ObjectRecoveryStore,
-    fence: &crate::delivery::recovery::Fence,
+    fence: &culprit_evidence::delivery::mutations::Fence,
     range: &CommittedRange,
     previous: Option<&str>,
 ) {

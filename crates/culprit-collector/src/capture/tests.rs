@@ -1,5 +1,6 @@
 use super::*;
 use culprit_core::telemetry::*;
+use culprit_read::cancellation::CollectionCancellation;
 use std::sync::Arc;
 mod admission_window;
 mod investigation_owner;

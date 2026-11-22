@@ -1,5 +1,6 @@
 use super::*;
-use culprit_collector::analytical::test_support::{query_wait_evidence_cases, query_wait_fragment_evidence};
+use culprit_evidence::analytical::test_support::query_wait_evidence_cases;
+use culprit_evidence::analytical::test_support::query_wait_fragment_evidence;
 async fn waits(reader: &OutboxCaptureReader, connection: &str, id: &str) -> Result<Box<LocalQueryWaitFragments>> {
     let guard = OperationGuard::new(reader.timeout()).unwrap();
     let result = reader

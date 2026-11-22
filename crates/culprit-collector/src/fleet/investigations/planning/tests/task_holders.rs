@@ -1,5 +1,6 @@
 use super::*;
 use crate::fleet::investigations::tests::page_task_holders::{paired_harness, task_episode};
+use culprit_read::cancellation::CollectionCancellation;
 
 #[tokio::test]
 async fn a_task_point_prepares_only_its_holder_question_from_the_two_exact_original_receipts() {
@@ -21,7 +22,7 @@ async fn task_cost_unknown_route_and_stricter_budget_are_withheld_before_native_
     for reason in ["cost", "route", "budget"] {
         let mut harness = paired_harness().await;
         match reason {
-            "cost" => harness.backend.recipe.cost = RecipeCostQualification::Unqualified,
+            "cost" => harness.backend.recipe.admission = RecipeAdmission::Unqualified,
             "route" => harness.backend.changed.store(true, Ordering::SeqCst),
             _ => harness.inventory.targets[0].schedules[0].budget.max_queries = 1,
         }

@@ -1,6 +1,7 @@
 use super::*;
-use culprit_collector::analytical::test_support::{BackupHistoryCase, backup_history_evidence};
 use culprit_core::telemetry::TelemetryRecord;
+use culprit_evidence::analytical::test_support::BackupHistoryCase;
+use culprit_evidence::analytical::test_support::backup_history_evidence;
 fn report(case: BackupHistoryCase) -> BackupHistoryReport {
     let (source, records) = backup_history_evidence(case);
     let rows = records

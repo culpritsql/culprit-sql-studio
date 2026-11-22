@@ -3,9 +3,10 @@ use crate::{
     output::{Format, Out},
 };
 use clap::Args;
-use culprit_collector::{capture::CollectionCancellation, outbox::Outbox};
+use culprit_collector::outbox::Outbox;
 use culprit_core::{Result, telemetry::*};
 use culprit_engine::Workspace;
+use culprit_read::cancellation::CollectionCancellation;
 use std::{io::Write, path::PathBuf};
 
 #[derive(Args)]

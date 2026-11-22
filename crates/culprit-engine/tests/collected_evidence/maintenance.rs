@@ -1,10 +1,11 @@
 use super::fixture::Fixture;
-use culprit_collector::analytical::{
-    evidence::{EvidenceFamily, EvidenceGapReason, RecoveryPayloadBudget},
-    test_support::{activity_evidence_cases, maintenance_activity_evidence},
-};
 use culprit_core::{Engine, MaintenanceDirection, SourceState, telemetry::*};
 use culprit_engine::collected_resources;
+use culprit_evidence::analytical::evidence::EvidenceFamily;
+use culprit_evidence::analytical::evidence::EvidenceGapReason;
+use culprit_evidence::analytical::evidence::RecoveryPayloadBudget;
+use culprit_evidence::analytical::test_support::activity_evidence_cases;
+use culprit_evidence::analytical::test_support::maintenance_activity_evidence;
 
 fn recorded() -> (CollectionDescription, Vec<TelemetryRecord>) {
     let (mut source, mut records) = activity_evidence_cases().remove(0);

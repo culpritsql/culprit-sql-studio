@@ -3,13 +3,14 @@ use super::{
     runtime::Runtime,
     support::{Frame, Harness, seal},
 };
-use crate::{
-    analytical::test_support::{PageWriterCase, investigation_fixture, page_writer_fixture},
-    capture::CollectionCancellation,
-    diagnostics::drain_pending,
-    fleet::{journal::FocusedStage, scheduler::Outcome},
-};
+use crate::diagnostics::drain_pending;
+use crate::fleet::journal::FocusedStage;
+use crate::fleet::scheduler::Outcome;
 use culprit_core::telemetry::*;
+use culprit_evidence::analytical::test_support::PageWriterCase;
+use culprit_evidence::analytical::test_support::investigation_fixture;
+use culprit_evidence::analytical::test_support::page_writer_fixture;
+use culprit_read::cancellation::CollectionCancellation;
 
 pub(in crate::fleet::investigations) fn mapped_frame(focus: &ActivityWaitFocus) -> Frame {
     let fixture = page_writer_fixture(PageWriterCase::ReportedBlockingSession);
@@ -130,7 +131,7 @@ pub(in crate::fleet::investigations) async fn fixture() -> Harness {
     let mut writer = harness.backend.recipe.clone();
     writer.id = "fixture.page-wait-writers".into();
     writer.selector = RecipeSelector::FocusedPageWaitWriters;
-    let RecipeCostQualification::Measured(receipt) = &mut writer.cost else { panic!() };
+    let RecipeAdmission::Measured(receipt) = &mut writer.admission else { panic!() };
     receipt.recipe_id = writer.id.clone();
     receipt.selector = writer.selector;
     // A different authenticated experiment receipt makes selection of the second-stage authority observable.
@@ -180,9 +181,9 @@ async fn a_completed_mapping_dispatches_a_distinct_writer_question_with_original
     let DiagnosticFocus::PageWaitWriters { focus } = &intent.focus else { panic!() };
     assert_eq!(focus.candidates.len(), 3, "waiter and both original MARS contexts retain separate exact locators");
     let recipe = &runtime.fixture.backend.additional_recipes[0];
-    let RecipeCostQualification::Measured(cost) = &recipe.cost else { panic!() };
-    assert_eq!(intent.qualification.evidence, cost.evidence);
-    assert_ne!(intent.qualification.selector, runtime.fixture.backend.recipe.selector);
+    let RecipeAdmission::Measured(cost) = &recipe.admission else { panic!() };
+    assert_eq!(intent.qualification.measured().unwrap().evidence, cost.evidence);
+    assert_ne!(intent.qualification.selector(), runtime.fixture.backend.recipe.selector);
     for reference in intent.focus.references() {
         runtime.fixture.outbox.diagnostic_evidence(reference).await.unwrap();
     }
@@ -231,7 +232,7 @@ async fn a_shared_page_question_keeps_its_native_limit_instead_of_acquiring_unqu
         selector: RecipeSelector::FocusedPageWaitWriters,
         subjects: vec![RecipeSubject::Shared(SharedResourceKind::Instance)],
         budget: CollectionBudget::default(),
-        cost: RecipeCostQualification::Unqualified,
+        admission: RecipeAdmission::Unqualified,
     });
     let mut runtime = Runtime::from_fixture(fixture).await;
     assert!(runtime.enroll().await);

@@ -1,6 +1,6 @@
 use super::*;
-use culprit_collector::analytical::test_support::compilation_interval_evidence;
 use culprit_core::CompilationComparisonIssue;
+use culprit_evidence::analytical::test_support::compilation_interval_evidence;
 
 #[tokio::test]
 async fn authenticated_reads_keep_both_original_proofs_and_compute_exact_native_count_changes() {

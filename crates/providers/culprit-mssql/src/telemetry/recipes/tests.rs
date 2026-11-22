@@ -9,7 +9,7 @@ fn registered_source_versions_include_native_acquisition_policy_revisions() {
         .iter()
         .filter(|recipe| recipe.version != 1)
         .map(|recipe| {
-            assert_eq!(recipe.cost, RecipeCostQualification::Unqualified, "{}", recipe.id);
+            assert_eq!(recipe.admission, RecipeAdmission::Unqualified, "{}", recipe.id);
             (recipe.id.as_str(), recipe.version)
         })
         .collect::<BTreeSet<_>>();
@@ -158,7 +158,7 @@ async fn selection(selector: RecipeSelector) -> CollectionSelection {
         RecipeSelector::CacheEntryMemory => {
             CollectionSelection::CacheEntryMemory { focus: Box::new(crate::cache_entry_memory::tests::focus().await) }
         }
-        RecipeSelector::Collection(TelemetryCollection::Diagnostics) => {
+        RecipeSelector::Collection(TelemetryCollection::Diagnostics | TelemetryCollection::DerivedDiagnosis) => {
             panic!("derived diagnostics are not a native source")
         }
     }
@@ -172,7 +172,7 @@ async fn every_declared_recipe_uses_exactly_one_actual_constructor_without_nativ
     for (registration, descriptor) in REGISTRATIONS.iter().zip(&declarations) {
         assert!(descriptor.is_valid(), "{}", descriptor.id);
         assert!(ids.insert(&descriptor.id));
-        assert_eq!(descriptor.cost, RecipeCostQualification::Unqualified);
+        assert_eq!(descriptor.admission, RecipeAdmission::Unqualified);
         assert_eq!(descriptor.version, registration.version);
         for &kind in registration.subjects {
             let mut selection = selection(descriptor.selector).await;
@@ -284,7 +284,7 @@ fn configured_system_health_remains_an_explicit_unqualified_shared_investigation
     let recipe = declarations().into_iter().find(|recipe| recipe.id == "mssql.system-health-deadlocks").unwrap();
     assert_eq!(recipe.subjects, [RecipeSubject::Shared(SharedResourceKind::Instance)]);
     assert_eq!(recipe.purpose, RecipePurpose::Investigation);
-    assert_eq!(recipe.cost, RecipeCostQualification::Unqualified);
+    assert_eq!(recipe.admission, RecipeAdmission::Unqualified);
     assert_eq!(recipe.budget.max_queries, 9, "eight reader queries and one possible session SET batch");
     assert_eq!(recipe.budget.max_snapshot_rows, 50);
     assert_eq!(recipe.budget.statement_timeout_ms, 1000);
@@ -412,7 +412,7 @@ async fn native_resource_discovery_derives_its_routes_from_registrations_and_obs
                 budget: CollectionBudget::default(),
             };
             let registration = REGISTRATIONS.iter().find(|entry| entry.accepts(&request)).unwrap();
-            assert_eq!(registration.descriptor().cost, RecipeCostQualification::Unqualified);
+            assert_eq!(registration.descriptor().admission, RecipeAdmission::Unqualified);
             let mut source = open(
                 Arc::new(Pool::new(tiberius::Config::new(), None)),
                 &request,
@@ -443,7 +443,7 @@ fn hyperscale_component_source_is_independent_and_does_not_grant_automatic_produ
     let declarations = declarations();
     let recipe = declarations.iter().find(|recipe| recipe.id == "mssql.hyperscale-log-components").unwrap();
     assert_eq!(recipe.purpose, RecipePurpose::Investigation);
-    assert_eq!(recipe.cost, RecipeCostQualification::Unqualified);
+    assert_eq!(recipe.admission, RecipeAdmission::Unqualified);
     assert_eq!(recipe.budget.max_queries, 11, "ten reader queries and one possible session SET batch");
     assert_eq!(
         recipe.selector,
@@ -457,7 +457,7 @@ fn cleanup_recipe_keeps_its_local_three_family_envelope_separate_from_azure_oper
     let cleanup = recipes.iter().find(|recipe| recipe.id == "mssql.cleanup").unwrap();
     assert_eq!(cleanup.version, 3);
     assert_eq!(cleanup.purpose, RecipePurpose::Investigation);
-    assert_eq!(cleanup.cost, RecipeCostQualification::Unqualified);
+    assert_eq!(cleanup.admission, RecipeAdmission::Unqualified);
     assert_eq!(cleanup.subjects, vec![RecipeSubject::Database]);
     assert_eq!(cleanup.budget.max_queries, super::super::cleanup::MAX_QUERIES);
     assert_eq!(cleanup.budget.max_snapshot_rows, 3);
@@ -475,7 +475,7 @@ fn cdc_recipe_is_manual_unqualified_and_keeps_its_own_paid_native_roster() {
     let cdc = recipes.iter().find(|recipe| recipe.id == "mssql.cdc").unwrap();
     assert_eq!(cdc.version, 3);
     assert_eq!(cdc.purpose, RecipePurpose::Investigation);
-    assert_eq!(cdc.cost, RecipeCostQualification::Unqualified);
+    assert_eq!(cdc.admission, RecipeAdmission::Unqualified);
     assert_eq!(cdc.subjects, vec![RecipeSubject::Database]);
     assert_eq!(cdc.selector, RecipeSelector::Collection(TelemetryCollection::Snapshot(SnapshotDataset::Cdc)));
     assert_eq!(cdc.budget.max_queries, 13, "twelve reader queries and one possible session SET batch");
@@ -493,7 +493,7 @@ fn backup_history_is_an_explicit_manual_profile_with_no_baseline_or_cost_approva
     let recipe = recipes.iter().find(|recipe| recipe.id == "mssql.backup-history").unwrap();
     assert_eq!(recipe.version, 3);
     assert_eq!(recipe.purpose, RecipePurpose::Investigation);
-    assert_eq!(recipe.cost, RecipeCostQualification::Unqualified);
+    assert_eq!(recipe.admission, RecipeAdmission::Unqualified);
     assert_eq!(recipe.subjects, vec![RecipeSubject::Database]);
     assert_eq!(
         recipe.selector,
@@ -513,7 +513,7 @@ fn selected_columnstore_rowgroups_recipe_requires_native_target_and_stays_manual
     let recipe = declarations().into_iter().find(|recipe| recipe.id == "mssql.columnstore-rowgroups").unwrap();
     assert_eq!(recipe.version, 3);
     assert_eq!(recipe.selector, RecipeSelector::ColumnstoreRowgroups);
-    assert_eq!(recipe.cost, RecipeCostQualification::Unqualified);
+    assert_eq!(recipe.admission, RecipeAdmission::Unqualified);
     assert_eq!(recipe.purpose, RecipePurpose::Investigation);
     assert_eq!(recipe.budget.max_snapshot_rows, 128);
     assert_eq!(recipe.budget.max_queries, 12, "eleven reader queries and one possible session SET batch");
@@ -539,7 +539,7 @@ fn selected_columnstore_rowgroups_recipe_requires_native_target_and_stays_manual
 #[test]
 fn settings_local_profile_advertises_only_the_existing_native_budget_without_cost_approval() {
     let recipe = declarations().into_iter().find(|recipe| recipe.id == "mssql.settings").unwrap();
-    assert_eq!(recipe.cost, RecipeCostQualification::Unqualified);
+    assert_eq!(recipe.admission, RecipeAdmission::Unqualified);
     assert_eq!(recipe.subjects, [RecipeSubject::Database]);
     assert_eq!(recipe.budget, super::super::state::settings_budget(&CollectionBudget::upper_limits()));
 }
@@ -549,7 +549,7 @@ fn selected_database_performance_counters_are_manual_unqualified_and_bounded_ind
     let recipe = declarations().into_iter().find(|recipe| recipe.id == "mssql.database-performance-counters").unwrap();
     assert_eq!(recipe.version, 3);
     assert_eq!(recipe.purpose, RecipePurpose::Investigation);
-    assert_eq!(recipe.cost, RecipeCostQualification::Unqualified);
+    assert_eq!(recipe.admission, RecipeAdmission::Unqualified);
     assert_eq!(recipe.subjects, [RecipeSubject::Database]);
     assert_eq!(
         recipe.selector,
@@ -571,7 +571,7 @@ fn suspect_page_history_is_one_explicit_unqualified_local_point_without_operatio
     let recipe = declarations().into_iter().find(|recipe| recipe.id == "mssql.suspect-pages").unwrap();
     assert_eq!(recipe.version, 3);
     assert_eq!(recipe.purpose, RecipePurpose::Investigation);
-    assert_eq!(recipe.cost, RecipeCostQualification::Unqualified);
+    assert_eq!(recipe.admission, RecipeAdmission::Unqualified);
     assert_eq!(recipe.subjects, [RecipeSubject::Database]);
     assert_eq!(
         recipe.selector,
@@ -595,7 +595,7 @@ fn selected_table_memory_recipe_uses_actual_bounded_factory_and_remains_manual_u
     let recipe = declarations().into_iter().find(|recipe| recipe.id == "mssql.table-memory").unwrap();
     assert_eq!(recipe.version, 2);
     assert_eq!(recipe.selector, RecipeSelector::TableMemory);
-    assert_eq!(recipe.cost, RecipeCostQualification::Unqualified);
+    assert_eq!(recipe.admission, RecipeAdmission::Unqualified);
     assert_eq!(recipe.purpose, RecipePurpose::Investigation);
     assert_eq!(recipe.subjects, [RecipeSubject::Database]);
     assert_eq!(recipe.budget.max_queries, 12);
@@ -626,7 +626,7 @@ fn pool_governance_settings_are_one_closed_investigation_recipe_with_a_total_inc
     assert_eq!(recipe.subjects, vec![RecipeSubject::Database, RecipeSubject::Shared(SharedResourceKind::Pool)]);
     assert_eq!(recipe.selector, RecipeSelector::ResourcePoolSettings);
     assert_eq!(recipe.purpose, RecipePurpose::Investigation);
-    assert_eq!(recipe.cost, RecipeCostQualification::Unqualified);
+    assert_eq!(recipe.admission, RecipeAdmission::Unqualified);
     assert_eq!(recipe.budget.max_queries, 9);
     assert_eq!(crate::read::ReadSession::budget_after_setup(recipe.budget.clone()).unwrap().max_queries, 8);
     let original =
@@ -643,7 +643,7 @@ fn managed_instance_history_is_an_explicit_native_profile_with_a_single_total_in
     let recipe = recipes.iter().find(|recipe| recipe.id == "mssql.managed-instance-resource-history").unwrap();
     assert_eq!(recipe.version, 1);
     assert_eq!(recipe.purpose, RecipePurpose::Investigation);
-    assert_eq!(recipe.cost, RecipeCostQualification::Unqualified);
+    assert_eq!(recipe.admission, RecipeAdmission::Unqualified);
     assert_eq!(recipe.subjects, [RecipeSubject::Shared(SharedResourceKind::Instance)]);
     assert_eq!(recipe.selector, RecipeSelector::Collection(TelemetryCollection::ResourceHistory));
     assert_eq!(recipe.budget.max_queries, 12);
@@ -662,7 +662,7 @@ fn change_feed_recipe_is_independent_manual_unqualified_and_pays_one_setup_insid
     let recipe = declarations().into_iter().find(|r| r.id == "mssql.change-feed").unwrap();
     assert_eq!(recipe.version, 2);
     assert_eq!(recipe.purpose, RecipePurpose::Investigation);
-    assert_eq!(recipe.cost, RecipeCostQualification::Unqualified);
+    assert_eq!(recipe.admission, RecipeAdmission::Unqualified);
     assert_eq!(recipe.subjects, [RecipeSubject::Database]);
     assert_eq!(recipe.selector, RecipeSelector::Collection(TelemetryCollection::Snapshot(SnapshotDataset::ChangeFeed)));
     assert_eq!(recipe.budget.max_queries, 13);
@@ -684,7 +684,7 @@ fn numa_node_recipe_is_one_explicit_shared_instance_profile_with_setup_inside_it
     assert_eq!(recipe.version, 1);
     assert_eq!(recipe.subjects, [RecipeSubject::Shared(SharedResourceKind::Instance)]);
     assert_eq!(recipe.purpose, RecipePurpose::Investigation);
-    assert_eq!(recipe.cost, RecipeCostQualification::Unqualified);
+    assert_eq!(recipe.admission, RecipeAdmission::Unqualified);
     assert_eq!(recipe.budget.max_queries, 11);
     assert_eq!(crate::read::ReadSession::budget_after_setup(recipe.budget.clone()).unwrap().max_queries, 10);
     assert_eq!(recipe.budget.statement_timeout_ms, 1000);
@@ -705,7 +705,7 @@ fn pool_current_wait_recipe_is_closed_bounded_unqualified_and_distinct_from_data
     let recipe = all.iter().find(|recipe| recipe.id == "mssql.pool-wait-counters").unwrap();
     assert_eq!(recipe.version, 1);
     assert_eq!(recipe.purpose, RecipePurpose::Investigation);
-    assert_eq!(recipe.cost, RecipeCostQualification::Unqualified);
+    assert_eq!(recipe.admission, RecipeAdmission::Unqualified);
     assert_eq!(recipe.subjects, vec![RecipeSubject::Shared(SharedResourceKind::Pool)]);
     assert_eq!(recipe.budget.max_queries, 8);
     assert_eq!(recipe.budget.max_snapshot_rows, 500);
@@ -721,7 +721,7 @@ fn boxed_cpu_recipe_is_explicit_shared_instance_only_and_reserves_setup_inside_t
     let descriptors = declarations();
     let descriptor = descriptors.iter().find(|recipe| recipe.selector == selector).unwrap();
     assert_eq!(descriptor.purpose, RecipePurpose::Investigation);
-    assert_eq!(descriptor.cost, RecipeCostQualification::Unqualified);
+    assert_eq!(descriptor.admission, RecipeAdmission::Unqualified);
     for edition in [2, 3, 4] {
         assert!(
             collections_for(

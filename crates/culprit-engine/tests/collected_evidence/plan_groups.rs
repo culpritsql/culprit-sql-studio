@@ -1,11 +1,12 @@
 use super::fixture::Fixture;
-use culprit_collector::analytical::test_support::{QueryCohortCase, query_cohort_evidence};
 use culprit_core::{
     QueryStat,
     collected_analysis::{CollectedAnalysisLimit, CollectedQueryAnalysis},
     telemetry::*,
 };
 use culprit_engine::collected_evidence;
+use culprit_evidence::analytical::test_support::QueryCohortCase;
+use culprit_evidence::analytical::test_support::query_cohort_evidence;
 
 fn one(analysis: &CollectedQueryAnalysis) -> &QueryStat {
     let workload =
@@ -344,12 +345,12 @@ async fn real_native_heap_fetch_advice_keeps_its_evidence_but_no_executable_sql_
     let capture = fixture
         .read_families_with_recovery(
             &[
-                culprit_collector::analytical::evidence::EvidenceFamily::QueryDefinitions,
-                culprit_collector::analytical::evidence::EvidenceFamily::PlanDefinitions,
-                culprit_collector::analytical::evidence::EvidenceFamily::QueryRuntime,
-                culprit_collector::analytical::evidence::EvidenceFamily::QueryWaits,
+                culprit_evidence::analytical::evidence::EvidenceFamily::QueryDefinitions,
+                culprit_evidence::analytical::evidence::EvidenceFamily::PlanDefinitions,
+                culprit_evidence::analytical::evidence::EvidenceFamily::QueryRuntime,
+                culprit_evidence::analytical::evidence::EvidenceFamily::QueryWaits,
             ],
-            culprit_collector::analytical::evidence::RecoveryPayloadBudget::default(),
+            culprit_evidence::analytical::evidence::RecoveryPayloadBudget::default(),
         )
         .await;
     assert!(capture.is_read_complete());
@@ -411,7 +412,7 @@ async fn real_native_heap_fetch_advice_keeps_its_evidence_but_no_executable_sql_
     assert!(direct.fix_sql.as_deref().is_some_and(|sql| sql.starts_with("VACUUM")));
 
     let (source, mut records) =
-        culprit_collector::analytical::test_support::object_definition_evidence_cases().remove(2);
+        culprit_evidence::analytical::test_support::object_definition_evidence_cases().remove(2);
     for record in &mut records {
         if let TelemetryRecord::ObjectDefinition(row) = record
             && let ObjectDefinitionFact::RetainedPlan(native) = &mut row.fact
@@ -423,8 +424,8 @@ async fn real_native_heap_fetch_advice_keeps_its_evidence_but_no_executable_sql_
     let fixture = Fixture::new(source, records).await;
     let capture = fixture
         .read_families_with_recovery(
-            &[culprit_collector::analytical::evidence::EvidenceFamily::ObjectDefinitions],
-            culprit_collector::analytical::evidence::RecoveryPayloadBudget::default(),
+            &[culprit_evidence::analytical::evidence::EvidenceFamily::ObjectDefinitions],
+            culprit_evidence::analytical::evidence::RecoveryPayloadBudget::default(),
         )
         .await;
     let plans = culprit_engine::collected_resources::cached_plans(&capture).unwrap();

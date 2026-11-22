@@ -6,22 +6,20 @@ use crate::{
     ingestion::{IngestionBatch, IngestionTransport},
 };
 use async_trait::async_trait;
-use culprit_collector::{
-    analytical::{
-        ProjectionCatalog,
-        encoding::EncodedBatch,
-        indexes::ProjectionIndexes,
-        read_store::{AnalyticalReadPage, AnalyticalReadStore},
-        sink::{AnalyticalSink, AnalyticalStore},
-    },
-    delivery::{
-        contract::Contract,
-        object_store::transport::ObjectTransport,
-        recovery::{CommittedRange, RecoveryStore},
-        sink::{DeliveryAttempt, Submission},
-    },
-};
+use culprit_collector::analytical::encoding::EncodedBatch;
+use culprit_collector::analytical::sink::AnalyticalSink;
+use culprit_collector::analytical::sink::AnalyticalStore;
+use culprit_collector::delivery::sink::DeliveryAttempt;
+use culprit_collector::delivery::sink::Submission;
 use culprit_core::Result;
+use culprit_evidence::analytical::ProjectionCatalog;
+use culprit_evidence::analytical::indexes::ProjectionIndexWriter;
+use culprit_evidence::analytical::read_store::AnalyticalReadPage;
+use culprit_evidence::analytical::read_store::AnalyticalReadStore;
+use culprit_evidence::delivery::contract::Contract;
+use culprit_evidence::delivery::object_store::transport::ObjectTransport;
+use culprit_evidence::delivery::recovery::CommittedRange;
+use culprit_evidence::delivery::recovery::RecoveryRead;
 use serde_json::Value;
 use std::{path::Path, sync::Arc};
 
@@ -38,13 +36,13 @@ impl AdxStore {
 }
 pub fn new(
     contract: Contract,
-    recovery: Arc<dyn RecoveryStore>,
+    recovery: Arc<dyn RecoveryRead>,
     validation: Arc<dyn ObjectTransport>,
     ingestion: Arc<dyn IngestionTransport>,
     query: Arc<dyn QueryTransport>,
     scratch: &Path,
 ) -> Result<AnalyticalSink> {
-    let indexes = Arc::new(ProjectionIndexes::new(validation));
+    let indexes = Arc::new(ProjectionIndexWriter::new(validation));
     AnalyticalSink::new(contract, recovery, indexes, Arc::new(AdxStore::new(query, ingestion)?), scratch)
 }
 #[async_trait]

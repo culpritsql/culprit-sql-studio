@@ -1,9 +1,14 @@
 //! Completed population receipts precede any recovery work, including after actual local eviction.
 use super::*;
-use crate::delivery::{
-    contract::Contract, evidence::RangeManifest, file_store::FileRecoveryStore, recovery::*, sink::PublishedRange,
-};
+use crate::delivery::file_store::FileRecoveryStore;
+use crate::delivery::recovery::*;
+use crate::delivery::sink::PublishedRange;
 use culprit_core::{ErrorDetail, Result};
+use culprit_evidence::delivery::contract::Contract;
+use culprit_evidence::delivery::evidence::RangeManifest;
+use culprit_evidence::delivery::heads::DiagnosticHeadPage;
+use culprit_evidence::delivery::{mutations::*, recovery::*};
+use culprit_read::cancellation::CollectionCancellation;
 use std::{path::Path, sync::atomic::AtomicUsize};
 
 struct ReadProbe<'a> {
@@ -23,25 +28,10 @@ impl RecoveryStore for ReadProbe<'_> {
     async fn diagnostic_original_groups(
         &self,
         keys: &[String],
-    ) -> Result<crate::delivery::diagnostic_recovery::OriginalHistoryLookup> {
+    ) -> Result<culprit_evidence::delivery::originals::OriginalHistoryLookup> {
         self.store.diagnostic_original_groups(keys).await
     }
 
-    fn id(&self) -> &str {
-        self.store.id()
-    }
-    async fn capture_manifest(&self, capture: &CaptureIdentity) -> Result<RangeManifest> {
-        self.manifests.fetch_add(1, Ordering::SeqCst);
-        self.store.capture_manifest(capture).await
-    }
-    async fn load(&self, range_id: &str) -> Result<RangeManifest> {
-        self.manifests.fetch_add(1, Ordering::SeqCst);
-        self.store.load(range_id).await
-    }
-    async fn open_object(&self, object: &PayloadObject) -> Result<RecoveryReader> {
-        self.objects.fetch_add(1, Ordering::SeqCst);
-        self.store.open_object(object).await
-    }
     async fn diagnostic_input_pending(&self, input: &DiagnosticCaptureRef, version: u32) -> Result<bool> {
         self.manifests.fetch_add(1, Ordering::SeqCst);
         self.store.diagnostic_input_pending(input, version).await
@@ -64,14 +54,36 @@ impl RecoveryStore for ReadProbe<'_> {
     async fn diagnostic_heads(&self, _: Option<&str>, _: u32) -> Result<DiagnosticHeadPage> {
         panic!("checkpoint already local")
     }
+
+    async fn retire(&self, _: &Fence, _: &PublishedRange) -> Result<()> {
+        panic!("planning never retires evidence")
+    }
+}
+#[async_trait::async_trait]
+impl culprit_evidence::delivery::recovery::RecoveryRead for ReadProbe<'_> {
+    fn id(&self) -> &str {
+        self.store.id()
+    }
+    async fn load(&self, range_id: &str) -> Result<RangeManifest> {
+        self.manifests.fetch_add(1, Ordering::SeqCst);
+        self.store.load(range_id).await
+    }
+    async fn capture_manifest(&self, capture: &CaptureIdentity) -> Result<RangeManifest> {
+        self.manifests.fetch_add(1, Ordering::SeqCst);
+        self.store.capture_manifest(capture).await
+    }
+    async fn open_object(&self, object: &PayloadObject) -> Result<RecoveryReader> {
+        self.objects.fetch_add(1, Ordering::SeqCst);
+        self.store.open_object(object).await
+    }
+}
+#[async_trait::async_trait]
+impl culprit_evidence::delivery::mutations::RecoveryWrite for ReadProbe<'_> {
     async fn stage(&self, _: &PayloadObject, _: &Path) -> Result<StagedBatch> {
         panic!("planning is read only")
     }
     async fn commit(&self, _: &Fence, _: Option<&str>, _: &RangeManifest, _: &[StagedBatch]) -> Result<CommitReceipt> {
         panic!("planning is read only")
-    }
-    async fn retire(&self, _: &Fence, _: &PublishedRange) -> Result<()> {
-        panic!("planning never retires evidence")
     }
 }
 

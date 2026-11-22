@@ -1,10 +1,10 @@
 //! The shared report owns native meaning; this formatter bounds and escapes its six configuration fields.
-use super::{SourceQualification, Summary, append_remaining_limitations, native_work_summary, statement};
+use super::{SourceQualification, Summary, append_remaining_limitations, native_work_summary};
 use culprit_core::{PoolSettingsReport, t};
 const FIELD_LIMIT: usize = 6;
 const TEXT_LIMIT: usize = 1024;
 fn text(value: &str) -> String {
-    statement::preview_bounded(value, TEXT_LIMIT)
+    culprit_core::format::escaped_preview(value, TEXT_LIMIT).text
 }
 pub(crate) fn pool_settings(report: &PoolSettingsReport) -> String {
     let title = text(&report.title);

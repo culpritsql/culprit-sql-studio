@@ -1,15 +1,17 @@
 //! One bounded state transition per call; every non-idempotent intent is persisted before its side effect.
-use super::{
-    committed_cache::CommittedRangeCache,
-    journal::{DeliveryJournal, PendingRange},
-    recovery::{CommittedRange, Fence, RecoveryStore},
-    sink::*,
-    verification::{PageVerification, VerificationProgress},
-};
+use super::committed_cache::CommittedRangeCache;
+use super::journal::DeliveryJournal;
+use super::journal::PendingRange;
+use super::recovery::RecoveryStore;
+use super::sink::*;
+use super::verification::PageVerification;
+use super::verification::VerificationProgress;
 use culprit_core::{
     Result,
     telemetry::{DeliveryEntry, DeliveryPhase, DeliveryProblem},
 };
+use culprit_evidence::delivery::mutations::Fence;
+use culprit_evidence::delivery::recovery::CommittedRange;
 use std::time::Duration;
 
 #[derive(Clone, Copy)]

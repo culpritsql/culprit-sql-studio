@@ -1,6 +1,7 @@
 use super::*;
-use culprit_collector::analytical::test_support::{TempdbMetadataMemoryCase, tempdb_metadata_memory_evidence};
 use culprit_engine::LocalCaptureAnalysisKind;
+use culprit_evidence::analytical::test_support::TempdbMetadataMemoryCase;
+use culprit_evidence::analytical::test_support::tempdb_metadata_memory_evidence;
 use serde_json::Value;
 
 #[tokio::test]

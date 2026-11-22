@@ -702,7 +702,7 @@ impl Files {
         {
             return Err(DeliveryProblem::DestinationChanged.error());
         }
-        let reference = crate::delivery::diagnostic_recovery::capture_reference(range.manifest())?;
+        let reference = culprit_evidence::delivery::heads::capture_reference(range.manifest())?;
         if !checkpoint.is_valid()
             || checkpoint.target != range.manifest().source.target
             || encode(&checkpoint)?.len() > MAX_CHECKPOINT_BYTES

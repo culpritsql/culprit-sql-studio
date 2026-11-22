@@ -1,21 +1,23 @@
 use super::*;
-use crate::{
-    analytical::{
-        ProjectionCatalog,
-        catalog::PhysicalCatalog,
-        evidence::{EvidenceFamily, EvidenceGapReason, EvidenceReadBudget, EvidenceReader},
-        indexes::ProjectionIndexes,
-        sink::AnalyticalSink,
-        test_support::{self, JsonProjection},
-    },
-    capture::{CollectionCancellation, SourceFactory, collect},
-    delivery::{
-        contract::Contract,
-        file_store::FileRecoveryStore,
-        recovery::{CommittedRange, RecoveryStore, stage_and_commit},
-        sink::{DeliveryAttempt, Submission, TelemetrySink, VerificationBudget, verify},
-    },
-};
+use crate::analytical::sink::AnalyticalSink;
+use crate::capture::SourceFactory;
+use crate::capture::collect;
+use crate::delivery::file_store::FileRecoveryStore;
+use crate::delivery::recovery::stage_and_commit;
+use crate::delivery::sink::DeliveryAttempt;
+use crate::delivery::sink::VerificationBudget;
+use crate::delivery::sink::verify;
+use crate::delivery::{recovery::RecoveryStore, sink::TelemetrySink};
+use culprit_evidence::analytical::catalog::PhysicalCatalog;
+use culprit_evidence::analytical::evidence::EvidenceFamily;
+use culprit_evidence::analytical::evidence::EvidenceGapReason;
+use culprit_evidence::analytical::evidence::EvidenceReadBudget;
+use culprit_evidence::analytical::evidence::EvidenceReader;
+use culprit_evidence::analytical::indexes::ProjectionIndexWriter;
+use culprit_evidence::analytical::test_support;
+use culprit_evidence::analytical::test_support::JsonProjection;
+use culprit_evidence::delivery::contract::Contract;
+use culprit_read::cancellation::CollectionCancellation;
 use std::sync::{
     Arc,
     atomic::{AtomicBool, Ordering},
@@ -93,7 +95,7 @@ async fn collect_into(
     assert!(closed.load(Ordering::SeqCst), "native closure precedes every durable readiness decision");
     manifest
 }
-async fn capture(outbox: &mut Outbox, records: Vec<TelemetryRecord>) -> CollectionManifest {
+pub(super) async fn capture(outbox: &mut Outbox, records: Vec<TelemetryRecord>) -> CollectionManifest {
     let (source, _) = test_support::informational_query_evidence();
     let mut lease = outbox.reserve("fixture", &request(&source)).await.unwrap();
     let manifest = collect_into(&mut lease, source, records).await;
@@ -147,7 +149,7 @@ async fn unresolved_rows_survive_real_capture_restart_commit_readback_and_commit
             assert_eq!(row.key.row_ordinal as usize, index + 1);
         }
     }
-    let indexes = Arc::new(ProjectionIndexes::new(Arc::new(test_support::Blobs::default())));
+    let indexes = Arc::new(ProjectionIndexWriter::new(Arc::new(test_support::Blobs::default())));
     let warehouse = Arc::new(Warehouse::new(catalog));
     let sink =
         AnalyticalSink::new(contract, store.clone(), indexes.clone(), warehouse.clone(), &root.path().join("scratch"))
@@ -161,7 +163,7 @@ async fn unresolved_rows_survive_real_capture_restart_commit_readback_and_commit
     let verified = verify(&sink, &committed, VerificationBudget { page_rows: 1, ..Default::default() }).await.unwrap();
     let published = sink.publish(&verified, &attempt).await.unwrap();
     assert!(sink.publication_visible(&published, &committed).await.unwrap());
-    let reader = EvidenceReader::new(warehouse.clone(), indexes);
+    let reader = EvidenceReader::new(warehouse.clone(), indexes.reader());
     let families = [EvidenceFamily::QueryRuntime, EvidenceFamily::QueryWaits];
     let captured = reader
         .read_capture(&committed, &families, EvidenceReadBudget { page_rows: 1, ..Default::default() }, None)

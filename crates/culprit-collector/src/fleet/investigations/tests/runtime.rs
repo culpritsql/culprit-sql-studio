@@ -1,18 +1,24 @@
 use super::super::Investigations;
 use super::support::Harness;
-use crate::{
-    capture::CollectionCancellation,
-    diagnostics::{DiagnosticPolicies, analyze_pending, drain_pending, set_analysis},
-    fleet::{
-        admission::AdmittedBackend,
-        journal::{FocusedSettlement, FocusedStage},
-        scheduler::{FocusStatus, FocusedJob, Outcome, Scheduler, Work},
-        storage::CaptureStorage,
-        work::{self, WorkResult},
-    },
-    outbox::{DiagnosticInputState, Outbox},
-};
+use crate::diagnostics::DiagnosticPolicies;
+use crate::diagnostics::analyze_pending;
+use crate::diagnostics::drain_pending;
+use crate::diagnostics::set_analysis;
+use crate::fleet::admission::AdmittedBackend;
+use crate::fleet::journal::FocusedSettlement;
+use crate::fleet::journal::FocusedStage;
+use crate::fleet::scheduler::FocusStatus;
+use crate::fleet::scheduler::FocusedJob;
+use crate::fleet::scheduler::Outcome;
+use crate::fleet::scheduler::Scheduler;
+use crate::fleet::scheduler::Work;
+use crate::fleet::storage::CaptureStorage;
+use crate::fleet::work;
+use crate::fleet::work::WorkResult;
+use crate::outbox::DiagnosticInputState;
+use crate::outbox::Outbox;
 use culprit_core::telemetry::*;
+use culprit_read::cancellation::CollectionCancellation;
 use std::{path::Path, sync::atomic::Ordering};
 use tokio::time::Instant;
 
@@ -591,7 +597,7 @@ async fn unqualified_catalog_or_refused_cost_artifact_never_enrolls_or_opens_a_f
     for unqualified in [true, false] {
         let mut runtime = Runtime::new().await;
         if unqualified {
-            runtime.fixture.backend.recipe.cost = RecipeCostQualification::Unqualified;
+            runtime.fixture.backend.recipe.admission = RecipeAdmission::Unqualified;
         } else {
             runtime.fixture.backend.accept = false;
         }

@@ -1,4 +1,5 @@
 //! Only an explicitly installed Outbox owner can supply fresh local originals to the optional host capability.
+use super::reports;
 use super::*;
 use crate::collected_resources::{page_server_reads::original_rows, references::analysis_reference};
 use culprit_checks::{
@@ -12,7 +13,6 @@ use culprit_core::telemetry::*;
 use std::{path::PathBuf, sync::Arc};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 mod blocking;
-mod reports;
 mod source_overhead;
 
 enum LocalOutbox {
@@ -242,7 +242,12 @@ impl OutboxCaptureReader {
                     )
                     .await
             }
-            LocalCaptureReadPlan::QueryHistory(selection) => {
+            selection @ (LocalCaptureReadPlan::QueryRuntime | LocalCaptureReadPlan::QueryWaits) => {
+                let selection = if matches!(selection, LocalCaptureReadPlan::QueryRuntime) {
+                    culprit_collector::outbox::QueryHistoryReadKind::Runtime
+                } else {
+                    culprit_collector::outbox::QueryHistoryReadKind::Waits
+                };
                 let analysis = request.analysis;
                 delivery
                     .with_completed_query_history(

@@ -1,8 +1,9 @@
 //! Native mapping controls only. Granted PAGE locks locate owned pages; they establish no latch wait or holder.
-use super::{
-    durable_capture::{OwnedCaptures, require_readable_capture},
-    fixture::{self, Fixture, invalid},
-};
+use super::durable_capture::OwnedCaptures;
+use super::durable_capture::require_readable_capture;
+use super::fixture;
+use super::fixture::Fixture;
+use super::fixture::invalid;
 use crate::{
     activity::{ActivityReader, IdentityDetail, ReadOptions},
     read::{Parameter, ReadError, integer, text},

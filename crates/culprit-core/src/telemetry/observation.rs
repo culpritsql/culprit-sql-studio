@@ -10,9 +10,14 @@ pub enum TelemetryCollection {
     DeadlockHistory,
     Activity,
     Diagnostics,
+    DerivedDiagnosis,
     Snapshot(SnapshotDataset),
 }
 impl TelemetryCollection {
+    /// Local synthesis is sealed through the canonical path, never enrolled or acquired by a native provider.
+    pub fn is_local_output(self) -> bool {
+        matches!(self, Self::Diagnostics | Self::DerivedDiagnosis)
+    }
     pub fn streams(self) -> &'static [TelemetryStream] {
         match self {
             Self::QueryHistory => &[
@@ -25,6 +30,9 @@ impl TelemetryCollection {
             Self::DeadlockHistory => &[TelemetryStream::DeadlockEvents],
             Self::Activity => &[TelemetryStream::ActivityObservations],
             Self::Diagnostics => &[TelemetryStream::OperationalSamples, TelemetryStream::DiagnosticCheckpoints],
+            Self::DerivedDiagnosis => {
+                &[TelemetryStream::DerivedIncidents, TelemetryStream::DerivedFindings, TelemetryStream::DerivedChanges]
+            }
             Self::Snapshot(dataset) => dataset.streams(),
         }
     }
@@ -105,6 +113,9 @@ pub enum CollectionSelection {
         focus: Box<ActivityWaitFocus>,
         partition: SourcePartition,
     },
+    DerivedDiagnosis {
+        analysis_id: String,
+    },
     Diagnostics {
         parent: DiagnosticCaptureRef,
         controller_version: u32,
@@ -138,6 +149,7 @@ impl CollectionSelection {
             }
             Self::PageWaitWriters { .. } => TelemetryCollection::Snapshot(SnapshotDataset::PageWaitWriters),
             Self::PageTaskHolders { .. } => TelemetryCollection::Snapshot(SnapshotDataset::PageTaskHolders),
+            Self::DerivedDiagnosis { .. } => TelemetryCollection::DerivedDiagnosis,
             Self::Diagnostics { .. } => TelemetryCollection::Diagnostics,
             Self::Snapshot { dataset } => TelemetryCollection::Snapshot(*dataset),
         }
@@ -186,6 +198,8 @@ pub enum TelemetrySemantics {
     CumulativeCounter,
     Definition,
     Checkpoint,
+    /// Persisted interpretation of exact original inputs, separate from native events or samples.
+    Derived,
 }
 impl TelemetryStream {
     pub fn semantics(self) -> TelemetrySemantics {
@@ -201,6 +215,7 @@ impl TelemetryStream {
             Self::ReplicationSamples => TelemetrySemantics::Sample,
             Self::SettingObservations => TelemetrySemantics::Sample,
             Self::TuningObservations => TelemetrySemantics::Sample,
+            Self::DerivedIncidents | Self::DerivedFindings | Self::DerivedChanges => TelemetrySemantics::Derived,
         }
     }
 }
@@ -545,6 +560,7 @@ pub enum SourceObservation {
         result: Box<ActivityCompilationAdmissionFocusResult>,
     },
     Diagnostics(DiagnosticCaptureDescription),
+    DerivedDiagnosis(Box<DerivedDiagnosisDescription>),
     Snapshot(StateSnapshotDescription),
     PagedSnapshot(PagedSnapshotDescription),
 }
@@ -616,6 +632,7 @@ impl SourceObservation {
             Self::MaintenanceProgress { .. } => TelemetryCollection::Snapshot(SnapshotDataset::MaintenanceProgress),
             Self::CurrentRequestWork { .. } => TelemetryCollection::Snapshot(SnapshotDataset::CurrentRequestWork),
             Self::Diagnostics(_) => TelemetryCollection::Diagnostics,
+            Self::DerivedDiagnosis(_) => TelemetryCollection::DerivedDiagnosis,
             Self::MysqlEvents { .. } | Self::Jobs { .. } | Self::MssqlAgentJobs { .. } => {
                 TelemetryCollection::Snapshot(SnapshotDataset::Jobs)
             }
@@ -663,6 +680,7 @@ impl SourceObservation {
             }
             Self::FocusedCompilationAdmission { result, .. } => TelemetryRange::Focused { key: result.focus.key()? },
             Self::Diagnostics(description) => TelemetryRange::Focused { key: description.work_key()? },
+            Self::DerivedDiagnosis(description) => TelemetryRange::Focused { key: description.analysis_id.clone() },
             Self::PageWaitTargets { original_activity: Some(activity), .. } => TelemetryRange::Focused {
                 key: digest(
                     &serde_json::to_vec(&("page-wait-task-population-v1", activity))
@@ -720,6 +738,7 @@ impl SourceObservation {
 
     pub fn covers_request(&self) -> bool {
         match self {
+            Self::DerivedDiagnosis(description) => description.is_valid(),
             Self::LocalResource { snapshot, .. } => local_resource_header_is_valid(snapshot),
             Self::SourceRead { snapshot, focus_key, execution } => {
                 snapshot.is_valid()
@@ -962,6 +981,11 @@ impl SourceObservation {
             | Self::CacheEntryMemory { snapshot, .. } => {
                 count(TelemetryStream::OperationalSamples) == u64::from(snapshot.records)
             }
+            Self::DerivedDiagnosis(description) => {
+                count(TelemetryStream::DerivedIncidents) == u64::from(description.counts.incidents)
+                    && count(TelemetryStream::DerivedFindings) == u64::from(description.counts.findings)
+                    && count(TelemetryStream::DerivedChanges) == u64::from(description.counts.changes)
+            }
             Self::Diagnostics(description) => {
                 count(TelemetryStream::OperationalSamples) == u64::from(description.records)
                     && count(TelemetryStream::DiagnosticCheckpoints) == u64::from(description.checkpoint_records)
@@ -1203,6 +1227,15 @@ impl CollectionDescription {
                 && request.subject == CollectionSubject::Database
                 && focus.target.telemetry_id().ok() == self.target.telemetry_id().ok()
                 && snapshot.records <= request.budget.max_snapshot_rows;
+        }
+        if let (
+            SourceObservation::DerivedDiagnosis(description),
+            CollectionSelection::DerivedDiagnosis { analysis_id },
+        ) = (&self.observation, &request.selection)
+        {
+            return description.is_valid()
+                && description.analysis_id == *analysis_id
+                && description.counts.total().is_some_and(|rows| rows <= request.budget.max_snapshot_rows);
         }
         if let (
             SourceObservation::Diagnostics(description),

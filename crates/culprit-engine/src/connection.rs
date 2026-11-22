@@ -90,7 +90,7 @@ impl Connections<'_> {
         }
         let stored = self.store.get(name)?;
         let installed = self.qualification_bindings.receipts(name, &route::revision(&stored)?)?;
-        if !installed.iter().any(|receipt| receipt == profile.qualification()) {
+        if profile.qualification().is_some_and(|receipt| !installed.contains(receipt)) {
             return Err(culprit_core::telemetry::CollectionStop::SourceChanged.error());
         }
         let registration = self.connection_registration(name)?;
@@ -106,14 +106,17 @@ impl Connections<'_> {
         requested: &culprit_core::telemetry::SourceProfileAdmission,
     ) -> Result<culprit_core::telemetry::SourceProfileAdmission> {
         self.profile_registration(name, request, requested)?;
+        let Some(receipt) = requested.qualification() else {
+            return Ok(requested.clone());
+        };
         let route = self.native_route_revision(name)?;
         let binding = self
             .qualification_bindings
-            .profile_binding(name, &route, requested.qualification())?
+            .profile_binding(name, &route, receipt)?
             .ok_or_else(|| culprit_core::telemetry::CollectionStop::SourceChanged.error())?;
         culprit_core::telemetry::SourceProfileAdmission::new(
             requested.route_revision().into(),
-            requested.qualification().clone(),
+            receipt.clone(),
             request.budget.clone(),
             move || binding.is_active(),
         )
@@ -126,6 +129,15 @@ impl Connections<'_> {
     pub(crate) fn qualification_component(&self, name: &str) -> Result<Option<culprit_core::ComponentVersion>> {
         let engine = self.store.get(name)?.engine;
         Ok(self.selected_registration(engine)?.qualification_component().cloned())
+    }
+
+    #[cfg(feature = "collector")]
+    pub(crate) fn verify_builtin_safety(
+        &self,
+        name: &str,
+        policy: &culprit_core::telemetry::BuiltinRecipeSafety,
+    ) -> Result<bool> {
+        self.connection_registration(name)?.verify_builtin_safety(policy)
     }
 
     pub(crate) fn verify_telemetry_cost(

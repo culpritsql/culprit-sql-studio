@@ -1,6 +1,6 @@
 use super::*;
-use culprit_collector::analytical::test_support::connection_outcome_evidence_cases;
 use culprit_core::{ConnectionOutcomeSnapshot, Snapshot, telemetry::*};
+use culprit_evidence::analytical::test_support::connection_outcome_evidence_cases;
 
 fn report(case: usize) -> ConnectionOutcomeReport {
     let (source, records) = connection_outcome_evidence_cases().remove(case);

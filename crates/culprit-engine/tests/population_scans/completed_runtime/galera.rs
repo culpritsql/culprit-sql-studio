@@ -1,9 +1,10 @@
 use super::*;
-use culprit_collector::analytical::test_support::{GaleraCase, galera_evidence};
 use culprit_core::Report;
 use culprit_engine::{
     LocalCaptureAnalysisKind, LocalCaptureRequest, LocalCapturedAnalysis, LocalSnapshotAnalysis, OutboxCaptureReader,
 };
+use culprit_evidence::analytical::test_support::GaleraCase;
+use culprit_evidence::analytical::test_support::galera_evidence;
 async fn analyze(workspace: &Workspace, captured: &Captured) -> LocalSnapshotAnalysis {
     let reader = OutboxCaptureReader::delivery(captured.outbox.delivery(), CompletedCaptureBudget::default()).unwrap();
     let guard = culprit_core::limits::OperationGuard::new(std::time::Duration::from_secs(5)).unwrap();

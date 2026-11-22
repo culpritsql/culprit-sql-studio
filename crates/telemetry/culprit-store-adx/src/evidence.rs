@@ -1,16 +1,15 @@
 //! Read-only Kusto access to explicitly selected, independently verified capture evidence.
 use crate::{catalog::SchemaCatalog, client::QueryTransport, receipts::AdxReadback};
 use async_trait::async_trait;
-use culprit_collector::{
-    analytical::{
-        ProjectionCatalog,
-        evidence::EvidenceReader,
-        indexes::ProjectionIndexes,
-        read_store::{AnalyticalReadPage, AnalyticalReadStore},
-    },
-    delivery::recovery::CommittedRange,
-};
 use culprit_core::{Result, telemetry::TelemetryStream};
+use culprit_evidence::analytical::ProjectionCatalog;
+use culprit_evidence::analytical::evidence::EvidenceReader;
+use culprit_evidence::analytical::evidence::{IncidentDiscoveryRequest, PublishedResourceQuery};
+use culprit_evidence::analytical::indexes::ProjectionIndexes;
+use culprit_evidence::analytical::read_store::AnalyticalReadPage;
+use culprit_evidence::analytical::read_store::AnalyticalReadStore;
+use culprit_evidence::delivery::contract::Contract;
+use culprit_evidence::delivery::recovery::CommittedRange;
 use serde_json::{Map, Value};
 use std::sync::Arc;
 
@@ -24,6 +23,7 @@ impl AdxReadStore {
         let catalog = Arc::new(SchemaCatalog::new()?);
         Ok(Self { readback: AdxReadback::new(query.clone(), catalog.clone()), query, catalog })
     }
+    #[cfg(feature = "write")]
     pub(crate) fn schema_catalog(&self) -> Arc<SchemaCatalog> {
         self.catalog.clone()
     }
@@ -44,6 +44,22 @@ impl AnalyticalReadStore for AdxReadStore {
     fn logical_values(&self, stream: TelemetryStream, row: &[Value]) -> Result<Map<String, Value>> {
         self.catalog.get(stream)?.logical_values(row)
     }
+    async fn resource_candidates(
+        &self,
+        contract: &Contract,
+        request: &PublishedResourceQuery,
+        byte_limit: usize,
+    ) -> Result<AnalyticalReadPage> {
+        resources::read(self, contract, request, byte_limit).await
+    }
+    async fn incident_candidates(
+        &self,
+        contract: &Contract,
+        request: &IncidentDiscoveryRequest,
+        byte_limit: usize,
+    ) -> Result<AnalyticalReadPage> {
+        incidents::read(self, contract, request, byte_limit).await
+    }
     async fn audit_membership(&self, range: &CommittedRange, byte_limit: usize) -> Result<usize> {
         self.readback.audit_membership(range, byte_limit).await
     }
@@ -62,5 +78,8 @@ impl AnalyticalReadStore for AdxReadStore {
     }
 }
 
-#[cfg(test)]
+mod incidents;
+mod resources;
+
+#[cfg(all(test, feature = "write"))]
 mod tests;

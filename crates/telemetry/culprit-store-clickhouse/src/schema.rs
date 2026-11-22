@@ -1,11 +1,12 @@
 //! Native Nullable columns and DateTime64(9) preserve logical nulls and nanoseconds without Kusto presence fields.
 use crate::response::Column;
-use culprit_collector::analytical::{
-    RowProjection,
-    projection::{self, ScalarType},
-    schema::{LogicalSchema, OutputColumn, encode_row},
-};
 use culprit_core::{Result, telemetry::DeliveryProblem};
+use culprit_evidence::analytical::RowProjection;
+use culprit_evidence::analytical::projection;
+use culprit_evidence::analytical::projection::ScalarType;
+use culprit_evidence::analytical::schema::LogicalSchema;
+use culprit_evidence::analytical::schema::OutputColumn;
+use culprit_evidence::analytical::schema::encode_row;
 use serde_json::Value;
 
 pub struct Schema {
@@ -102,6 +103,9 @@ impl Schema {
 impl RowProjection for Schema {
     fn from_logical(schema: LogicalSchema) -> Result<Self> {
         Self::new(schema)
+    }
+    fn logical_values(&self, values: &[Value]) -> Result<serde_json::Map<String, Value>> {
+        self.logical_values(values)
     }
     fn table(&self) -> &str {
         self.table()

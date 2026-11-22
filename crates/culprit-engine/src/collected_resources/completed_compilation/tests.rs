@@ -1,13 +1,13 @@
 //! Controlled source facts pass through the real Outbox owner; they never qualify native cost or live timing.
 use super::*;
-use culprit_collector::{
-    analytical::test_support::{
-        compiler_admission_evidence, compiler_admission_investigation_fixture, query_compilation_evidence,
-    },
-    capture::{self, CollectionCancellation, SourceFactory},
-    outbox::Outbox,
-};
+use culprit_collector::capture;
+use culprit_collector::capture::SourceFactory;
+use culprit_collector::outbox::Outbox;
 use culprit_core::{ErrorDetail, SourceState};
+use culprit_evidence::analytical::test_support::compiler_admission_evidence;
+use culprit_evidence::analytical::test_support::compiler_admission_investigation_fixture;
+use culprit_evidence::analytical::test_support::query_compilation_evidence;
+use culprit_read::cancellation::CollectionCancellation;
 use culprit_read::{FrozenObservation, FrozenSource, ObservationReader, admission::SourceGate};
 use std::sync::{
     Arc,
@@ -164,7 +164,7 @@ impl Fixture {
         let (mut source, mut rows) = if dataset == SnapshotDataset::QueryCompilation {
             query_compilation_evidence()
         } else {
-            culprit_collector::analytical::test_support::cached_runtime_evidence_cases().pop().unwrap()
+            culprit_evidence::analytical::test_support::cached_runtime_evidence_cases().pop().unwrap()
         };
         let SourceObservation::Snapshot(header) = &mut source.observation else { panic!() };
         if state == SourceState::Unavailable {

@@ -1,13 +1,11 @@
 use super::fixture::Fixture;
-use culprit_collector::{
-    analytical::{
-        evidence::{EvidenceFamily, EvidenceGapReason},
-        test_support::{query_compilation, query_compilation_policy_evidence},
-    },
-    delivery::recovery::RecoveryRecords,
-};
 use culprit_core::{Engine, ErrorDetail, SourceOutcome, SourceState, telemetry::*};
 use culprit_engine::collected_resources;
+use culprit_evidence::analytical::evidence::EvidenceFamily;
+use culprit_evidence::analytical::evidence::EvidenceGapReason;
+use culprit_evidence::analytical::test_support::query_compilation;
+use culprit_evidence::analytical::test_support::query_compilation_policy_evidence;
+use culprit_evidence::delivery::recovery::RecoveryRecords;
 mod intervals;
 
 #[tokio::test]
@@ -248,7 +246,7 @@ async fn compilation_admission_rejects_foreign_subjects_formats_datasets_and_ope
                 point.dataset = SnapshotDataset::Operational;
             }
             "fact" => {
-                let (_, mut other) = culprit_collector::analytical::test_support::memory_failure_evidence();
+                let (_, mut other) = culprit_evidence::analytical::test_support::memory_failure_evidence();
                 let TelemetryRecord::Operational(row) = &mut other[0] else { panic!() };
                 row.source = source.observation.snapshot().unwrap().sources[0].source.clone();
                 rows = vec![other.remove(0)];

@@ -1,5 +1,6 @@
 use super::*;
-use culprit_collector::analytical::test_support::{TableFullTextCase, table_full_text_evidence};
+use culprit_evidence::analytical::test_support::TableFullTextCase;
+use culprit_evidence::analytical::test_support::table_full_text_evidence;
 
 #[tokio::test]
 async fn table_catalog_action_keeps_the_exact_original_owner_counts_and_local_read_budget() {
@@ -70,7 +71,7 @@ async fn table_action_cannot_read_past_its_original_byte_budget_or_borrow_an_ope
 
 #[tokio::test]
 async fn temporal_configuration_action_uses_original_table_body_and_never_another_dataset() {
-    use culprit_collector::analytical::test_support::{TableTemporalCase, table_temporal_evidence};
+    use culprit_evidence::analytical::test_support::{TableTemporalCase, table_temporal_evidence};
     for case in TableTemporalCase::ALL {
         let (source, records) = table_temporal_evidence(case);
         let mut fixture = LocalCaptureFixture::snapshot(source.clone(), records.clone()).await;

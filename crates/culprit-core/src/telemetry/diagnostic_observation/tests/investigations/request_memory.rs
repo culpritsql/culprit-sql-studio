@@ -43,7 +43,7 @@ fn the_measured_question_selector_cannot_be_reinterpreted_under_the_same_recipe_
     recipe.selector = RecipeSelector::FocusedPageWait;
     assert!(!recipe.is_valid());
     assert!(!intent.matches_admission(&episode, &recipe, &component, &CollectionBudget::default()));
-    let RecipeCostQualification::Measured(receipt) = &mut recipe.cost else { panic!() };
+    let RecipeAdmission::Measured(receipt) = &mut recipe.admission else { panic!() };
     receipt.selector = RecipeSelector::FocusedPageWait;
     assert_ne!(receipt.key().unwrap(), original_key, "the source's immutable measured approval includes its question");
     assert!(!intent.matches_admission(&episode, &recipe, &component, &CollectionBudget::default()));
@@ -80,7 +80,7 @@ fn memory_stage_is_finite_and_recipe_or_receipt_versions_do_not_make_competing_q
     let (intent, _, _, _) = memory_intent();
     let mut newer = intent.clone();
     newer.recipe_version += 1;
-    newer.qualification.recipe_version = newer.recipe_version;
+    newer.qualification.measured_mut().unwrap().recipe_version = newer.recipe_version;
     assert!(newer.is_valid());
     assert_ne!(newer.key().unwrap(), intent.key().unwrap());
     assert_eq!(newer.episode_stage_key().unwrap(), intent.episode_stage_key().unwrap());

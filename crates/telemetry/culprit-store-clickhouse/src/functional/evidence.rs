@@ -1,5 +1,6 @@
 use super::*;
-use culprit_collector::analytical::{evidence::*, indexes::ProjectionIndexes};
+use culprit_evidence::analytical::evidence::*;
+use culprit_evidence::analytical::indexes::ProjectionIndexes;
 
 #[tokio::test]
 #[ignore = "requires the owned ClickHouse container from dev/smoke-clickhouse.py"]

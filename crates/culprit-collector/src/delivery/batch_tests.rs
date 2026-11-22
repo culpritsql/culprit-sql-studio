@@ -1,18 +1,22 @@
 //! A slow transfer remains bounded per batch and acknowledged progress survives a journal restart.
-use super::{
-    contract::Contract,
-    driver::{DeliveryDriver, DeliveryPolicy},
-    evidence::*,
-    file_sink::FileTelemetrySink,
-    file_store::FileRecoveryStore,
-    journal::{DeliveryJournal, HydrationPriority},
-    recovery::*,
-    sink::*,
-    tests::contract,
-};
+use super::driver::DeliveryDriver;
+use super::driver::DeliveryPolicy;
+use super::file_sink::FileTelemetrySink;
+use super::file_store::FileRecoveryStore;
+use super::journal::DeliveryJournal;
+use super::journal::HydrationPriority;
+use super::recovery::*;
+use super::sink::*;
+use super::tests::contract;
 use crate::collection_files::ObservationFiles;
+use crate::delivery::evidence::PreparedRange;
 use async_trait::async_trait;
 use culprit_core::{Result, telemetry::*};
+use culprit_evidence::delivery::contract::Contract;
+use culprit_evidence::delivery::evidence::*;
+use culprit_evidence::delivery::receipts::ReceiptPage;
+use culprit_evidence::delivery::recovery::RecoveryRead as _;
+use culprit_evidence::delivery::{mutations::*, recovery::*};
 use std::{
     path::Path,
     sync::{
@@ -35,7 +39,7 @@ impl RecoveryStore for Transfers {
     async fn diagnostic_original_groups(
         &self,
         keys: &[String],
-    ) -> Result<crate::delivery::diagnostic_recovery::OriginalHistoryLookup> {
+    ) -> Result<culprit_evidence::delivery::originals::OriginalHistoryLookup> {
         self.store.diagnostic_original_groups(keys).await
     }
 
@@ -55,21 +59,43 @@ impl RecoveryStore for Transfers {
     async fn retire(&self, fence: &Fence, publication: &PublishedRange) -> Result<()> {
         self.store.retire(fence, publication).await
     }
-    async fn capture_manifest(&self, capture: &culprit_core::telemetry::CaptureIdentity) -> Result<RangeManifest> {
-        self.store.capture_manifest(capture).await
-    }
-    async fn diagnostic_heads(&self, cursor: Option<&str>, limit: u32) -> Result<super::recovery::DiagnosticHeadPage> {
+
+    async fn diagnostic_heads(
+        &self,
+        cursor: Option<&str>,
+        limit: u32,
+    ) -> Result<culprit_evidence::delivery::heads::DiagnosticHeadPage> {
         self.store.diagnostic_heads(cursor, limit).await
     }
-    fn id(&self) -> &str {
-        self.store.id()
-    }
+
     async fn checkpoint_head(&self) -> Result<Option<String>> {
         self.store.checkpoint_head().await
     }
     async fn captured_range(&self, range: &CapturedRange) -> Result<Option<CaptureIdentity>> {
         self.store.captured_range(range).await
     }
+
+    async fn recover(&self, cursor: Option<&str>, limit: u32) -> Result<RecoveryPage> {
+        self.store.recover(cursor, limit).await
+    }
+}
+#[async_trait::async_trait]
+impl culprit_evidence::delivery::recovery::RecoveryRead for Transfers {
+    fn id(&self) -> &str {
+        self.store.id()
+    }
+    async fn load(&self, id: &str) -> Result<RangeManifest> {
+        self.store.load(id).await
+    }
+    async fn capture_manifest(&self, capture: &culprit_core::telemetry::CaptureIdentity) -> Result<RangeManifest> {
+        self.store.capture_manifest(capture).await
+    }
+    async fn open_object(&self, batch: &PayloadObject) -> Result<RecoveryReader> {
+        self.store.open_object(batch).await
+    }
+}
+#[async_trait::async_trait]
+impl culprit_evidence::delivery::mutations::RecoveryWrite for Transfers {
     async fn stage(&self, batch: &PayloadObject, path: &Path) -> Result<StagedBatch> {
         self.staged.lock().unwrap().push(path.file_name().unwrap().to_string_lossy().into());
         tokio::time::sleep(Duration::from_millis(300)).await;
@@ -84,16 +110,8 @@ impl RecoveryStore for Transfers {
     ) -> Result<CommitReceipt> {
         self.store.commit(fence, head, manifest, batches).await
     }
-    async fn load(&self, id: &str) -> Result<RangeManifest> {
-        self.store.load(id).await
-    }
-    async fn recover(&self, cursor: Option<&str>, limit: u32) -> Result<RecoveryPage> {
-        self.store.recover(cursor, limit).await
-    }
-    async fn open_object(&self, batch: &PayloadObject) -> Result<RecoveryReader> {
-        self.store.open_object(batch).await
-    }
 }
+
 #[async_trait]
 impl TelemetrySink for Transfers {
     async fn validate_contract(&self, contract: &Contract) -> Result<()> {
@@ -210,16 +228,20 @@ fn empty_query_history(root: &Path) -> PreparedRange {
     writer.confirm_source(SourceCompletion::Verified).unwrap();
     PreparedRange::from_validated(&path, &writer.finish(4).unwrap(), contract(), vec![]).unwrap()
 }
-pub(super) fn empty_diagnostics(root: &Path, parent: &super::evidence::RangeManifest, sequence: u64) -> PreparedRange {
+pub(super) fn empty_diagnostics(
+    root: &Path,
+    parent: &culprit_evidence::delivery::evidence::RangeManifest,
+    sequence: u64,
+) -> PreparedRange {
     empty_diagnostics_for_version(root, parent, sequence, DIAGNOSTIC_CONTROLLER_VERSION)
 }
 pub(super) fn empty_diagnostics_for_version(
     root: &Path,
-    parent: &super::evidence::RangeManifest,
+    parent: &culprit_evidence::delivery::evidence::RangeManifest,
     sequence: u64,
     controller_version: u32,
 ) -> PreparedRange {
-    let parent = super::diagnostic_recovery::capture_reference(parent).unwrap();
+    let parent = culprit_evidence::delivery::heads::capture_reference(parent).unwrap();
     let step_id = digest(format!("step-{sequence}").as_bytes());
     let request = CollectionRequest {
         subject: CollectionSubject::Database,
@@ -336,7 +358,8 @@ async fn transfers_larger_than_one_operation_budget_resume_at_the_next_batch_aft
 #[tokio::test]
 async fn an_unavailable_pending_index_does_not_block_already_committed_analytical_delivery() {
     use super::worker::{DeliveryJournals, DeliveryWorker};
-    use crate::{capture::CollectionCancellation, outbox::Outbox};
+    use crate::outbox::Outbox;
+    use culprit_read::cancellation::CollectionCancellation;
     let root = tempfile::tempdir().unwrap();
     let prepared = super::tests::prepared(root.path(), 1);
     let store = Arc::new(FileRecoveryStore::create(&root.path().join("recovery"), contract()).unwrap());
@@ -394,7 +417,8 @@ async fn an_unavailable_pending_index_does_not_block_already_committed_analytica
 #[tokio::test]
 async fn metadata_backpressure_keeps_bounded_verified_candidates_without_repeated_remote_reads() {
     use super::worker::{DeliveryJournals, DeliveryWorker};
-    use crate::{capture::CollectionCancellation, outbox::Outbox};
+    use crate::outbox::Outbox;
+    use culprit_read::cancellation::CollectionCancellation;
     let root = tempfile::tempdir().unwrap();
     let first = super::tests::prepared(root.path(), 1);
     let second = super::tests::prepared(root.path(), 2);
@@ -467,7 +491,8 @@ async fn metadata_backpressure_keeps_bounded_verified_candidates_without_repeate
 #[tokio::test]
 async fn cold_recovery_admits_fresh_commits_without_traversing_the_historical_backlog() {
     use super::worker::{DeliveryJournals, DeliveryWorker};
-    use crate::{capture::CollectionCancellation, outbox::Outbox};
+    use crate::outbox::Outbox;
+    use culprit_read::cancellation::CollectionCancellation;
     let root = tempfile::tempdir().unwrap();
     let store = Arc::new(FileRecoveryStore::create(&root.path().join("recovery"), contract()).unwrap());
     let owner = store.acquire().await.unwrap();

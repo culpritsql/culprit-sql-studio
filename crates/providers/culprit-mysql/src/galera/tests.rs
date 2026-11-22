@@ -48,7 +48,7 @@ async fn explicit_real_factory_recipe_never_collects_during_construction_or_appr
     assert_eq!(source.query_count(), 0);
     assert_eq!(source.close().await, SourceShutdown::Quiescent);
     let recipe = crate::telemetry::recipes().into_iter().find(|recipe| recipe.id == "mariadb.galera").unwrap();
-    assert_eq!(recipe.cost, RecipeCostQualification::Unqualified);
+    assert_eq!(recipe.admission, RecipeAdmission::Unqualified);
     assert_eq!(recipe.purpose, RecipePurpose::Investigation);
     assert_eq!(recipe.budget.max_queries, 17);
     let mut wrong = request();

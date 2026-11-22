@@ -1,5 +1,6 @@
 use super::*;
-use culprit_collector::analytical::test_support::{TableMemoryCase, table_memory_evidence};
+use culprit_evidence::analytical::test_support::TableMemoryCase;
+use culprit_evidence::analytical::test_support::table_memory_evidence;
 async fn analyze(
     reader: &OutboxCaptureReader,
     connection: &str,

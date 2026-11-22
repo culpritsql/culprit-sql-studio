@@ -1,6 +1,7 @@
 use super::*;
-use crate::analytical::test_support::{LocalCaptureFixture, page_server_read_evidence_cases};
+use crate::analytical::test_support::LocalCaptureFixture;
 use culprit_core::{ErrorDetail, limits::OperationGuard};
+use culprit_evidence::analytical::test_support::page_server_read_evidence_cases;
 use std::time::Duration;
 
 async fn fixture(case: &str) -> LocalCaptureFixture {

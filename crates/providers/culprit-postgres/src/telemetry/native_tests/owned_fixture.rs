@@ -1,40 +1,13 @@
 //! Shared owned-loopback admission and actual collector receipts; fixture-specific writers live elsewhere.
-use super::{Factory, spec};
-use crate::{
-    connect::Connector,
-    read::{NativeRead, QueryRead, ReadSession},
-};
-use culprit_collector::{
-    capture::{CollectionCancellation, collect, collect_once},
-    outbox::Outbox,
-};
+use super::Factory;
+use culprit_collector::capture::collect;
+use culprit_collector::capture::collect_once;
+use culprit_collector::outbox::Outbox;
 use culprit_core::{ConnectionSpec, Provider, telemetry::*};
 use culprit_read::admission::SourceGate;
+use culprit_read::cancellation::CollectionCancellation;
 
-pub(super) fn owner() -> String {
-    let owner = std::env::var("CULPRIT_SMOKE_OWNER").expect("explicit owned fixture nonce");
-    assert!(owner.len() == 24 && owner.bytes().all(|value| value.is_ascii_hexdigit() && !value.is_ascii_uppercase()));
-    owner
-}
-
-pub(super) async fn specification(database: &str, budget: CollectionBudget) -> ConnectionSpec {
-    let specification = spec();
-    assert_eq!(specification.database.as_deref(), Some(database));
-    assert!(specification.port.is_some_and(|port| port >= 1024 && port != 5432));
-    let owner = owner();
-    let mut reader = ReadSession::new(Connector::new(&specification).unwrap(), budget);
-    let result = reader
-        .query("SELECT current_database() AS database,pg_catalog.current_setting('cluster_name') AS marker", 1)
-        .await;
-    assert_eq!(reader.close().await, SourceShutdown::Quiescent);
-    let rows = result.expect("bounded owned fixture admission");
-    assert_eq!(rows.len(), 1);
-    assert_eq!(rows[0].text("database").as_deref(), Some(database));
-    // Existing supervisor-owned PostgreSQL and Timescale fixtures share this native startup marker.
-    assert_eq!(rows[0].text("marker"), Some(format!("culprit_owned_{owner}")));
-    assert_settled(&reader.metrics().unwrap(), reader.queries());
-    specification
-}
+pub(super) use crate::native_test_support::{owner, specification};
 
 pub(super) struct Captured {
     pub manifest: CollectionManifest,

@@ -1,5 +1,6 @@
 use super::*;
-use culprit_collector::analytical::test_support::{SessionCensusCase, session_census_evidence};
+use culprit_evidence::analytical::test_support::SessionCensusCase;
+use culprit_evidence::analytical::test_support::session_census_evidence;
 
 async fn census(reader: &OutboxCaptureReader, id: &str) -> Result<LocalSessionCensus> {
     let guard = OperationGuard::new(reader.timeout()).unwrap();

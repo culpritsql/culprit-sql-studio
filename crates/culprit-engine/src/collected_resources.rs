@@ -1,9 +1,9 @@
 //! Authenticated resource observations need neither a live provider nor invented query ownership.
-use culprit_collector::analytical::evidence::{EvidenceCapture, EvidenceFamily};
 use culprit_core::{
     Engine, Result, SourceOutcome, SourceState, collected_resource_analysis::CollectedRetainedFailureAnalysis,
     operations::MemoryFailureSnapshot, telemetry::*,
 };
+use culprit_evidence::analytical::evidence::{EvidenceCapture, EvidenceFamily};
 mod incident_history;
 pub use incident_history::incident_history;
 mod source_overhead;
@@ -36,7 +36,9 @@ pub use cleanup::cleanup;
 mod tuning;
 pub use tuning::tuning;
 mod compilation;
+#[cfg(feature = "collector")]
 mod completed_compilation;
+#[cfg(feature = "collector")]
 pub use completed_compilation::{CompletedCompilationAnalysis, completed_compilation};
 mod completed_spills;
 pub use compilation::compilation;
@@ -72,6 +74,7 @@ pub use current_request_work::current_request_work;
 mod jobs;
 pub use jobs::jobs;
 mod replication;
+#[cfg(feature = "collector")]
 pub(crate) use replication::explain_read as explain_replication_read;
 pub use replication::replication;
 mod configured_log_rates;

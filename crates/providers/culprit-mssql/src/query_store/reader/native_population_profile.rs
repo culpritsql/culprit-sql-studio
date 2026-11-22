@@ -1,16 +1,15 @@
 //! An owned metadata experiment, not a runtime-population fallback or a source-cost qualification.
 use super::*;
-use crate::{
-    read::measurement::shutdown_state,
-    test_support::{
-        OwnedSourceFixture,
-        owned_case::{finish_case, until_cancelled},
-        query_store_probes::{self, ProbePolicy},
-        receipt_directory, save_cost_receipt,
-    },
-};
-use culprit_collector::capture::CollectionCancellation;
+use crate::read::measurement::shutdown_state;
+use crate::test_support::OwnedSourceFixture;
+use crate::test_support::owned_case::finish_case;
+use crate::test_support::owned_case::until_cancelled;
+use crate::test_support::query_store_probes;
+use crate::test_support::query_store_probes::ProbePolicy;
+use crate::test_support::receipt_directory;
+use crate::test_support::save_cost_receipt;
 use culprit_core::telemetry::*;
+use culprit_read::cancellation::CollectionCancellation;
 use futures_util::FutureExt;
 use serde_json::json;
 use std::{panic::AssertUnwindSafe, path::Path, time::Duration};

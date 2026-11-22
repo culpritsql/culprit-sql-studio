@@ -149,14 +149,14 @@ fn shared_cost_scope_retains_native_owner_without_inventing_activity_population_
     let intent = shared.intent();
     assert!(intent.is_valid() && intent.matches_episode(&shared.scenario.episode));
     assert!(intent.matches_shared_owner(&shared.owner_source, &shared.owner_row));
-    assert!(intent.qualification.scope.as_activity().is_none());
+    assert!(intent.qualification.scope().as_activity().is_none());
     assert_ne!(
-        intent.qualification.scope.native_epoch(),
+        intent.qualification.scope().native_epoch(),
         Some(intent.focus.activity_participant().unwrap().epoch.as_str())
     );
     assert_eq!(intent.focus.target(), &shared.scenario.episode.scope.target);
     assert_eq!(intent.subject(), CollectionSubject::Shared { resource: shared.member });
-    assert_eq!(intent.qualification.scope.target(), shared.owner_source.target);
+    assert_eq!(intent.qualification.scope().target(), shared.owner_source.target);
     assert!(
         DiagnosticInvestigationIntent::new(
             &shared.scenario.episode,
@@ -248,7 +248,7 @@ fn a_partial_positive_owner_is_usable_but_unknown_owner_or_another_member_cannot
     assert!(shared.intent().matches_shared_owner(&shared.owner_source, &shared.owner_row));
     for unknown in [false, true] {
         let mut recipe = shared.scenario.recipe.clone();
-        let RecipeCostQualification::Measured(receipt) = &mut recipe.cost else { panic!() };
+        let RecipeAdmission::Measured(receipt) = &mut recipe.admission else { panic!() };
         let RecipeCostScope::SharedResource { target, partition, .. } = &mut receipt.scope else { panic!() };
         if unknown {
             *partition = SourcePartition::InstanceLocal { member: None, epoch: None };
@@ -319,7 +319,7 @@ fn shared_lineage_preserves_exact_selection_subject_budget_and_owner_without_an_
     assert_eq!(other.episode_stage_key().unwrap(), intent.episode_stage_key().unwrap());
     let mut database_recipe = shared.scenario.recipe.clone();
     database_recipe.subjects = vec![RecipeSubject::Database];
-    let RecipeCostQualification::Measured(receipt) = &mut database_recipe.cost else { panic!() };
+    let RecipeAdmission::Measured(receipt) = &mut database_recipe.admission else { panic!() };
     receipt.scope = shared.scenario.episode.scope.clone().into();
     let database = DiagnosticInvestigationIntent::new(
         &shared.scenario.episode,

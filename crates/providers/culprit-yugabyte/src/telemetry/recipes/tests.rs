@@ -37,7 +37,7 @@ fn every_public_declaration_has_one_actual_offline_constructor_and_no_native_cos
     for (registration, descriptor) in REGISTRATIONS.iter().zip(declarations) {
         let request = request(registration, CollectionBudget::default());
         assert_eq!(descriptor, registration.descriptor());
-        assert_eq!(descriptor.cost, RecipeCostQualification::Unqualified);
+        assert_eq!(descriptor.admission, RecipeAdmission::Unqualified);
         assert_eq!(
             descriptor.version,
             match registration.route {

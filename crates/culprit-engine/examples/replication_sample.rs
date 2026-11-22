@@ -1,6 +1,7 @@
 //! Render controlled native replication facts with the same pure view used by scans and archived analysis.
-use culprit_collector::analytical::test_support::{ReplicationCase, replication_evidence};
 use culprit_core::{ReplicationReport, telemetry::*};
+use culprit_evidence::analytical::test_support::ReplicationCase;
+use culprit_evidence::analytical::test_support::replication_evidence;
 use std::{collections::BTreeMap, path::PathBuf};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {

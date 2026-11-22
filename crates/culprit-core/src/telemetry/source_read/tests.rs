@@ -463,7 +463,7 @@ fn recipe(original: &Original) -> (RecipeDescriptor, crate::ComponentVersion) {
             selector: receipt.selector,
             subjects: vec![RecipeSubject::Database],
             budget: CollectionBudget::default(),
-            cost: RecipeCostQualification::Measured(Box::new(receipt)),
+            admission: RecipeAdmission::Measured(Box::new(receipt)),
         },
         component,
     )
@@ -497,7 +497,7 @@ fn finite_source_admission_is_question_specific_and_requires_exact_native_cost_s
     ] {
         let mut other = recipe.clone();
         other.selector = selector;
-        let RecipeCostQualification::Measured(receipt) = &mut other.cost else { panic!() };
+        let RecipeAdmission::Measured(receipt) = &mut other.admission else { panic!() };
         receipt.selector = selector;
         assert!(!receipt.is_valid(), "no generic snapshot or Activity approval follows from this NativeRead scope");
     }
@@ -675,10 +675,10 @@ fn baseline_source_cost_is_independent_of_an_episode_but_cannot_authorize_an_inv
     let original = original();
     let (mut recipe, component) = recipe(&original);
     recipe.purpose = RecipePurpose::Baseline;
-    let RecipeCostQualification::Measured(receipt) = &mut recipe.cost else { panic!() };
+    let RecipeAdmission::Measured(receipt) = &mut recipe.admission else { panic!() };
     receipt.purpose = RecipePurpose::Baseline;
     assert!(recipe.is_valid());
-    let RecipeCostQualification::Measured(receipt) = &recipe.cost else { panic!() };
+    let RecipeAdmission::Measured(receipt) = &recipe.admission else { panic!() };
     let profile = SourceProfileAdmission::new(
         digest(b"baseline-native-route"),
         receipt.as_ref().clone(),
@@ -713,7 +713,7 @@ fn baseline_source_cost_is_independent_of_an_episode_but_cannot_authorize_an_inv
 fn baseline_profile_refuses_unknown_role_foreign_native_owner_changed_epoch_and_wider_caller_budget() {
     let original = original();
     let (recipe, _) = recipe(&original);
-    let RecipeCostQualification::Measured(mut receipt) = recipe.cost else { panic!() };
+    let RecipeAdmission::Measured(mut receipt) = recipe.admission else { panic!() };
     receipt.purpose = RecipePurpose::Baseline;
     let profile = SourceProfileAdmission::new(
         digest(b"baseline-native-route"),

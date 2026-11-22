@@ -1,6 +1,7 @@
 use super::*;
-use culprit_collector::analytical::test_support::{IncidentHistoryCase, incident_history_evidence};
 use culprit_core::{limits::OperationGuard, telemetry::*};
+use culprit_evidence::analytical::test_support::IncidentHistoryCase;
+use culprit_evidence::analytical::test_support::incident_history_evidence;
 fn report() -> IncidentHistoryReport {
     let (source, rows) = incident_history_evidence(IncidentHistoryCase::Many);
     let capture = CaptureIdentity {
@@ -57,7 +58,7 @@ fn canonical_tempdb_answer_text_keeps_observed_context_unresolved_causes_and_ind
 
 #[test]
 fn actual_artifact_intake_and_terminal_history_keep_original_compilation_context_and_competing_gaps() {
-    use culprit_collector::analytical::test_support::{
+    use culprit_evidence::analytical::test_support::{
         QueryCompilationFollowupCase, query_compilation_followup_evidence,
     };
     let (source, rows) = query_compilation_followup_evidence(QueryCompilationFollowupCase::Exact);

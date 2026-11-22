@@ -323,13 +323,16 @@ async fn attach_table_metadata(client: &mut impl NativeRead, snapshot: &mut Snap
     let mut incomplete = false;
     for trigger in triggers {
         incomplete |= !trigger.event_metadata_complete();
-        let events = crate::triggers::event_codes(&trigger);
+        let Some(option) = trigger.table_storage_option() else {
+            incomplete = true;
+            continue;
+        };
         if let Some(index) = positions.get(&(trigger.parent_schema, trigger.parent_name)) {
             snapshot.tables[*index]
                 .storage
                 .get_or_insert_with(culprit_core::TableStorage::default)
                 .options
-                .push(format!("trigger={}:{events}", trigger.name));
+                .push(option);
         } else {
             incomplete = true;
         }

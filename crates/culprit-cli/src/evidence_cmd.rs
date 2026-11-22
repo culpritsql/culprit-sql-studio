@@ -4,18 +4,19 @@ use crate::{
     output::{Format, Out, observations},
 };
 use clap::{Args, Subcommand, ValueEnum};
-use culprit_collector::{
-    analytical::evidence::{EvidenceCapture, EvidenceFamily, EvidenceReadBudget, RecoveryPayloadBudget},
-    capture::CollectionCancellation,
-};
 use culprit_core::{
     NativeRuntimePopulationCatalog, Result, format, t,
     telemetry::{DeliveryProblem, NativeIdentity, SourceObservation, valid_digest},
 };
-use culprit_engine::collector_service::{
-    CollectorRuntime,
-    evidence::{EvidenceConfig, EvidenceRequest, EvidenceService},
-};
+use culprit_engine::evidence::EvidenceConfig;
+use culprit_engine::evidence::EvidenceRequest;
+use culprit_engine::evidence::EvidenceRuntime;
+use culprit_engine::evidence::EvidenceService;
+use culprit_evidence::analytical::evidence::EvidenceCapture;
+use culprit_evidence::analytical::evidence::EvidenceFamily;
+use culprit_evidence::analytical::evidence::EvidenceReadBudget;
+use culprit_evidence::analytical::evidence::RecoveryPayloadBudget;
+use culprit_read::cancellation::CollectionCancellation;
 use serde::Serialize;
 use std::{io::Write, path::PathBuf};
 mod selection;
@@ -183,6 +184,10 @@ enum Family {
     QueryRuntime,
     QueryWaits,
     ReplicationSamples,
+    SettingObservations,
+    DerivedIncidents,
+    DerivedFindings,
+    DerivedChanges,
 }
 impl From<Family> for EvidenceFamily {
     fn from(family: Family) -> Self {
@@ -198,6 +203,10 @@ impl From<Family> for EvidenceFamily {
             Family::QueryRuntime => Self::QueryRuntime,
             Family::QueryWaits => Self::QueryWaits,
             Family::ReplicationSamples => Self::ReplicationSamples,
+            Family::SettingObservations => Self::SettingObservations,
+            Family::DerivedIncidents => Self::DerivedIncidents,
+            Family::DerivedFindings => Self::DerivedFindings,
+            Family::DerivedChanges => Self::DerivedChanges,
         }
     }
 }
@@ -333,7 +342,7 @@ impl Analysis {
 
 impl CommonArgs {
     fn service(&self) -> Result<EvidenceService> {
-        CollectorRuntime::default().evidence(&EvidenceConfig::from_file(&self.config)?)
+        EvidenceRuntime::default().evidence(&EvidenceConfig::from_file(&self.config)?)
     }
 
     fn validate(&self, output: Format) -> Result<EvidenceReadBudget> {

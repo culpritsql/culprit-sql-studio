@@ -3,14 +3,16 @@ use super::{
     runtime::Runtime,
     support::{Frame, Harness, capture_frame},
 };
-use crate::{
-    analytical::test_support::{PageTaskHolderCase, page_task_holder_fixture},
-    capture::CollectionCancellation,
-    diagnostics::analyze_pending,
-    fleet::{journal::FocusedStage, scheduler::Outcome},
-    outbox::{DiagnosticInputState, DiagnosticUpdate, Outbox},
-};
+use crate::diagnostics::analyze_pending;
+use crate::fleet::journal::FocusedStage;
+use crate::fleet::scheduler::Outcome;
+use crate::outbox::DiagnosticInputState;
+use crate::outbox::DiagnosticUpdate;
+use crate::outbox::Outbox;
 use culprit_core::telemetry::*;
+use culprit_evidence::analytical::test_support::PageTaskHolderCase;
+use culprit_evidence::analytical::test_support::page_task_holder_fixture;
+use culprit_read::cancellation::CollectionCancellation;
 use std::sync::atomic::Ordering;
 mod recovery;
 
@@ -33,7 +35,7 @@ async fn fixture(long_running: bool, siblings: bool) -> Harness {
 fn configure_recipe(fixture: &mut Harness) {
     fixture.backend.recipe.id = "fixture.paired-page-tasks".into();
     fixture.backend.recipe.selector = RecipeSelector::PageWaitTasks;
-    let RecipeCostQualification::Measured(cost) = &mut fixture.backend.recipe.cost else { panic!() };
+    let RecipeAdmission::Measured(cost) = &mut fixture.backend.recipe.admission else { panic!() };
     cost.recipe_id = fixture.backend.recipe.id.clone();
     cost.selector = RecipeSelector::PageWaitTasks;
     assert!(fixture.backend.recipe.is_valid(), "mock accounting is never production qualification");
@@ -158,7 +160,7 @@ async fn a_healthy_frame_or_unqualified_population_never_enrolls_or_opens_an_inv
     for healthy in [true, false] {
         let mut fixture = fixture(!healthy, false).await;
         if !healthy {
-            fixture.backend.recipe.cost = RecipeCostQualification::Unqualified;
+            fixture.backend.recipe.admission = RecipeAdmission::Unqualified;
         }
         let mut runtime = Runtime::from_fixture(fixture).await;
         let before = runtime.native_calls();
@@ -175,7 +177,7 @@ async fn a_declared_but_unqualified_request_reader_is_not_bypassed_by_a_measured
     let mut request = fixture.backend.recipe.clone();
     request.id = "fixture.current-request-work".into();
     request.selector = RecipeSelector::CurrentRequestWork;
-    request.cost = RecipeCostQualification::Unqualified;
+    request.admission = RecipeAdmission::Unqualified;
     fixture.backend.additional_recipes.push(request);
     let mut runtime = Runtime::from_fixture(fixture).await;
     let before = runtime.native_calls();
@@ -304,7 +306,7 @@ async fn pending_question_reopens_with_its_exact_first_frame_context_and_pin_wit
 #[tokio::test]
 async fn missing_independent_cost_evidence_withholds_the_population_without_opening_a_source() {
     let mut fixture = fixture(true, false).await;
-    let RecipeCostQualification::Measured(receipt) = &mut fixture.backend.recipe.cost else { panic!() };
+    let RecipeAdmission::Measured(receipt) = &mut fixture.backend.recipe.admission else { panic!() };
     receipt.evidence.capture.observation_id = "unavailable-cost-capture".into();
     receipt.evidence.batch_id = batch_id(&receipt.evidence.capture.observation_id, receipt.evidence.stream).unwrap();
     assert!(fixture.backend.recipe.is_valid());

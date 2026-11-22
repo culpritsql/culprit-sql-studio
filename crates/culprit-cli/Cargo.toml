@@ -16,13 +16,15 @@ name = "all"
 path = "tests/all.rs"
 
 [dependencies]
+culprit-read.workspace = true
+culprit-evidence.workspace = true
 culprit-auth.workspace = true
 culprit-auth-azure.workspace = true
 culprit-core.workspace = true
 culprit-collector.workspace = true
 culprit-engine = { workspace = true, features = ["store-adx", "store-clickhouse", "recovery-azure", "recovery-s3"] }
-culprit-store-adx.workspace = true
-culprit-store-clickhouse.workspace = true
+culprit-store-adx = { workspace = true, features = ["write"] }
+culprit-store-clickhouse = { workspace = true, features = ["write"] }
 culprit-mcp.workspace = true
 clap.workspace = true
 serde.workspace = true
@@ -32,6 +34,7 @@ ring.workspace = true
 ureq.workspace = true
 
 [dev-dependencies]
+culprit-evidence = { workspace = true, features = ["test-support"] }
 async-trait.workspace = true
 culprit-checks.workspace = true
 culprit-collector = { workspace = true, features = ["test-support"] }

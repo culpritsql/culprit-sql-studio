@@ -730,3 +730,23 @@ fn integrity_history_provenance_is_native_and_other_engines_have_no_sql_server_f
         assert_eq!(engine.facts().integrity_history_note.as_deref(), expected, "{engine:?}");
     }
 }
+
+#[test]
+fn every_engine_declares_the_same_source_free_default_port_for_native_clients_and_generated_consumers() {
+    let expected = [
+        (Engine::Mssql, Some(1433)),
+        (Engine::Postgres, Some(5432)),
+        (Engine::Yugabyte, Some(5433)),
+        (Engine::Mysql, Some(3306)),
+        (Engine::Sqlite, None),
+    ];
+    assert_eq!(expected.len(), Engine::ALL.len());
+    for engine in Engine::ALL {
+        let port = expected.iter().find_map(|(candidate, port)| (*candidate == engine).then_some(*port)).unwrap();
+        assert_eq!(engine.spec().default_port(), port, "{engine:?}");
+        assert_eq!(engine.facts().default_port, port, "{engine:?}");
+        if let Some(port) = port {
+            assert!(port > 0);
+        }
+    }
+}

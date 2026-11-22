@@ -11,6 +11,7 @@ publish.workspace = true
 doctest = false
 
 [dependencies]
+culprit-read.workspace = true
 culprit-core.workspace = true
 culprit-engine.workspace = true
 chrono.workspace = true
@@ -21,6 +22,7 @@ serde_json.workspace = true
 tokio.workspace = true
 
 [dev-dependencies]
+culprit-evidence = { workspace = true, features = ["test-support"] }
 async-trait.workspace = true
 culprit-checks.workspace = true
 culprit-collector = { workspace = true, features = ["test-support"] }

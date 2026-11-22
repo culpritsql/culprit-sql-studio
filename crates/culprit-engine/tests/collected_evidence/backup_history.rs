@@ -1,8 +1,8 @@
 use super::*;
-use culprit_collector::analytical::test_support::{
-    BackupHistoryCase, assert_backup_history_capture, backup_history_evidence,
-};
 use culprit_core::SourceState;
+use culprit_evidence::analytical::test_support::BackupHistoryCase;
+use culprit_evidence::analytical::test_support::assert_backup_history_capture;
+use culprit_evidence::analytical::test_support::backup_history_evidence;
 #[tokio::test]
 async fn original_backup_profiles_keep_native_fields_retention_gaps_and_one_canonical_interpretation_without_recovery()
 {
@@ -11,7 +11,7 @@ async fn original_backup_profiles_keep_native_fields_retention_gaps_and_one_cano
         let fixture = Fixture::new(source.clone(), rows.clone()).await;
         let opened = fixture.recovery_object_reads();
         let capture =
-            fixture.read_families(&[culprit_collector::analytical::evidence::EvidenceFamily::OperationalSamples]).await;
+            fixture.read_families(&[culprit_evidence::analytical::evidence::EvidenceFamily::OperationalSamples]).await;
         assert_backup_history_capture(&capture, &source, &rows);
         let analysis = culprit_engine::collected_resources::backup_history(&capture).unwrap();
         let observations = rows

@@ -1,6 +1,7 @@
 use super::*;
-use culprit_collector::analytical::test_support::{PoolSettingsCase, pool_settings_evidence};
 use culprit_engine::LocalCaptureAnalysisKind;
+use culprit_evidence::analytical::test_support::PoolSettingsCase;
+use culprit_evidence::analytical::test_support::pool_settings_evidence;
 #[tokio::test]
 async fn actual_local_mcp_pool_analysis_keeps_original_settings_references_scope_and_unknowns_without_native_factory_work()
  {

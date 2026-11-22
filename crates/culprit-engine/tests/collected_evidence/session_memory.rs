@@ -1,10 +1,9 @@
 use super::fixture::Fixture;
-use culprit_collector::analytical::{
-    evidence::{EvidenceFamily, EvidenceGapReason},
-    test_support::session_memory_evidence_cases,
-};
 use culprit_core::{Snapshot, SourceOutcome, SourceState, telemetry::*};
 use culprit_engine::collected_resources;
+use culprit_evidence::analytical::evidence::EvidenceFamily;
+use culprit_evidence::analytical::evidence::EvidenceGapReason;
+use culprit_evidence::analytical::test_support::session_memory_evidence_cases;
 
 fn observations(rows: &[TelemetryRecord]) -> Vec<&SessionMemoryObservation> {
     rows.iter()

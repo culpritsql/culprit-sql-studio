@@ -2,8 +2,8 @@
 //! same-input owned intervention. Variant diversity alone never establishes harmful parameter reuse.
 use super::super::*;
 use crate::test_support::{OwnedSourceFixture, owned_case::finish_case};
-use culprit_collector::capture::CollectionCancellation;
 use culprit_core::telemetry::CachedStatementContext;
+use culprit_read::cancellation::CollectionCancellation;
 use std::time::Duration;
 
 mod cache;

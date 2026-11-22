@@ -1,5 +1,6 @@
 use super::*;
-use culprit_collector::analytical::test_support::{PageServerIoCase as Case, page_server_io_evidence};
+use culprit_evidence::analytical::test_support::PageServerIoCase as Case;
+use culprit_evidence::analytical::test_support::page_server_io_evidence;
 
 const FAMILY: &[EvidenceFamily] = &[EvidenceFamily::ObjectDefinitions];
 
@@ -9,7 +10,7 @@ async fn exact_page_server_corpus_keeps_original_definition_identity_scope_and_n
         let (source, records) = page_server_io_evidence(case);
         let fixture = Fixture::new(source.clone(), records.clone()).await;
         let capture = fixture.read_families_with_recovery(FAMILY, RecoveryPayloadBudget::default()).await;
-        culprit_collector::analytical::test_support::assert_object_definition_capture(&capture, &source, &records);
+        culprit_evidence::analytical::test_support::assert_object_definition_capture(&capture, &source, &records);
         let analysis = collected_resources::cached_plans(&capture).unwrap();
         assert_eq!(analysis.context.source, source, "{case:?}");
         assert_eq!(analysis.context.capture_manifest_sha256, capture.capture_manifest_sha256());
@@ -121,7 +122,7 @@ async fn remote_counts_wait_for_exact_native_hydration_and_never_repair_missing_
     assert!(analysis.report.entries.is_empty());
     assert_eq!(analysis.report.sources[0].state, SourceState::Partial);
     let capture = fixture.read_families_with_recovery(FAMILY, RecoveryPayloadBudget::default()).await;
-    culprit_collector::analytical::test_support::assert_object_definition_capture(&capture, &source, &records);
+    culprit_evidence::analytical::test_support::assert_object_definition_capture(&capture, &source, &records);
     assert_eq!(fixture.recovery_object_reads() - opens, 1);
     assert_eq!(capture.metrics().recovery_objects, 1);
     fixture.remove_first_row(TelemetryStream::ObjectDefinitions);

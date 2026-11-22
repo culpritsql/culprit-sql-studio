@@ -1,5 +1,7 @@
 use super::*;
 use crate::collection_files::ObservationFiles;
+use culprit_evidence::delivery::contract::Contract;
+use culprit_evidence::delivery::recovery::RecoveryRead as _;
 mod attempts;
 mod delivery_worker;
 mod eviction;
@@ -7,6 +9,7 @@ mod informational;
 mod inspection;
 mod requests;
 mod restored_diagnostics;
+mod synthesis;
 
 fn request() -> CollectionRequest {
     CollectionRequest {
@@ -127,7 +130,10 @@ fn records(stream: TelemetryStream) -> Vec<TelemetryRecord> {
             source_text_bytes: Some("100".into()),
             sql: DefinitionPayload::sql("SELECT N'private-value'", culprit_core::Engine::Mssql),
         })],
-        TelemetryStream::DeadlockEvents
+        TelemetryStream::DerivedIncidents
+        | TelemetryStream::DerivedFindings
+        | TelemetryStream::DerivedChanges
+        | TelemetryStream::DeadlockEvents
         | TelemetryStream::OperationalSamples
         | TelemetryStream::WaitCounterSamples
         | TelemetryStream::ReplicationSamples
@@ -199,7 +205,7 @@ async fn delivery_prepares_sealed_data_during_capture_and_retains_the_single_fil
     let status = delivery.status(50, None).await.unwrap();
     assert_eq!(status.captures, 2);
     assert_eq!(status.ready, 1);
-    let contract = crate::delivery::contract::Contract::new(
+    let contract = culprit_evidence::delivery::contract::Contract::new(
         "pipeline".into(),
         "shard-0".into(),
         "file:test".into(),
@@ -223,7 +229,6 @@ async fn delivery_prepares_sealed_data_during_capture_and_retains_the_single_fil
 #[tokio::test]
 async fn volume_loss_preserves_the_remote_namespace_and_advances_epoch_and_sequence_before_new_capture() {
     use crate::delivery::{
-        contract::Contract,
         file_store::FileRecoveryStore,
         recovery::{RecoveryStore, stage_and_commit},
     };
@@ -261,7 +266,7 @@ async fn volume_loss_preserves_the_remote_namespace_and_advances_epoch_and_seque
 
 #[tokio::test]
 async fn remote_epoch_activation_refuses_wrong_store_reused_owners_and_unconfirmed_source_work() {
-    use crate::delivery::recovery::Fence;
+    use culprit_evidence::delivery::mutations::Fence;
     let root = tempfile::TempDir::new().unwrap();
     let store_id = digest(b"recovery store");
     let fence = Fence::issued(7, "owner".into(), store_id.clone()).unwrap();
@@ -295,7 +300,6 @@ async fn remote_epoch_activation_refuses_wrong_store_reused_owners_and_unconfirm
 #[tokio::test]
 async fn verified_remote_eviction_reclaims_payload_and_metadata_quota_without_reusing_revisions() {
     use crate::delivery::{
-        contract::Contract,
         file_store::FileRecoveryStore,
         recovery::{RecoveryStore, stage_and_commit},
     };

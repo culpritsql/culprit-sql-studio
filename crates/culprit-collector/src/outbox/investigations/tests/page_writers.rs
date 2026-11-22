@@ -1,6 +1,9 @@
 use super::shared::seal;
 use super::*;
-use crate::analytical::test_support::{PageWriterCase, investigation_fixture, page_writer_fixture};
+use culprit_evidence::analytical::test_support::PageWriterCase;
+use culprit_evidence::analytical::test_support::investigation_fixture;
+use culprit_evidence::analytical::test_support::page_writer_fixture;
+use culprit_evidence::delivery::contract::Contract;
 
 pub(super) struct WriterInvestigation {
     pub root: tempfile::TempDir,
@@ -156,7 +159,7 @@ impl WriterInvestigation {
         let mut recipe = investigation_fixture().recipe;
         recipe.id = "fixture.page-wait-writers".into();
         recipe.selector = RecipeSelector::FocusedPageWaitWriters;
-        let RecipeCostQualification::Measured(cost) = &mut recipe.cost else { unreachable!() };
+        let RecipeAdmission::Measured(cost) = &mut recipe.admission else { unreachable!() };
         cost.recipe_id = recipe.id.clone();
         cost.selector = recipe.selector;
         cost.scope = RecipeCostScope::Activity(episode.scope.clone());
@@ -322,7 +325,7 @@ fn durable_writer_reports_keep_page_candidates_and_all_historical_contexts_witho
     let mut expected = vec![fixture.original.observation_id.clone(), fixture.page.observation_id.clone()];
     expected.sort();
     let mut queued = expected.clone();
-    queued.push(fixture.intent.qualification.evidence.capture.observation_id.clone());
+    queued.push(fixture.intent.qualification.measured().unwrap().evidence.capture.observation_id.clone());
     queued.sort();
     assert_eq!(pins(&fixture.files, &format!("investigation:{key}")), queued);
     let native = fixture.native();
@@ -479,7 +482,6 @@ fn failed_pre_authentication_writer_attempt_retains_full_question_and_both_paren
 async fn cold_recovery_caches_the_focused_page_and_original_roster_without_resurrecting_native_work() {
     use crate::{
         delivery::{
-            contract::Contract,
             diagnostic_recovery::{load_diagnostic_checkpoint, load_diagnostic_input},
             file_store::FileRecoveryStore,
         },
@@ -531,7 +533,7 @@ async fn cold_recovery_caches_the_focused_page_and_original_roster_without_resur
         crate::diagnostics::analyze_pending(
             &mut cold,
             &policies,
-            &crate::capture::CollectionCancellation::default(),
+            &culprit_read::cancellation::CollectionCancellation::default(),
             1,
             Some(&store)
         )

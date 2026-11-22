@@ -1,11 +1,10 @@
 //! Authenticated compiler context shares scan interpretation without manufacturing a workload or holder join.
 use super::fixture::Fixture;
-use culprit_collector::analytical::{
-    evidence::{EvidenceFamily, EvidenceGapReason},
-    test_support::compiler_admission_evidence,
-};
 use culprit_core::{Snapshot, SourceOutcome, SourceState, telemetry::*};
 use culprit_engine::collected_resources;
+use culprit_evidence::analytical::evidence::EvidenceFamily;
+use culprit_evidence::analytical::evidence::EvidenceGapReason;
+use culprit_evidence::analytical::test_support::compiler_admission_evidence;
 
 fn native(source: &mut CollectionDescription) -> &mut StateSnapshotDescription {
     let SourceObservation::FocusedCompilationAdmission { snapshot, .. } = &mut source.observation else {

@@ -1,7 +1,8 @@
 use super::*;
 mod change_feed;
-use culprit_collector::analytical::test_support::*;
+use culprit_collector::analytical::test_support::local_snapshot_evidence_cases;
 use culprit_core::SourceState;
+use culprit_evidence::analytical::test_support::*;
 
 pub(super) fn originals(kind: LocalCaptureAnalysisKind) -> (CollectionDescription, Vec<TelemetryRecord>) {
     let name = serde_json::to_value(kind).unwrap();
@@ -11,11 +12,11 @@ pub(super) fn originals(kind: LocalCaptureAnalysisKind) -> (CollectionDescriptio
         .unwrap_or_else(|| panic!("missing original snapshot corpus for {name}"));
     (case.source, case.records)
 }
-async fn analyze(
+async fn analyze_selected(
     reader: &OutboxCaptureReader,
     id: &str,
     kind: LocalCaptureAnalysisKind,
-) -> Result<LocalSnapshotAnalysis> {
+) -> Result<LocalCapturedAnalysis> {
     let guard = OperationGuard::new(reader.timeout()).unwrap();
     let result = reader
         .analyze(LocalCaptureRequest {
@@ -26,6 +27,14 @@ async fn analyze(
         })
         .await?;
     assert_eq!(result.kind(), kind);
+    Ok(result)
+}
+async fn analyze(
+    reader: &OutboxCaptureReader,
+    id: &str,
+    kind: LocalCaptureAnalysisKind,
+) -> Result<LocalSnapshotAnalysis> {
+    let result = analyze_selected(reader, id, kind).await?;
     let LocalCapturedAnalysis::Snapshot(result) = result else { panic!("one generic Operational result") };
     Ok(result)
 }
@@ -35,34 +44,32 @@ fn reader(fixture: &LocalCaptureFixture, budget: CompletedCaptureBudget) -> Outb
 
 #[tokio::test]
 async fn every_new_snapshot_report_retains_one_exact_original_without_source_work_or_scope_relabeling() {
-    for kind in LocalCaptureAnalysisKind::ALL.iter().copied().filter(|kind| {
-        !matches!(
-            kind,
-            LocalCaptureAnalysisKind::SourceOverhead
-                | LocalCaptureAnalysisKind::ManagedInstanceResources
-                | LocalCaptureAnalysisKind::WaitCounters
-                | LocalCaptureAnalysisKind::PoolSettings
-                | LocalCaptureAnalysisKind::Replication
-                | LocalCaptureAnalysisKind::RuntimeFragments
-                | LocalCaptureAnalysisKind::QueryWaitFragments
-                | LocalCaptureAnalysisKind::PageServerReads
-                | LocalCaptureAnalysisKind::SessionCensus
-                | LocalCaptureAnalysisKind::Blocking
-                | LocalCaptureAnalysisKind::MemoryClerks
-                | LocalCaptureAnalysisKind::HyperscaleLogComponents
-        )
-    }) {
-        let (source, rows) = originals(kind);
-        let fixture = LocalCaptureFixture::snapshot(source, rows).await;
+    let kinds = LocalCaptureAnalysisKind::ALL
+        .iter()
+        .copied()
+        .filter(|kind| matches!(kind.read_plan(), LocalCaptureReadPlan::Snapshot(_)))
+        .collect::<Vec<_>>();
+    assert!(!kinds.is_empty());
+    assert!(!kinds.contains(&LocalCaptureAnalysisKind::IncidentHistory));
+    for kind in kinds {
+        let fixture = super::settlement::fixture(kind).await;
+        let source = fixture.manifest.description.as_ref().unwrap();
+        let header = source.observation.snapshot().expect("the source read plan requires a snapshot original");
+        assert!(kind.accepts_snapshot_dataset(header.dataset), "{kind:?}/{:?}", header.dataset);
         assert_eq!(fixture.manifest.status, CollectionStatus::Complete, "{kind:?}");
-        let result = analyze(
+        let result = analyze_selected(
             &reader(&fixture, CompletedCaptureBudget::default()),
             &fixture.manifest.capture.observation_id,
             kind,
         )
         .await
         .unwrap();
-        let original = result.original();
+        let original = match &result {
+            LocalCapturedAnalysis::Snapshot(value) => value.original(),
+            LocalCapturedAnalysis::MemoryClerks(value) => value.original(),
+            LocalCapturedAnalysis::HyperscaleLogComponents(value) => value.original(),
+            _ => panic!("{kind:?}: the snapshot read plan must retain its original Operational owner"),
+        };
         let read = original.read();
         assert_eq!(&read.description, fixture.manifest.description.as_ref().unwrap(), "{kind:?}");
         assert_eq!(original.connection(), "local-evidence");
@@ -77,7 +84,9 @@ async fn every_new_snapshot_report_retains_one_exact_original_without_source_wor
         assert!(
             read.captured_references().unwrap().iter().all(|reference| reference.capture_ref() == read.origin.capture)
         );
-        if let LocalSnapshotReport::Compilation(report) = result.report() {
+        if let LocalCapturedAnalysis::Snapshot(analysis) = &result
+            && let LocalSnapshotReport::Compilation(report) = analysis.report()
+        {
             assert_eq!(
                 read.context().unwrap().partition,
                 SourcePartition::Target,

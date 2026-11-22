@@ -26,7 +26,7 @@ impl Scenario {
         .unwrap()
     }
     fn receipt(&mut self) -> &mut RecipeCostReceipt {
-        let RecipeCostQualification::Measured(receipt) = &mut self.recipe.cost else { panic!() };
+        let RecipeAdmission::Measured(receipt) = &mut self.recipe.admission else { panic!() };
         receipt
     }
 }
@@ -131,7 +131,7 @@ fn scenario() -> Scenario {
         selector: RecipeSelector::FocusedPageWait,
         subjects: vec![RecipeSubject::Database],
         budget: CollectionBudget::default(),
-        cost: RecipeCostQualification::Measured(Box::new(receipt)),
+        admission: RecipeAdmission::Measured(Box::new(receipt)),
     };
     Scenario { episode, focus, recipe, component, cost_source, cost_row }
 }
@@ -148,18 +148,18 @@ fn an_immutable_question_preserves_its_parent_tested_budget_and_independent_nati
         &CollectionBudget::default()
     ));
     assert_eq!(intent.focus, DiagnosticFocus::from(scenario.focus.clone()));
-    assert_ne!(intent.qualification.evidence.capture, intent.focus.parent().capture);
-    assert_eq!(intent.budget, intent.qualification.tested_budget);
+    assert_ne!(intent.qualification.measured().unwrap().evidence.capture, intent.focus.parent().capture);
+    assert_eq!(&intent.budget, intent.qualification.budget());
     assert_eq!(intent.episode_revision, scenario.episode.revision);
     assert_eq!(
         DiagnosticEvidenceRef::from_export(
             &scenario.cost_source,
-            &intent.qualification.evidence.manifest_sha256,
+            &intent.qualification.measured().unwrap().evidence.manifest_sha256,
             &scenario.cost_row,
-            intent.qualification.evidence.row_ordinal,
+            intent.qualification.measured().unwrap().evidence.row_ordinal,
         )
         .unwrap(),
-        intent.qualification.evidence,
+        intent.qualification.measured().unwrap().evidence,
         "artifact authentication and native-cost interpretation still belong to the selected source's verifier",
     );
     let restored: DiagnosticInvestigationIntent =
@@ -171,7 +171,7 @@ fn an_immutable_question_preserves_its_parent_tested_budget_and_independent_nati
 #[test]
 fn package_version_alone_and_unqualified_routes_cannot_construct_investigation_intents() {
     let mut unqualified = scenario();
-    unqualified.recipe.cost = RecipeCostQualification::Unqualified;
+    unqualified.recipe.admission = RecipeAdmission::Unqualified;
     assert!(unqualified.recipe.is_valid());
     assert!(
         DiagnosticInvestigationIntent::new(
@@ -197,9 +197,9 @@ fn exact_receipt_digest_prevents_float_equality_from_substituting_different_acco
     scenario.receipt().read_metrics.templates[0].client_elapsed_ms = 0.0;
     let intent = scenario.intent();
     let mut changed = scenario.recipe.clone();
-    let RecipeCostQualification::Measured(receipt) = &mut changed.cost else { panic!() };
+    let RecipeAdmission::Measured(receipt) = &mut changed.admission else { panic!() };
     receipt.read_metrics.templates[0].client_elapsed_ms = -0.0;
-    assert_eq!(receipt.as_ref(), &intent.qualification, "numeric equality is not receipt identity");
+    assert_eq!(receipt.as_ref(), intent.qualification.measured().unwrap(), "numeric equality is not receipt identity");
     assert_ne!(receipt.key().unwrap(), intent.qualification.key().unwrap());
     assert!(!intent.matches_admission(&scenario.episode, &changed, &scenario.component, &CollectionBudget::default(),));
 }
@@ -244,7 +244,7 @@ fn every_caller_ceiling_must_accommodate_the_exact_tested_budget_without_resizin
             !intent.matches_admission(&scenario.episode, &scenario.recipe, &scenario.component, &ceiling),
             "{field}"
         );
-        assert_eq!(intent.budget, intent.qualification.tested_budget, "no smaller budget is silently substituted");
+        assert_eq!(&intent.budget, intent.qualification.budget(), "no smaller budget is silently substituted");
     }
 }
 
@@ -261,7 +261,7 @@ fn scope_epoch_component_recipe_and_receipt_changes_cannot_borrow_an_existing_in
             "version" => recipe.version += 1,
             "envelope" => recipe.budget.max_queries = intent.budget.max_queries - 1,
             _ => {
-                let RecipeCostQualification::Measured(receipt) = &mut recipe.cost else { panic!() };
+                let RecipeAdmission::Measured(receipt) = &mut recipe.admission else { panic!() };
                 match changed {
                     "epoch" => activity_scope(receipt).native_epoch = Some("another-native-epoch".into()),
                     "population" => {
@@ -340,12 +340,12 @@ fn full_intent_identity_binds_receipt_revision_and_budget_while_stage_identity_d
             "parent" => other.focus.activity_participant_mut().unwrap().parent.row_ordinal += 1,
             "recipe" => {
                 other.recipe_version += 1;
-                other.qualification.recipe_version = other.recipe_version;
+                other.qualification.measured_mut().unwrap().recipe_version = other.recipe_version;
             }
-            "receipt" => other.qualification.evidence.row_ordinal += 1,
+            "receipt" => other.qualification.measured_mut().unwrap().evidence.row_ordinal += 1,
             _ => {
                 other.budget.max_queries += 1;
-                other.qualification.tested_budget = other.budget.clone();
+                other.qualification.measured_mut().unwrap().tested_budget = other.budget.clone();
             }
         }
         assert!(other.is_valid(), "{changed} still needs external context/authentication");
@@ -391,8 +391,8 @@ fn raw_intent_changes_and_unknown_components_fail_storage_validation_without_rep
             "revision" => encoded["episode_revision"] = serde_json::json!("01"),
             "recipe" => encoded["recipe_version"] = serde_json::json!(2),
             "budget" => encoded["budget"]["max_queries"] = serde_json::json!(2),
-            "epoch" => encoded["qualification"]["scope"]["data"]["native_epoch"] = serde_json::json!(null),
-            "component" => encoded["qualification"]["component"]["version"] = serde_json::json!(null),
+            "epoch" => encoded["qualification"]["receipt"]["scope"]["data"]["native_epoch"] = serde_json::json!(null),
+            "component" => encoded["qualification"]["receipt"]["component"]["version"] = serde_json::json!(null),
             _ => encoded["unrelated_policy"] = serde_json::json!(true),
         }
         match serde_json::from_value::<DiagnosticInvestigationIntent>(encoded) {
@@ -521,14 +521,16 @@ fn owner_lineage_rejects_changed_intent_episode_recipe_budget_approval_and_origi
             "revision" => lineage.episode_revision = "2".into(),
             "recipe-version" => {
                 lineage.recipe_version += 1;
-                lineage.qualification.recipe_version = lineage.recipe_version;
+                lineage.qualification.measured_mut().unwrap().recipe_version = lineage.recipe_version;
             }
             "budget" => {
                 lineage.budget.max_queries += 1;
-                lineage.qualification.tested_budget = lineage.budget.clone();
+                lineage.qualification.measured_mut().unwrap().tested_budget = lineage.budget.clone();
             }
-            "receipt" => lineage.qualification.evidence.row_ordinal += 1,
-            "component" => lineage.qualification.component.revision = Some("another-native-build".into()),
+            "receipt" => lineage.qualification.measured_mut().unwrap().evidence.row_ordinal += 1,
+            "component" => {
+                lineage.qualification.measured_mut().unwrap().component.revision = Some("another-native-build".into())
+            }
             _ => {
                 let CollectionSelection::FocusedPageWait { focus } = &mut manifest.request.selection else { panic!() };
                 if changed == "parent" {
@@ -667,7 +669,7 @@ fn task_holder_cost_receipts_share_the_existing_scoped_identity_and_settled_acco
     receipt.selector = RecipeSelector::FocusedPageTaskHolders;
     assert!(receipt.is_valid(), "bounded structural evidence alone never grants native admission");
     assert!(case.recipe.is_valid());
-    let RecipeCostQualification::Measured(receipt) = &case.recipe.cost else { panic!() };
+    let RecipeAdmission::Measured(receipt) = &case.recipe.admission else { panic!() };
     assert!(receipt.matches_recipe(&case.recipe));
     for defect in ["epoch", "reference", "active-work", "query-limit"] {
         let mut invalid = (**receipt).clone();
@@ -682,4 +684,48 @@ fn task_holder_cost_receipts_share_the_existing_scoped_identity_and_settled_acco
     let mut unsupported = (**receipt).clone();
     unsupported.selector = RecipeSelector::CacheEntryMemory;
     assert!(!unsupported.is_valid(), "a cache lookup has no incident-triggered focused-intent cost contract");
+}
+
+#[test]
+fn builtin_admission_retains_the_exact_original_scope_and_caller_limits_without_measured_cost_evidence() {
+    let mut scenario = scenario();
+    scenario.component.revision = None;
+    assert!(!qualification_component_is_valid(&scenario.component), "measured receipts still require build identity");
+    let policy = BuiltinRecipeSafety {
+        id: "fixture.reader-safety".into(),
+        version: 1,
+        recipe_id: scenario.recipe.id.clone(),
+        recipe_version: scenario.recipe.version,
+        purpose: scenario.recipe.purpose,
+        selector: scenario.recipe.selector,
+        component: scenario.component.clone(),
+        templates_sha256: digest(b"actual-selected-fixture-template-set"),
+        budget: scenario.recipe.budget.clone(),
+    };
+    scenario.recipe.admission = RecipeAdmission::BuiltinSafety(Box::new(policy));
+    let caller = CollectionBudget { max_queries: 1, ..CollectionBudget::default() };
+    let intent = DiagnosticInvestigationIntent::new(
+        &scenario.episode,
+        &scenario.recipe,
+        scenario.focus.clone().into(),
+        &scenario.component,
+        &caller,
+    )
+    .unwrap();
+    assert_eq!(intent.budget.max_queries, 1);
+    assert_eq!(intent.qualification.scope().as_activity(), Some(&scenario.episode.scope));
+    assert!(intent.qualification.measured().is_none());
+    assert!(intent.qualification.cost_evidence().is_none());
+    assert!(intent.matches_admission(&scenario.episode, &scenario.recipe, &scenario.component, &caller));
+    let restored: DiagnosticInvestigationIntent =
+        serde_json::from_str(&serde_json::to_string(&intent).unwrap()).unwrap();
+    assert_eq!(restored.key().unwrap(), intent.key().unwrap());
+    let mut replaced = scenario.recipe.clone();
+    let RecipeAdmission::BuiltinSafety(policy) = &mut replaced.admission else { panic!() };
+    policy.templates_sha256 = digest(b"changed-reader");
+    assert!(!intent.matches_admission(&scenario.episode, &replaced, &scenario.component, &caller));
+    let mut foreign = scenario.episode.clone();
+    foreign.scope.native_epoch = Some("another-original-epoch".into());
+    assert!(!intent.matches_episode(&foreign));
+    assert!(std::mem::size_of::<RecipeExecutionAdmission>() <= 128, "actual authority enum storage must stay bounded");
 }

@@ -1,9 +1,8 @@
 use super::fixture::Fixture;
-use culprit_collector::analytical::{
-    evidence::EvidenceFamily,
-    test_support::{assert_operational_capture, columnstore_configuration_evidence_cases},
-};
 use culprit_core::telemetry::*;
+use culprit_evidence::analytical::evidence::EvidenceFamily;
+use culprit_evidence::analytical::test_support::assert_operational_capture;
+use culprit_evidence::analytical::test_support::columnstore_configuration_evidence_cases;
 
 #[tokio::test]
 async fn persisted_columnstore_configuration_keeps_exact_original_native_scope_nullable_values_and_states() {

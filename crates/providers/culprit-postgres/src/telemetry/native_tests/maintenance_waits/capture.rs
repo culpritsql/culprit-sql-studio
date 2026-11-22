@@ -1,7 +1,7 @@
 use super::super::retained_activity::Original;
 use super::*;
-use culprit_collector::capture::CollectionCancellation;
 use culprit_core::ConnectionSpec;
+use culprit_read::cancellation::CollectionCancellation;
 
 pub(super) async fn progress(
     specification: &ConnectionSpec,

@@ -1,10 +1,10 @@
 //! Existing provider factory and sealed snapshot receipt reader shared by owned native controls.
 use super::replication::required;
 use super::*;
-use culprit_collector::{
-    capture::{self, CollectionCancellation, SourceFactory},
-    outbox::Outbox,
-};
+use culprit_collector::capture;
+use culprit_collector::capture::SourceFactory;
+use culprit_collector::outbox::Outbox;
+use culprit_read::cancellation::CollectionCancellation;
 use std::path::Path;
 
 pub(in crate::telemetry::native_tests) struct Factory(pub(in crate::telemetry::native_tests) crate::MysqlProvider);

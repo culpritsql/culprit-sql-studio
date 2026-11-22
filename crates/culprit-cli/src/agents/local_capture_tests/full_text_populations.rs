@@ -1,6 +1,7 @@
 use super::*;
-use culprit_collector::analytical::test_support::{FullTextPopulationCase, full_text_population_evidence};
 use culprit_engine::LocalCaptureAnalysisKind;
+use culprit_evidence::analytical::test_support::FullTextPopulationCase;
+use culprit_evidence::analytical::test_support::full_text_population_evidence;
 #[tokio::test]
 async fn actual_local_mcp_full_text_population_route_keeps_the_same_original_canonical_metrics_and_gaps() {
     for case in FullTextPopulationCase::ALL {

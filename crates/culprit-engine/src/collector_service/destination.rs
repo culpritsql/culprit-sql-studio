@@ -1,13 +1,12 @@
 //! The sole destination selection point. Secret references are resolved only when a sink is opened.
 use super::config::TargetConfig;
 use culprit_auth::CredentialResolver;
-use culprit_collector::{
-    analytical::sink::AnalyticalSink,
-    delivery::{
-        contract::Contract, driver::DeliveryPolicy, object_store::transport::ObjectTransport, recovery::RecoveryStore,
-    },
-};
+use culprit_collector::analytical::sink::AnalyticalSink;
+use culprit_collector::delivery::driver::DeliveryPolicy;
+use culprit_collector::delivery::recovery::RecoveryStore;
 use culprit_core::Result;
+use culprit_evidence::delivery::contract::Contract;
+use culprit_evidence::delivery::object_store::transport::ObjectTransport;
 use std::{path::Path, sync::Arc};
 
 pub(super) trait SinkFactory: Send + Sync {

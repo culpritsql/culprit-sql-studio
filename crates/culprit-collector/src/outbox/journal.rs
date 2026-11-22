@@ -8,7 +8,7 @@ use culprit_core::{Result, telemetry::*};
 use rusqlite::{Connection, OpenFlags, OptionalExtension, Transaction, params};
 use std::{collections::BTreeSet, path::Path};
 
-const JOURNAL_VERSION: i64 = 30;
+const JOURNAL_VERSION: i64 = 32;
 const APPLICATION_ID: i64 = 0x43554c54;
 const JOURNAL_PAGES: i64 = 4096;
 
@@ -78,7 +78,9 @@ impl Journal {
           CREATE INDEX diagnostic_pin_capture ON diagnostic_pins(observation_id);
           CREATE TABLE diagnostic_steps(observation_id TEXT PRIMARY KEY,input_id TEXT NOT NULL,controller_key TEXT NOT NULL,expected_head TEXT,step_id TEXT NOT NULL,update_json TEXT,update_digest TEXT NOT NULL,result_json TEXT,archived INTEGER NOT NULL DEFAULT 0 CHECK(archived IN(0,1)),UNIQUE(input_id,step_id));
           CREATE INDEX capture_state ON captures(state);
+          CREATE TABLE synthesized_outputs(analysis_id TEXT PRIMARY KEY,primary_observation_id TEXT NOT NULL,observation_id TEXT NOT NULL UNIQUE,output_digest TEXT NOT NULL,result_json TEXT);
           CREATE INDEX capture_collection ON captures(connection,collection,state,epoch DESC,sequence DESC);")) .map_err(storage)?;
+        conn.execute_batch(super::automatic_synthesis::SCHEMA).map_err(storage)?;
         conn.execute("INSERT INTO metadata VALUES(?1,?2,0,0,0,0,0)", params![id, encode(&limits)?]).map_err(storage)?;
         durable_fs::sync_directory(path.parent().ok_or_else(|| problem(OutboxProblem::Storage))?).map_err(storage)?;
         Ok(Self { conn, id: id.into(), limits })
@@ -139,7 +141,7 @@ impl Journal {
                 |row| row.get(0),
             )
             .map_err(storage)?;
-        if debts > 0 && request.collection() != TelemetryCollection::Diagnostics {
+        if debts > 0 && !request.collection().is_local_output() {
             return Err(problem(OutboxProblem::SourceUnconfirmed));
         }
         let pending: u32 = tx
@@ -157,6 +159,7 @@ impl Journal {
         {
             return Err(problem(OutboxProblem::Capacity));
         }
+        super::automatic_synthesis::reserve_allowance(&tx, request, count, used, charge, &self.limits)?;
         let (epoch, sequence): (i64, i64) = tx
             .query_row("SELECT owner_epoch,sequence FROM metadata", [], |row| Ok((row.get(0)?, row.get(1)?)))
             .map_err(storage)?;
@@ -179,7 +182,7 @@ impl Journal {
             }),
         };
         tx.execute("UPDATE metadata SET owner_epoch=?1,sequence=?2", params![epoch, sequence]).map_err(storage)?;
-        let source_work = if request.collection() == TelemetryCollection::Diagnostics {
+        let source_work = if request.collection().is_local_output() {
             SourceWorkState::Quiescent
         } else {
             SourceWorkState::NotStarted
@@ -317,6 +320,8 @@ impl Journal {
                 params![range_key(&range)?,capture.identity.observation_id]).map_err(storage)?;
         }
         super::investigations::journal::prepare_commit(&tx, capture, validated)?;
+        super::synthesized_output::complete_output(&tx, validated)?;
+        super::automatic_synthesis::committed(&tx, capture, validated)?;
         let capture_bytes: i64 = tx
             .query_row("SELECT coalesce(sum(charged_bytes),0) FROM captures", [], |row| row.get(0))
             .map_err(storage)?;
@@ -597,7 +602,7 @@ fn encode_request(request: &CollectionRequest) -> Result<String> {
         .map_err(|_| problem(if buffer.exceeded() { OutboxProblem::Capacity } else { OutboxProblem::Integrity }))?;
     String::from_utf8(buffer.into_bytes()).map_err(|_| problem(OutboxProblem::Integrity))
 }
-fn decode<T: serde::de::DeserializeOwned>(text: &str) -> Result<T> {
+pub(super) fn decode<T: serde::de::DeserializeOwned>(text: &str) -> Result<T> {
     serde_json::from_str(text).map_err(|_| problem(OutboxProblem::Integrity))
 }
 fn range_key(range: &CapturedRange) -> Result<String> {
@@ -621,7 +626,11 @@ pub(super) fn advance_original_history_generation(tx: &Transaction<'_>) -> Resul
 }
 
 pub(super) fn metadata_bytes(conn: &Connection) -> Result<u64> {
+    let synthesis_bytes = super::synthesized_output::charged_bytes(conn)?
+        .checked_add(super::automatic_synthesis::charged_bytes(conn)?)
+        .ok_or_else(|| problem(OutboxProblem::Capacity))?;
     super::investigations::journal::charged_bytes(conn)?
         .checked_add(super::qualifications::journal::charged_bytes(conn)?)
+        .and_then(|bytes| bytes.checked_add(synthesis_bytes))
         .ok_or_else(|| problem(OutboxProblem::Capacity))
 }

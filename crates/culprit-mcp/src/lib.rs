@@ -15,7 +15,8 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use culprit_core::limits::{OperationGuard, OperationHandle};
-use culprit_engine::{AuditEntry, AuditOutcome, LocalCaptureReader, Workspace};
+use culprit_engine::{AuditEntry, AuditOutcome, LocalCaptureReader, WarehouseIncidentReader, Workspace};
+use culprit_read::cancellation::CollectionCancellation;
 use rmcp::model::{
     CallToolRequestParams, CallToolResponse, CallToolResult, ContentBlock, Implementation, JsonObject, ListToolsResult,
     PaginatedRequestParams, ServerCapabilities, ServerConfig,
@@ -49,21 +50,37 @@ impl Default for Options {
     }
 }
 
+struct IncidentCallCancellation(Option<CollectionCancellation>);
+impl Drop for IncidentCallCancellation {
+    fn drop(&mut self) {
+        if let Some(cancellation) = &self.0 {
+            cancellation.cancel();
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct CulpritMcp {
     ws: Arc<Workspace>,
     options: Arc<Options>,
     local_captures: Option<Arc<dyn LocalCaptureReader>>,
+    incident_reader: Option<Arc<dyn WarehouseIncidentReader>>,
 }
 
 impl CulpritMcp {
     pub fn new(ws: Arc<Workspace>, options: Options) -> CulpritMcp {
-        CulpritMcp { ws, options: Arc::new(options), local_captures: None }
+        CulpritMcp { ws, options: Arc::new(options), local_captures: None, incident_reader: None }
     }
 
     /// Install one explicitly authorized local original-capture reader. No storage is discovered or opened here.
     pub fn with_local_captures(mut self, reader: Arc<dyn LocalCaptureReader>) -> Self {
         self.local_captures = Some(reader);
+        self
+    }
+
+    /// Install one explicitly configured warehouse reader. No source credentials, providers or stores are discovered.
+    pub fn with_incident_reader(mut self, reader: Arc<dyn WarehouseIncidentReader>) -> Self {
+        self.incident_reader = Some(reader);
         self
     }
 
@@ -94,7 +111,11 @@ impl CulpritMcp {
             let mut guard = self.local_operation(tool);
             let operation =
                 guard.as_ref().map(|guard| guard.as_ref().map(OperationGuard::handle)).map_err(Clone::clone);
-            let controlled = guard.as_ref().is_ok_and(Option::is_some);
+            let incident_call = IncidentCallCancellation(
+                (tool == tools::INCIDENT_TOOL && self.incident_reader.is_some()).then(CollectionCancellation::default),
+            );
+            let incident_cancellation = incident_call.0.clone();
+            let controlled = guard.as_ref().is_ok_and(Option::is_some) || incident_cancellation.is_some();
             let completed = match observation {
                 Err(error) => CompletedTool::plain(Err(error)),
                 Ok(observation) => {
@@ -102,12 +123,24 @@ impl CulpritMcp {
                     let result = {
                         let work = async {
                             let provider_operation = provider_operation?;
-                            self.handle_started(client, tool, args, operation, provider_operation).await
+                            self.handle_started(
+                                client,
+                                tool,
+                                args,
+                                operation,
+                                provider_operation,
+                                incident_cancellation.clone(),
+                            )
+                            .await
                         };
                         tokio::pin!(work);
                         if controlled {
                             tokio::select! {biased;
-                                _=cancelled=>{if let Ok(guard)=&mut guard {drop(guard.take());}work.await},
+                                _=cancelled=>{
+                                    if let Some(cancellation)=&incident_cancellation {cancellation.cancel();}
+                                    if let Ok(guard)=&mut guard {drop(guard.take());}
+                                    work.await
+                                },
                                 result=&mut work=>result,
                             }
                         } else if observation.is_some() {
@@ -143,9 +176,12 @@ impl CulpritMcp {
         args: JsonObject,
         operation: culprit_core::Result<Option<OperationHandle>>,
         provider_observation: Option<culprit_core::ProviderOperationObservation>,
+        incident_cancellation: Option<CollectionCancellation>,
     ) -> culprit_core::Result<tools::ToolOutput> {
         let operation = operation?;
-        let result = self.dispatch(client, tool, Value::Object(args), operation.clone(), provider_observation).await?;
+        let result = self
+            .dispatch(client, tool, Value::Object(args), operation.clone(), provider_observation, incident_cancellation)
+            .await?;
         if let Some(operation) = operation {
             tools::check_local_operation(&operation)?;
         }
@@ -259,11 +295,16 @@ impl ServerHandler for CulpritMcp {
         _request: Option<PaginatedRequestParams>,
         _context: RequestContext<RoleServer>,
     ) -> Result<ListToolsResult, ErrorData> {
-        Ok(ListToolsResult::with_all_items(tools::definitions(self.local_captures.is_some())))
+        Ok(ListToolsResult::with_all_items(tools::definitions(
+            self.local_captures.is_some(),
+            self.incident_reader.is_some(),
+        )))
     }
 
     fn get_tool(&self, name: &str) -> Option<rmcp::model::Tool> {
-        tools::definitions(self.local_captures.is_some()).into_iter().find(|t| t.name == name)
+        tools::definitions(self.local_captures.is_some(), self.incident_reader.is_some())
+            .into_iter()
+            .find(|t| t.name == name)
     }
 
     async fn call_tool(

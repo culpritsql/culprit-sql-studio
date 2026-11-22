@@ -31,7 +31,7 @@ fn a_runtime_provider_lists_its_own_recipes_without_a_compiled_provider_or_facto
         selector: RecipeSelector::FocusedPageWait,
         subjects: vec![RecipeSubject::Database],
         budget: CollectionBudget::default(),
-        cost: RecipeCostQualification::Unqualified,
+        admission: RecipeAdmission::Unqualified,
     };
     let registration = culprit_engine::ProviderRegistration::new(
         Arc::new(|_, _context| panic!("static declarations must not construct the runtime provider")),

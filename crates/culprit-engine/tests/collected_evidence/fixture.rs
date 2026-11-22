@@ -1,19 +1,24 @@
 //! The actual recovery, encoding, immutable-index, publication and typed-reader path over a local warehouse stand-in.
 use async_trait::async_trait;
-use culprit_collector::{
-    analytical::{
-        ProjectionCatalog, RowProjection,
-        catalog::PhysicalCatalog,
-        encoding::BatchEncoder,
-        evidence::{EvidenceCapture, EvidenceFamily, EvidenceReadBudget, EvidenceReader, RecoveryPayloadBudget},
-        indexes::ProjectionIndexes,
-        publication,
-        read_store::{AnalyticalReadPage, AnalyticalReadStore},
-        test_support::{Blobs, Fault, JsonProjection as Schema, Recovery},
-    },
-    delivery::recovery::{CommittedRange, reopen},
-};
+use culprit_collector::analytical::encoding::BatchEncoder;
 use culprit_core::{Result, telemetry::*};
+use culprit_evidence::analytical::catalog::PhysicalCatalog;
+use culprit_evidence::analytical::evidence::EvidenceCapture;
+use culprit_evidence::analytical::evidence::EvidenceFamily;
+use culprit_evidence::analytical::evidence::EvidenceReadBudget;
+use culprit_evidence::analytical::evidence::EvidenceReader;
+use culprit_evidence::analytical::evidence::RecoveryPayloadBudget;
+use culprit_evidence::analytical::indexes::ProjectionIndexWriter;
+use culprit_evidence::analytical::publication;
+use culprit_evidence::analytical::read_store::AnalyticalReadPage;
+use culprit_evidence::analytical::read_store::AnalyticalReadStore;
+use culprit_evidence::analytical::test_support::Blobs;
+use culprit_evidence::analytical::test_support::Fault;
+use culprit_evidence::analytical::test_support::JsonProjection as Schema;
+use culprit_evidence::analytical::test_support::Recovery;
+use culprit_evidence::analytical::{ProjectionCatalog, RowProjection};
+use culprit_evidence::delivery::recovery::CommittedRange;
+use culprit_evidence::delivery::recovery::reopen;
 use serde_json::{Map, Value};
 use std::{
     collections::BTreeMap,
@@ -56,7 +61,7 @@ impl AnalyticalReadStore for Store {
     }
 }
 
-pub(super) struct Fixture {
+pub(crate) struct Fixture {
     pub range: CommittedRange,
     store: Arc<Store>,
     reader: EvidenceReader,
@@ -78,6 +83,16 @@ impl Fixture {
         collected_until: &str,
     ) -> Result<Self> {
         Self::from_original(source, records, 100_000, Some((collected_from, collected_until))).await
+    }
+    /// Independent originals get distinct real capture revisions before any manifest/projection digest is sealed.
+    pub async fn with_collector_bounds_and_sequence(
+        source: CollectionDescription,
+        records: Vec<TelemetryRecord>,
+        sequence: u64,
+        collected_from: &str,
+        collected_until: &str,
+    ) -> Result<Self> {
+        Self::from_original(source, records, sequence, Some((collected_from, collected_until))).await
     }
     async fn from_original(
         source: CollectionDescription,
@@ -101,7 +116,7 @@ impl Fixture {
         }
         let recovery = Arc::new(recovery);
         let range = reopen(recovery.as_ref(), &recovery.manifest.range_id).await?;
-        let indexes = Arc::new(ProjectionIndexes::new(Arc::new(Blobs::default())));
+        let indexes = Arc::new(ProjectionIndexWriter::new(Arc::new(Blobs::default())));
         let scratch = tempfile::tempdir().unwrap();
         let encoder = BatchEncoder::new(catalog.clone(), recovery.clone(), scratch.path()).unwrap();
         let mut rows = BTreeMap::new();
@@ -122,7 +137,7 @@ impl Fixture {
         let publication = schema.project(&publication::input(catalog.as_ref(), &range).unwrap()).unwrap();
         let publication = physical_row(schema, &schema.encode(&publication).unwrap());
         let store = Arc::new(Store { catalog, rows: Mutex::new(rows), publication: Mutex::new(Some(publication)) });
-        let reader = EvidenceReader::new(store.clone(), indexes);
+        let reader = EvidenceReader::new(store.clone(), indexes.reader());
         *recovery.fault.lock().unwrap() = Fault::Stall;
         Ok(Self { range, store, reader, recovery, _scratch: scratch })
     }

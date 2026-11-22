@@ -1,11 +1,11 @@
 use super::*;
 use crate::test_support::{Blobs, Queries, Recovery, Reply, returned};
 use culprit_collector::delivery::sink::Publication;
-use culprit_collector::delivery::{
-    recovery::reopen,
-    sink::{TelemetrySink, VerificationBudget, verify},
-};
+use culprit_collector::delivery::sink::TelemetrySink;
+use culprit_collector::delivery::sink::VerificationBudget;
+use culprit_collector::delivery::sink::verify;
 use culprit_core::telemetry::digest;
+use culprit_evidence::delivery::recovery::reopen;
 use serde_json::Value;
 use std::{collections::VecDeque, sync::Mutex};
 
@@ -113,8 +113,8 @@ async fn an_empty_successful_capture_has_explicit_coverage_and_no_empty_data_blo
 
 #[tokio::test]
 async fn shared_resource_publication_retains_coverage_but_keeps_native_identity_in_private_recovery() {
-    use culprit_collector::analytical::test_support::shared_resource;
     use culprit_core::telemetry::SharedResourceKind;
+    use culprit_evidence::analytical::test_support::shared_resource;
     for kind in
         [SharedResourceKind::Instance, SharedResourceKind::Pool, SharedResourceKind::Cluster, SharedResourceKind::Node]
     {
@@ -160,7 +160,7 @@ fn destination_and_schema_identity_are_checked_before_opening_scratch_or_dispatc
     let recovery = Arc::new(Recovery::new("adx:test", catalog.digest()));
     let blobs = Arc::new(Blobs::default());
     let query = Arc::new(Queries { replies: Mutex::new(VecDeque::new()), requests: Mutex::new(vec![]) });
-    let contract = culprit_collector::delivery::contract::Contract::new(
+    let contract = culprit_evidence::delivery::contract::Contract::new(
         "pipeline".into(),
         "shard-0".into(),
         "adx:other".into(),

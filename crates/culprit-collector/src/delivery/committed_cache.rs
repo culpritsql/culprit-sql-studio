@@ -1,6 +1,7 @@
 //! Bounded process-local capabilities. Every cache miss reopens the authoritative recovery store.
-use super::recovery::{self, CommittedRange, RecoveryStore};
+use super::recovery::RecoveryStore;
 use culprit_core::{Result, telemetry::DeliveryProblem};
+use culprit_evidence::delivery::recovery::CommittedRange;
 use std::collections::BTreeMap;
 
 const MAX_ENTRIES: usize = 64;
@@ -34,7 +35,7 @@ impl CommittedRangeCache {
             entry.used = self.clock;
             return Ok(entry.range.clone());
         }
-        let range = recovery::reopen(store, id).await?;
+        let range = culprit_evidence::delivery::recovery::reopen(store, id).await?;
         if range.manifest_digest() != expected_digest {
             return Err(DeliveryProblem::Integrity.error());
         }

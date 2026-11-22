@@ -1,5 +1,6 @@
 use super::*;
-use culprit_collector::analytical::test_support::{IndexConfigurationCase, index_configuration_evidence};
+use culprit_evidence::analytical::test_support::IndexConfigurationCase;
+use culprit_evidence::analytical::test_support::index_configuration_evidence;
 
 #[tokio::test]
 async fn original_catalog_configuration_survives_scan_shutdown_and_saved_reanalysis_without_recovery() {

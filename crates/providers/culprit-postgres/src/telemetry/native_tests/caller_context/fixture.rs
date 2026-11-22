@@ -8,8 +8,8 @@ use crate::{
     read::{NativeRead, QueryRead, ReadSession},
     rows::Row,
 };
-use culprit_collector::capture::CollectionCancellation;
 use culprit_core::{ConnectionSpec, Result, telemetry::*};
+use culprit_read::cancellation::CollectionCancellation;
 use futures_util::{FutureExt, future::LocalBoxFuture};
 use std::{panic::AssertUnwindSafe, time::Duration};
 

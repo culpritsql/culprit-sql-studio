@@ -145,7 +145,7 @@ fn compact_spinlock_diagnostics_keep_the_raw_value_but_withhold_the_measurement_
 
 #[test]
 fn original_numa_child_preserves_independent_coverage_bounds_nulls_and_bounded_native_fields() {
-    use culprit_collector::analytical::test_support::{NumaNodeCase, numa_node_evidence};
+    use culprit_evidence::analytical::test_support::{NumaNodeCase, numa_node_evidence};
     for case in [NumaNodeCase::Exact, NumaNodeCase::NativeNull, NumaNodeCase::CpuDenied, NumaNodeCase::Limited] {
         let (source, rows) = numa_node_evidence(case);
         let rows = rows

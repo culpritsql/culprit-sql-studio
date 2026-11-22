@@ -1,15 +1,16 @@
 //! Nonce-owned event catalog acceptance. No scheduler setting change or event execution; no run-outcome proof.
-use super::capture::{self, Factory};
+use super::capture;
+use super::capture::Factory;
 use super::replication::required;
 use crate::{
     connect::Scope,
     native,
     read::{OwnedRead, ReadSession, confirmed_result},
 };
-use culprit_collector::{capture::CollectionCancellation, outbox::Outbox};
+use culprit_collector::outbox::Outbox;
 use culprit_core::{Provider, Result, SourceState, telemetry::*};
 use culprit_read::admission::SourceGate;
-use mysql_async::Value;
+use culprit_read::cancellation::CollectionCancellation;
 use std::time::Duration;
 use tokio::time::Instant;
 
@@ -117,7 +118,7 @@ async fn owned_scheduled_events_preserve_native_catalog_visibility_privacy_and_o
     assert_limited(&result.limited);
     let recipe = super::super::recipes().into_iter().find(|recipe| recipe.selector.matches(&request())).unwrap();
     assert_eq!(recipe.id, "mysql.jobs");
-    assert_eq!(recipe.cost, RecipeCostQualification::Unqualified);
+    assert_eq!(recipe.admission, RecipeAdmission::Unqualified);
     assert_eq!(recipe.purpose, RecipePurpose::Investigation);
     eprintln!(
         "scheduled-event native: four authenticated root captures x25 source queries, one same-reader buffered acquisition x20, one original limited-reader attempt; disabled/future-enabled catalog points only, no event invocation, native run outcome or production cost qualification"

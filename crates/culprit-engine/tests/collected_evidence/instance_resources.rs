@@ -1,9 +1,9 @@
 use super::fixture::Fixture;
-use culprit_collector::analytical::{
-    evidence::{EvidenceFamily, EvidenceGapReason},
-    test_support::{self, InstanceResourceCase},
-};
 use culprit_core::{SourceState, telemetry::*};
+use culprit_evidence::analytical::evidence::EvidenceFamily;
+use culprit_evidence::analytical::evidence::EvidenceGapReason;
+use culprit_evidence::analytical::test_support;
+use culprit_evidence::analytical::test_support::InstanceResourceCase;
 
 #[tokio::test]
 async fn original_processor_cpu_source_replays_separately_from_the_instance_resource_point_without_requery() {
@@ -261,13 +261,13 @@ async fn modern_scheduler_originals_keep_layout_absence_nulls_and_unqualified_sp
 
 #[tokio::test]
 async fn original_numa_populations_keep_exact_fields_coverage_clocks_and_nulls_without_source_or_recovery() {
-    use culprit_collector::analytical::test_support::{NumaNodeCase, numa_node_evidence};
+    use culprit_evidence::analytical::test_support::{NumaNodeCase, numa_node_evidence};
     for case in NumaNodeCase::ALL {
         let (source, rows) = numa_node_evidence(case);
         let fixture = Fixture::new(source.clone(), rows.clone()).await;
         let opened = fixture.recovery_object_reads();
         let capture =
-            fixture.read_families(&[culprit_collector::analytical::evidence::EvidenceFamily::OperationalSamples]).await;
+            fixture.read_families(&[culprit_evidence::analytical::evidence::EvidenceFamily::OperationalSamples]).await;
         let analysis = culprit_engine::collected_resources::instance_resources(&capture).unwrap();
         assert_eq!(analysis.context.source, source);
         assert_eq!(analysis.context.records.len(), rows.len());
@@ -299,13 +299,13 @@ async fn original_numa_populations_keep_exact_fields_coverage_clocks_and_nulls_w
 }
 #[tokio::test]
 async fn missing_original_numa_body_keeps_native_counts_and_withdraws_complete_read_instead_of_zero() {
-    let (source, rows) = culprit_collector::analytical::test_support::numa_node_evidence(
-        culprit_collector::analytical::test_support::NumaNodeCase::Exact,
+    let (source, rows) = culprit_evidence::analytical::test_support::numa_node_evidence(
+        culprit_evidence::analytical::test_support::NumaNodeCase::Exact,
     );
     let fixture = Fixture::new(source, rows).await;
     fixture.remove_row(TelemetryStream::OperationalSamples, 1);
     let capture =
-        fixture.read_families(&[culprit_collector::analytical::evidence::EvidenceFamily::OperationalSamples]).await;
+        fixture.read_families(&[culprit_evidence::analytical::evidence::EvidenceFamily::OperationalSamples]).await;
     let report = culprit_engine::collected_resources::instance_resources(&capture).unwrap().report;
     let nodes = report.numa_nodes.unwrap();
     assert!(!nodes.read_complete);
@@ -315,7 +315,7 @@ async fn missing_original_numa_body_keeps_native_counts_and_withdraws_complete_r
 }
 #[test]
 fn foreign_or_unknown_native_node_owner_dataset_or_counter_semantics_cannot_export() {
-    use culprit_collector::analytical::test_support::{NumaNodeCase, numa_node_evidence};
+    use culprit_evidence::analytical::test_support::{NumaNodeCase, numa_node_evidence};
     for change in ["foreign", "unknown", "dataset", "unit"] {
         let (mut source, mut rows) = numa_node_evidence(NumaNodeCase::Exact);
         match change {

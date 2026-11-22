@@ -154,47 +154,8 @@ fn storage_configuration(row: &Rec) -> Result<MssqlTableStorageConfiguration> {
     value.is_valid().then_some(value).ok_or_else(invalid_data)
 }
 
-fn display(value: Option<String>) -> Option<f64> {
-    value.and_then(|value| value.parse::<u64>().ok()).map(|value| value as f64)
-}
 fn project(value: MssqlTableSnapshot) -> Result<TableStat> {
-    let has_primary_key = value.has_primary_key.ok_or_else(crate::catalog_visibility::unavailable)?;
-    Ok(TableStat {
-        schema: value.schema,
-        name: value.name,
-        kind: None,
-        definition: None,
-        rows: display(value.estimated_rows),
-        total_bytes: display(value.reserved_bytes),
-        data_bytes: display(value.data_bytes),
-        index_bytes: display(value.index_bytes),
-        in_row_bytes: display(value.in_row_bytes),
-        lob_bytes: display(value.lob_bytes),
-        overflow_bytes: display(value.row_overflow_bytes),
-        has_primary_key,
-        is_heap: value.is_heap,
-        seq_scans: None,
-        seq_rows_read: None,
-        index_scans: None,
-        inserts: None,
-        updates: None,
-        deletes: None,
-        dead_rows: None,
-        modifications_since_analyze: None,
-        last_vacuum: None,
-        last_analyze: None,
-        forwarded_records: None,
-        forwarded_fetches: None,
-        xid_age: None,
-        storage: None,
-        mssql_full_text: Some(value.full_text),
-        mssql_heap_configuration: value.heap_configuration,
-        mssql_storage_configuration: Some(value.storage_configuration),
-        mssql_tracked_by_cdc: value.tracked_by_cdc,
-        mssql_temporal_configuration: Some(value.temporal_configuration),
-        partition_of: None,
-        counters_since: None,
-    })
+    value.into_table_stat().ok_or_else(crate::catalog_visibility::unavailable)
 }
 
 #[cfg(test)]

@@ -1,10 +1,12 @@
 use super::fixture::Fixture;
-use culprit_collector::analytical::{
-    evidence::{EvidenceFamily, EvidenceGapReason},
-    test_support::{ReplicationCase, assert_replication_capture, replication_evidence, replication_evidence_cases},
-};
 use culprit_core::{ReplicationCondition, SourceState, telemetry::*};
 use culprit_engine::collected_resources;
+use culprit_evidence::analytical::evidence::EvidenceFamily;
+use culprit_evidence::analytical::evidence::EvidenceGapReason;
+use culprit_evidence::analytical::test_support::ReplicationCase;
+use culprit_evidence::analytical::test_support::assert_replication_capture;
+use culprit_evidence::analytical::test_support::replication_evidence;
+use culprit_evidence::analytical::test_support::replication_evidence_cases;
 
 const FAMILY: &[EvidenceFamily] = &[EvidenceFamily::ReplicationSamples];
 

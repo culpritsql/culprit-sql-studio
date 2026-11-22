@@ -1,7 +1,8 @@
 use super::*;
 use culprit_checks::tempdb_metadata_memory::{TempdbMetadataMemoryEvidence, explain};
-use culprit_collector::analytical::test_support::{TempdbMetadataMemoryCase, tempdb_metadata_memory_evidence};
 use culprit_core::{SourceState, telemetry::*};
+use culprit_evidence::analytical::test_support::TempdbMetadataMemoryCase;
+use culprit_evidence::analytical::test_support::tempdb_metadata_memory_evidence;
 
 fn report(case: TempdbMetadataMemoryCase) -> TempdbMetadataMemoryReport {
     let (source, records) = tempdb_metadata_memory_evidence(case);

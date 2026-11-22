@@ -1,9 +1,10 @@
 //! Original native focus evidence is retained verbatim; its journal bytes also remain part of the quota.
 use super::*;
-use crate::analytical::test_support::{
-    InvestigationFixture, compiler_admission_evidence, compiler_admission_investigation_fixture,
-    focused_request_memory_evidence, request_memory_investigation_fixture,
-};
+use culprit_evidence::analytical::test_support::InvestigationFixture;
+use culprit_evidence::analytical::test_support::compiler_admission_evidence;
+use culprit_evidence::analytical::test_support::compiler_admission_investigation_fixture;
+use culprit_evidence::analytical::test_support::focused_request_memory_evidence;
+use culprit_evidence::analytical::test_support::request_memory_investigation_fixture;
 mod diagnostic_inputs;
 
 const ORIGINAL_SQL_BYTES: usize = 16 * 1024;

@@ -1,10 +1,10 @@
 //! Private conformance export from the existing typed corpus through original recovery and shared projection.
 //! No provider opens, SQL, source qualification, replacement model definitions or runtime registry.
-use culprit_collector::{
-    analytical::{catalog::LogicalCatalog, envelope::Envelope, test_support as corpus},
-    delivery::recovery::RecoveryRecords,
-};
 use culprit_core::{Engine, telemetry::*};
+use culprit_evidence::analytical::catalog::LogicalCatalog;
+use culprit_evidence::analytical::envelope::Envelope;
+use culprit_evidence::analytical::test_support as corpus;
+use culprit_evidence::delivery::recovery::RecoveryRecords;
 use serde_json::{Value, json};
 use std::{fs::OpenOptions, io::Write, path::PathBuf};
 

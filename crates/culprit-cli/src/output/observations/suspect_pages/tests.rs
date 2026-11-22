@@ -1,6 +1,7 @@
 use super::*;
-use culprit_collector::analytical::test_support::{SuspectPageHistoryCase, suspect_page_history_evidence};
 use culprit_core::telemetry::*;
+use culprit_evidence::analytical::test_support::SuspectPageHistoryCase;
+use culprit_evidence::analytical::test_support::suspect_page_history_evidence;
 fn report(case: SuspectPageHistoryCase) -> SuspectPageHistoryReport {
     let (source, rows) = suspect_page_history_evidence(case);
     let observations = rows

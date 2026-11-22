@@ -1,6 +1,8 @@
 use super::*;
-use culprit_collector::analytical::test_support::{BlockingCase, blocking_evidence, blocking_evidence_cases};
 use culprit_engine::LocalCaptureAnalysisKind;
+use culprit_evidence::analytical::test_support::BlockingCase;
+use culprit_evidence::analytical::test_support::blocking_evidence;
+use culprit_evidence::analytical::test_support::blocking_evidence_cases;
 
 fn parent(fixture: &LocalCaptureFixture) -> DiagnosticCaptureRef {
     let SourceObservation::FocusedBlocking { result, .. } = &fixture.manifest.description.as_ref().unwrap().observation

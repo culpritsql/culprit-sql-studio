@@ -5,9 +5,13 @@ use test_support::SessionCensusCase;
 async fn collected(case: SessionCensusCase) -> (Fixture, CollectionDescription, Vec<TelemetryRecord>) {
     let (source, rows) = test_support::session_census_evidence(case);
     let catalog = Arc::new(SchemaCatalog::new().unwrap());
-    let recovery =
-        test_support::collected_resource_recovery("clickhouse:test", catalog.digest(), source.clone(), rows.clone())
-            .await;
+    let recovery = culprit_collector::analytical::test_support::collected_resource_recovery(
+        "clickhouse:test",
+        catalog.digest(),
+        source.clone(),
+        rows.clone(),
+    )
+    .await;
     (Fixture::from_recovery(catalog, Arc::new(recovery), &[TelemetryStream::ActivityObservations]).await, source, rows)
 }
 #[tokio::test]

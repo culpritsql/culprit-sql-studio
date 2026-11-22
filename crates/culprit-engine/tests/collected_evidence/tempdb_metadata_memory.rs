@@ -1,11 +1,11 @@
 use super::fixture::Fixture;
 use culprit_checks::tempdb_metadata_memory::{TempdbMetadataMemoryEvidence, explain};
-use culprit_collector::analytical::{
-    evidence::EvidenceFamily,
-    test_support::{TempdbMetadataMemoryCase, assert_operational_capture, tempdb_metadata_memory_evidence},
-};
 use culprit_core::{SourceState, telemetry::*};
 use culprit_engine::collected_resources;
+use culprit_evidence::analytical::evidence::EvidenceFamily;
+use culprit_evidence::analytical::test_support::TempdbMetadataMemoryCase;
+use culprit_evidence::analytical::test_support::assert_operational_capture;
+use culprit_evidence::analytical::test_support::tempdb_metadata_memory_evidence;
 
 #[tokio::test]
 async fn authenticated_tempdb_metadata_points_preserve_native_scope_nullable_feature_and_exact_bytes_without_recovery()

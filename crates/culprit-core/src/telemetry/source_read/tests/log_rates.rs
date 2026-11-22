@@ -95,7 +95,7 @@ fn log_followup_cannot_borrow_a_current_row_epoch_updateability_or_compiler_cost
         "a compiler cost receipt cannot approve a different SQL roster"
     );
     qualified.selector = value.focus.question.selector();
-    let RecipeCostQualification::Measured(receipt) = &mut qualified.cost else { panic!() };
+    let RecipeAdmission::Measured(receipt) = &mut qualified.admission else { panic!() };
     receipt.selector = qualified.selector;
     assert!(
         DiagnosticInvestigationIntent::new_source_read(
@@ -127,7 +127,7 @@ fn actual_wait_survives_resolution_and_completion_retires_the_single_owed_questi
     capture.source_scope_id = source.captured_range().unwrap().scope_id;
     let (mut qualified, component) = recipe(&original());
     qualified.selector = value.focus.question.selector();
-    let RecipeCostQualification::Measured(receipt) = &mut qualified.cost else { panic!() };
+    let RecipeAdmission::Measured(receipt) = &mut qualified.admission else { panic!() };
     receipt.selector = qualified.selector;
     let intent = DiagnosticInvestigationIntent::new_source_read(
         &enrolled,

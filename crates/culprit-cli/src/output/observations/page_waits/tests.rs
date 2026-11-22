@@ -1,9 +1,10 @@
 use super::*;
-use culprit_collector::analytical::test_support::{PageWriterCase, page_writer_evidence};
 use culprit_core::{
     PageWaitExplanation, PageWaitRecordedIncident, PageWaitRecordedRequest, PageWaitTaskReference, SourceState,
     telemetry::*,
 };
+use culprit_evidence::analytical::test_support::PageWriterCase;
+use culprit_evidence::analytical::test_support::page_writer_evidence;
 
 fn report(sql: DefinitionPayload) -> PageWaitReport {
     let (source, _) = page_writer_evidence(PageWriterCase::TargetWriter);

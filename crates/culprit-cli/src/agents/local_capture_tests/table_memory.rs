@@ -1,6 +1,7 @@
 use super::*;
-use culprit_collector::analytical::test_support::{TableMemoryCase, table_memory_evidence};
 use culprit_engine::LocalCaptureAnalysisKind;
+use culprit_evidence::analytical::test_support::TableMemoryCase;
+use culprit_evidence::analytical::test_support::table_memory_evidence;
 #[tokio::test]
 async fn actual_local_mcp_table_memory_route_preserves_canonical_values_and_qualification_without_source_work() {
     for case in TableMemoryCase::ALL {

@@ -1,6 +1,8 @@
 //! Scripted native lifecycle only; owned provider fixtures separately establish live compatibility.
 use super::*;
-use crate::{analytical::test_support, outbox::Outbox};
+use crate::outbox::Outbox;
+use culprit_evidence::analytical::test_support;
+use culprit_read::cancellation::CollectionCancellation;
 use culprit_read::{ReadBatch, SnapshotReader, SnapshotRecheck, SnapshotRecord, SnapshotScope, SnapshotSource};
 use std::{collections::VecDeque, path::PathBuf, sync::Mutex};
 

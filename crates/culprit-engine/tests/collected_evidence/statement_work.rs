@@ -1,12 +1,11 @@
 use super::fixture::Fixture;
-use culprit_collector::analytical::{
-    evidence::{EvidenceFamily, EvidenceGapReason},
-    test_support::{
-        node_statement_work_evidence_cases, statement_outcome_evidence_cases, statement_work_evidence_cases,
-    },
-};
 use culprit_core::{ErrorDetail, MeasurementScope, ResetMarker, SourceState, telemetry::*};
 use culprit_engine::collected_resources;
+use culprit_evidence::analytical::evidence::EvidenceFamily;
+use culprit_evidence::analytical::evidence::EvidenceGapReason;
+use culprit_evidence::analytical::test_support::node_statement_work_evidence_cases;
+use culprit_evidence::analytical::test_support::statement_outcome_evidence_cases;
+use culprit_evidence::analytical::test_support::statement_work_evidence_cases;
 
 fn observations(rows: &[TelemetryRecord]) -> Vec<&OperationalObservation> {
     rows.iter()

@@ -1,6 +1,7 @@
 use super::*;
-use culprit_collector::analytical::test_support::{IndexedViewsCase, indexed_views_evidence};
 use culprit_core::telemetry::*;
+use culprit_evidence::analytical::test_support::IndexedViewsCase;
+use culprit_evidence::analytical::test_support::indexed_views_evidence;
 fn report(case: IndexedViewsCase) -> IndexedViewsReport {
     let (description, records) = indexed_views_evidence(case);
     let coverage = &description.observation.snapshot().unwrap().sources[0];

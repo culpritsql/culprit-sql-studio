@@ -1,7 +1,10 @@
 use super::super::completed_capture::ReadControl;
 use super::*;
-use crate::analytical::test_support::{BlockingCase, LocalCaptureFixture, blocking_evidence, blocking_evidence_cases};
+use crate::analytical::test_support::LocalCaptureFixture;
 use culprit_core::{ErrorDetail, limits::OperationGuard};
+use culprit_evidence::analytical::test_support::BlockingCase;
+use culprit_evidence::analytical::test_support::blocking_evidence;
+use culprit_evidence::analytical::test_support::blocking_evidence_cases;
 use std::path::PathBuf;
 
 async fn read(fixture: &LocalCaptureFixture, budget: CompletedCaptureBudget) -> Result<CompletedBlocking> {

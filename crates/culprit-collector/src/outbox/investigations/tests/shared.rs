@@ -1,5 +1,7 @@
 use super::*;
-use crate::analytical::test_support::shared_investigation_fixture;
+use culprit_evidence::analytical::test_support::shared_investigation_fixture;
+use culprit_evidence::delivery::mutations::Fence;
+use culprit_evidence::delivery::recovery::RecoveryRead;
 
 const ANALYZED_AT: &str = "2020-01-01T12:00:01Z";
 
@@ -87,7 +89,7 @@ impl SharedInvestigation {
             &episode,
             &fixture.investigation.recipe,
             focus,
-            &fixture.investigation.intent.qualification.component,
+            fixture.investigation.intent.qualification.component(),
             &CollectionBudget::default(),
             DiagnosticSharedOwner { source: &source, row: &row, reference: &reference },
         )
@@ -135,8 +137,8 @@ impl SharedInvestigation {
             })]
         };
         let source = CollectionDescription {
-            target: self.intent.qualification.scope.target(),
-            partition: self.intent.qualification.scope.partition().clone(),
+            target: self.intent.qualification.scope().target(),
+            partition: self.intent.qualification.scope().partition().clone(),
             source: "fixture-focused-shared".into(),
             continuity: SourceContinuity::Unverified,
             observation: SourceObservation::FocusedPageWait {
@@ -234,7 +236,9 @@ fn one_investigation_pin_owner_protects_both_authenticated_parents_and_rejects_s
         })
         .unwrap();
     assert_eq!(count, 3);
-    for capture in [&fixture.original, &fixture.owner, &fixture.intent.qualification.evidence.capture] {
+    for capture in
+        [&fixture.original, &fixture.owner, &fixture.intent.qualification.measured().unwrap().evidence.capture]
+    {
         assert!(super::super::journal::is_pinned(&fixture.files.journal.conn, &capture.observation_id).unwrap());
     }
     fixture.files.release_investigation_parent(&key).unwrap();
@@ -244,7 +248,7 @@ fn one_investigation_pin_owner_protects_both_authenticated_parents_and_rejects_s
 #[tokio::test]
 async fn manual_shared_focus_never_enters_the_database_controller_and_its_parent_pin_retires_on_archive() {
     let root = tempfile::tempdir().unwrap();
-    let contract = crate::delivery::contract::Contract::new(
+    let contract = culprit_evidence::delivery::contract::Contract::new(
         "pipeline".into(),
         "shard".into(),
         "file:warehouse".into(),
@@ -289,7 +293,7 @@ async fn offline_shared_result_updates_only_the_original_database_checkpoint() {
         crate::diagnostics::analyze_pending(
             &mut outbox,
             &policy,
-            &crate::capture::CollectionCancellation::default(),
+            &culprit_read::cancellation::CollectionCancellation::default(),
             1,
             None
         )
@@ -335,7 +339,7 @@ fn a_shared_intent_or_epoch_substitution_is_rejected_before_derived_allocation()
     let before = fixture.captures();
     let mut replaced = input.clone();
     let owner = replaced.investigation.as_mut().unwrap();
-    owner.qualification.read_metrics.templates[0].client_elapsed_ms = -0.0;
+    owner.qualification.measured_mut().unwrap().read_metrics.templates[0].client_elapsed_ms = -0.0;
     assert!(fixture.files.commit_diagnostics(replaced, update.clone()).is_err());
     assert_eq!(fixture.captures(), before);
     let mut foreign = input;
@@ -377,7 +381,7 @@ fn zero_or_unknown_shared_native_owners_do_not_become_positive_admission_referen
 #[test]
 fn a_shared_page_snapshot_is_retained_without_becoming_an_operational_owner_binding() {
     let mut fixture = SharedInvestigation::new();
-    let (source, rows) = crate::analytical::test_support::shared_page_wait_evidence_cases().remove(0);
+    let (source, rows) = culprit_evidence::analytical::test_support::shared_page_wait_evidence_cases().remove(0);
     assert!(!rows.is_empty());
     let CollectionTarget::Shared(resource) = &source.target else { unreachable!() };
     let request = CollectionRequest {
@@ -396,7 +400,7 @@ fn local_lineage_metadata_cannot_replace_the_sealed_native_intent() {
     let mut fixture = SharedInvestigation::new();
     let focused = fixture.focused(true, true);
     let mut foreign = fixture.intent.clone();
-    foreign.qualification.read_metrics.templates[0].client_elapsed_ms += 1.0;
+    foreign.qualification.measured_mut().unwrap().read_metrics.templates[0].client_elapsed_ms += 1.0;
     let lineage = DiagnosticInvestigationLineage::from_intent(&foreign).unwrap();
     assert!(foreign.matches_result_source(
         &fixture.files.diagnostic_input(&focused.observation_id, DIAGNOSTIC_CONTROLLER_VERSION).unwrap().source
@@ -416,7 +420,7 @@ fn local_lineage_metadata_cannot_replace_the_sealed_native_intent() {
 #[tokio::test]
 async fn cold_shared_inputs_authenticate_and_cache_both_originals_without_reviving_native_work() {
     let root = tempfile::tempdir().unwrap();
-    let contract = crate::delivery::contract::Contract::new(
+    let contract = culprit_evidence::delivery::contract::Contract::new(
         "pipeline".into(),
         "shard".into(),
         "file:warehouse".into(),
@@ -477,7 +481,7 @@ async fn cold_shared_inputs_authenticate_and_cache_both_originals_without_revivi
         crate::diagnostics::analyze_pending(
             &mut cold,
             &policies,
-            &crate::capture::CollectionCancellation::default(),
+            &culprit_read::cancellation::CollectionCancellation::default(),
             1,
             Some(&store)
         )

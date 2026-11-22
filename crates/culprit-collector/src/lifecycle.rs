@@ -1,6 +1,6 @@
 //! Await owned operations through cancellation; neither lifetime is abandoned.
-use crate::capture::CollectionCancellation;
 use culprit_core::Result;
+use culprit_read::cancellation::CollectionCancellation;
 use std::future::Future;
 
 /// Retain both operation owners through shutdown. Completion or failure stops new work and awaits

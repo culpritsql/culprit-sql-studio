@@ -1,5 +1,5 @@
 //! Recovery selection is independent of warehouse selection. Native providers own configuration and authentication.
-use super::config::RecoveryConfig;
+use crate::recovery_config::RecoveryConfig;
 use culprit_auth::CredentialResolver;
 use culprit_collector::delivery::object_store::provider::{RecoveryProvider, RecoveryTarget};
 use culprit_core::{Result, telemetry::DeliveryProblem};
@@ -14,7 +14,7 @@ impl RecoveryRegistry {
 
     pub fn register(&mut self, provider: Arc<dyn RecoveryProvider>) -> Result<()> {
         let name = provider.name();
-        if !super::config::valid_provider_name(name) || self.0.contains_key(name) {
+        if !crate::recovery_config::valid_provider_name(name) || self.0.contains_key(name) {
             return Err(DeliveryProblem::InvalidContract.error());
         }
         self.0.insert(name.to_string(), provider);

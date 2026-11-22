@@ -1,4 +1,5 @@
 use super::*;
+use culprit_read::cancellation::CollectionCancellation;
 mod page_tasks;
 mod writers;
 
@@ -10,7 +11,7 @@ fn recipe() -> RecipeDescriptor {
         selector: RecipeSelector::FocusedPageWait,
         subjects: vec![RecipeSubject::Database],
         budget: CollectionBudget::default(),
-        cost: RecipeCostQualification::Unqualified,
+        admission: RecipeAdmission::Unqualified,
     }
 }
 

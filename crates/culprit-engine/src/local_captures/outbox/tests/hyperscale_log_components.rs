@@ -1,6 +1,6 @@
 use super::*;
-use culprit_collector::analytical::test_support::hyperscale_log_component_evidence_cases;
 use culprit_core::SourceState;
+use culprit_evidence::analytical::test_support::hyperscale_log_component_evidence_cases;
 
 async fn analyze(fixture: &LocalCaptureFixture) -> Result<LocalHyperscaleLogComponents> {
     let reader =

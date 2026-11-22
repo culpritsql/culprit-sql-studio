@@ -2,8 +2,8 @@
 use super::*;
 use crate::test_support::owned_captures::{Captured, OwnedCaptures};
 use crate::test_support::owned_case;
-use culprit_collector::capture::CollectionCancellation;
 use culprit_core::telemetry::*;
+use culprit_read::cancellation::CollectionCancellation;
 mod blocking;
 mod diagnostics;
 mod forcing;

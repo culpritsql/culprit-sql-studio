@@ -1,8 +1,8 @@
 //! A queued directory read is woken only after the previous real filesystem owner has been released.
 use super::*;
-use culprit_collector::analytical::test_support::{
-    MemoryClerkCase, hyperscale_log_component_evidence_cases, memory_clerk_evidence,
-};
+use culprit_evidence::analytical::test_support::MemoryClerkCase;
+use culprit_evidence::analytical::test_support::hyperscale_log_component_evidence_cases;
+use culprit_evidence::analytical::test_support::memory_clerk_evidence;
 use std::{
     future::Future,
     sync::{
@@ -44,26 +44,34 @@ impl Wake for PermitRelease {
     }
 }
 
-async fn fixture(analysis: LocalCaptureAnalysisKind) -> LocalCaptureFixture {
+pub(super) async fn fixture(analysis: LocalCaptureAnalysisKind) -> LocalCaptureFixture {
+    if matches!(analysis.read_plan(), LocalCaptureReadPlan::IncidentHistory) {
+        let fixture = LocalCaptureFixture::diagnostic_history(false).await;
+        assert!(matches!(
+            fixture.manifest.description.as_ref().unwrap().observation,
+            SourceObservation::Diagnostics(_)
+        ));
+        return fixture;
+    }
     match analysis {
         LocalCaptureAnalysisKind::SessionCensus => {
-            let (source, rows) = culprit_collector::analytical::test_support::session_census_evidence(
-                culprit_collector::analytical::test_support::SessionCensusCase::Mars,
+            let (source, rows) = culprit_evidence::analytical::test_support::session_census_evidence(
+                culprit_evidence::analytical::test_support::SessionCensusCase::Mars,
             );
             LocalCaptureFixture::activity(source, rows).await
         }
         LocalCaptureAnalysisKind::Blocking => {
-            let (source, rows) = culprit_collector::analytical::test_support::blocking_evidence(
-                culprit_collector::analytical::test_support::BlockingCase::Matched,
+            let (source, rows) = culprit_evidence::analytical::test_support::blocking_evidence(
+                culprit_evidence::analytical::test_support::BlockingCase::Matched,
             );
             LocalCaptureFixture::activity(source, rows).await
         }
         LocalCaptureAnalysisKind::RuntimeFragments => {
-            let (source, records) = culprit_collector::analytical::test_support::query_runtime_fragment_evidence(true);
+            let (source, records) = culprit_evidence::analytical::test_support::query_runtime_fragment_evidence(true);
             LocalCaptureFixture::query_history(source, records).await
         }
         LocalCaptureAnalysisKind::QueryWaitFragments => {
-            let (source, records) = culprit_collector::analytical::test_support::query_wait_fragment_evidence();
+            let (source, records) = culprit_evidence::analytical::test_support::query_wait_fragment_evidence();
             LocalCaptureFixture::query_history(source, records).await
         }
         LocalCaptureAnalysisKind::SourceOverhead | LocalCaptureAnalysisKind::PageServerReads => {
@@ -79,20 +87,20 @@ async fn fixture(analysis: LocalCaptureAnalysisKind) -> LocalCaptureFixture {
             LocalCaptureFixture::snapshot(source, rows).await
         }
         LocalCaptureAnalysisKind::ManagedInstanceResources => {
-            let (source, rows) = culprit_collector::analytical::test_support::managed_instance_resource_case(
-                culprit_collector::analytical::test_support::ManagedInstanceResourceCase::Complete,
+            let (source, rows) = culprit_evidence::analytical::test_support::managed_instance_resource_case(
+                culprit_evidence::analytical::test_support::ManagedInstanceResourceCase::Complete,
             );
             LocalCaptureFixture::with_shutdown(source, rows, SourceShutdown::Quiescent).await
         }
         LocalCaptureAnalysisKind::PoolSettings => {
-            let (source, rows) = culprit_collector::analytical::test_support::pool_settings_evidence(
-                culprit_collector::analytical::test_support::PoolSettingsCase::Exact,
+            let (source, rows) = culprit_evidence::analytical::test_support::pool_settings_evidence(
+                culprit_evidence::analytical::test_support::PoolSettingsCase::Exact,
             );
             LocalCaptureFixture::snapshot(source, rows).await
         }
         LocalCaptureAnalysisKind::Replication => {
-            let (source, rows) = culprit_collector::analytical::test_support::replication_evidence(
-                culprit_collector::analytical::test_support::ReplicationCase::MssqlHyperscale,
+            let (source, rows) = culprit_evidence::analytical::test_support::replication_evidence(
+                culprit_evidence::analytical::test_support::ReplicationCase::MssqlHyperscale,
             );
             LocalCaptureFixture::snapshot(source, rows).await
         }

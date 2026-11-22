@@ -1,16 +1,14 @@
 //! Both ADX transports consume the same immutable analytical batches and completion records.
 use async_trait::async_trait;
-use culprit_collector::{
-    analytical::encoding::EncodedBatch,
-    delivery::{
-        contract::MAX_RANGE_BYTES, object_store::transport::valid_object_key, recovery::CommittedRange,
-        sink::DeliveryAttempt,
-    },
-};
+use culprit_collector::analytical::encoding::EncodedBatch;
+use culprit_collector::delivery::sink::DeliveryAttempt;
 use culprit_core::{
     Result,
     telemetry::{DeliveryProblem, digest, valid_digest},
 };
+use culprit_evidence::delivery::contract::MAX_RANGE_BYTES;
+use culprit_evidence::delivery::object_store::transport::valid_object_key;
+use culprit_evidence::delivery::recovery::CommittedRange;
 use std::{
     io::{Cursor, Read},
     sync::Arc,

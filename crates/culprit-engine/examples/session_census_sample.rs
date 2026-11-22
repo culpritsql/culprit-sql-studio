@@ -1,6 +1,7 @@
 //! Controlled native-shaped cases through the actual pure view; no live owner or source-cost claim.
-use culprit_collector::analytical::test_support::{SessionCensusCase, session_census_evidence};
 use culprit_core::telemetry::*;
+use culprit_evidence::analytical::test_support::SessionCensusCase;
+use culprit_evidence::analytical::test_support::session_census_evidence;
 use std::{collections::BTreeMap, path::PathBuf};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {

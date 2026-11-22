@@ -1,12 +1,11 @@
 //! A historical maintenance phase and a later blocking closure keep distinct receipts and owner authority.
 use super::*;
-use crate::read::NativeRead;
-use culprit_collector::{
-    capture::{CollectionCancellation, SourceFactory, collect},
-    outbox::Outbox,
-};
+use culprit_collector::capture::SourceFactory;
+use culprit_collector::capture::collect;
+use culprit_collector::outbox::Outbox;
 use culprit_core::telemetry::ActivityPolicy;
 use culprit_read::admission::SourceGate;
+use culprit_read::cancellation::CollectionCancellation;
 
 const INDEX_SQL: &str = "CREATE INDEX CONCURRENTLY ix_orders ON orders(id)";
 const NEW_OWNER_BACKEND: &str = "2026-11-15T09:59:00.000001Z";

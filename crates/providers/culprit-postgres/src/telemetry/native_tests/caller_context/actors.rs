@@ -4,11 +4,11 @@ use crate::{
     connect::{Connector, map_error},
     rows::tagged,
 };
-use culprit_collector::capture::CollectionCancellation;
 use culprit_core::{
     Result,
     telemetry::{CollectionStop, NativeActivityIdentity},
 };
+use culprit_read::cancellation::CollectionCancellation;
 use std::time::Duration;
 use tokio::{task::JoinHandle, time::timeout};
 use tokio_postgres::{CancelToken, Client};

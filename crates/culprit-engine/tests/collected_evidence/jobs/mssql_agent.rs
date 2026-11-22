@@ -1,5 +1,6 @@
 use super::*;
-use culprit_collector::analytical::test_support::{MssqlAgentJobsCase, mssql_agent_jobs_evidence};
+use culprit_evidence::analytical::test_support::MssqlAgentJobsCase;
+use culprit_evidence::analytical::test_support::mssql_agent_jobs_evidence;
 #[tokio::test]
 async fn agent_history_missing_bodies_and_instance_scope_remain_independent_from_current_scan_namespace() {
     let (source, records) = mssql_agent_jobs_evidence(MssqlAgentJobsCase::Failed);

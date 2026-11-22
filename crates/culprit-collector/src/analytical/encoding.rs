@@ -1,15 +1,15 @@
 //! One bounded temporary batch at a time. Only complete native EOF verification creates an upload capability.
-use super::{
+use culprit_core::{Result, telemetry::DeliveryProblem};
+use culprit_evidence::analytical::{
     ProjectionCatalog,
     envelope::Envelope,
     indexes::{ExpectedRow, IndexKey},
     projection,
 };
-use crate::delivery::{
-    contract::MAX_RANGE_BYTES,
-    recovery::{CommittedRange, RecoveryRecords, RecoveryStore},
-};
-use culprit_core::{Result, telemetry::DeliveryProblem};
+use culprit_evidence::delivery::contract::MAX_RANGE_BYTES;
+use culprit_evidence::delivery::recovery::CommittedRange;
+use culprit_evidence::delivery::recovery::RecoveryRead;
+use culprit_evidence::delivery::recovery::RecoveryRecords;
 use sha2::{Digest, Sha256};
 use std::{
     fs,
@@ -62,13 +62,13 @@ impl SpoolOwner {
 }
 pub struct BatchEncoder {
     catalog: Arc<dyn ProjectionCatalog>,
-    recovery: Arc<dyn RecoveryStore>,
+    recovery: Arc<dyn RecoveryRead>,
     spool: Arc<SpoolOwner>,
     batches: Arc<Semaphore>,
 }
 impl BatchEncoder {
     /// Use a dedicated scratch directory on a bounded volume, separate from the source outbox.
-    pub fn new(catalog: Arc<dyn ProjectionCatalog>, recovery: Arc<dyn RecoveryStore>, scratch: &Path) -> Result<Self> {
+    pub fn new(catalog: Arc<dyn ProjectionCatalog>, recovery: Arc<dyn RecoveryRead>, scratch: &Path) -> Result<Self> {
         Ok(Self {
             catalog,
             recovery,

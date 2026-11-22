@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use ts_rs::TS;
 
-pub const EXPORT_FORMAT_VERSION: u32 = 84;
+pub const EXPORT_FORMAT_VERSION: u32 = 85;
 pub const REPRESENTATION_VERSION: u32 = 2;
 
 impl DatabaseIdentity {
@@ -240,6 +240,15 @@ impl ExportedRecord {
             TelemetryRecord::ObjectDefinition(row) => {
                 Some(source.point_record_id("object-definition-v1", capture, &(&row.source, &row.key, &row.version))?)
             }
+            TelemetryRecord::DerivedIncident(row) => {
+                Some(source.scoped_id("derived-incident-v1", &(&row.analysis_id, row.key()))?)
+            }
+            TelemetryRecord::DerivedFinding(row) => {
+                Some(source.scoped_id("derived-finding-v1", &(&row.analysis_id, row.key()))?)
+            }
+            TelemetryRecord::DerivedChange(row) => {
+                Some(source.scoped_id("derived-change-v1", &(&row.analysis_id, row.key()))?)
+            }
             TelemetryRecord::QueryRuntime(_) | TelemetryRecord::QueryWaits(_) => None,
         };
         Ok(Self {
@@ -270,10 +279,16 @@ impl NativeRecordIdentity {
             Self::Setting { .. } => TelemetryStream::SettingObservations,
             Self::Tuning { .. } => TelemetryStream::TuningObservations,
             Self::ObjectDefinition { .. } => TelemetryStream::ObjectDefinitions,
+            Self::DerivedIncident { .. } => TelemetryStream::DerivedIncidents,
+            Self::DerivedFinding { .. } => TelemetryStream::DerivedFindings,
+            Self::DerivedChange { .. } => TelemetryStream::DerivedChanges,
         }
     }
     pub fn is_valid(&self) -> bool {
         match self {
+            Self::DerivedIncident { analysis_id, key }
+            | Self::DerivedFinding { analysis_id, key }
+            | Self::DerivedChange { analysis_id, key } => valid_digest(analysis_id) && valid_key(key),
             Self::Runtime(key) => key.is_valid(),
             Self::Waits { key, category } => key.is_valid() && valid_key(category),
             Self::Activity(key) => key.is_valid(),

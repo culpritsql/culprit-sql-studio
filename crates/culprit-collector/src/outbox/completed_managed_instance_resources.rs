@@ -3,8 +3,8 @@ use super::{
     OutboxDelivery,
     completed_capture::{CompletedCapture, CompletedCaptureBudget, CompletedCaptureLookup, CompletedCaptureRead},
 };
-use crate::capture::CollectionCancellation;
 use culprit_core::{Result, limits::OperationHandle, telemetry::*};
+use culprit_read::cancellation::CollectionCancellation;
 #[derive(Debug)]
 pub struct CompletedManagedInstanceResources {
     completed: CompletedCapture,

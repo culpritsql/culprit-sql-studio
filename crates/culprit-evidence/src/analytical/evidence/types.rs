@@ -1,0 +1,327 @@
+pub use culprit_core::collected_analysis::{EvidenceGap, EvidenceGapReason};
+use culprit_core::{Result, telemetry::*};
+use serde::{Deserialize, Serialize};
+
+const DEFAULT_RECOVERY_PAYLOAD_OBJECTS: u32 = 8;
+const DEFAULT_RECOVERY_PAYLOAD_BYTES: u64 = 64 * 1024 * 1024;
+const MAX_RECOVERY_PAYLOAD_OBJECTS: u32 = 128;
+const MAX_RECOVERY_PAYLOAD_BYTES: u64 = 256 * 1024 * 1024;
+
+/// Whole immutable recovery objects, not the size of one requested SQL/plan preview.
+#[derive(Clone, Copy, Debug)]
+pub struct RecoveryPayloadBudget {
+    pub max_objects: u32,
+    pub max_bytes: u64,
+}
+impl Default for RecoveryPayloadBudget {
+    fn default() -> Self {
+        Self { max_objects: DEFAULT_RECOVERY_PAYLOAD_OBJECTS, max_bytes: DEFAULT_RECOVERY_PAYLOAD_BYTES }
+    }
+}
+impl RecoveryPayloadBudget {
+    pub fn validate(&self) -> Result<()> {
+        if !(1..=MAX_RECOVERY_PAYLOAD_OBJECTS).contains(&self.max_objects)
+            || !(1..=MAX_RECOVERY_PAYLOAD_BYTES).contains(&self.max_bytes)
+        {
+            return Err(DeliveryProblem::Capacity.error());
+        }
+        Ok(())
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum EvidenceFamily {
+    WaitCounterSamples,
+    ResourceSamples,
+    OperationalSamples,
+    ReplicationSamples,
+    SettingObservations,
+    ActivityObservations,
+    ObjectDefinitions,
+    TuningObservations,
+    QueryDefinitions,
+    PlanDefinitions,
+    QueryRuntime,
+    QueryWaits,
+    DerivedIncidents,
+    DerivedFindings,
+    DerivedChanges,
+}
+impl EvidenceFamily {
+    pub const ALL: &[Self] = &[
+        Self::WaitCounterSamples,
+        Self::ResourceSamples,
+        Self::OperationalSamples,
+        Self::ReplicationSamples,
+        Self::SettingObservations,
+        Self::ActivityObservations,
+        Self::ObjectDefinitions,
+        Self::TuningObservations,
+        Self::QueryDefinitions,
+        Self::PlanDefinitions,
+        Self::QueryRuntime,
+        Self::QueryWaits,
+        Self::DerivedIncidents,
+        Self::DerivedFindings,
+        Self::DerivedChanges,
+    ];
+
+    pub fn stream(self) -> TelemetryStream {
+        match self {
+            Self::WaitCounterSamples => TelemetryStream::WaitCounterSamples,
+            Self::ResourceSamples => TelemetryStream::ResourceSamples,
+            Self::OperationalSamples => TelemetryStream::OperationalSamples,
+            Self::ReplicationSamples => TelemetryStream::ReplicationSamples,
+            Self::SettingObservations => TelemetryStream::SettingObservations,
+            Self::ActivityObservations => TelemetryStream::ActivityObservations,
+            Self::ObjectDefinitions => TelemetryStream::ObjectDefinitions,
+            Self::TuningObservations => TelemetryStream::TuningObservations,
+            Self::QueryDefinitions => TelemetryStream::QueryDefinitions,
+            Self::PlanDefinitions => TelemetryStream::PlanDefinitions,
+            Self::QueryRuntime => TelemetryStream::QueryRuntime,
+            Self::QueryWaits => TelemetryStream::QueryWaits,
+            Self::DerivedIncidents => TelemetryStream::DerivedIncidents,
+            Self::DerivedFindings => TelemetryStream::DerivedFindings,
+            Self::DerivedChanges => TelemetryStream::DerivedChanges,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct EvidenceReadBudget {
+    pub page_rows: u32,
+    /// Maximum native query response body and decoded row encoding, including publication and audit reads.
+    pub page_bytes: u32,
+    pub max_rows: u32,
+    pub max_queries: u32,
+    /// Cumulative complete native query response bodies, including metadata and completion frames.
+    pub max_bytes: u64,
+    pub max_proof_bytes: u64,
+    /// Maximum caller wait for the whole read; native transports retain their own server/HTTP ceilings.
+    pub timeout_ms: u32,
+    /// Opt-in native payload reads from the independently authorized recovery store. None reads projections only.
+    pub recovery_payloads: Option<RecoveryPayloadBudget>,
+}
+impl Default for EvidenceReadBudget {
+    fn default() -> Self {
+        Self {
+            page_rows: 250,
+            page_bytes: 4 * 1024 * 1024,
+            max_rows: 10_000,
+            max_queries: 128,
+            max_bytes: 32 * 1024 * 1024,
+            max_proof_bytes: 4 * 1024 * 1024,
+            timeout_ms: 60_000,
+            recovery_payloads: None,
+        }
+    }
+}
+impl EvidenceReadBudget {
+    pub fn validate(&self) -> Result<()> {
+        if let Some(recovery) = self.recovery_payloads {
+            recovery.validate()?;
+        }
+        if !(1..=10_000).contains(&self.page_rows)
+            || !(1024..=12 * 1024 * 1024).contains(&self.page_bytes)
+            || !(1..=100_000).contains(&self.max_rows)
+            || !(1..=1024).contains(&self.max_queries)
+            || self.max_bytes < u64::from(self.page_bytes)
+            || self.max_bytes > 256 * 1024 * 1024
+            || self.max_proof_bytes == 0
+            || self.max_proof_bytes > 16 * 1024 * 1024
+            || !(1..=300_000).contains(&self.timeout_ms)
+        {
+            return Err(DeliveryProblem::Capacity.error());
+        }
+        Ok(())
+    }
+}
+
+#[derive(Clone, Debug, Default, Serialize)]
+pub struct EvidenceReadMetrics {
+    /// Rows selected by the authenticated manifest, including rows that were missing or unavailable.
+    pub selected_rows: u32,
+    pub queries: u32,
+    pub pages: u32,
+    pub returned_rows: u32,
+    pub response_bytes: u64,
+    pub proof_bytes: u64,
+    pub recovery_objects: u32,
+    pub recovery_bytes: u64,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct VerifiedEvidenceRecord {
+    pub(super) batch_id: String,
+    pub(super) row_ordinal: u32,
+    pub(super) native_payload_sha256: String,
+    pub(super) row: ExportedRecord,
+}
+impl VerifiedEvidenceRecord {
+    pub fn batch_id(&self) -> &str {
+        &self.batch_id
+    }
+    pub fn row_ordinal(&self) -> u32 {
+        self.row_ordinal
+    }
+    pub fn native_payload_sha256(&self) -> &str {
+        &self.native_payload_sha256
+    }
+    pub fn row(&self) -> &ExportedRecord {
+        &self.row
+    }
+}
+
+/// Authenticated metadata for one committed capture, independently of its native rows. Publication absence is
+/// explicit; no membership audit, row proof or recovery payload is requested by this metadata-only read.
+/// It is intentionally not serializable: domain views project safe previews instead of exposing full source focus.
+#[derive(Clone, Debug)]
+pub struct EvidenceCaptureMetadata {
+    pub(super) range_id: String,
+    pub(super) recovery_manifest_sha256: String,
+    pub(super) capture_manifest_sha256: String,
+    pub(super) source: CollectionDescription,
+    pub(super) capture: CaptureIdentity,
+    pub(super) collected_from: String,
+    pub(super) collected_until: String,
+    pub(super) source_queries: u32,
+    pub(super) source_read_metrics: Option<ReadWorkMetrics>,
+    pub(super) gaps: Vec<EvidenceGap>,
+    pub(super) metrics: EvidenceReadMetrics,
+}
+impl EvidenceCaptureMetadata {
+    pub fn range_id(&self) -> &str {
+        &self.range_id
+    }
+    pub fn recovery_manifest_sha256(&self) -> &str {
+        &self.recovery_manifest_sha256
+    }
+    pub fn capture_manifest_sha256(&self) -> &str {
+        &self.capture_manifest_sha256
+    }
+    pub fn source(&self) -> &CollectionDescription {
+        &self.source
+    }
+    pub fn capture(&self) -> &CaptureIdentity {
+        &self.capture
+    }
+    /// Collector acquisition bounds, not the native source's retained history window.
+    pub fn collected_from(&self) -> &str {
+        &self.collected_from
+    }
+    pub fn collected_until(&self) -> &str {
+        &self.collected_until
+    }
+    /// The original source query counter, never a sum of the bounded template list.
+    pub fn source_queries(&self) -> u32 {
+        self.source_queries
+    }
+    pub fn source_read_metrics(&self) -> Option<&ReadWorkMetrics> {
+        self.source_read_metrics.as_ref()
+    }
+    pub fn gaps(&self) -> &[EvidenceGap] {
+        &self.gaps
+    }
+    pub fn metrics(&self) -> &EvidenceReadMetrics {
+        &self.metrics
+    }
+    pub fn is_read_complete(&self) -> bool {
+        self.gaps.is_empty()
+    }
+}
+
+/// A read of the requested families of this exact capture. Native source coverage, freshness, continuity and
+/// counter epochs remain separate facts in the source and records.
+#[derive(Clone, Debug, Serialize)]
+pub struct EvidenceCapture {
+    pub(super) range_id: String,
+    pub(super) recovery_manifest_sha256: String,
+    pub(super) capture_manifest_sha256: String,
+    pub(super) source: CollectionDescription,
+    pub(super) capture: CaptureIdentity,
+    pub(super) reference_coverage: ReferenceCoverage,
+    pub(super) captured_rows: Vec<(TelemetryStream, u32)>,
+    pub(super) collected_from: String,
+    pub(super) collected_until: String,
+    pub(super) families: Vec<EvidenceFamily>,
+    pub(super) records: Vec<VerifiedEvidenceRecord>,
+    pub(super) gaps: Vec<EvidenceGap>,
+    pub(super) metrics: EvidenceReadMetrics,
+}
+impl EvidenceCapture {
+    pub fn range_id(&self) -> &str {
+        &self.range_id
+    }
+    pub fn recovery_manifest_sha256(&self) -> &str {
+        &self.recovery_manifest_sha256
+    }
+    pub fn capture_manifest_sha256(&self) -> &str {
+        &self.capture_manifest_sha256
+    }
+    pub fn source(&self) -> &CollectionDescription {
+        &self.source
+    }
+    pub fn capture(&self) -> &CaptureIdentity {
+        &self.capture
+    }
+    pub fn reference_coverage(&self) -> &ReferenceCoverage {
+        &self.reference_coverage
+    }
+    /// Original selected stream count, independent of reconstructed bodies and warehouse read gaps.
+    /// None means this stream has no selected original batch; Some(0) is an authenticated empty batch.
+    pub fn captured_rows(&self, stream: TelemetryStream) -> Option<u32> {
+        self.captured_rows.iter().find_map(|(captured, rows)| (*captured == stream).then_some(*rows))
+    }
+    pub fn collected_from(&self) -> &str {
+        &self.collected_from
+    }
+    pub fn collected_until(&self) -> &str {
+        &self.collected_until
+    }
+    pub fn families(&self) -> &[EvidenceFamily] {
+        &self.families
+    }
+    pub fn records(&self) -> &[VerifiedEvidenceRecord] {
+        &self.records
+    }
+    pub fn gaps(&self) -> &[EvidenceGap] {
+        &self.gaps
+    }
+    pub fn metrics(&self) -> &EvidenceReadMetrics {
+        &self.metrics
+    }
+    /// The authenticated original synthesis header, including declared counts, independent clocks and output
+    /// coverage. It describes the source capture, not which families this caller selected or completely read.
+    pub fn derived_description(&self) -> Option<&culprit_core::DerivedDiagnosisDescription> {
+        match &self.source.observation {
+            SourceObservation::DerivedDiagnosis(description) => Some(description.as_ref()),
+            _ => None,
+        }
+    }
+    /// Successfully verified selected rows only. Empty iteration does not establish evaluated-empty output;
+    /// inspect captured_rows, read gaps and the original derived output coverage independently.
+    pub fn derived_incidents(&self) -> impl Iterator<Item = &culprit_core::DerivedIncident> {
+        self.records.iter().filter_map(|row| match &row.row.record {
+            TelemetryRecord::DerivedIncident(row) => Some(row.as_ref()),
+            _ => None,
+        })
+    }
+    pub fn derived_findings(&self) -> impl Iterator<Item = &culprit_core::DerivedFinding> {
+        self.records.iter().filter_map(|row| match &row.row.record {
+            TelemetryRecord::DerivedFinding(row) => Some(row.as_ref()),
+            _ => None,
+        })
+    }
+    pub fn derived_changes(&self) -> impl Iterator<Item = &culprit_core::DerivedChange> {
+        self.records.iter().filter_map(|row| match &row.row.record {
+            TelemetryRecord::DerivedChange(row) => Some(row.as_ref()),
+            _ => None,
+        })
+    }
+    /// Every requested stored row was reconstructed without readback gaps. Native sources may still have
+    /// partial scope or be unavailable; inspect `source().observation` independently.
+    pub fn is_read_complete(&self) -> bool {
+        self.gaps.is_empty()
+    }
+}

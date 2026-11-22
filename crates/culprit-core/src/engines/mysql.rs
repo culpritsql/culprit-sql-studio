@@ -47,6 +47,10 @@ fn index_hiding(server: &ServerInfo) -> Option<&'static str> {
 }
 
 impl EngineSpec for Mysql {
+    fn default_port(&self) -> Option<u16> {
+        Some(3306)
+    }
+
     fn session_id_format(&self) -> SessionIdFormat {
         SessionIdFormat::NativeId
     }

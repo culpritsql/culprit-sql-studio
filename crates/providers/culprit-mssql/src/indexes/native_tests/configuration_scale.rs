@@ -8,7 +8,7 @@ use crate::{
         receipt_directory, save_cost_receipt,
     },
 };
-use culprit_collector::capture::CollectionCancellation;
+use culprit_read::cancellation::CollectionCancellation;
 use serde_json::json;
 use std::{future::Future, path::Path, time::Duration};
 use tokio::time::Instant;

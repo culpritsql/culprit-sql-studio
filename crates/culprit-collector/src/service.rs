@@ -1,12 +1,18 @@
 //! The host composes source and delivery lifetimes; neither loop owns or cancels the other's I/O future.
+use crate::delivery::worker::DeliveryWorker;
+use crate::fleet::FleetRunner;
 use crate::lifecycle::with_background;
-use crate::{capture::CollectionCancellation, delivery::worker::DeliveryWorker, fleet::FleetRunner};
 use culprit_core::{Result, telemetry::*};
+use culprit_read::cancellation::CollectionCancellation;
 use std::future::Future;
 
 pub trait ServiceReporter: Sync {
     /// Source-free startup enrollment. Unsupported/withheld work is separate from failed capture attempts.
     fn enrollment(&self, _summary: &MonitoringEnrollmentSummary) -> Result<()> {
+        Ok(())
+    }
+    /// Retained-evidence analysis has its own outcome; successful capture or delivery does not imply a diagnosis.
+    fn synthesis(&self, _turn: &crate::synthesis::SynthesisTurn) -> Result<()> {
         Ok(())
     }
     fn collection(&self, event: &FleetCollectionEvent) -> Result<()>;

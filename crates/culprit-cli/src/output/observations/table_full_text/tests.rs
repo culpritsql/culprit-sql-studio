@@ -1,6 +1,7 @@
 use super::*;
-use culprit_collector::analytical::test_support::{TableFullTextCase, table_full_text_evidence};
 use culprit_core::telemetry::*;
+use culprit_evidence::analytical::test_support::TableFullTextCase;
+use culprit_evidence::analytical::test_support::table_full_text_evidence;
 fn report(case: TableFullTextCase) -> culprit_core::TableFullTextReport {
     let (description, records) = table_full_text_evidence(case);
     let coverage = &description.observation.snapshot().unwrap().sources[0];

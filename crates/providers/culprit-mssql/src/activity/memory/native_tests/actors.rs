@@ -5,8 +5,8 @@ use crate::{
     conn::{Pool, SessionKind, map_error},
     read::{invalid_data, text},
 };
-use culprit_collector::capture::CollectionCancellation;
 use culprit_core::{Result, telemetry::*};
+use culprit_read::cancellation::CollectionCancellation;
 use futures_util::{FutureExt, TryStreamExt};
 use std::panic::AssertUnwindSafe;
 use tokio::{sync::oneshot, task::JoinHandle};

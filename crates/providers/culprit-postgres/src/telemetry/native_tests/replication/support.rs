@@ -1,8 +1,10 @@
 use super::super::super::*;
 use crate::{connect::Connector, read::NativeRead, rows::quote_ident};
-use culprit_collector::capture::{CollectionCancellation, SourceFactory, collect_once};
+use culprit_collector::capture::SourceFactory;
+use culprit_collector::capture::collect_once;
 use culprit_core::{ConnectionSpec, Engine, Provider, SourceState};
 use culprit_read::admission::SourceGate;
+use culprit_read::cancellation::CollectionCancellation;
 use futures_util::{FutureExt, future::LocalBoxFuture};
 use std::{
     collections::BTreeSet,

@@ -1,5 +1,6 @@
 use super::*;
-use culprit_collector::analytical::test_support::{NumaNodeCase, numa_node_evidence};
+use culprit_evidence::analytical::test_support::NumaNodeCase;
+use culprit_evidence::analytical::test_support::numa_node_evidence;
 #[tokio::test]
 async fn selected_native_node_original_survives_real_cli_save_offline_replay_and_share_withdrawal() {
     let (source, rows) = numa_node_evidence(NumaNodeCase::PartialMemory);

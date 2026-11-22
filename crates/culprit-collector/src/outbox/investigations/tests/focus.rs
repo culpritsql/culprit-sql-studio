@@ -1,4 +1,5 @@
 use super::*;
+use culprit_evidence::delivery::recovery::RecoveryRead;
 
 pub(super) fn page_activity() -> ActivityObservation {
     let mut row = activity("42");
@@ -70,11 +71,11 @@ pub(super) fn pin(files: &Files, owner: &str) -> bool {
 pub(super) fn admitted_intent(input: &DiagnosticInput) -> DiagnosticInvestigationIntent {
     let question = focus(input);
     let episode = page_episode(input, &question);
-    let mut intent = crate::analytical::test_support::investigation_fixture().intent;
+    let mut intent = culprit_evidence::analytical::test_support::investigation_fixture().intent;
     intent.focus = question.into();
     intent.episode_id = episode.id;
     intent.episode_revision = episode.revision;
-    intent.qualification.scope = RecipeCostScope::Activity(episode.scope);
+    intent.qualification.measured_mut().unwrap().scope = RecipeCostScope::Activity(episode.scope);
     assert!(intent.is_valid(), "the cost approval is synthetic; this test grants no native authority");
     intent
 }
@@ -87,7 +88,7 @@ fn failed_owned_attempt_retains_exact_intent_before_description_and_rejects_fore
     baseline(&mut files, vec![page_activity()], true, 0);
     let input = files.next_diagnostic_input(DIAGNOSTIC_CONTROLLER_VERSION).unwrap().unwrap();
     let mut intent = admitted_intent(&input);
-    intent.qualification.read_metrics.templates[0].client_elapsed_ms = 0.0;
+    intent.qualification.measured_mut().unwrap().read_metrics.templates[0].client_elapsed_ms = 0.0;
     let owner = DiagnosticInvestigationLineage::from_intent(&intent).unwrap();
     let mut requested = request(intent.focus.page_wait().unwrap().clone());
     requested.budget = intent.budget.clone();
@@ -107,7 +108,7 @@ fn failed_owned_attempt_retains_exact_intent_before_description_and_rejects_fore
     assert!(foreign.matches_request(&requested));
     assert!(files.attempt_receipt(&identity, Some(&foreign)).is_err());
     let mut different_encoding = intent.clone();
-    different_encoding.qualification.read_metrics.templates[0].client_elapsed_ms = -0.0;
+    different_encoding.qualification.measured_mut().unwrap().read_metrics.templates[0].client_elapsed_ms = -0.0;
     assert_eq!(different_encoding, intent, "numeric equality cannot establish immutable owner identity");
     let different_encoding = DiagnosticInvestigationLineage::from_intent(&different_encoding).unwrap();
     assert!(files.attempt_receipt(&identity, Some(&different_encoding)).is_err());
@@ -163,7 +164,7 @@ async fn complete_recovery_range_preserves_owner_without_claiming_incomplete_nat
         },
     };
     let mut writer = ObservationFiles::create(&directory, requested, identity.clone(), Some(owner.clone())).unwrap();
-    let contract = crate::delivery::contract::Contract::new(
+    let contract = culprit_evidence::delivery::contract::Contract::new(
         "pipeline".into(),
         "shard-0".into(),
         "file:test".into(),
@@ -192,7 +193,7 @@ async fn complete_recovery_range_preserves_owner_without_claiming_incomplete_nat
     let store = crate::delivery::file_store::FileRecoveryStore::create(&root.path().join("archive"), contract).unwrap();
     let lease = store.acquire().await.unwrap();
     let archived = crate::delivery::recovery::stage_and_commit(&store, lease.fence(), None, &prepared).await.unwrap();
-    let reopened = crate::delivery::recovery::reopen(&store, &archived.manifest().range_id).await.unwrap();
+    let reopened = culprit_evidence::delivery::recovery::reopen(&store, &archived.manifest().range_id).await.unwrap();
     let retained = reopened.manifest().investigation.as_ref().unwrap();
     let SourceObservation::FocusedPageWait { result, .. } = &reopened.manifest().source.observation else { panic!() };
     assert_eq!(retained.reconstruct(&result.focus.clone().into()).unwrap().key().unwrap(), intent.key().unwrap());
@@ -514,7 +515,7 @@ fn a_valid_page_report_cannot_be_attached_to_another_native_actor_in_the_same_da
 #[tokio::test]
 async fn parent_pin_survives_checkpoint_eviction_race_and_transfers_until_result_recovery_commit() {
     let root = tempfile::tempdir().unwrap();
-    let contract = crate::delivery::contract::Contract::new(
+    let contract = culprit_evidence::delivery::contract::Contract::new(
         "pipeline".into(),
         "shard-0".into(),
         "file:warehouse".into(),

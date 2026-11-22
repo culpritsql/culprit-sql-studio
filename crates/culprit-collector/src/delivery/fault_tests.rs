@@ -1,19 +1,21 @@
 //! Hard process exits exercise durable intents before and after the external effects.
-use super::{
-    driver::*,
-    evidence::RangeManifest,
-    file_sink::FileTelemetrySink,
-    file_store::*,
-    journal::DeliveryJournal,
-    recovery::*,
-    sink::*,
-    tests::{contract, prepared, problem},
-};
+use super::driver::*;
+use super::file_sink::FileTelemetrySink;
+use super::file_store::*;
+use super::journal::DeliveryJournal;
+use super::recovery::*;
+use super::sink::*;
+use super::tests::contract;
+use super::tests::prepared;
+use super::tests::problem;
 use async_trait::async_trait;
 use culprit_core::{
     Result,
     telemetry::{DeliveryPhase, DeliveryProblem},
 };
+use culprit_evidence::delivery::evidence::RangeManifest;
+use culprit_evidence::delivery::receipts::ReceiptPage;
+use culprit_evidence::delivery::{mutations::*, recovery::*};
 use std::{
     path::{Path, PathBuf},
     sync::Arc,
@@ -34,7 +36,7 @@ impl RecoveryStore for CrashStore {
     async fn diagnostic_original_groups(
         &self,
         keys: &[String],
-    ) -> Result<crate::delivery::diagnostic_recovery::OriginalHistoryLookup> {
+    ) -> Result<culprit_evidence::delivery::originals::OriginalHistoryLookup> {
         self.inner.diagnostic_original_groups(keys).await
     }
 
@@ -54,15 +56,15 @@ impl RecoveryStore for CrashStore {
     async fn retire(&self, fence: &Fence, publication: &PublishedRange) -> Result<()> {
         self.inner.retire(fence, publication).await
     }
-    async fn capture_manifest(&self, capture: &culprit_core::telemetry::CaptureIdentity) -> Result<RangeManifest> {
-        self.inner.capture_manifest(capture).await
-    }
-    async fn diagnostic_heads(&self, cursor: Option<&str>, limit: u32) -> Result<super::recovery::DiagnosticHeadPage> {
+
+    async fn diagnostic_heads(
+        &self,
+        cursor: Option<&str>,
+        limit: u32,
+    ) -> Result<culprit_evidence::delivery::heads::DiagnosticHeadPage> {
         self.inner.diagnostic_heads(cursor, limit).await
     }
-    fn id(&self) -> &str {
-        self.inner.id()
-    }
+
     async fn checkpoint_head(&self) -> Result<Option<String>> {
         self.inner.checkpoint_head().await
     }
@@ -72,7 +74,37 @@ impl RecoveryStore for CrashStore {
     ) -> Result<Option<culprit_core::telemetry::CaptureIdentity>> {
         self.inner.captured_range(range).await
     }
-    async fn stage(&self, batch: &super::recovery::PayloadObject, path: &Path) -> Result<StagedBatch> {
+
+    async fn recover(&self, cursor: Option<&str>, limit: u32) -> Result<RecoveryPage> {
+        self.inner.recover(cursor, limit).await
+    }
+}
+
+#[async_trait::async_trait]
+impl culprit_evidence::delivery::recovery::RecoveryRead for CrashStore {
+    fn id(&self) -> &str {
+        self.inner.id()
+    }
+    async fn load(&self, id: &str) -> Result<culprit_evidence::delivery::evidence::RangeManifest> {
+        self.inner.load(id).await
+    }
+    async fn capture_manifest(&self, capture: &culprit_core::telemetry::CaptureIdentity) -> Result<RangeManifest> {
+        self.inner.capture_manifest(capture).await
+    }
+    async fn open_object(
+        &self,
+        batch: &culprit_evidence::delivery::recovery::PayloadObject,
+    ) -> Result<culprit_evidence::delivery::recovery::RecoveryReader> {
+        self.inner.open_object(batch).await
+    }
+}
+#[async_trait::async_trait]
+impl culprit_evidence::delivery::mutations::RecoveryWrite for CrashStore {
+    async fn stage(
+        &self,
+        batch: &culprit_evidence::delivery::recovery::PayloadObject,
+        path: &Path,
+    ) -> Result<StagedBatch> {
         let result = self.inner.stage(batch, path).await?;
         crash(&self.root, "after-stage");
         Ok(result)
@@ -81,30 +113,22 @@ impl RecoveryStore for CrashStore {
         &self,
         fence: &Fence,
         head: Option<&str>,
-        manifest: &super::evidence::RangeManifest,
+        manifest: &culprit_evidence::delivery::evidence::RangeManifest,
         staged: &[StagedBatch],
     ) -> Result<CommitReceipt> {
         let result = self.inner.commit(fence, head, manifest, staged).await?;
         crash(&self.root, "after-commit");
         Ok(result)
     }
-    async fn load(&self, id: &str) -> Result<super::evidence::RangeManifest> {
-        self.inner.load(id).await
-    }
-    async fn recover(&self, cursor: Option<&str>, limit: u32) -> Result<RecoveryPage> {
-        self.inner.recover(cursor, limit).await
-    }
-    async fn open_object(&self, batch: &super::recovery::PayloadObject) -> Result<super::recovery::RecoveryReader> {
-        self.inner.open_object(batch).await
-    }
 }
+
 struct CrashSink {
     inner: FileTelemetrySink,
     root: PathBuf,
 }
 #[async_trait]
 impl TelemetrySink for CrashSink {
-    async fn validate_contract(&self, contract: &super::contract::Contract) -> Result<()> {
+    async fn validate_contract(&self, contract: &culprit_evidence::delivery::contract::Contract) -> Result<()> {
         self.inner.validate_contract(contract).await
     }
     async fn dispatch(&self, range: &CommittedRange, attempt: &DeliveryAttempt, batch_id: &str) -> Result<Submission> {
@@ -266,7 +290,7 @@ struct DelayedSink<'a> {
 }
 #[async_trait]
 impl TelemetrySink for DelayedSink<'_> {
-    async fn validate_contract(&self, contract: &super::contract::Contract) -> Result<()> {
+    async fn validate_contract(&self, contract: &culprit_evidence::delivery::contract::Contract) -> Result<()> {
         self.inner.validate_contract(contract).await
     }
     async fn dispatch(&self, range: &CommittedRange, attempt: &DeliveryAttempt, batch_id: &str) -> Result<Submission> {

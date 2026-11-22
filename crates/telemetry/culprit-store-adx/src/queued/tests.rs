@@ -5,13 +5,13 @@ use crate::{
     test_support::{Blobs, Queries, Recovery, Reply, returned},
 };
 use base64::{Engine, engine::general_purpose::STANDARD};
-use culprit_collector::{
-    analytical::encoding::BatchEncoder,
-    delivery::{
-        recovery::reopen,
-        sink::{DeliveryAttempt, TelemetrySink, VerificationBudget, dispatch_range, verify},
-    },
-};
+use culprit_collector::analytical::encoding::BatchEncoder;
+use culprit_collector::delivery::sink::DeliveryAttempt;
+use culprit_collector::delivery::sink::TelemetrySink;
+use culprit_collector::delivery::sink::VerificationBudget;
+use culprit_collector::delivery::sink::dispatch_range;
+use culprit_collector::delivery::sink::verify;
+use culprit_evidence::delivery::recovery::reopen;
 use serde_json::{Value, json};
 use std::{
     io::Write,

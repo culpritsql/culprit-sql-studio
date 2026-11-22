@@ -5,7 +5,7 @@ use serde::Deserialize;
 use serde_json::Value;
 use std::collections::BTreeSet;
 
-pub use culprit_collector::analytical::read_store::MAX_READ_RESPONSE_BYTES as MAX_RESPONSE_BYTES;
+pub use culprit_evidence::analytical::read_store::MAX_READ_RESPONSE_BYTES as MAX_RESPONSE_BYTES;
 const MAX_FRAMES: usize = 16;
 const MAX_COLUMNS: usize = 128;
 const MAX_AUXILIARY_ROWS: usize = 512;

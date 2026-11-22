@@ -5,6 +5,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
+pub use crate::derived_diagnosis::*;
 use crate::{DatabaseIdentity, Error, ErrorCode, Result, t};
 
 mod activity;
@@ -119,6 +120,8 @@ mod query_populations;
 mod queues;
 mod read_accounting;
 mod read_metrics;
+mod recipe_safety;
+pub use recipe_safety::*;
 mod recipes;
 mod relational_input_proof;
 pub use hyperscale_replicas::*;
@@ -522,6 +525,11 @@ impl CollectionRequest {
                     return Err(CollectionStop::InvalidPage.error());
                 }
             }
+            CollectionSelection::DerivedDiagnosis { analysis_id } => {
+                if !valid_digest(analysis_id) {
+                    return Err(CollectionStop::InvalidPage.error());
+                }
+            }
             CollectionSelection::Activity | CollectionSelection::Snapshot { .. } => {}
             _ => {
                 self.bounds()?;
@@ -588,6 +596,9 @@ pub enum TelemetryStream {
     SettingObservations,
     TuningObservations,
     ObjectDefinitions,
+    DerivedIncidents,
+    DerivedFindings,
+    DerivedChanges,
 }
 
 impl TelemetryStream {
@@ -596,7 +607,7 @@ impl TelemetryStream {
         self != Self::DiagnosticCheckpoints
     }
 
-    pub const ALL: [Self; 14] = [
+    pub const ALL: [Self; 17] = [
         Self::QueryRuntime,
         Self::QueryWaits,
         Self::QueryDefinitions,
@@ -611,6 +622,9 @@ impl TelemetryStream {
         Self::SettingObservations,
         Self::TuningObservations,
         Self::ObjectDefinitions,
+        Self::DerivedIncidents,
+        Self::DerivedFindings,
+        Self::DerivedChanges,
     ];
 
     pub fn file_name(self) -> &'static str {
@@ -629,6 +643,9 @@ impl TelemetryStream {
             Self::SettingObservations => "settings.ndjson",
             Self::TuningObservations => "tuning.ndjson",
             Self::ObjectDefinitions => "objects.ndjson",
+            Self::DerivedIncidents => "derived-incidents.ndjson",
+            Self::DerivedFindings => "derived-findings.ndjson",
+            Self::DerivedChanges => "derived-changes.ndjson",
         }
     }
 }
@@ -678,6 +695,12 @@ pub enum TelemetryRecord {
     Tuning(TuningObservation),
     #[serde(rename = "object-definitions")]
     ObjectDefinition(ObjectDefinitionRecord),
+    #[serde(rename = "derived-incidents")]
+    DerivedIncident(Box<DerivedIncident>),
+    #[serde(rename = "derived-findings")]
+    DerivedFinding(Box<DerivedFinding>),
+    #[serde(rename = "derived-changes")]
+    DerivedChange(Box<DerivedChange>),
 }
 
 /// Identity within one source interval and observation; it does not prove continuity across source resets.
@@ -686,19 +709,60 @@ pub enum TelemetryRecord {
 #[ts(export)]
 pub enum NativeRecordIdentity {
     Runtime(NativeIdentity),
-    Waits { key: NativeIdentity, category: String },
+    Waits {
+        key: NativeIdentity,
+        category: String,
+    },
     QueryDefinition(String),
     PlanDefinition(String),
-    ResourceSample { at: String, replica_id: Option<String> },
+    ResourceSample {
+        at: String,
+        replica_id: Option<String>,
+    },
     Activity(ActivityKey),
     DiagnosticCheckpoint(String),
-    Deadlock { position: String, ordinal: u32 },
-    Operational { source: String, key: String },
-    WaitCounter { source: String, wait_type: String },
-    Replication { source: String, key: String },
-    Setting { source: String, namespace: String, name: String },
-    Tuning { source: String, key: String },
-    ObjectDefinition { source: String, key: String },
+    Deadlock {
+        position: String,
+        ordinal: u32,
+    },
+    Operational {
+        source: String,
+        key: String,
+    },
+    WaitCounter {
+        source: String,
+        wait_type: String,
+    },
+    Replication {
+        source: String,
+        key: String,
+    },
+    Setting {
+        source: String,
+        namespace: String,
+        name: String,
+    },
+    Tuning {
+        source: String,
+        key: String,
+    },
+    ObjectDefinition {
+        source: String,
+        key: String,
+    },
+    /// Derived identities never claim to be native DMV row identities.
+    DerivedIncident {
+        analysis_id: String,
+        key: String,
+    },
+    DerivedFinding {
+        analysis_id: String,
+        key: String,
+    },
+    DerivedChange {
+        analysis_id: String,
+        key: String,
+    },
 }
 
 impl From<ActivityObservation> for TelemetryRecord {
@@ -938,6 +1002,21 @@ impl TelemetryRecord {
                 source.accepts_measurement(&row.key) && row.page_server_reads_match_source(source)
             }
             Self::QueryWaits(row) => source.accepts_measurement(&row.key),
+            Self::DerivedIncident(row) => {
+                row.redact(source.target.engine());
+                matches!(&source.observation, SourceObservation::DerivedDiagnosis(header)
+                    if row.fits_description(header) && row.entry.target_id == source.target.telemetry_id()?
+                        && row.entry.target_scope == source.target.measurement_scope()
+                        && IncidentDatabaseSelector::matches_target(&row.database, &source.target))
+            }
+            Self::DerivedFinding(row) => {
+                row.redact(source.target.engine());
+                matches!(&source.observation, SourceObservation::DerivedDiagnosis(header) if row.fits_description(header) && IncidentDatabaseSelector::matches_target(&row.database, &source.target))
+            }
+            Self::DerivedChange(row) => {
+                row.redact(source.target.engine());
+                matches!(&source.observation, SourceObservation::DerivedDiagnosis(header) if row.fits_description(header) && IncidentDatabaseSelector::matches_target(&row.database, &source.target))
+            }
         };
         if !valid_identity || !record.is_valid() {
             return Err(CollectionStop::InvalidPage.error());
@@ -946,6 +1025,15 @@ impl TelemetryRecord {
     }
     pub fn native_identity(&self) -> NativeRecordIdentity {
         match self {
+            Self::DerivedIncident(row) => {
+                NativeRecordIdentity::DerivedIncident { analysis_id: row.analysis_id.clone(), key: row.key() }
+            }
+            Self::DerivedFinding(row) => {
+                NativeRecordIdentity::DerivedFinding { analysis_id: row.analysis_id.clone(), key: row.key() }
+            }
+            Self::DerivedChange(row) => {
+                NativeRecordIdentity::DerivedChange { analysis_id: row.analysis_id.clone(), key: row.key() }
+            }
             Self::QueryRuntime(record) => NativeRecordIdentity::Runtime(record.key.native.clone()),
             Self::QueryWaits(record) => {
                 NativeRecordIdentity::Waits { key: record.key.native.clone(), category: record.category.clone() }
@@ -997,6 +1085,9 @@ impl TelemetryRecord {
             Self::Setting(row) => row.is_valid(),
             Self::Tuning(row) => row.is_valid(),
             Self::ObjectDefinition(row) => row.is_valid(),
+            Self::DerivedIncident(row) => row.is_valid(),
+            Self::DerivedFinding(row) => row.is_valid(),
+            Self::DerivedChange(row) => row.is_valid(),
         }
     }
 
@@ -1016,6 +1107,9 @@ impl TelemetryRecord {
             Self::Setting(_) => TelemetryStream::SettingObservations,
             Self::Tuning(_) => TelemetryStream::TuningObservations,
             Self::ObjectDefinition(_) => TelemetryStream::ObjectDefinitions,
+            Self::DerivedIncident(_) => TelemetryStream::DerivedIncidents,
+            Self::DerivedFinding(_) => TelemetryStream::DerivedFindings,
+            Self::DerivedChange(_) => TelemetryStream::DerivedChanges,
         }
     }
 

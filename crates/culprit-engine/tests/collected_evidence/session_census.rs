@@ -1,9 +1,9 @@
 use super::fixture::Fixture;
-use culprit_collector::analytical::{
-    evidence::{EvidenceFamily, EvidenceGapReason},
-    test_support::{self, SessionCensusCase},
-};
 use culprit_core::{SourceState, telemetry::*};
+use culprit_evidence::analytical::evidence::EvidenceFamily;
+use culprit_evidence::analytical::evidence::EvidenceGapReason;
+use culprit_evidence::analytical::test_support;
+use culprit_evidence::analytical::test_support::SessionCensusCase;
 
 #[tokio::test]
 async fn original_idle_dormant_mars_unknown_and_source_gaps_reuse_the_same_census_without_a_native_query() {

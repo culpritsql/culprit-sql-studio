@@ -1,5 +1,6 @@
 //! Cost rows are sealed originals; the controlled counters grant no production qualification.
 use super::*;
+use culprit_read::cancellation::CollectionCancellation;
 
 async fn enrolled_question(fence: &Fence, history: bool) -> (Runtime, DiagnosticInvestigationIntent) {
     let mut runtime = Runtime::from_fixture(fixture_with_fence(Some(fence)).await).await;
@@ -11,7 +12,7 @@ async fn enrolled_question(fence: &Fence, history: bool) -> (Runtime, Diagnostic
     assert_eq!(intents.len(), 1);
     let intent = intents.remove(0);
     assert_eq!(matches!(intent.focus, DiagnosticFocus::SourceRead { .. }), history);
-    let reference = &intent.qualification.evidence;
+    let reference = &intent.qualification.measured().unwrap().evidence;
     assert_ne!(reference.capture, intent.focus.parent().capture);
     assert_eq!(reference.row_ordinal, 0);
     let (source, row) = runtime.fixture.outbox.diagnostic_evidence(reference).await.unwrap();
@@ -34,8 +35,8 @@ async fn archived_cost(
     contract: &Contract,
 ) -> CommittedRange {
     let archived = archive_ready(runtime, store, fence, contract).await;
-    let cost = archived[&intent.qualification.evidence.capture.observation_id].clone();
-    assert_eq!(cost.manifest().capture, intent.qualification.evidence.capture);
+    let cost = archived[&intent.qualification.measured().unwrap().evidence.capture.observation_id].clone();
+    assert_eq!(cost.manifest().capture, intent.qualification.measured().unwrap().evidence.capture);
     assert!(!runtime.fixture.outbox.delivery().evict(&cost).await.unwrap());
     cost
 }
@@ -66,7 +67,14 @@ async fn focused_and_history_cost_evidence_survives_restart_until_the_exact_queu
         runtime.fixture.outbox.release_investigation_parent(&key).await.unwrap();
         assert!(runtime.fixture.outbox.investigation_parent_keys().await.unwrap().is_empty());
         assert!(runtime.fixture.outbox.delivery().evict(&cost).await.unwrap());
-        assert!(runtime.fixture.outbox.diagnostic_evidence(&intent.qualification.evidence).await.is_err());
+        assert!(
+            runtime
+                .fixture
+                .outbox
+                .diagnostic_evidence(&intent.qualification.measured().unwrap().evidence)
+                .await
+                .is_err()
+        );
         assert_eq!(runtime.native_calls(), before, "retention never opens a native source");
     }
 }

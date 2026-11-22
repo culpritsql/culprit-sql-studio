@@ -1,6 +1,6 @@
 use super::*;
-use culprit_collector::analytical::test_support::query_runtime_fragment_evidence;
 use culprit_core::telemetry::*;
+use culprit_evidence::analytical::test_support::query_runtime_fragment_evidence;
 fn report() -> QueryRuntimeFragmentReport {
     let (source, records) = query_runtime_fragment_evidence(true);
     let capture = CaptureIdentity {

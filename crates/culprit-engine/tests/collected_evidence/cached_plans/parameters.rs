@@ -1,5 +1,6 @@
 use super::*;
-use culprit_collector::analytical::test_support::{ParameterEvidenceCase as Case, parameter_evidence};
+use culprit_evidence::analytical::test_support::ParameterEvidenceCase as Case;
+use culprit_evidence::analytical::test_support::parameter_evidence;
 
 const FAMILY: &[EvidenceFamily] = &[EvidenceFamily::ObjectDefinitions];
 
@@ -26,7 +27,7 @@ async fn original_scalar_access_and_independent_native_blocking_survive_recovery
     let (source, records) = parameter_evidence(Case::AccessMismatch);
     let plans = Fixture::new(source.clone(), records.clone()).await;
     let retained = plans.read_families_with_recovery(FAMILY, RecoveryPayloadBudget::default()).await;
-    culprit_collector::analytical::test_support::assert_object_definition_capture(&retained, &source, &records);
+    culprit_evidence::analytical::test_support::assert_object_definition_capture(&retained, &source, &records);
     let (activity_source, activity_rows) = scalar_blocking_activity_evidence();
     assert_eq!(activity_source.target, source.target);
     assert_eq!(activity_source.partition, source.partition);
@@ -91,7 +92,7 @@ async fn original_optimizer_statistics_metadata_survives_recovery_without_curren
     let (source, records) = parameter_evidence(Case::RecordedStatisticsContext);
     let fixture = Fixture::new(source.clone(), records.clone()).await;
     let capture = fixture.read_families_with_recovery(FAMILY, RecoveryPayloadBudget::default()).await;
-    culprit_collector::analytical::test_support::assert_object_definition_capture(&capture, &source, &records);
+    culprit_evidence::analytical::test_support::assert_object_definition_capture(&capture, &source, &records);
     let original = collected_resources::cached_plans(&capture).unwrap();
     let expected = serde_json::to_value(&original).unwrap();
     let ObjectDefinitionFact::MssqlRetainedPlan(native) = &definition(&capture.records()[0].row().record).fact else {
@@ -135,7 +136,7 @@ async fn scalar_facts_wait_for_the_exact_native_body_and_missing_warehouse_membe
     assert!(result.report.entries.is_empty());
     assert_eq!(result.report.sources[0].state, SourceState::Partial);
     let capture = fixture.read_families_with_recovery(FAMILY, RecoveryPayloadBudget::default()).await;
-    culprit_collector::analytical::test_support::assert_object_definition_capture(&capture, &source, &records);
+    culprit_evidence::analytical::test_support::assert_object_definition_capture(&capture, &source, &records);
     assert_eq!(fixture.recovery_object_reads() - opens, 1);
     assert_eq!(capture.metrics().recovery_objects, 1);
     fixture.remove_first_row(TelemetryStream::ObjectDefinitions);
@@ -155,7 +156,7 @@ async fn original_scalar_comparison_access_and_visibility_replay_without_runtime
         let (source, records) = parameter_evidence(case);
         let fixture = Fixture::new(source.clone(), records.clone()).await;
         let capture = fixture.read_families_with_recovery(FAMILY, RecoveryPayloadBudget::default()).await;
-        culprit_collector::analytical::test_support::assert_object_definition_capture(&capture, &source, &records);
+        culprit_evidence::analytical::test_support::assert_object_definition_capture(&capture, &source, &records);
         let result = collected_resources::cached_plans(&capture).unwrap();
         assert_eq!(result.context.source, source, "{case:?}");
         assert_eq!(
@@ -303,7 +304,7 @@ fn scalar_proof_cannot_move_to_another_scope_statement_node_or_native_body() {
 
 #[tokio::test]
 async fn original_grant_queue_and_completed_scalar_work_recover_independently_without_exclusive_parameter_blame() {
-    use culprit_collector::analytical::test_support::{
+    use culprit_evidence::analytical::test_support::{
         assert_memory_participants_capture, scalar_grant_pressure_evidence,
     };
     let (plan_source, plans) = parameter_evidence(Case::RecordedGrantPressure);
@@ -364,7 +365,7 @@ async fn original_grant_queue_and_completed_scalar_work_recover_independently_wi
 
 #[tokio::test]
 async fn a_missing_original_grant_member_is_partial_history_and_cannot_be_repaired_by_the_completed_plan() {
-    use culprit_collector::analytical::test_support::scalar_grant_pressure_evidence;
+    use culprit_evidence::analytical::test_support::scalar_grant_pressure_evidence;
     let (source, rows) = scalar_grant_pressure_evidence();
     let owner = Fixture::new(source.clone(), rows).await;
     owner.remove_first_row(TelemetryStream::OperationalSamples);
@@ -388,7 +389,7 @@ async fn a_missing_original_grant_member_is_partial_history_and_cannot_be_repair
 
 #[tokio::test]
 async fn original_grant_unknown_owner_and_unavailable_statement_do_not_borrow_later_plan_authority() {
-    use culprit_collector::analytical::test_support::scalar_grant_pressure_evidence;
+    use culprit_evidence::analytical::test_support::scalar_grant_pressure_evidence;
     for unknown_owner in [false, true] {
         let (mut source, mut rows) = scalar_grant_pressure_evidence();
         if unknown_owner {

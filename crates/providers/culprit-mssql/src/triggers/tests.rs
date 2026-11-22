@@ -29,7 +29,7 @@ pub(crate) fn row() -> Rec {
 fn native_trigger_identity_parent_and_changes_are_independent_of_display_names() {
     let native = decode(&row()).unwrap();
     assert_eq!(native.name, "tenant:audit");
-    assert_eq!(event_codes(&native), "IU");
+    assert_eq!(native.event_codes(), "IU");
     assert!(native.not_for_replication && !native.disabled && native.event_metadata_complete());
     let record = ObjectDefinitionRecord::new(
         crate::sources::TRIGGERS.name.into(),

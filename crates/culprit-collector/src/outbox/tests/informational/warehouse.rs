@@ -1,11 +1,12 @@
 //! In-memory native transport only. Production encoding, indexes, receipts and publication own every proof.
 use super::*;
-use crate::analytical::{
-    RowProjection,
-    encoding::EncodedBatch,
-    read_store::{AnalyticalReadPage, AnalyticalReadStore},
-    sink::AnalyticalStore,
-};
+use crate::analytical::encoding::EncodedBatch;
+use crate::analytical::sink::AnalyticalStore;
+use crate::delivery::sink::Submission;
+use culprit_evidence::analytical::RowProjection;
+use culprit_evidence::analytical::read_store::AnalyticalReadPage;
+use culprit_evidence::analytical::read_store::AnalyticalReadStore;
+use culprit_evidence::{analytical::ProjectionCatalog, delivery::recovery::CommittedRange};
 use serde_json::{Map, Value};
 use std::{collections::BTreeMap, sync::Mutex};
 

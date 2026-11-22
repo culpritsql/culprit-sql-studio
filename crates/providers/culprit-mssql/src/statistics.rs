@@ -77,18 +77,7 @@ pub(crate) async fn application<R: NativeRead>(reader: &mut R) -> Result<Statist
     for row in &rows {
         let native = decode(row)?;
         properties_complete &= native.properties_available;
-        let display =
-            |value: Option<String>| value.and_then(|value| value.parse::<u64>().ok()).map(|value| value as f64);
-        statistics.push(StatisticsInfo {
-            schema: native.schema,
-            table: native.table_name,
-            name: native.name,
-            auto_created: native.auto_created,
-            last_updated: optional_text(row, "display_updated_at")?,
-            rows: display(native.rows),
-            rows_sampled: display(native.rows_sampled),
-            modifications: display(native.modifications),
-        });
+        statistics.push(native.into_statistics_info(optional_text(row, "display_updated_at")?));
     }
     Ok(StatisticsRead { statistics, properties_complete })
 }

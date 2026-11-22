@@ -3,13 +3,12 @@ use crate::{
     output::{Format, Out},
 };
 use clap::Args;
-use culprit_collector::{
-    capture::CollectionCancellation,
-    fleet::{FleetJournal, FleetRunner},
-    outbox::Outbox,
-};
+use culprit_collector::fleet::FleetJournal;
+use culprit_collector::fleet::FleetRunner;
+use culprit_collector::outbox::Outbox;
 use culprit_core::{Error, Result, telemetry::*};
 use culprit_engine::Workspace;
+use culprit_read::cancellation::CollectionCancellation;
 use std::{
     io::Write,
     path::{Path, PathBuf},

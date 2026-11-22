@@ -86,12 +86,5 @@ pub(crate) async fn application(reader: &mut impl NativeRead) -> Result<Vec<Mssq
     }
     Ok(triggers)
 }
-pub(crate) fn event_codes(trigger: &MssqlDmlTrigger) -> String {
-    [('I', trigger.insert_event), ('D', trigger.delete_event), ('U', trigger.update_event)]
-        .into_iter()
-        .filter_map(|(code, present)| (present == Some(true)).then_some(code))
-        .collect()
-}
-
 #[cfg(test)]
 pub(crate) mod tests;

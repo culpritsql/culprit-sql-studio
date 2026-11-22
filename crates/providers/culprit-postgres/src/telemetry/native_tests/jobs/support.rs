@@ -3,8 +3,8 @@ use crate::{
     connect::Connector,
     read::{NativeRead, QueryRead, ReadSession},
 };
-use culprit_collector::capture::CollectionCancellation;
 use culprit_core::{ConnectionSpec, SourceState, telemetry::*};
+use culprit_read::cancellation::CollectionCancellation;
 use futures_util::{FutureExt, future::LocalBoxFuture};
 use std::{collections::BTreeMap, panic::AssertUnwindSafe, time::Duration};
 

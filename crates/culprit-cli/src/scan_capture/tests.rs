@@ -5,12 +5,14 @@ mod numa_nodes;
 mod tempdb_metadata_memory;
 use super::*;
 use clap::Parser;
-use culprit_collector::analytical::test_support::{LocalCaptureFixture, MemoryClerkCase, memory_clerk_evidence};
+use culprit_collector::analytical::test_support::LocalCaptureFixture;
 use culprit_core::{
     AuthKind, Engine, ExplainMode, LiveState, Plan, Provider, ServerInfo, Snapshot, SnapshotOptions,
     telemetry::{CollectionStop, SourceShutdown},
 };
 use culprit_engine::{LocalCaptureTask, NewConnection, ProviderRegistration};
+use culprit_evidence::analytical::test_support::MemoryClerkCase;
+use culprit_evidence::analytical::test_support::memory_clerk_evidence;
 use std::sync::{
     Arc, Mutex,
     atomic::{AtomicUsize, Ordering},

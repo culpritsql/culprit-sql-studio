@@ -287,7 +287,7 @@ async fn shared_instance_capture_and_scan_use_the_same_native_memory_and_schedul
 #[ignore = "requires the existing nonce-owned boxed SQL Server fixture; source cost remains unqualified"]
 async fn owned_boxed_settings_use_the_actual_factory_and_same_native_decoder_through_sealed_outbox() {
     use crate::test_support::{owned_captures::OwnedCaptures, owned_case::finish_case};
-    use culprit_collector::capture::CollectionCancellation;
+    use culprit_read::cancellation::CollectionCancellation;
     use std::time::Duration;
     let cancellation = CollectionCancellation::default();
     let (expired, fixture) = finish_case(
@@ -341,7 +341,7 @@ impl culprit_collector::capture::SourceFactory for Factory {
 #[ignore = "requires the existing nonce-owned SQL Server16+ fixture; selected counter source cost remains unqualified"]
 async fn owned_selected_database_performance_counters_use_the_real_factory_and_sealed_original_outbox() {
     use crate::test_support::{owned_captures::OwnedCaptures, owned_case::finish_case};
-    use culprit_collector::capture::CollectionCancellation;
+    use culprit_read::cancellation::CollectionCancellation;
     use std::time::Duration;
     let cancellation = CollectionCancellation::default();
     let (expired, fixture) = finish_case(
@@ -430,7 +430,7 @@ async fn owned_selected_database_performance_counters_use_the_real_factory_and_s
 #[ignore = "requires the existing nonce-owned SQL Server16+ fixture; history source cost remains unqualified"]
 async fn owned_suspect_page_history_uses_the_existing_reader_and_sealed_original_without_integrity_work() {
     use crate::test_support::{owned_captures::OwnedCaptures, owned_case::finish_case};
-    use culprit_collector::capture::CollectionCancellation;
+    use culprit_read::cancellation::CollectionCancellation;
     use std::time::Duration;
     let cancellation = CollectionCancellation::default();
     let (expired, fixture) = finish_case(

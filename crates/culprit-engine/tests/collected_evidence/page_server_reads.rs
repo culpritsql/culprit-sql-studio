@@ -1,10 +1,9 @@
 use super::fixture::Fixture;
-use culprit_collector::analytical::{
-    evidence::EvidenceFamily,
-    test_support::{assert_page_server_read_capture, page_server_read_evidence_cases},
-};
 use culprit_core::{SourceState, page_server_read_report::PageServerReadEntryIdentity, telemetry::*};
 use culprit_engine::collected_resources;
+use culprit_evidence::analytical::evidence::EvidenceFamily;
+use culprit_evidence::analytical::test_support::assert_page_server_read_capture;
+use culprit_evidence::analytical::test_support::page_server_read_evidence_cases;
 
 #[tokio::test]
 async fn original_runtime_fragments_reuse_the_pure_explanation_with_no_definition_or_recovery_read() {

@@ -1,15 +1,15 @@
 use super::fixture::Fixture;
-use culprit_collector::analytical::{
-    evidence::EvidenceFamily,
-    test_support::{TableFullTextCase, assert_table_metadata_capture, table_full_text_evidence},
-};
 use culprit_core::{SourceState, telemetry::*};
 use culprit_engine::collected_resources;
+use culprit_evidence::analytical::evidence::EvidenceFamily;
+use culprit_evidence::analytical::test_support::TableFullTextCase;
+use culprit_evidence::analytical::test_support::assert_table_metadata_capture;
+use culprit_evidence::analytical::test_support::table_full_text_evidence;
 const FAMILY: &[EvidenceFamily] = &[EvidenceFamily::OperationalSamples];
 
 #[tokio::test]
 async fn original_cdc_enrollment_replays_without_inventing_job_progress_or_live_reads() {
-    use culprit_collector::analytical::test_support::{TableCdcCase, table_cdc_evidence};
+    use culprit_evidence::analytical::test_support::{TableCdcCase, table_cdc_evidence};
     for case in TableCdcCase::ALL {
         let (source, records) = table_cdc_evidence(case);
         let fixture = Fixture::new(source.clone(), records.clone()).await;
@@ -96,7 +96,7 @@ async fn a_missing_table_body_is_unknown_and_cannot_become_a_no_index_row_or_a_c
 
 #[tokio::test]
 async fn original_table_storage_configuration_replays_exactly_without_current_metadata_or_size_inference() {
-    use culprit_collector::analytical::test_support::{TableStorageCase, table_storage_evidence};
+    use culprit_evidence::analytical::test_support::{TableStorageCase, table_storage_evidence};
     for case in TableStorageCase::ALL {
         let (source, records) = table_storage_evidence(case);
         let fixture = Fixture::new(source.clone(), records.clone()).await;
@@ -125,7 +125,7 @@ async fn original_table_storage_configuration_replays_exactly_without_current_me
 
 #[tokio::test]
 async fn original_temporal_configuration_keeps_exact_native_fields_and_source_coverage_without_live_reads() {
-    use culprit_collector::analytical::test_support::{TableTemporalCase, table_temporal_evidence};
+    use culprit_evidence::analytical::test_support::{TableTemporalCase, table_temporal_evidence};
     for case in TableTemporalCase::ALL {
         let (source, records) = table_temporal_evidence(case);
         let fixture = Fixture::new(source.clone(), records.clone()).await;
@@ -157,7 +157,7 @@ async fn original_temporal_configuration_keeps_exact_native_fields_and_source_co
 }
 #[tokio::test]
 async fn missing_original_table_body_is_not_an_empty_or_ordinary_temporal_configuration() {
-    use culprit_collector::analytical::test_support::{TableTemporalCase, table_temporal_evidence};
+    use culprit_evidence::analytical::test_support::{TableTemporalCase, table_temporal_evidence};
     let (source, records) = table_temporal_evidence(TableTemporalCase::SystemVersioned);
     let fixture = Fixture::new(source, records).await;
     fixture.remove_first_row(TelemetryStream::OperationalSamples);

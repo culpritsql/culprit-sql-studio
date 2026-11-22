@@ -1,7 +1,8 @@
 use super::fixture::Fixture;
 use super::*;
-use culprit_collector::analytical::{evidence::EvidenceFamily, test_support::query_runtime_fragment_evidence};
 use culprit_core::collected_analysis::CollectedRuntimeTimeTotal;
+use culprit_evidence::analytical::evidence::EvidenceFamily;
+use culprit_evidence::analytical::test_support::query_runtime_fragment_evidence;
 #[tokio::test]
 async fn unknown_duration_mean_keeps_exact_population_executions_and_original_endpoints_but_no_time_denominator() {
     let (source, records) = query_runtime_fragment_evidence(true);

@@ -1,5 +1,6 @@
 use super::*;
-use culprit_collector::{analytical::test_support::shared_investigation_fixture, capture::CollectionAdmissionWindow};
+use culprit_collector::capture::CollectionAdmissionWindow;
+use culprit_evidence::analytical::test_support::shared_investigation_fixture;
 
 #[tokio::test]
 async fn an_admitted_shared_question_requires_its_sealed_owner_before_route_credentials_or_allocation() {
@@ -26,7 +27,7 @@ async fn an_admitted_shared_question_requires_its_sealed_owner_before_route_cred
     let episode = matching.next().expect("the original page-wait focus selects its exact native episode");
     assert!(matching.next().is_none(), "one original focus cannot select multiple native episodes");
     let recipe = &fixture.investigation.recipe;
-    let RecipeCostQualification::Measured(receipt) = &recipe.cost else { panic!() };
+    let RecipeAdmission::Measured(receipt) = &recipe.admission else { panic!() };
     let DiagnosticExecutionBinding::Shared { owner } = &fixture.investigation.intent.execution else { panic!() };
     let intent = DiagnosticInvestigationIntent::new_shared(
         episode,

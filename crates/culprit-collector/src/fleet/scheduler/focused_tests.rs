@@ -526,7 +526,7 @@ fn enrollment_is_durable_route_bound_and_deduplicates_an_episode_across_baseline
 
 #[test]
 fn compact_focus_binds_the_exact_validated_intent_without_copying_parent_or_cost_payloads() {
-    let fixture = crate::analytical::test_support::investigation_fixture();
+    let fixture = culprit_evidence::analytical::test_support::investigation_fixture();
     let inventory = single_target(180);
     let job = FocusedJob::new(&fixture.intent, &inventory.targets[0], 60).unwrap();
     assert!(job.matches_intent(&fixture.intent));

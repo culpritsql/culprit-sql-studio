@@ -8,8 +8,8 @@ use crate::{
         owned_case::{finish_case, until_cancelled},
     },
 };
-use culprit_collector::capture::CollectionCancellation;
 use culprit_core::SourceState;
+use culprit_read::cancellation::CollectionCancellation;
 use std::time::Duration;
 use tokio::time::Instant;
 

@@ -1,10 +1,9 @@
 use super::fixture::Fixture;
-use culprit_collector::analytical::{
-    evidence::{EvidenceFamily, EvidenceGapReason},
-    test_support::task_space_evidence_cases,
-};
 use culprit_core::{Snapshot, SourceOutcome, SourceState, telemetry::*};
 use culprit_engine::collected_resources;
+use culprit_evidence::analytical::evidence::EvidenceFamily;
+use culprit_evidence::analytical::evidence::EvidenceGapReason;
+use culprit_evidence::analytical::test_support::task_space_evidence_cases;
 
 fn observations(rows: &[TelemetryRecord]) -> Vec<&TaskSpaceObservation> {
     rows.iter()
@@ -43,8 +42,8 @@ async fn ordinary_user_allocation_without_current_context_cannot_borrow_a_peer_s
     assert_eq!(analysis.context.records.len(), rows.len());
     let words = serde_json::to_string(ordinary).unwrap();
     assert!(!words.contains("9264") && !words.contains("dbo.orders"));
-    let (cleanup_source, cleanup_rows) = culprit_collector::analytical::test_support::cleanup_evidence(
-        culprit_collector::analytical::test_support::CleanupCase::LocalRecoveredHorizon,
+    let (cleanup_source, cleanup_rows) = culprit_evidence::analytical::test_support::cleanup_evidence(
+        culprit_evidence::analytical::test_support::CleanupCase::LocalRecoveredHorizon,
     );
     let cleanup_fixture = Fixture::new(cleanup_source.clone(), cleanup_rows.clone()).await;
     let cleanup_capture = cleanup_fixture.read_families(&[EvidenceFamily::OperationalSamples]).await;

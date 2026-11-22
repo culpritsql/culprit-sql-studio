@@ -1,5 +1,6 @@
 {
   "mssql": {
+    "default_port": 1433,
     "evidence_presentation": {
       "storage_about": "ui.beyond_time.storage.about",
       "storage_untimed": "ui.beyond_time.storage.untimed",
@@ -133,6 +134,7 @@
     }
   },
   "postgres": {
+    "default_port": 5432,
     "evidence_presentation": {
       "storage_about": "ui.beyond_time.storage.about_postgres",
       "storage_untimed": "ui.beyond_time.storage.untimed_postgres",
@@ -299,6 +301,7 @@
     }
   },
   "yugabyte": {
+    "default_port": 5433,
     "evidence_presentation": {
       "storage_about": "ui.beyond_time.storage.about",
       "storage_untimed": "ui.beyond_time.storage.untimed",
@@ -464,6 +467,7 @@
     }
   },
   "mysql": {
+    "default_port": 3306,
     "evidence_presentation": {
       "storage_about": "ui.beyond_time.storage.about",
       "storage_untimed": "ui.beyond_time.storage.untimed",
@@ -643,6 +647,7 @@
     }
   },
   "sqlite": {
+    "default_port": null,
     "evidence_presentation": {
       "storage_about": "ui.beyond_time.storage.about",
       "storage_untimed": "ui.beyond_time.storage.untimed",

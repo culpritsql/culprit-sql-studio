@@ -1,6 +1,6 @@
 use super::*;
-use culprit_collector::analytical::evidence::EvidenceFamily;
 use culprit_core::collected_analysis::CollectedQueryAnalysis;
+use culprit_evidence::analytical::evidence::EvidenceFamily;
 
 fn history() -> (CollectionDescription, Vec<TelemetryRecord>) {
     let (_, mut source, mut records) = recorded();

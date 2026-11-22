@@ -1,10 +1,12 @@
 //! Rebuilds bounded delivery metadata from remote commits without querying a source database.
-use super::{
-    diagnostic_recovery::{load_diagnostic_checkpoint, load_diagnostic_input},
-    journal::{DeliveryJournal, HydrationPriority},
-    recovery::{self, RecoveryOrder, RecoveryPage, RecoveryStore},
-};
+use super::diagnostic_recovery::load_diagnostic_checkpoint;
+use super::diagnostic_recovery::load_diagnostic_input;
+use super::journal::DeliveryJournal;
+use super::journal::HydrationPriority;
+use super::recovery::RecoveryStore;
 use culprit_core::{Result, telemetry::DeliveryProblem};
+use culprit_evidence::delivery::recovery::RecoveryOrder;
+use culprit_evidence::delivery::recovery::RecoveryPage;
 #[cfg(test)]
 mod tests;
 
@@ -43,7 +45,7 @@ async fn restore_ranges(
         return Err(DeliveryProblem::Capacity.error());
     }
     for manifest in &page.ranges {
-        let committed = recovery::reopen(store, &manifest.range_id).await?;
+        let committed = culprit_evidence::delivery::recovery::reopen(store, &manifest.range_id).await?;
         if committed.manifest() != manifest {
             return Err(DeliveryProblem::Integrity.error());
         }
@@ -58,7 +60,7 @@ pub async fn restore_diagnostics_page(
     store: &dyn RecoveryStore,
     cursor: Option<&str>,
     limit: u32,
-) -> Result<super::recovery::DiagnosticHeadPage> {
+) -> Result<culprit_evidence::delivery::heads::DiagnosticHeadPage> {
     if outbox.recovery_store_id() != Some(store.id()) {
         return Err(DeliveryProblem::DestinationChanged.error());
     }

@@ -16,7 +16,7 @@ async fn shared_login_and_application_labels_cannot_replace_original_native_requ
 async fn prove(fixture: &mut Fixture) {
     fixture.prepare().await;
     let recipe = crate::telemetry_recipes().into_iter().find(|recipe| recipe.id == "postgres.activity").unwrap();
-    assert_eq!(recipe.cost, RecipeCostQualification::Unqualified);
+    assert!(!matches!(recipe.admission, RecipeAdmission::Measured(_)));
     let mut original = retained_activity::original(&fixture.specification, fixture.pid(0), &fixture.cancellation).await;
     let initial = original.capture().census();
     assert_shared_callers(&initial, &[fixture.identity(0).clone(), fixture.identity(1).clone()]);

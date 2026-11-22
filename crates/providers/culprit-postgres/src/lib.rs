@@ -1,5 +1,7 @@
 //! Postgres provider for Culprit: read-only snapshots from the statistics views, plans via EXPLAIN, live sessions.
 
+mod builtin_safety;
+pub use builtin_safety::verify as verify_builtin_safety;
 mod catalog;
 mod collect;
 mod connect;
@@ -265,6 +267,18 @@ impl PostgresProvider {
 
 #[async_trait]
 impl Provider for PostgresProvider {
+    fn telemetry_source_for_safety(
+        &self,
+        request: &culprit_core::telemetry::CollectionRequest,
+        profile: &culprit_core::telemetry::SourceProfileAdmission,
+    ) -> Result<Box<dyn culprit_core::telemetry::TelemetrySource>> {
+        let policy =
+            profile.builtin_policy().ok_or_else(|| culprit_core::telemetry::CollectionStop::SourceChanged.error())?;
+        if !builtin_safety::verify(policy)? {
+            return Err(culprit_core::telemetry::CollectionStop::SourceChanged.error());
+        }
+        telemetry::safety_source(self.connector.clone(), request, profile)
+    }
     fn telemetry_source_for_profile(
         &self,
         request: &culprit_core::telemetry::CollectionRequest,
@@ -704,3 +718,7 @@ mod tests {
         assert_eq!(error.message, "This connection is for SQL Server, not PostgreSQL");
     }
 }
+
+/// Nonce-owned test actors only; this feature grants no source or policy authority.
+#[cfg(any(test, feature = "native-test-support"))]
+pub mod native_test_support;

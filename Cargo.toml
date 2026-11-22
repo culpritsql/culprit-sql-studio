@@ -29,14 +29,15 @@ culprit-cloud = { path = "crates/culprit-cloud" }
 culprit-auth-aws = { path = "crates/authentication/culprit-auth-aws" }
 culprit-auth = { path = "crates/authentication/culprit-auth" }
 culprit-auth-azure = { path = "crates/authentication/culprit-auth-azure" }
-culprit-store-adx = { path = "crates/telemetry/culprit-store-adx" }
-culprit-blob-azure = { path = "crates/recovery/culprit-blob-azure" }
-culprit-blob-s3 = { path = "crates/recovery/culprit-blob-s3" }
-culprit-store-clickhouse = { path = "crates/telemetry/culprit-store-clickhouse" }
+culprit-store-adx = { path = "crates/telemetry/culprit-store-adx", default-features = false }
+culprit-blob-azure = { path = "crates/recovery/culprit-blob-azure", default-features = false }
+culprit-blob-s3 = { path = "crates/recovery/culprit-blob-s3", default-features = false }
+culprit-store-clickhouse = { path = "crates/telemetry/culprit-store-clickhouse", default-features = false }
 zeroize = "1.9.1"
 culprit-core = { path = "crates/culprit-core" }
 culprit-read = { path = "crates/culprit-read" }
 culprit-collector = { path = "crates/culprit-collector" }
+culprit-evidence = { path = "crates/culprit-evidence" }
 culprit-checks = { path = "crates/culprit-checks" }
 culprit-mssql = { path = "crates/providers/culprit-mssql" }
 culprit-postgres = { path = "crates/providers/culprit-postgres" }

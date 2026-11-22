@@ -1,6 +1,8 @@
 //! Controlled facts exercise the real outbox, scheduler and admission path; no fixture approves native cost.
 use super::*;
-use crate::analytical::test_support::hyperscale_log_component_evidence_cases;
+use culprit_evidence::analytical::test_support::hyperscale_log_component_evidence_cases;
+use culprit_read::cancellation::CollectionCancellation;
+use std::sync::atomic::Ordering;
 
 pub(in crate::fleet::investigations) fn frame(focus: &SourceReadFocus, execution: &NativeSourceReadScope) -> Frame {
     let (mut source, records) = hyperscale_log_component_evidence_cases().remove(0);
@@ -35,7 +37,7 @@ async fn fixture(cost_qualified: bool) -> Harness {
     let mut harness = Harness::with_activity(Frame { source, records: vec![row] }).await;
     harness.backend.recipe.id = "fixture.hyperscale-log-components".into();
     harness.backend.recipe.selector = SourceReadQuestion::HyperscaleLogComponents.selector();
-    let RecipeCostQualification::Measured(receipt) = &mut harness.backend.recipe.cost else { panic!() };
+    let RecipeAdmission::Measured(receipt) = &mut harness.backend.recipe.admission else { panic!() };
     receipt.recipe_id = harness.backend.recipe.id.clone();
     receipt.selector = harness.backend.recipe.selector;
     receipt.tested_budget.max_snapshot_rows = 64;
@@ -48,7 +50,7 @@ async fn fixture(cost_qualified: bool) -> Harness {
         .into(),
     );
     if !cost_qualified {
-        harness.backend.recipe.cost = RecipeCostQualification::Unqualified;
+        harness.backend.recipe.admission = RecipeAdmission::Unqualified;
     }
     harness
 }

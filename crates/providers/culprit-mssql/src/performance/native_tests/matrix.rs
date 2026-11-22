@@ -1,5 +1,6 @@
 //! One unchanged production read at each population point; no comparison query supplies replacement counters.
 use super::*;
+use crate::test_support::owned_case::until_cancelled;
 use crate::{
     conn::SessionKind,
     read::{integer, optional_text, text, value_bytes},

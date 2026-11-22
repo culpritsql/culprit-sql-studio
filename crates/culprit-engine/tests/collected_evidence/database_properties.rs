@@ -1,10 +1,10 @@
 use super::fixture::Fixture;
-use culprit_collector::analytical::{
-    evidence::{EvidenceFamily, EvidenceGapReason},
-    test_support::{self, DatabasePropertiesCase},
-};
 use culprit_core::{SourceState, telemetry::*};
 use culprit_engine::collected_resources;
+use culprit_evidence::analytical::evidence::EvidenceFamily;
+use culprit_evidence::analytical::evidence::EvidenceGapReason;
+use culprit_evidence::analytical::test_support;
+use culprit_evidence::analytical::test_support::DatabasePropertiesCase;
 
 #[tokio::test]
 async fn database_properties_replay_keeps_original_native_namespace_codes_unknowns_and_pure_meanings() {

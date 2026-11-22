@@ -1,7 +1,8 @@
 //! Controlled original grant inputs and the actual shared interpretation, kept together for consumer tests.
 //! This is no live source, native-cost qualification, current business owner or exclusive-cause proof.
-use culprit_collector::analytical::test_support::{GrantOutputCase, grant_output_evidence};
 use culprit_core::{SourceOutcome, telemetry::*};
+use culprit_evidence::analytical::test_support::GrantOutputCase;
+use culprit_evidence::analytical::test_support::grant_output_evidence;
 use std::{collections::BTreeMap, path::PathBuf};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {

@@ -1,5 +1,5 @@
 use super::*;
-use culprit_collector::analytical::test_support::baseline_profile_expectation;
+use culprit_evidence::analytical::test_support::baseline_profile_expectation;
 use culprit_read::SourceProfileGuard;
 use std::sync::{
     Arc,
@@ -208,4 +208,72 @@ async fn native_route_retirement_cannot_authenticate_or_send_the_pending_setup_b
     assert_eq!(calls.load(Ordering::Acquire), 1);
     assert_eq!(source.query_count(), 0);
     assert_eq!(source.close().await, SourceShutdown::Quiescent);
+}
+
+fn builtin_profiled(writable: bool) -> (ProfiledRead, SourceProfileGuard, SourceProfileAdmission) {
+    let recipe = crate::telemetry::declarations().into_iter().find(|recipe| recipe.id == "postgres.activity").unwrap();
+    let RecipeAdmission::BuiltinSafety(policy) = recipe.admission else { panic!() };
+    let active = Arc::new(AtomicBool::new(true));
+    let flag = active.clone();
+    let admission =
+        SourceProfileAdmission::for_builtin(digest(b"saved-pg-route"), *policy, None, request().budget, move || {
+            flag.load(Ordering::Acquire)
+        })
+        .unwrap();
+    assert!(admission.qualification().is_none());
+    let profile = SourceProfileGuard::new(&request(), &admission).unwrap();
+    (
+        ProfiledRead {
+            original: native(writable),
+            profile: profile.clone(),
+            active,
+            retire_after: None,
+            generation: 1,
+            change_connection_after: None,
+        },
+        profile,
+        admission,
+    )
+}
+#[tokio::test]
+async fn builtin_activity_binds_the_actual_native_reader_without_any_measured_receipt_or_global_incarnation() {
+    for writable in [true, false] {
+        let (mut reader, profile, admission) = builtin_profiled(writable);
+        let captured =
+            capture_with_profile(&mut reader, "fixture.invalid", 5432, &request(), Some(&profile)).await.unwrap();
+        let context = NativeReadContext::from_activity(&captured.description).unwrap();
+        assert!(context.has_qualified_local_owner());
+        assert!(context.target.database().unwrap().incarnation.is_none());
+        assert_eq!(context.database_writable, Some(writable));
+        assert!(admission.matches_native_context(&context));
+        assert!(admission.qualification().is_none());
+        assert_eq!(reader.original.calls.len(), 5);
+    }
+}
+#[tokio::test]
+async fn builtin_activity_retires_at_every_existing_dispatch_and_never_heals_unknown_initial_or_changed_final_owner() {
+    for retire_after in 1..=5 {
+        let (mut reader, profile, _) = builtin_profiled(true);
+        reader.retire_after = Some(retire_after);
+        assert!(capture_with_profile(&mut reader, "fixture.invalid", 5432, &request(), Some(&profile)).await.is_err());
+        assert_eq!(reader.original.calls.len(), retire_after);
+        reader.active.store(true, Ordering::Release);
+        assert!(profile.ensure_active().is_err());
+    }
+    for missing in [true, false] {
+        let (mut reader, profile, _) = builtin_profiled(true);
+        if missing {
+            reader.original.replies[1] =
+                Err(Error::new(ErrorCode::PermissionDenied, culprit_core::t!("collection.unsupported")));
+        } else {
+            reader.original.replies[3] = Ok(vec![metadata_with_role(
+                "2020-01-01T06:00:00.200000Z",
+                "2020-01-01T05:00:00Z",
+                true,
+                Some(Some("t")),
+            )]);
+        }
+        assert!(capture_with_profile(&mut reader, "fixture.invalid", 5432, &request(), Some(&profile)).await.is_err());
+        assert_eq!(reader.original.calls.len(), if missing { 2 } else { 4 });
+    }
 }

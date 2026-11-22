@@ -3,14 +3,14 @@ use super::{
     runtime::Runtime,
     support::{Frame, Harness},
 };
-use crate::{
-    analytical::test_support::request_memory_evidence,
-    capture::CollectionCancellation,
-    diagnostics::analyze_pending,
-    fleet::{journal::FocusedStage, scheduler::Outcome},
-    outbox::{DiagnosticInputState, Outbox},
-};
+use crate::diagnostics::analyze_pending;
+use crate::fleet::journal::FocusedStage;
+use crate::fleet::scheduler::Outcome;
+use crate::outbox::DiagnosticInputState;
+use crate::outbox::Outbox;
 use culprit_core::telemetry::*;
+use culprit_evidence::analytical::test_support::request_memory_evidence;
+use culprit_read::cancellation::CollectionCancellation;
 use std::sync::atomic::Ordering;
 
 pub(super) fn focused_frame(focus: &ActivityRequestFocus) -> Frame {
@@ -87,7 +87,7 @@ async fn fixture() -> Harness {
     wait.owners.clear();
     fixture.backend.recipe.selector = RecipeSelector::FocusedRequestMemory;
     fixture.backend.recipe.id = "synthetic.focused-request-memory".into();
-    let RecipeCostQualification::Measured(receipt) = &mut fixture.backend.recipe.cost else { panic!() };
+    let RecipeAdmission::Measured(receipt) = &mut fixture.backend.recipe.admission else { panic!() };
     receipt.selector = RecipeSelector::FocusedRequestMemory;
     receipt.recipe_id = fixture.backend.recipe.id.clone();
     receipt.scope = DiagnosticScope::from_source(&activity.source).unwrap().into();
@@ -181,7 +181,7 @@ async fn unqualified_or_rejected_memory_recipes_never_open_a_focused_source() {
     for unqualified in [true, false] {
         let mut fixture = fixture().await;
         if unqualified {
-            fixture.backend.recipe.cost = RecipeCostQualification::Unqualified;
+            fixture.backend.recipe.admission = RecipeAdmission::Unqualified;
         } else {
             fixture.backend.accept = false;
         }

@@ -1,6 +1,6 @@
 //! Explicit local originals enter the existing scan owner; ordinary scans never open an Outbox.
 use clap::Args;
-use culprit_collector::{capture::CollectionCancellation, outbox::CompletedCaptureBudget};
+use culprit_collector::outbox::CompletedCaptureBudget;
 use culprit_core::{
     Report, Result,
     limits::OperationGuard,
@@ -10,6 +10,7 @@ use culprit_engine::{
     LocalCaptureAnalysisKind, LocalCaptureReader, LocalCaptureRequest, LocalCapturedAnalysis, OutboxCaptureReader,
     Workspace,
 };
+use culprit_read::cancellation::CollectionCancellation;
 use std::{future::Future, path::PathBuf, pin::Pin};
 
 type ScanTask<'a> = Pin<Box<dyn Future<Output = Result<culprit_core::ProviderCall<Box<Report>>>> + 'a>>;

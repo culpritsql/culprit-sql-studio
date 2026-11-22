@@ -8,7 +8,7 @@ fn descriptor() -> RecipeDescriptor {
         selector: RecipeSelector::Collection(TelemetryCollection::Activity),
         subjects: vec![RecipeSubject::Database],
         budget: CollectionBudget::default(),
-        cost: RecipeCostQualification::Unqualified,
+        admission: RecipeAdmission::Unqualified,
     }
 }
 
@@ -24,7 +24,7 @@ fn registration_describes_actual_selection_scope_and_unqualified_cost_independen
     assert!(descriptor.accepts(&request));
     request.selection = CollectionSelection::Snapshot { dataset: SnapshotDataset::PageWaitTargets };
     assert!(!descriptor.accepts(&request));
-    assert_eq!(descriptor.cost, RecipeCostQualification::Unqualified);
+    assert_eq!(descriptor.admission, RecipeAdmission::Unqualified);
     request.selection = CollectionSelection::Activity;
     request.subject = CollectionSubject::Shared {
         resource: SharedResourceIdentity {
@@ -160,10 +160,12 @@ fn catalog_ids_and_selector_subject_ownership_must_be_unambiguous() {
 
 #[test]
 fn a_native_provider_catalog_cannot_claim_the_collectors_derived_diagnostic_source() {
-    let mut derived = descriptor();
-    derived.selector = RecipeSelector::Collection(TelemetryCollection::Diagnostics);
-    assert!(derived.is_valid(), "the descriptor is well formed, but its ownership is not native");
-    assert!(!recipe_catalog_is_valid(&[derived]));
+    for collection in [TelemetryCollection::Diagnostics, TelemetryCollection::DerivedDiagnosis] {
+        let mut derived = descriptor();
+        derived.selector = RecipeSelector::Collection(collection);
+        assert!(derived.is_valid(), "the descriptor is well formed, but its ownership is not native");
+        assert!(!recipe_catalog_is_valid(&[derived]));
+    }
 }
 
 #[test]

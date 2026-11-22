@@ -1,7 +1,8 @@
 use super::super::statement::preview as sql_preview;
 use super::*;
-use culprit_collector::analytical::test_support::{PageTaskHolderCase, page_task_holder_evidence};
 use culprit_core::{SourceOutcome, telemetry::*};
+use culprit_evidence::analytical::test_support::PageTaskHolderCase;
+use culprit_evidence::analytical::test_support::page_task_holder_evidence;
 
 fn report(case: PageTaskHolderCase, row_available: bool, source_available: bool) -> PageTaskHolderReport {
     let (source, rows) = page_task_holder_evidence(case);

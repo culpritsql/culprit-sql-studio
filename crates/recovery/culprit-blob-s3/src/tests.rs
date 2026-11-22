@@ -1,6 +1,6 @@
 use super::*;
 use culprit_auth::AccessKeyCredential;
-use tokio::io::AsyncReadExt;
+use culprit_evidence::delivery::{mutations::RecoveryWrite as _, recovery::RecoveryRead as _};
 use zeroize::Zeroizing;
 
 fn server(response: Vec<u8>) -> (u16, std::thread::JoinHandle<String>) {
@@ -216,7 +216,7 @@ async fn s3_recovery_clickhouse_delivery_and_restart() {
     );
     let client = ingestion.query_transport();
     let (mut manifest, row) = test_support::fixture();
-    manifest.contract = culprit_collector::delivery::contract::Contract::new(
+    manifest.contract = culprit_evidence::delivery::contract::Contract::new(
         "s3-clickhouse".into(),
         "shard-0".into(),
         client.destination().into(),

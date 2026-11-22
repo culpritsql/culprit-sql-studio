@@ -1,5 +1,6 @@
 use super::*;
-use culprit_collector::analytical::test_support::{SuspectPageHistoryCase, suspect_page_history_evidence};
+use culprit_evidence::analytical::test_support::SuspectPageHistoryCase;
+use culprit_evidence::analytical::test_support::suspect_page_history_evidence;
 #[tokio::test]
 async fn original_suspect_history_analysis_preserves_nullable_and_unavailable_states_without_a_provider() {
     for case in SuspectPageHistoryCase::ALL {

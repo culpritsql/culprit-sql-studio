@@ -1,10 +1,9 @@
 use super::fixture::Fixture;
-use culprit_collector::analytical::{
-    evidence::{EvidenceFamily, EvidenceGapReason},
-    test_support::runtime_distribution_evidence_cases,
-};
 use culprit_core::{ErrorDetail, MeasurementScope, ResetMarker, SourceOutcome, SourceState, telemetry::*};
 use culprit_engine::collected_resources;
+use culprit_evidence::analytical::evidence::EvidenceFamily;
+use culprit_evidence::analytical::evidence::EvidenceGapReason;
+use culprit_evidence::analytical::test_support::runtime_distribution_evidence_cases;
 
 #[tokio::test]
 async fn authenticated_distributions_reuse_the_pure_view_with_exact_native_populations_retained_once() {

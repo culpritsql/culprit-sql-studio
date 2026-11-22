@@ -12,6 +12,53 @@ cloud permissions, private networking, retention-scale costs and production sour
 require live qualification. The deployment example starts with **zero replicas**. Its resource requests and cadences
 are starting configurations, not measured capacity claims.
 
+## Automatic diagnoses
+
+The collector runs the existing pure analysis engine on sealed captures and sends its answers through the same
+verified delivery path as the original telemetry. This local analysis adds no database queries.
+
+| Table | Contents |
+|---|---|
+| `CulpritIncidentsV1` | Recorded incident updates, victim summary, affected and culprit queries, candidates, mechanism, developer action and verification |
+| `CulpritFindingsV1` | Ranked findings from the captured query history, with original query references and explicit check coverage |
+| `CulpritChangesV1` | The shared change-event contract; unavailable comparisons remain explicit in output coverage |
+
+An observed blocker, a reported task holder and a memory reservation contributor retain their different native
+roles. Current SQL remains a candidate when the evidence cannot establish the statement that acquired a resource.
+Database-reported client labels remain claims from the database, rather than verified application ownership.
+
+Pending analysis and its selected context survive local restart. The worker verifies every available selected
+original through the existing canonical reader, keeps acquisition clocks separate, and records missing or
+unqualified context. A fully retrieved capture does not establish complete native coverage. Zero findings retain
+the check assessments and limitations; missing evidence cannot become a healthy verdict.
+
+Local analysis continues in delivery-only mode and while native collection is fenced. Its cumulative allowance is
+100,000 rows, 64 MiB of verified inputs and 30 seconds; each output is limited to 16 MiB. These limits govern local
+files and CPU. They do not increase a source query budget. Settled analysis failures remain separate from native
+collection and delivery, with pending counts and a durable failure watermark in the health metrics.
+
+List published database observations using the independent warehouse and recovery credentials in an evidence
+configuration:
+
+```sh
+culprit resources --config evidence.json --json
+```
+
+Resource names and selectors come from authenticated original metadata. The result retains acquisition times,
+native source coverage and distinct member/incarnation observations. Pagination and unavailable originals remain
+explicit; this is an archive view, not a configured inventory or a current-health claim.
+
+To investigate a database around a time:
+
+```sh
+culprit incident orders-prod --around 2026-11-21T02:15:00Z --config evidence.json --json
+```
+
+This selects a ten-minute window and resolves published incident revisions and their exact original evidence
+across captures. It does not resolve source credentials or open a database provider. Read gaps and selection
+limits remain explicit; incomplete discovery returns exit code 2. The lower-level per-capture commands below
+remain available for inspecting individual evidence families.
+
 ## Components and ownership
 
 | Component | Responsibility |
@@ -21,6 +68,8 @@ are starting configurations, not measured capacity claims.
 | `FleetBackend` / `FleetRunner` | Source authentication, static assignments, due work, backfill and coverage gaps |
 | `Outbox` | Exclusive local ownership, capture revisions, private files, quota and diagnostic working sets |
 | Shared diagnostic worker | Analyze sealed native inputs, retain episode lifecycle and analysis status, and commit separate diagnostic captures |
+| Injected pure synthesizer | Reuse the analysis pipeline and original evidence interpreters to produce warehouse diagnoses |
+| Durable synthesis queue | Retain pending inputs, bounded context selection, output identity and analysis failure status |
 | `RecoveryStore` | Immutable native objects, fenced commits, historical coverage and unfinished delivery index |
 | `TelemetrySink` | Destination dispatch, exact value/membership readback and completion publication |
 | `DeliveryWorker` | Independent native archive and analytical loops, with separate durable progress journals |
@@ -33,7 +82,7 @@ implement their respective interfaces; they do not acquire database connections.
 separate consumer; this service does not add an ADX-backed desktop connection.
 
 Embedders can read a specifically selected committed capture through
-`culprit_collector::analytical::evidence::EvidenceReader`; the store crates expose `evidence::AdxReadStore` and
+`culprit_evidence::analytical::evidence::EvidenceReader`; the store crates expose `evidence::AdxReadStore` and
 `evidence::ClickHouseReadStore`. The reader accepts an authenticated `CommittedRange`, selected evidence families and a read budget.
 `EvidenceFamily::ALL` declares the supported families: resource samples, native cumulative wait-counter samples, native activity observations, inline typed operational facts, object, query and
 plan definitions, interval query runtime and query waits. Runtime and waits retain native identities, dimensions,
@@ -1227,8 +1276,10 @@ an episode. Absence-based recovery requires the matching native source, epoch, p
 an old epoch is not declared healthy when a different source generation is observed.
 
 The selected provider's static catalog is read without constructing a provider, resolving credentials or opening a
-connection. For a supported focused question from the current baseline, the worker records `deferred` with `cost-unqualified`
-when its native recipe has no production cost qualification, or `unsupported` when no matching recipe is declared.
+connection. A recipe declares its admission policy: a supported source-owned built-in safety policy, an authenticated
+measured qualification, or unqualified. For a supported focused question from the current baseline, the worker
+records `deferred` with `cost-unqualified` when neither permitted admission applies, or `unsupported` when no matching
+recipe is declared.
 An offline worker with no selected catalog preserves pending analysis rather than guessing provider support.
 Catalog ordering does not change the durable analysis identity; changed recipe versions or budget envelopes do.
 
@@ -1293,9 +1344,13 @@ An unconfirmed shutdown keeps its source debt and scheduler obligation. The ware
 identifiers, outcomes and recovery references while omitting private source targets, original SQL and qualification SQL.
 `InvestigationContext` is included in analytical rows and `CulpritPublishedRangesV1`, including successful empty captures.
 
-Built-in recipe costs remain unqualified, so this protocol does not enable automatic extra production reads.
-Saving an episode or declaring a recipe does not establish a completed root-cause investigation or measured source
-cost. Existing explicit page-target collection remains separately bounded.
+PostgreSQL 18 Activity and focused blocking have source-owned built-in safety policies for their exact supported
+native profiles. They can run automatically without an operator-created cost receipt. Their query ceilings include
+setup: six for Activity and 25 for focused blocking. Stricter caller limits and the original resource cooldown
+still apply. These policies establish bounded admission, rather than measured production overhead. Other recipes
+retain their declared measured or unqualified status; the presence of a recipe never enables it automatically.
+Saving an episode does not establish a completed root-cause investigation. Existing explicit page-target collection
+remains separately bounded.
 
 ### Finite questions from retained signals
 
@@ -1579,7 +1634,7 @@ metadata; the shared report and warehouse publication expose one numerical summa
 
 ## Tables and analytical reads
 
-The generated contract has 13 analytical tables and one completion table:
+The generated contract has 13 original-evidence tables, three derived-diagnosis tables and one completion table:
 
 | Tables | Evidence |
 |---|---|
@@ -1590,6 +1645,7 @@ The generated contract has 13 analytical tables and one completion table:
 | `CulpritDeadlocksV1` | Native event position, time, graph identity and recovery references |
 | `CulpritOperationalV1`, `CulpritReplicationV1` | Typed operational facts, including diagnostic revisions that reference original native evidence; native counters and replication observations |
 | `CulpritSettingsV1`, `CulpritTuningV1`, `CulpritObjectsV1` | Settings, tuning state and object/catalog facts with per-source coverage |
+| `CulpritIncidentsV1`, `CulpritFindingsV1`, `CulpritChangesV1` | Synthesized developer explanations, original input references, independent output coverage and analysis provenance |
 | `CulpritPublishedRangesV1` | Exact capture completion, batch membership, coverage, original source-query totals and source-read metrics |
 
 Diagnostic working-set checkpoints are recovery-only. They have no analytical table. Multiple logical

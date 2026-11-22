@@ -2,7 +2,7 @@ use super::*;
 use culprit_core::telemetry::*;
 
 fn report(missing_body: bool) -> PageServerReadReport {
-    let mut case = culprit_collector::analytical::test_support::page_server_read_evidence_cases()
+    let mut case = culprit_evidence::analytical::test_support::page_server_read_evidence_cases()
         .into_iter()
         .find(|case| case.name == "native_fragment")
         .unwrap();

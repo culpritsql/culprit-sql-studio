@@ -1,8 +1,10 @@
 //! Bounded native Kusto HTTP and authentication, shared by query and ingestion clients.
-use crate::{
-    authentication::{Audience, TokenProvider, kusto_origin},
-    response::{self, Column, QueryTable},
-};
+use crate::authentication::Audience;
+use crate::authentication::TokenProvider;
+use crate::authentication::kusto_origin;
+use crate::response;
+use crate::response::Column;
+use crate::response::QueryTable;
 use culprit_core::{Result, telemetry::DeliveryProblem};
 use ring::rand::SecureRandom;
 use serde_json::Value;
@@ -78,6 +80,7 @@ pub(crate) fn request_id() -> Result<String> {
     Ok(format!("Culprit.Delivery;{}", bytes.iter().map(|byte| format!("{byte:02x}")).collect::<String>()))
 }
 
+#[cfg(feature = "write")]
 pub(crate) fn command(origin: &str, token: &str, command: &str) -> Result<Zeroizing<Vec<u8>>> {
     let authorization = Zeroizing::new(format!("Bearer {token}"));
     let body = serde_json::json!({"csl":command,

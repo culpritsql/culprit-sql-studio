@@ -223,15 +223,30 @@ mod context_tests {
         let dir = std::env::temp_dir().join(format!("culprit-compare-context-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let workspace = Workspace::open_in(&dir);
-        let report: culprit_core::Report =
+        let mut report: culprit_core::Report =
             serde_json::from_str(include_str!("../../../fixtures/mssql-demo.report.json")).unwrap();
+        assert!(!report.snapshot.statistics.is_empty(), "the comparison must retain actual prepared statistics");
+        report.evidence = Some(culprit_core::ReportEvidence {
+            input: Box::new(report.snapshot.clone()),
+            collected: None,
+            recorded_changes: vec![],
+        });
         let saved = workspace.paths().reports_dir(&report.snapshot.connection);
         crate::reports::save(&saved, &report).unwrap();
         let path = saved.join(format!("{}.json", report.snapshot.id));
+        assert!(crate::reports::load(&path).is_ok());
+        assert!(crate::reports::load_analysis_input(&path).is_ok());
         let mut value: serde_json::Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
-        value["_culprit_store"] =
-            serde_json::json!({"version": 3, "input": {"changes": []}, "collected": null, "recorded_changes": []});
+        let version = value["_culprit_store"]["version"].clone();
+        assert!(version.is_number(), "the current writer supplies the encoding version");
+        value["_culprit_store"]["input"]["changes"].as_array_mut().unwrap().push(serde_json::json!({
+            "kind": "set", "path": ["statistics"], "value": "not-a-statistics-array"
+        }));
+        assert_eq!(value["_culprit_store"]["version"], version);
+        assert_eq!(value["snapshot"]["statistics"], serde_json::to_value(&report.snapshot.statistics).unwrap());
         std::fs::write(&path, serde_json::to_vec(&value).unwrap()).unwrap();
+        assert!(crate::reports::load(&path).is_err());
+        assert!(crate::reports::load_analysis_input(&path).is_err());
         assert!(workspace.latest_report(&report.snapshot.connection, None).is_err());
         let context = workspace.compare_context(&report.snapshot.connection);
         assert_eq!(context.taken_at.as_deref(), Some(report.snapshot.taken_at.as_str()));

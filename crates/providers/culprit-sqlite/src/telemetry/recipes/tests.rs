@@ -31,7 +31,7 @@ fn the_file_catalog_drives_every_constructor_without_opening_or_creating_a_file(
         let RecipeSelector::Collection(TelemetryCollection::Snapshot(dataset)) = recipe.selector else {
             panic!("SQLite must not advertise server sessions or retained query counters");
         };
-        assert_eq!(recipe.cost, RecipeCostQualification::Unqualified);
+        assert_eq!(recipe.admission, RecipeAdmission::Unqualified);
         let request = request(dataset, CollectionBudget::default());
         assert!(recipe.accepts(&request));
         assert_eq!(select(&request).unwrap().id, recipe.id);

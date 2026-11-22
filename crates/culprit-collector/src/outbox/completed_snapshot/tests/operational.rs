@@ -1,7 +1,10 @@
 use super::*;
+use culprit_read::cancellation::CollectionCancellation;
 mod hyperscale_log_components;
-use crate::analytical::test_support::{LocalCaptureFixture, MemoryClerkCase, memory_clerk_evidence};
+use crate::analytical::test_support::LocalCaptureFixture;
 use culprit_core::{SourceState, limits::OperationGuard};
+use culprit_evidence::analytical::test_support::MemoryClerkCase;
+use culprit_evidence::analytical::test_support::memory_clerk_evidence;
 
 async fn original() -> LocalCaptureFixture {
     let (source, rows) = memory_clerk_evidence(MemoryClerkCase::SharedInstance);
@@ -219,7 +222,9 @@ async fn cancellation_after_verification_cannot_publish_a_finished_operational_p
 
 #[tokio::test]
 async fn snapshot_lookup_accepts_only_explicit_unique_same_layout_datasets_and_authenticates_the_original_once() {
-    use crate::analytical::test_support::{DatabasePerformanceCounterCase, database_performance_counter_evidence};
+    use culprit_evidence::analytical::test_support::{
+        DatabasePerformanceCounterCase, database_performance_counter_evidence,
+    };
     let (source, rows) = database_performance_counter_evidence(DatabasePerformanceCounterCase::Exact);
     let fixture = LocalCaptureFixture::snapshot(source, rows).await;
     for datasets in [

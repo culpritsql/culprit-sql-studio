@@ -1,8 +1,9 @@
 use super::fixture::Fixture;
 use super::*;
-use culprit_collector::analytical::evidence::EvidenceFamily;
-use culprit_collector::analytical::test_support::{PoolSettingsCase, pool_settings_evidence};
 use culprit_engine::collected_resources;
+use culprit_evidence::analytical::evidence::EvidenceFamily;
+use culprit_evidence::analytical::test_support::PoolSettingsCase;
+use culprit_evidence::analytical::test_support::pool_settings_evidence;
 const FAMILY: &[EvidenceFamily] = &[EvidenceFamily::SettingObservations];
 #[tokio::test]
 async fn recorded_pool_settings_reuse_original_projection_scope_clocks_nulls_and_pure_meaning() {
@@ -72,8 +73,8 @@ async fn absent_archive_row_keeps_original_pool_population_and_current_point_wit
 }
 #[tokio::test]
 async fn unrelated_operational_capture_cannot_supply_a_pool_settings_header_or_body() {
-    let (source, rows) = culprit_collector::analytical::test_support::database_properties_evidence(
-        culprit_collector::analytical::test_support::DatabasePropertiesCase::Exact,
+    let (source, rows) = culprit_evidence::analytical::test_support::database_properties_evidence(
+        culprit_evidence::analytical::test_support::DatabasePropertiesCase::Exact,
     );
     let fixture = Fixture::new(source, rows).await;
     let capture = fixture.read_families(&[EvidenceFamily::OperationalSamples]).await;

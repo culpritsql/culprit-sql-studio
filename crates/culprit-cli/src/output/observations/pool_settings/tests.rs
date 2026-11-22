@@ -1,13 +1,13 @@
 use super::*;
-use culprit_collector::{
-    analytical::test_support::{LocalCaptureFixture, PoolSettingsCase, pool_settings_evidence},
-    outbox::CompletedCaptureBudget,
-};
+use culprit_collector::analytical::test_support::LocalCaptureFixture;
+use culprit_collector::outbox::CompletedCaptureBudget;
 use culprit_core::limits::OperationGuard;
 use culprit_engine::{
     LocalCaptureAnalysisKind, LocalCaptureReader, LocalCaptureRequest, LocalCapturedAnalysis, LocalPoolSettings,
     OutboxCaptureReader,
 };
+use culprit_evidence::analytical::test_support::PoolSettingsCase;
+use culprit_evidence::analytical::test_support::pool_settings_evidence;
 async fn original(case: PoolSettingsCase) -> Box<LocalPoolSettings> {
     let (source, rows) = pool_settings_evidence(case);
     let fixture = LocalCaptureFixture::snapshot(source, rows).await;

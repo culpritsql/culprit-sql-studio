@@ -4,7 +4,7 @@ use crate::{
     capture::SourceFactory,
     outbox::{NativeQualificationDecision, NativeQualificationEvidence, NativeQualificationSource},
 };
-use culprit_core::{ComponentVersion, RecipeQualificationGap};
+use culprit_core::{ComponentVersion, RecipeQualificationGap, Result};
 use std::sync::{
     Arc,
     atomic::{AtomicBool, AtomicUsize, Ordering},
@@ -52,7 +52,7 @@ impl QualificationFixture {
         assert!(scope.is_valid());
         let SourceObservation::Snapshot(header) = &mut source.observation else { panic!() };
         header.dataset = SnapshotDataset::QueryCompilation;
-        let receipt = original.intent.qualification;
+        let receipt = original.intent.qualification.measured().expect("measured fixture").clone();
         Self {
             recipe: RecipeDescriptor {
                 id: "fixture.native-compilation".into(),
@@ -61,7 +61,7 @@ impl QualificationFixture {
                 selector: SourceReadQuestion::CompilationHistory.selector(),
                 subjects: vec![RecipeSubject::Database],
                 budget: CollectionBudget::default(),
-                cost: RecipeCostQualification::Unqualified,
+                admission: RecipeAdmission::Unqualified,
             },
             source,
             component: receipt.component,

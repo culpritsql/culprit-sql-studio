@@ -1,37 +1,38 @@
-//! Recovery over immutable objects and one conditional checkpoint. No listing consistency is assumed.
-//! The root is the commit authority. Indexes are written afterwards; the next commit must repair them first.
-//! An ownership token fences delivery writes only. It does not prove a previous SQL request has stopped.
-pub mod bridge;
+//! Existing fenced recovery writer, composed over the sole immutable recovery reader.
+use culprit_evidence::delivery::{mutations::*, recovery::*};
 pub mod provider;
 mod recovery;
-mod state;
 #[cfg(test)]
 pub(crate) mod tests;
-pub mod transport;
-
-use super::{contract::*, evidence::*, recovery::*};
+use super::recovery::*;
 use culprit_core::{
     Result,
     telemetry::{DeliveryProblem, digest},
 };
-use serde::{Serialize, de::DeserializeOwned};
+use culprit_evidence::delivery::{
+    contract::*,
+    coverage::coverage_key,
+    evidence::*,
+    object_store::{ObjectRecoveryReader, encode, read_bytes, state::*, transport::*, validate_payload},
+};
 use sha2::{Digest, Sha256};
-use state::*;
 use std::{path::Path, sync::Arc};
 use tokio::io::AsyncReadExt;
-use transport::*;
-
 fn integrity() -> culprit_core::Error {
     DeliveryProblem::Integrity.error()
 }
 fn transport_error() -> culprit_core::Error {
     DeliveryProblem::Transport.error()
 }
-
 pub struct ObjectRecoveryStore {
-    id: String,
-    contract: Contract,
+    reader: ObjectRecoveryReader,
     transport: Arc<dyn ObjectTransport>,
+}
+impl std::ops::Deref for ObjectRecoveryStore {
+    type Target = ObjectRecoveryReader;
+    fn deref(&self) -> &Self::Target {
+        &self.reader
+    }
 }
 impl ObjectRecoveryStore {
     /// Explicit provisioning. Opening a missing namespace never silently creates a replacement history.
@@ -41,27 +42,14 @@ impl ObjectRecoveryStore {
         if !matches!(transport.put(ROOT_KEY, bytes, WriteCondition::Absent).await?, ObjectWrite::Written) {
             return Err(DeliveryProblem::Conflict.error());
         }
-        Ok(Self { id: root.store_id, contract, transport })
+        Ok(Self {
+            reader: ObjectRecoveryReader::from_namespace(transport.clone(), contract, root.store_id)?,
+            transport,
+        })
     }
-    pub async fn open(transport: Arc<dyn ObjectTransport>, contract: Contract) -> Result<Self> {
-        contract.validate()?;
-        let (root, _) = read_json::<Root>(&*transport, ROOT_KEY, MAX_ROOT_BYTES)
-            .await?
-            .ok_or_else(|| DeliveryProblem::NotReady.error())?;
-        root.validate(&contract)?;
-        Ok(Self { id: root.store_id, contract, transport })
-    }
-    async fn root(&self) -> Result<(Root, String)> {
-        let (root, etag) =
-            read_json::<Root>(&*self.transport, ROOT_KEY, MAX_ROOT_BYTES).await?.ok_or_else(integrity)?;
-        root.validate(&self.contract)?;
-        if root.store_id != self.id {
-            return Err(integrity());
-        }
-        Ok((root, etag))
-    }
+
     async fn replace_root(&self, root: &Root, etag: &str) -> Result<()> {
-        root.validate(&self.contract)?;
+        root.validate(self.reader.contract())?;
         let bytes = encode(root, MAX_ROOT_BYTES)?;
         match self.transport.put(ROOT_KEY, bytes, WriteCondition::Matches(etag)).await? {
             ObjectWrite::Written => Ok(()),
@@ -75,7 +63,7 @@ impl ObjectRecoveryStore {
         let token = crate::durable_fs::random_id()?;
         root.token = Some(token.clone());
         self.replace_root(&root, &etag).await?;
-        Fence::issued(root.epoch, token, self.id.clone())
+        Fence::issued(root.epoch, token, self.reader.id().to_owned())
     }
     pub async fn checkpoint(&self, key: &str) -> Result<Option<String>> {
         Ok(self.root().await?.0.checkpoints.get(key).cloned())
@@ -104,7 +92,7 @@ impl ObjectRecoveryStore {
         let mut reader = value.body;
         let mut hash = Sha256::new();
         let mut total = 0u64;
-        let mut buffer = vec![0u8; super::object::RECOVERY_CHUNK_BYTES];
+        let mut buffer = vec![0u8; culprit_evidence::delivery::object::RECOVERY_CHUNK_BYTES];
         loop {
             let count = reader.read(&mut buffer).await.map_err(|_| transport_error())?;
             if count == 0 {
@@ -143,73 +131,11 @@ impl ObjectRecoveryStore {
             }
         }
     }
-    async fn index(&self, key: &str, root: &Root) -> Result<Option<CommitIndex>> {
-        let index = read_json::<CommitIndex>(&*self.transport, key, MAX_INDEX_BYTES).await?.map(|(index, _)| index);
-        if let Some(index) = &index {
-            index.validate(&self.id)?;
-            if root.head.as_ref().is_none_or(|head| index.order > head.order) {
-                return Err(integrity());
-            }
-        }
-        Ok(index)
-    }
-    async fn manifest(&self, index: &CommitIndex) -> Result<RangeManifest> {
-        let value = self.transport.get(&index.manifest_key()).await?.ok_or_else(integrity)?;
-        let bytes = read_bytes(value, MAX_MANIFEST_BYTES).await?;
-        if digest(&bytes) != index.manifest_digest {
-            return Err(integrity());
-        }
-        let manifest: RangeManifest = serde_json::from_slice(&bytes).map_err(|_| integrity())?;
-        manifest.validate()?;
-        if manifest.contract != self.contract || manifest.range_id != index.range_id {
-            return Err(integrity());
-        }
-        Ok(manifest)
-    }
-}
-fn validate_payload(batch: &PayloadObject) -> Result<()> {
-    if !valid_digest(&batch.sha256)
-        || batch.object != format!("payloads/{}.ndjson", batch.sha256)
-        || batch.bytes > MAX_RANGE_BYTES
-    {
-        return Err(integrity());
-    }
-    Ok(())
-}
-fn encode(value: &impl Serialize, limit: usize) -> Result<Vec<u8>> {
-    let bytes = serde_json::to_vec(value).map_err(|_| integrity())?;
-    if bytes.len() > limit {
-        return Err(DeliveryProblem::Capacity.error());
-    }
-    Ok(bytes)
-}
-async fn read_json<T: DeserializeOwned>(
-    transport: &dyn ObjectTransport,
-    key: &str,
-    limit: usize,
-) -> Result<Option<(T, String)>> {
-    let Some(value) = transport.get(key).await? else {
-        return Ok(None);
-    };
-    if value.etag.is_empty() || value.etag.len() > 256 || value.etag.bytes().any(|b| b.is_ascii_control()) {
-        return Err(integrity());
-    }
-    let etag = value.etag.clone();
-    let bytes = read_bytes(value, limit).await?;
-    let parsed = serde_json::from_slice(&bytes).map_err(|_| integrity())?;
-    Ok(Some((parsed, etag)))
-}
-async fn read_bytes(mut value: ObjectRead, limit: usize) -> Result<Vec<u8>> {
-    if value.bytes > limit as u64 {
-        return Err(DeliveryProblem::Capacity.error());
-    }
-    let mut bytes = Vec::new();
-    (&mut value.body).take(value.bytes + 1).read_to_end(&mut bytes).await.map_err(|_| transport_error())?;
-    if bytes.len() as u64 != value.bytes {
-        return Err(integrity());
-    }
-    Ok(bytes)
-}
 
+    pub async fn open(transport: Arc<dyn ObjectTransport>, contract: Contract) -> Result<Self> {
+        let reader = ObjectRecoveryReader::open(transport.clone(), contract).await?;
+        Ok(Self { reader, transport })
+    }
+}
 #[cfg(feature = "test-support")]
 pub mod test_support;

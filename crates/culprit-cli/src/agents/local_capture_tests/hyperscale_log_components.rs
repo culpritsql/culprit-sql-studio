@@ -1,6 +1,6 @@
 use super::*;
-use culprit_collector::analytical::test_support::hyperscale_log_component_evidence_cases;
 use culprit_engine::LocalCaptureAnalysisKind;
+use culprit_evidence::analytical::test_support::hyperscale_log_component_evidence_cases;
 
 fn component_originals(count: usize) -> (CollectionDescription, Vec<TelemetryRecord>) {
     let (mut source, rows) = hyperscale_log_component_evidence_cases().remove(0);

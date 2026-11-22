@@ -90,25 +90,7 @@ pub(crate) async fn application<R: NativeRead>(reader: &mut R) -> Result<Vec<For
     if rows.len() > MAX_APPLICATION_KEYS {
         return Err(CollectionStop::RowLimit.error());
     }
-    rows.iter().map(|row| decode(row).map(project)).collect()
+    rows.iter().map(|row| decode(row).map(MssqlForeignKey::into_foreign_key)).collect()
 }
-fn project(key: MssqlForeignKey) -> ForeignKey {
-    ForeignKey {
-        name: key.name,
-        schema: key.parent_schema,
-        table: key.parent_table,
-        columns: key.columns.iter().map(|column| column.parent_column.clone()).collect(),
-        ref_schema: key.referenced_schema,
-        ref_table: key.referenced_table,
-        ref_columns: key.columns.into_iter().map(|column| column.referenced_column).collect(),
-        delete_rule: match key.delete_action {
-            MssqlForeignKeyAction::NoAction => None,
-            MssqlForeignKeyAction::Cascade => Some("CASCADE".into()),
-            MssqlForeignKeyAction::SetNull => Some("SET NULL".into()),
-            MssqlForeignKeyAction::SetDefault => Some("SET DEFAULT".into()),
-        },
-    }
-}
-
 #[cfg(test)]
 pub(crate) mod tests;

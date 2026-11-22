@@ -1,7 +1,8 @@
 use super::fixture::Fixture;
-use culprit_collector::analytical::test_support::{assert_query_cohort_capture, page_server_read_evidence_cases};
 use culprit_core::{ErrorDetail, collected_analysis::CollectedAnalysisLimit, telemetry::*};
 use culprit_engine::collected_evidence;
+use culprit_evidence::analytical::test_support::assert_query_cohort_capture;
+use culprit_evidence::analytical::test_support::page_server_read_evidence_cases;
 
 const COLLECTED_FROM: &str = "2020-01-01T06:59:54.123456789Z";
 const COLLECTED_UNTIL: &str = "2020-01-01T06:59:55.123456790Z";

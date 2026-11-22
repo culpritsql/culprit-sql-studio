@@ -4,8 +4,8 @@ use crate::{
     connect::{COLLECTOR, Connector},
     read::{ApplicationReadScope, NativeRead, QueryRead, ReadSession},
 };
-use culprit_collector::capture::CollectionCancellation;
 use culprit_core::{Provider, SnapshotOptions, telemetry::*};
+use culprit_read::cancellation::CollectionCancellation;
 use std::time::Duration;
 
 async fn specification(cancel: &CollectionCancellation) -> culprit_core::ConnectionSpec {

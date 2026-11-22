@@ -229,6 +229,10 @@ impl CollectionDescription {
         {
             return false;
         }
+        if let SourceObservation::DerivedDiagnosis(description) = &self.observation {
+            // Reuse the original partition, including explicit uncertainty; local synthesis grants no native work.
+            return self.source == crate::derived_diagnosis::DERIVED_DIAGNOSIS_SOURCE && description.is_valid();
+        }
         if let SourceObservation::Diagnostics(description) = &self.observation
             && (!description.is_valid()
                 || description

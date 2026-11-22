@@ -1,7 +1,7 @@
 //! One bounded canonical verification pass owns local lookup, file reads and provisional row retention.
 use super::{Files, OutboxDelivery, artifacts, problem, valid_id};
-use crate::capture::CollectionCancellation;
 use culprit_core::{Error, ErrorDetail, Result, limits::OperationHandle, telemetry::*};
+use culprit_read::cancellation::CollectionCancellation;
 use std::time::Duration;
 use tokio::time::Instant;
 
@@ -45,11 +45,18 @@ impl CompletedCaptureBudget {
     }
 }
 
+#[derive(Clone)]
 pub(super) enum ReadControl {
     Collection { cancellation: CollectionCancellation, deadline: Instant },
     Operation { operation: OperationHandle, deadline: Instant },
 }
 impl ReadControl {
+    pub(super) fn is_cancelled(&self) -> bool {
+        match self {
+            Self::Collection { cancellation, .. } => cancellation.is_cancelled(),
+            Self::Operation { operation, .. } => operation.is_cancelled(),
+        }
+    }
     pub fn check(&self) -> Result<()> {
         match self {
             Self::Collection { cancellation, .. } if cancellation.is_cancelled() => {
@@ -91,6 +98,7 @@ pub(super) enum ReadRequest {
     DiagnosticsLookup { connection: String, observation_id: String },
     ActivityLookup { connection: String, observation_id: String },
     ActivityReference { connection: String, reference: DiagnosticCaptureRef },
+    SynthesisReference { reference: DiagnosticCaptureRef },
 }
 impl ReadRequest {
     fn observation_id(&self) -> &str {
@@ -102,13 +110,16 @@ impl ReadRequest {
             | Self::ManagedInstanceResources { observation_id, .. }
             | Self::DiagnosticsLookup { observation_id, .. }
             | Self::ActivityLookup { observation_id, .. } => observation_id,
-            Self::ActivityReference { reference, .. } => &reference.capture.observation_id,
+            Self::ActivityReference { reference, .. } | Self::SynthesisReference { reference } => {
+                &reference.capture.observation_id
+            }
         }
     }
 
     fn retains(&self, stream: TelemetryStream) -> bool {
         match self {
             Self::SourceOverhead { .. } => false,
+            Self::SynthesisReference { .. } => stream != TelemetryStream::DiagnosticCheckpoints,
             Self::DiagnosticsLookup { .. } => stream == TelemetryStream::OperationalSamples,
             Self::Qualification { .. } => true,
             Self::Snapshot { dataset, .. } => stream == dataset.stream(),
@@ -141,7 +152,7 @@ impl CompletedCaptureRead {
     ) -> Result<Self> {
         validate_connection(connection)?;
         let budget = budget.validate()?;
-        if !attempt.is_valid() || attempt.manifest_sha256.is_none() || collection == TelemetryCollection::Diagnostics {
+        if !attempt.is_valid() || attempt.manifest_sha256.is_none() || collection.is_local_output() {
             return Err(DeliveryProblem::InvalidContract.error());
         }
         let deadline = Instant::now().checked_add(budget.timeout).ok_or_else(|| CollectionStop::TimedOut.error())?;
@@ -238,6 +249,41 @@ impl CompletedCaptureRead {
             return Err(DeliveryProblem::InvalidContract.error());
         }
         self.request = ReadRequest::ActivityReference { connection: connection.into(), reference };
+        Ok(())
+    }
+    pub fn synthesis_reference(
+        reference: DiagnosticCaptureRef,
+        budget: CompletedCaptureBudget,
+        operation: OperationHandle,
+    ) -> Result<Self> {
+        let budget = budget.validate()?;
+        validate_synthesis_reference(&reference)?;
+        let deadline = Instant::now()
+            .checked_add(budget.timeout.min(operation.remaining()))
+            .ok_or_else(|| CollectionStop::TimedOut.error())?;
+        Ok(Self::new(
+            ReadRequest::SynthesisReference { reference },
+            ReadControl::Operation { operation, deadline },
+            budget,
+        ))
+    }
+
+    pub(super) fn synthesis_control(
+        reference: DiagnosticCaptureRef,
+        budget: CompletedCaptureBudget,
+        control: ReadControl,
+    ) -> Result<Self> {
+        budget.validate()?;
+        validate_synthesis_reference(&reference)?;
+        control.check()?;
+        Ok(Self::new(ReadRequest::SynthesisReference { reference }, control, budget))
+    }
+
+    /// Context selection keeps the original deadline and all charged rows and bytes.
+    pub fn select_synthesis_reference(&mut self, reference: DiagnosticCaptureRef) -> Result<()> {
+        self.check()?;
+        validate_synthesis_reference(&reference)?;
+        self.request = ReadRequest::SynthesisReference { reference };
         Ok(())
     }
     pub fn snapshot(
@@ -372,6 +418,16 @@ impl artifacts::VerificationObserver for CompletedCaptureRead {
         self.check()?;
         let source = manifest.description.as_ref().ok_or_else(unsupported)?;
         let rows = match &self.request {
+            ReadRequest::SynthesisReference { .. } => {
+                if source.observation.collection() == TelemetryCollection::DerivedDiagnosis {
+                    return Err(unsupported());
+                }
+                manifest
+                    .files
+                    .iter()
+                    .filter(|file| self.request.retains(file.stream))
+                    .try_fold(0u32, |sum, file| sum.checked_add(file.rows).ok_or_else(capacity))?
+            }
             ReadRequest::Qualification { collection, .. } => {
                 if manifest.request.collection() != *collection || source.observation.collection() != *collection {
                     return Err(unsupported());
@@ -445,6 +501,12 @@ pub(super) struct CompletedCapture {
     pub bytes_read: u64,
 }
 
+/// A completed mutation has a known durable result even if its caller stops after commit admission.
+pub(super) enum CaptureWork<T> {
+    Read(T),
+    Committed(T),
+}
+
 impl OutboxDelivery {
     pub(super) async fn with_completed_capture<T: Send + 'static>(
         &self,
@@ -458,22 +520,45 @@ impl OutboxDelivery {
     /// One worker owns every requested original and its shared read allowance through projection and settlement.
     pub(super) async fn with_capture_worker<T: Send + 'static>(
         &self,
-        mut read: CompletedCaptureRead,
+        read: CompletedCaptureRead,
         worker_guard: impl Send + 'static,
         project: impl FnOnce(&mut Files, &mut CompletedCaptureRead) -> Result<T> + Send + 'static,
     ) -> Result<T> {
-        read.check()?;
+        self.with_capture_operation(read, worker_guard, move |files, read| project(files, read).map(CaptureWork::Read))
+            .await
+    }
+
+    pub(super) async fn with_capture_operation<T: Send + 'static>(
+        &self,
+        mut read: CompletedCaptureRead,
+        worker_guard: impl Send + 'static,
+        project: impl FnOnce(&mut Files, &mut CompletedCaptureRead) -> Result<CaptureWork<T>> + Send + 'static,
+    ) -> Result<T> {
+        let control = read.control.clone();
+        self.with_read_operation(control, worker_guard, move |files, _| project(files, &mut read)).await
+    }
+
+    /// Queue metadata and canonical body verification share the original absolute control and worker owner.
+    pub(super) async fn with_read_operation<T: Send + 'static>(
+        &self,
+        control: ReadControl,
+        worker_guard: impl Send + 'static,
+        project: impl FnOnce(&mut Files, &ReadControl) -> Result<CaptureWork<T>> + Send + 'static,
+    ) -> Result<T> {
+        control.check()?;
         let access = tokio::select! {
             biased;
-            error = read.control.stopped() => return Err(error),
+            error = control.stopped() => return Err(error),
             access = self.acquire_files() => access,
         };
-        // Do not wrap started work in timeout/abort: the same worker keeps Files until it has stopped.
+        // Started work retains Files and its external guard through settlement, including caller drop.
         access
-            .run_owned(worker_guard, move |files| {
-                let result = project(files, &mut read)?;
-                read.check()?;
-                Ok(result)
+            .run_owned(worker_guard, move |files| match project(files, &control)? {
+                CaptureWork::Read(result) => {
+                    control.check()?;
+                    Ok(result)
+                }
+                CaptureWork::Committed(result) => Ok(result),
             })
             .await
     }
@@ -494,7 +579,9 @@ impl Files {
             {
                 return Err(DeliveryProblem::Conflict.error());
             }
-            ReadRequest::ActivityReference { reference, .. } if capture.identity != reference.capture => {
+            ReadRequest::ActivityReference { reference, .. } | ReadRequest::SynthesisReference { reference }
+                if capture.identity != reference.capture =>
+            {
                 return Err(DeliveryProblem::Conflict.error());
             }
             ReadRequest::Qualification { connection, .. }
@@ -533,7 +620,8 @@ impl Files {
         if !capture.is_valid() {
             return Err(integrity());
         }
-        if let ReadRequest::ActivityReference { reference, .. } = &read.request
+        if let ReadRequest::ActivityReference { reference, .. } | ReadRequest::SynthesisReference { reference } =
+            &read.request
             && reference != &capture
         {
             return Err(DeliveryProblem::Conflict.error());
@@ -573,6 +661,13 @@ fn integrity() -> Error {
 
 fn validate_connection(connection: &str) -> Result<()> {
     if connection.is_empty() || connection.len() > 512 {
+        return Err(DeliveryProblem::InvalidContract.error());
+    }
+    Ok(())
+}
+
+fn validate_synthesis_reference(reference: &DiagnosticCaptureRef) -> Result<()> {
+    if !reference.is_valid() || !valid_id(&reference.capture.observation_id) {
         return Err(DeliveryProblem::InvalidContract.error());
     }
     Ok(())

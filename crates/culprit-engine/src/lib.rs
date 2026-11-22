@@ -1,20 +1,24 @@
+#[cfg(feature = "evidence")]
+mod checks_synthesis;
+#[cfg(feature = "evidence")]
+pub use checks_synthesis::ChecksSynthesizer;
 #[cfg(feature = "collector")]
 pub mod activity_monitor;
 pub mod agent;
 mod analysis;
 
-#[cfg(feature = "collector")]
+#[cfg(feature = "evidence")]
 mod archived_advice;
 pub mod catalog;
 pub mod changes;
 pub mod cloud;
 #[cfg(any(test, feature = "auth-azure", feature = "auth-aws"))]
 mod cloud_process;
-#[cfg(feature = "collector")]
+#[cfg(feature = "evidence")]
 mod collected_context;
-#[cfg(feature = "collector")]
+#[cfg(feature = "evidence")]
 pub mod collected_evidence;
-#[cfg(feature = "collector")]
+#[cfg(feature = "evidence")]
 pub mod collected_resources;
 #[cfg(feature = "collector")]
 mod collection;
@@ -977,3 +981,10 @@ pub fn explain_heap_configuration(
 pub use local_captures::LocalIncidentHistory;
 mod provider_reads;
 pub use provider_reads::{explain_provider_acquisition, project_probe_attempt, project_scan_attempt};
+
+#[cfg(feature = "evidence")]
+pub mod evidence;
+pub mod recovery_config;
+
+mod warehouse_incidents;
+pub use warehouse_incidents::{WarehouseIncidentReader, WarehouseIncidentTask, saved_incident_database};

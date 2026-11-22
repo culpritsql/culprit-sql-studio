@@ -31,7 +31,7 @@ async fn try_read(
             &fixture.range,
             families,
             options,
-            recovery.map(|_| fixture.recovery.as_ref() as &dyn culprit_collector::delivery::recovery::RecoveryStore),
+            recovery.map(|_| fixture.recovery.as_ref() as &dyn culprit_evidence::delivery::recovery::RecoveryRead),
         )
         .await
 }

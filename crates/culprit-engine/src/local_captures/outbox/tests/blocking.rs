@@ -1,6 +1,8 @@
 use super::*;
-use culprit_collector::analytical::test_support::{BlockingCase, blocking_evidence, blocking_evidence_cases};
 use culprit_core::SourceState;
+use culprit_evidence::analytical::test_support::BlockingCase;
+use culprit_evidence::analytical::test_support::blocking_evidence;
+use culprit_evidence::analytical::test_support::blocking_evidence_cases;
 
 async fn analyze(reader: &OutboxCaptureReader, id: &str) -> Result<LocalBlockingAnalysis> {
     let guard = OperationGuard::new(reader.timeout()).unwrap();

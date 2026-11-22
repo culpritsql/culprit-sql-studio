@@ -32,7 +32,7 @@ async fn a_lost_statistics_connection_never_replays_the_native_operation_automat
 #[ignore = "requires explicit nonce-owned disposable loopback SQL source supervisor and native receipt directory; no live source"]
 async fn owned_collection_acquisition_records_fresh_reuse_and_failed_login_without_borrowing_database_identity() {
     use crate::test_support::{OwnedSourceFixture, owned_case::finish_case};
-    use culprit_collector::capture::CollectionCancellation;
+    use culprit_read::cancellation::CollectionCancellation;
     let cancellation = CollectionCancellation::default();
     let (expired, fixture) = finish_case(
         tokio::time::Instant::now() + std::time::Duration::from_secs(10),
@@ -54,7 +54,7 @@ async fn owned_collection_acquisition_records_fresh_reuse_and_failed_login_witho
 
 async fn acquisition_case(
     fixture: &crate::test_support::OwnedSourceFixture,
-    cancellation: &culprit_collector::capture::CollectionCancellation,
+    cancellation: &culprit_read::cancellation::CollectionCancellation,
 ) -> Result<()> {
     use culprit_core::telemetry::*;
     let budget = CollectionBudget {
@@ -158,7 +158,7 @@ struct AcquisitionRead {
 async fn acquisition_read(
     pool: Arc<Pool>,
     budget: culprit_core::telemetry::CollectionBudget,
-    cancellation: &culprit_collector::capture::CollectionCancellation,
+    cancellation: &culprit_read::cancellation::CollectionCancellation,
 ) -> Result<AcquisitionRead> {
     use culprit_core::telemetry::CollectionStop;
     if cancellation.is_cancelled() {

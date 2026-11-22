@@ -3,16 +3,15 @@ use super::owned_fixture;
 use culprit_core::telemetry::*;
 
 mod capture;
-mod fixture;
 
 use super::retained_activity::original;
+use crate::native_test_support::MaintenanceFixture;
 use capture::progress;
-use fixture::Fixture;
 
 #[tokio::test]
 #[ignore = "requires the nonce-owned PostgreSQL smoke fixture; select maintenance_waits:: explicitly"]
 async fn concurrent_index_wait_is_generation_bound_and_the_reported_locker_remains_unresolved() {
-    Fixture::run("waiting", |fixture| {
+    MaintenanceFixture::run("waiting", |fixture| {
         Box::pin(async move {
             fixture.prepare().await;
             fixture.wait_for_writer().await;
@@ -54,7 +53,7 @@ async fn concurrent_index_wait_is_generation_bound_and_the_reported_locker_remai
 #[tokio::test]
 #[ignore = "requires the nonce-owned PostgreSQL smoke fixture; select maintenance_waits:: explicitly"]
 async fn acknowledged_fixture_completion_does_not_turn_a_missing_native_request_into_completion_evidence() {
-    Fixture::run("released", |fixture| {
+    MaintenanceFixture::run("released", |fixture| {
         Box::pin(async move {
             fixture.prepare().await;
             fixture.wait_for_writer().await;
@@ -84,7 +83,7 @@ async fn acknowledged_fixture_completion_does_not_turn_a_missing_native_request_
 #[tokio::test]
 #[ignore = "requires the nonce-owned PostgreSQL smoke fixture; select maintenance_waits:: explicitly"]
 async fn an_original_native_activity_receipt_authenticates_the_focused_owner_and_retained_blocking_report() {
-    Fixture::run("waiting", |fixture| {
+    MaintenanceFixture::run("waiting", |fixture| {
         Box::pin(async move {
             fixture.prepare().await;
             fixture.wait_for_writer().await;

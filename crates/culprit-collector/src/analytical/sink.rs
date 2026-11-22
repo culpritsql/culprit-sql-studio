@@ -1,18 +1,18 @@
 //! Shared warehouse delivery: dispatch never proves visibility, and retirement requires exact readback plus publication.
 use super::{
     encoding::{BatchEncoder, EncodedBatch},
-    indexes::ProjectionIndexes,
     publication::ControlPublisher,
-    read_store::AnalyticalReadStore,
-    receipts::ReceiptReader,
 };
-use crate::delivery::{
-    contract::Contract,
-    recovery::{CommittedRange, RecoveryStore},
-    sink::*,
-};
+use crate::delivery::sink::*;
 use async_trait::async_trait;
 use culprit_core::{Result, telemetry::DeliveryProblem};
+use culprit_evidence::analytical::{
+    indexes::ProjectionIndexWriter, read_store::AnalyticalReadStore, receipts::ReceiptReader,
+};
+use culprit_evidence::delivery::contract::Contract;
+use culprit_evidence::delivery::receipts::ReceiptPage;
+use culprit_evidence::delivery::recovery::CommittedRange;
+use culprit_evidence::delivery::recovery::RecoveryRead;
 use std::{path::Path, sync::Arc};
 
 /// Native warehouse operations. Implementations own wire/query details; no lifecycle or receipt policy is delegated.
@@ -33,15 +33,15 @@ pub struct AnalyticalSink {
     recovery_id: String,
     store: Arc<dyn AnalyticalStore>,
     encoder: BatchEncoder,
-    indexes: Arc<ProjectionIndexes>,
+    indexes: Arc<ProjectionIndexWriter>,
     receipts: ReceiptReader,
     control: ControlPublisher,
 }
 impl AnalyticalSink {
     pub fn new(
         contract: Contract,
-        recovery: Arc<dyn RecoveryStore>,
-        indexes: Arc<ProjectionIndexes>,
+        recovery: Arc<dyn RecoveryRead>,
+        indexes: Arc<ProjectionIndexWriter>,
         store: Arc<dyn AnalyticalStore>,
         scratch: &Path,
     ) -> Result<Self> {
@@ -58,7 +58,7 @@ impl AnalyticalSink {
             contract,
             recovery_id,
             encoder: BatchEncoder::new(catalog.clone(), recovery, scratch)?,
-            receipts: ReceiptReader::new(store.clone(), catalog.clone(), indexes.clone()),
+            receipts: ReceiptReader::new(store.clone(), catalog.clone(), indexes.reader()),
             control: ControlPublisher::new(catalog, store.clone()),
             store,
             indexes,

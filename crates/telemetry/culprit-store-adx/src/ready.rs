@@ -1,8 +1,8 @@
 //! Fresh ready-prefix objects are created only from completely verified, committed native batches.
 use crate::ingestion::{IngestionBatch, IngestionTransport, Payload};
 use async_trait::async_trait;
-use culprit_collector::delivery::object_store::transport::*;
 use culprit_core::{Result, telemetry::DeliveryProblem};
+use culprit_evidence::delivery::object_store::transport::*;
 use sha2::{Digest, Sha256};
 use std::sync::Arc;
 use tokio::io::AsyncReadExt;

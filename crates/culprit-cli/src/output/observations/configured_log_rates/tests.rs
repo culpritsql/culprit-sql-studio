@@ -1,6 +1,6 @@
 use super::*;
-use culprit_collector::analytical::test_support::configured_log_rate_evidence_cases;
 use culprit_core::telemetry::*;
+use culprit_evidence::analytical::test_support::configured_log_rate_evidence_cases;
 
 fn report(case: usize) -> ConfiguredLogRateReport {
     let (source, rows) = configured_log_rate_evidence_cases().remove(case);

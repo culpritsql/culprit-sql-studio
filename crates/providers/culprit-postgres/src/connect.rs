@@ -16,7 +16,6 @@ use tokio_postgres::config::SslMode;
 use tokio_postgres::{AsyncMessage, Client};
 use tokio_postgres_rustls::MakeRustlsConnect;
 
-pub const DEFAULT_PORT: u16 = 5432;
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Timeouts applied to a session. Collectors read bigger catalogs than interactive calls.
@@ -87,7 +86,7 @@ impl Connector {
         if spec.host.trim().is_empty() {
             return Err(Error::invalid(t!("provider.postgres.connect.no_host")));
         }
-        let port = spec.port.unwrap_or(DEFAULT_PORT);
+        let port = culprit_core::Engine::Postgres.network_port(spec.port)?;
         let mut config = tokio_postgres::Config::new();
         config.host(spec.host.trim()).application_name("culprit").connect_timeout(CONNECT_TIMEOUT).keepalives(true);
         if let Some(database) = spec.database.as_deref().filter(|d| !d.is_empty()) {

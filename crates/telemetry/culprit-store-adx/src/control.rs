@@ -1,18 +1,25 @@
 //! Kusto completion staging and typed readback; deterministic completion content is store-independent.
+#[cfg(feature = "write")]
+use crate::ingestion::{IngestionBatch, IngestionTransport};
 use crate::{
     catalog::SchemaCatalog,
     client::{QueryRequest, QueryTransport},
-    ingestion::{IngestionBatch, IngestionTransport},
 };
-use culprit_collector::analytical::read_store::AnalyticalReadPage;
-use culprit_collector::delivery::{recovery::CommittedRange, sink::DeliveryAttempt};
+#[cfg(feature = "write")]
+use culprit_collector::delivery::sink::DeliveryAttempt;
 use culprit_core::{Result, telemetry::DeliveryProblem};
+use culprit_evidence::analytical::read_store::AnalyticalReadPage;
+use culprit_evidence::delivery::recovery::CommittedRange;
 use serde_json::json;
-use std::{collections::BTreeMap, sync::Arc};
+use std::collections::BTreeMap;
+#[cfg(feature = "write")]
+use std::sync::Arc;
+#[cfg(feature = "write")]
 pub struct AdxPublication {
     catalog: Arc<SchemaCatalog>,
     ingestion: Arc<dyn IngestionTransport>,
 }
+#[cfg(feature = "write")]
 impl AdxPublication {
     pub fn new(catalog: Arc<SchemaCatalog>, ingestion: Arc<dyn IngestionTransport>) -> Self {
         Self { catalog, ingestion }
@@ -61,5 +68,5 @@ pub(crate) async fn read_rows(
 fn invalid() -> culprit_core::Error {
     DeliveryProblem::Integrity.error()
 }
-#[cfg(test)]
+#[cfg(all(test, feature = "write"))]
 mod tests;

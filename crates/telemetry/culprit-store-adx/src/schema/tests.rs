@@ -144,7 +144,7 @@ fn runtime_projection_covers_the_native_contract_and_preserves_counts_units_and_
         first_execution_at: Some("2026-11-11T06:00:00Z".into()),
         last_execution_at: Some("2026-11-11T06:01:00Z".into()),
     };
-    let schema = Schema::from_logical(culprit_collector::analytical::schema::queries::runtime(&[]).unwrap()).unwrap();
+    let schema = Schema::from_logical(culprit_evidence::analytical::schema::queries::runtime(&[]).unwrap()).unwrap();
     let input = json!({"record":{"data":native}});
     let projected = schema.project(&input).unwrap();
     let wire: Value = serde_json::from_slice(&schema.encode(&projected).unwrap()).unwrap();
@@ -200,7 +200,7 @@ fn wait_totals_keep_exact_milliseconds_and_are_not_confused_with_average_waits()
         category_description: None,
         outcome_description: None,
     };
-    let schema = Schema::from_logical(culprit_collector::analytical::schema::queries::waits(&[]).unwrap()).unwrap();
+    let schema = Schema::from_logical(culprit_evidence::analytical::schema::queries::waits(&[]).unwrap()).unwrap();
     let projected = schema.project(&json!({"record":{"data":native}})).unwrap();
     let wire: Value = serde_json::from_slice(&schema.encode(&projected).unwrap()).unwrap();
     assert_eq!(wire["WaitCategory"], "7");
@@ -247,7 +247,7 @@ fn definitions_keep_native_provenance_and_payload_references_without_copying_lar
     };
     assert!(query.is_valid());
     let projected = wire(
-        &Schema::from_logical(culprit_collector::analytical::schema::definitions::queries(&[]).unwrap()).unwrap(),
+        &Schema::from_logical(culprit_evidence::analytical::schema::definitions::queries(&[]).unwrap()).unwrap(),
         &query,
     );
     assert_eq!(projected["StatementOrigin"], "culprit-monitoring");
@@ -273,7 +273,7 @@ fn definitions_keep_native_provenance_and_payload_references_without_copying_lar
         native_properties: [("compatibility_level".into(), "170".to_string())].into(),
     };
     let projected = wire(
-        &Schema::from_logical(culprit_collector::analytical::schema::definitions::plans(&[]).unwrap()).unwrap(),
+        &Schema::from_logical(culprit_evidence::analytical::schema::definitions::plans(&[]).unwrap()).unwrap(),
         plan,
     );
     assert_eq!(projected["PlanPayloadState"], "unavailable");
@@ -304,9 +304,9 @@ fn resource_metrics_preserve_scope_units_aggregation_and_unknown_values() {
     };
     let record = TelemetryRecord::ResourceSample(native);
     let mut input = json!({"record":record});
-    let (manifest, _) = culprit_collector::analytical::test_support::fixture();
-    culprit_collector::analytical::prepared::prepare(&mut input, &record, &manifest.source.target).unwrap();
-    let schema = Schema::from_logical(culprit_collector::analytical::schema::samples::resources(&[]).unwrap()).unwrap();
+    let (manifest, _) = culprit_evidence::analytical::test_support::fixture();
+    culprit_evidence::analytical::prepared::prepare(&mut input, &record, &manifest.source.target).unwrap();
+    let schema = Schema::from_logical(culprit_evidence::analytical::schema::samples::resources(&[]).unwrap()).unwrap();
     let projected: Value = serde_json::from_slice(&schema.encode(&schema.project(&input).unwrap()).unwrap()).unwrap();
     let metrics: Value = serde_json::from_str(projected["Metrics"].as_str().unwrap()).unwrap();
     assert_eq!(metrics[0]["scope"], "database");
@@ -319,10 +319,10 @@ fn resource_metrics_preserve_scope_units_aggregation_and_unknown_values() {
 
 #[test]
 fn pool_history_keeps_absent_replica_storage_units_and_broader_host_context_in_exact_readback() {
-    let (source, record) = culprit_collector::analytical::test_support::pool_history();
+    let (source, record) = culprit_evidence::analytical::test_support::pool_history();
     let mut input = json!({"record": record});
-    culprit_collector::analytical::prepared::prepare(&mut input, &record, &source.target).unwrap();
-    let schema = Schema::from_logical(culprit_collector::analytical::schema::samples::resources(&[]).unwrap()).unwrap();
+    culprit_evidence::analytical::prepared::prepare(&mut input, &record, &source.target).unwrap();
+    let schema = Schema::from_logical(culprit_evidence::analytical::schema::samples::resources(&[]).unwrap()).unwrap();
     let values = schema.project(&input).unwrap();
     let encoded: Value = serde_json::from_slice(&schema.encode(&values).unwrap()).unwrap();
     assert_eq!(encoded["HasReplicaId"], false);
@@ -367,7 +367,7 @@ fn wait_counter_projection_preserves_unknown_reset_and_exact_cumulative_totals()
     };
     assert!(native.is_valid());
     let projected = wire(
-        &Schema::from_logical(culprit_collector::analytical::schema::samples::wait_counters(&[]).unwrap()).unwrap(),
+        &Schema::from_logical(culprit_evidence::analytical::schema::samples::wait_counters(&[]).unwrap()).unwrap(),
         native,
     );
     assert_eq!(projected["ResetKind"], "unknown");
@@ -400,7 +400,7 @@ fn settings_keep_configured_active_and_absent_default_values_separate() {
     };
     assert!(native.is_valid());
     let projected = wire(
-        &Schema::from_logical(culprit_collector::analytical::schema::samples::settings(&[]).unwrap()).unwrap(),
+        &Schema::from_logical(culprit_evidence::analytical::schema::samples::settings(&[]).unwrap()).unwrap(),
         native,
     );
     assert_eq!(projected["ConfiguredValue"], "0");
@@ -413,11 +413,11 @@ fn settings_keep_configured_active_and_absent_default_values_separate() {
 
 #[tokio::test]
 async fn raw_tuning_plan_scopes_roundtrip_and_cannot_change_under_existing_receipts() {
-    use culprit_collector::{
+    use culprit_core::telemetry::{DeliveryProblem, ExportedRecord, TelemetryStream};
+    use culprit_evidence::{
         analytical::{envelope::Envelope, test_support},
         delivery::recovery::reopen,
     };
-    use culprit_core::telemetry::{DeliveryProblem, ExportedRecord, TelemetryStream};
     let catalog = crate::catalog::SchemaCatalog::new().unwrap();
     let schema = catalog.get(TelemetryStream::TuningObservations).unwrap();
     let (source, records) = test_support::tuning_scope_evidence();
@@ -450,3 +450,6 @@ async fn raw_tuning_plan_scopes_roundtrip_and_cannot_change_under_existing_recei
         );
     }
 }
+
+#[path = "tests/derived_diagnoses.rs"]
+mod derived_diagnoses;

@@ -1,10 +1,11 @@
 use super::*;
-use culprit_collector::analytical::test_support::{InstanceResourceCase, instance_resource_evidence};
 use culprit_engine::LocalCaptureAnalysisKind;
+use culprit_evidence::analytical::test_support::InstanceResourceCase;
+use culprit_evidence::analytical::test_support::instance_resource_evidence;
 
 #[tokio::test]
 async fn processor_cpu_original_reaches_compact_mcp_without_private_epoch_or_another_source() {
-    use culprit_collector::analytical::test_support::{ProcessCpuCase, instance_resource_cpu_evidence};
+    use culprit_evidence::analytical::test_support::{ProcessCpuCase, instance_resource_cpu_evidence};
     for case in ProcessCpuCase::ALL {
         let (source, rows) = instance_resource_cpu_evidence(case);
         let epoch = match &source.partition {
@@ -73,7 +74,7 @@ async fn exact_shared_instance_reports_reach_mcp_with_bounded_fields_original_cl
 #[tokio::test]
 async fn individual_scheduler_originals_reach_compact_mcp_with_native_null_units_and_bounded_rows_without_provider_work()
  {
-    use culprit_collector::analytical::test_support::{SchedulerCase, instance_resource_scheduler_evidence};
+    use culprit_evidence::analytical::test_support::{SchedulerCase, instance_resource_scheduler_evidence};
     for case in SchedulerCase::ALL {
         let (source, rows) = instance_resource_scheduler_evidence(case);
         let mut fixture = LocalCaptureFixture::snapshot(source, rows).await;
@@ -122,7 +123,7 @@ async fn individual_scheduler_originals_reach_compact_mcp_with_native_null_units
 
 #[tokio::test]
 async fn retained_scheduler_cpu_remainder_reaches_compact_mcp_from_original_inputs_without_provider_work() {
-    use culprit_collector::analytical::test_support::{ProcessCpuIntervalCase, process_cpu_interval_evidence};
+    use culprit_evidence::analytical::test_support::{ProcessCpuIntervalCase, process_cpu_interval_evidence};
     for case in ProcessCpuIntervalCase::ALL {
         let [(source, rows), _] = process_cpu_interval_evidence(case);
         let mut fixture = LocalCaptureFixture::snapshot(source, rows).await;

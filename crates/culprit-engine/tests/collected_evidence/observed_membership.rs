@@ -1,6 +1,6 @@
 use super::*;
-use culprit_collector::analytical::test_support::query_population_evidence;
 use culprit_core::{RuntimePopulationMembership, collected_analysis::CollectedQueryPopulation};
+use culprit_evidence::analytical::test_support::query_population_evidence;
 
 #[tokio::test]
 async fn physically_complete_archived_observed_groups_keep_exact_denominators_but_never_clean_absence() {

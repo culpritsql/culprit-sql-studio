@@ -1,9 +1,13 @@
 use super::*;
-use crate::{
-    analytical::test_support::investigation_fixture,
-    fleet::scheduler::{ADMISSION_START_WINDOW, FocusEnrollment, FocusedJob, Outcome, Scheduler, Work, WorkKey},
-};
+use crate::fleet::scheduler::ADMISSION_START_WINDOW;
+use crate::fleet::scheduler::FocusEnrollment;
+use crate::fleet::scheduler::FocusedJob;
+use crate::fleet::scheduler::Outcome;
+use crate::fleet::scheduler::Scheduler;
+use crate::fleet::scheduler::Work;
+use crate::fleet::scheduler::WorkKey;
 use chrono::{DateTime, TimeDelta, Utc};
+use culprit_evidence::analytical::test_support::investigation_fixture;
 use std::time::Duration;
 
 mod stages;
@@ -138,7 +142,7 @@ async fn canonical_intent_enrollment_is_atomic_and_an_exact_lost_acknowledgement
     let mut newer = original;
     newer.episode_revision = "2".into();
     newer.recipe_version += 1;
-    newer.qualification.recipe_version = newer.recipe_version;
+    newer.qualification.measured_mut().unwrap().recipe_version = newer.recipe_version;
     let mut stale = Scheduler::new(&fixture.inventory, "one").unwrap();
     stale.restore(before, Duration::ZERO, wall(0)).unwrap();
     let competing = enrollment(&mut stale, fixture.focused_job(&newer), 0);
@@ -333,7 +337,7 @@ async fn only_a_new_validated_intent_can_replace_a_never_started_cancellation() 
     let (journal, mut scheduler) = fixture.reopen(0).await;
     let mut replacement = intent;
     replacement.recipe_version += 1;
-    replacement.qualification.recipe_version = replacement.recipe_version;
+    replacement.qualification.measured_mut().unwrap().recipe_version = replacement.recipe_version;
     let replacement_job = enqueue(&fixture, &journal, &mut scheduler, &replacement).await;
     assert_ne!(replacement_job.key, job.key);
     assert_eq!(replacement_job.family, job.family, "recipe version does not reset its resource family");

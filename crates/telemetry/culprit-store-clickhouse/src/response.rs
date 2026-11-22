@@ -3,7 +3,7 @@ use culprit_core::{Result, telemetry::DeliveryProblem};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-pub use culprit_collector::analytical::read_store::MAX_READ_RESPONSE_BYTES as MAX_RESPONSE_BYTES;
+pub use culprit_evidence::analytical::read_store::MAX_READ_RESPONSE_BYTES as MAX_RESPONSE_BYTES;
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Column {

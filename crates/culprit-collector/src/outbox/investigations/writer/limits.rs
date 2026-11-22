@@ -1,5 +1,5 @@
 use super::*;
-use crate::analytical::test_support::request_memory_investigation_fixture;
+use culprit_evidence::analytical::test_support::request_memory_investigation_fixture;
 
 fn revisions() -> [DiagnosticRevision; 2] {
     let fixture = request_memory_investigation_fixture();

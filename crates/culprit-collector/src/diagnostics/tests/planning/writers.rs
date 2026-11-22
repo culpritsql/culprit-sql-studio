@@ -1,5 +1,7 @@
 use super::*;
-use crate::analytical::test_support::{PageWriterCase, investigation_fixture, page_writer_fixture};
+use culprit_evidence::analytical::test_support::PageWriterCase;
+use culprit_evidence::analytical::test_support::investigation_fixture;
+use culprit_evidence::analytical::test_support::page_writer_fixture;
 
 async fn mapped_input(kind: &str) -> (Harness, DiagnosticInput) {
     let fixture = page_writer_fixture(PageWriterCase::ReportedBlockingSession);
@@ -93,7 +95,7 @@ fn writer_recipe(input: &DiagnosticInput, measured: bool) -> RecipeDescriptor {
     let mut recipe = investigation_fixture().recipe;
     recipe.id = "fixture.page-writers".into();
     recipe.selector = RecipeSelector::FocusedPageWaitWriters;
-    let RecipeCostQualification::Measured(receipt) = &mut recipe.cost else { panic!() };
+    let RecipeAdmission::Measured(receipt) = &mut recipe.admission else { panic!() };
     receipt.recipe_id = recipe.id.clone();
     receipt.selector = recipe.selector;
     receipt.scope = input

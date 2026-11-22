@@ -1,5 +1,6 @@
 use super::*;
-use crate::analytical::test_support::{PageWriterCase, page_writer_fixture};
+use culprit_evidence::analytical::test_support::PageWriterCase;
+use culprit_evidence::analytical::test_support::page_writer_fixture;
 
 struct WriterArchive {
     root: tempfile::TempDir,

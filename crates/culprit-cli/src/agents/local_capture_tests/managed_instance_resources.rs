@@ -1,7 +1,8 @@
 use super::*;
-use culprit_collector::analytical::test_support::{ManagedInstanceResourceCase, managed_instance_resource_case};
 use culprit_core::telemetry::SourceShutdown;
 use culprit_engine::LocalCaptureAnalysisKind;
+use culprit_evidence::analytical::test_support::ManagedInstanceResourceCase;
+use culprit_evidence::analytical::test_support::managed_instance_resource_case;
 #[tokio::test]
 async fn actual_local_cli_history_analysis_reuses_original_source_without_native_factory_or_file_mutation() {
     for case in ManagedInstanceResourceCase::ALL {

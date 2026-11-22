@@ -1,5 +1,6 @@
 use super::*;
-use culprit_collector::analytical::test_support::{GroupReplicationCase, group_replication_evidence};
+use culprit_evidence::analytical::test_support::GroupReplicationCase;
+use culprit_evidence::analytical::test_support::group_replication_evidence;
 fn report(case: GroupReplicationCase) -> GroupReplicationReport {
     let (source, records) = group_replication_evidence(case);
     let rows = records

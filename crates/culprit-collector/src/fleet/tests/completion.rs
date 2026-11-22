@@ -1,8 +1,9 @@
 use super::*;
+use culprit_read::cancellation::CollectionCancellation;
 
 #[tokio::test]
 async fn a_complete_original_history_prefix_cannot_skip_its_unread_suffix() {
-    let (mut original, _) = crate::analytical::test_support::managed_instance_resource_evidence();
+    let (mut original, _) = culprit_evidence::analytical::test_support::managed_instance_resource_evidence();
     let CollectionTarget::Shared(resource) = &original.target else { panic!() };
     let mut inventory = inventory(ScheduledCollection::ResourceHistory { window_seconds: 60, overlap_seconds: 0 });
     inventory.targets[0].subject = CollectionSubject::Shared { resource: resource.clone() };
@@ -101,7 +102,7 @@ async fn custom_complete_without_reference_integrity_keeps_the_original_interval
         assert_eq!(refused.source, None);
         assert_eq!(journal.gaps(None, 10).await.unwrap().gaps.len(), 0);
         *backend.reference_coverage.lock().unwrap() =
-            crate::collection_references::ObservationReferences::default().coverage(true, None);
+            culprit_evidence::collection_references::ObservationReferences::default().coverage(true, None);
         let accepted = work::execute(
             &admitted(&backend),
             &journal,

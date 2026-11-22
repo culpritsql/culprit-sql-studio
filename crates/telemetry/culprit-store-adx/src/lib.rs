@@ -3,19 +3,24 @@ pub mod authentication;
 pub mod catalog;
 pub mod client;
 pub mod control;
+#[cfg(feature = "write")]
 pub mod deployment;
 pub mod evidence;
 mod http;
+#[cfg(feature = "write")]
 pub mod ingestion;
 pub mod projection;
+#[cfg(feature = "write")]
 pub mod queued;
+#[cfg(feature = "write")]
 pub mod ready;
 pub mod receipts;
 pub mod response;
 pub mod schema;
+#[cfg(feature = "write")]
 pub mod sink;
 
-#[cfg(test)]
+#[cfg(all(test, feature = "write"))]
 mod emulator;
 #[cfg(test)]
 mod test_support;
@@ -24,5 +29,5 @@ mod test_support;
 #[path = "../../../../tests/support/http.rs"]
 mod http_fixture;
 
-#[cfg(test)]
+#[cfg(all(test, feature = "write"))]
 mod encoding_tests;

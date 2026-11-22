@@ -6,9 +6,13 @@ use test_support::TempdbMetadataMemoryCase;
 async fn collected(case: TempdbMetadataMemoryCase) -> (Fixture, CollectionDescription, Vec<TelemetryRecord>) {
     let (source, records) = test_support::tempdb_metadata_memory_evidence(case);
     let catalog = Arc::new(SchemaCatalog::new().unwrap());
-    let recovery =
-        test_support::collected_resource_recovery("clickhouse:test", catalog.digest(), source.clone(), records.clone())
-            .await;
+    let recovery = culprit_collector::analytical::test_support::collected_resource_recovery(
+        "clickhouse:test",
+        catalog.digest(),
+        source.clone(),
+        records.clone(),
+    )
+    .await;
     (Fixture::from_recovery(catalog, Arc::new(recovery), &[TelemetryStream::OperationalSamples]).await, source, records)
 }
 

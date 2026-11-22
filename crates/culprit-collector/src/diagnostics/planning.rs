@@ -25,7 +25,9 @@ pub(super) fn qualify_questions(
     assignment: Option<&DiagnosticAssignment>,
     update: &mut DiagnosticUpdate,
 ) -> Result<()> {
-    let Some(assignment) = assignment else { return Ok(()) };
+    let Some(assignment) = assignment else {
+        return Ok(());
+    };
     if diagnostic_original_source_kind(&input.source).is_some() {
         return source_read::qualify(input, assignment, update);
     }
@@ -154,10 +156,12 @@ fn qualification_issue(
 }
 
 fn declared_issue(recipe: Option<&RecipeDescriptor>) -> DiagnosticAnalysisIssue {
-    match recipe.map(|recipe| &recipe.cost) {
-        Some(RecipeCostQualification::Unqualified) => DiagnosticAnalysisIssue::CostUnqualified,
+    match recipe.map(|recipe| &recipe.admission) {
+        Some(RecipeAdmission::Unqualified) => DiagnosticAnalysisIssue::CostUnqualified,
         // A source-issued receipt still needs independent artifact authentication and the selected authority.
-        Some(RecipeCostQualification::Measured(_)) => DiagnosticAnalysisIssue::EvidenceUnavailable,
+        Some(RecipeAdmission::Measured(_) | RecipeAdmission::BuiltinSafety(_)) => {
+            DiagnosticAnalysisIssue::EvidenceUnavailable
+        }
         None => DiagnosticAnalysisIssue::Unsupported,
     }
 }

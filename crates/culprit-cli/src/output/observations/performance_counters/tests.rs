@@ -1,14 +1,14 @@
 use super::*;
 use culprit_checks::performance_counters::PerformanceCounterEvidence;
-use culprit_collector::analytical::test_support::{
-    DatabasePerformanceCounterCase, PerformanceCounterCase, database_performance_counter_evidence,
-    performance_counter_evidence,
-};
 use culprit_core::telemetry::*;
+use culprit_evidence::analytical::test_support::DatabasePerformanceCounterCase;
+use culprit_evidence::analytical::test_support::PerformanceCounterCase;
+use culprit_evidence::analytical::test_support::database_performance_counter_evidence;
+use culprit_evidence::analytical::test_support::performance_counter_evidence;
 
 #[test]
 fn original_governor_output_keeps_native_ids_local_clock_and_partial_unknown_values_in_the_existing_bound() {
-    use culprit_collector::analytical::test_support::{
+    use culprit_evidence::analytical::test_support::{
         ResourceGovernorCounterCase as Case, resource_governor_counter_evidence,
     };
     for case in Case::ALL {
@@ -243,9 +243,9 @@ fn withdrawn_selected_population_has_explicit_scope_and_unknown_original_counts(
 }
 
 fn common_report(
-    case: culprit_collector::analytical::test_support::CommonPerformanceCounterCase,
+    case: culprit_evidence::analytical::test_support::CommonPerformanceCounterCase,
 ) -> PerformanceCounterReport {
-    let (source, records) = culprit_collector::analytical::test_support::common_performance_counter_evidence(case);
+    let (source, records) = culprit_evidence::analytical::test_support::common_performance_counter_evidence(case);
     let coverage = &source.observation.snapshot().unwrap().sources[0];
     let rows = records
         .iter()
@@ -259,7 +259,7 @@ fn common_report(
 
 #[test]
 fn common_counter_text_uses_the_canonical_fraction_and_keeps_partial_missing_and_unknown_inputs() {
-    use culprit_collector::analytical::test_support::CommonPerformanceCounterCase as Case;
+    use culprit_evidence::analytical::test_support::CommonPerformanceCounterCase as Case;
     for case in Case::ALL {
         let report = common_report(case);
         let original = serde_json::to_value(&report).unwrap();
@@ -287,7 +287,7 @@ fn common_counter_text_uses_the_canonical_fraction_and_keeps_partial_missing_and
 
 #[test]
 fn common_fraction_native_labels_use_the_existing_bounded_terminal_escape_without_changing_json() {
-    use culprit_collector::analytical::test_support::CommonPerformanceCounterCase as Case;
+    use culprit_evidence::analytical::test_support::CommonPerformanceCounterCase as Case;
     let mut report = common_report(Case::Observed);
     let fraction = report
         .ratios

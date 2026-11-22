@@ -1,7 +1,8 @@
 use super::fixture::Fixture;
-use culprit_collector::analytical::{evidence::EvidenceFamily, test_support::native_failure_evidence_cases};
 use culprit_core::{Snapshot, SourceOutcome, SourceState, telemetry::*};
 use culprit_engine::collected_resources;
+use culprit_evidence::analytical::evidence::EvidenceFamily;
+use culprit_evidence::analytical::test_support::native_failure_evidence_cases;
 
 fn snapshot(source: &CollectionDescription, records: &[TelemetryRecord]) -> Snapshot {
     let CollectionTarget::Shared(resource) = &source.target else { panic!() };

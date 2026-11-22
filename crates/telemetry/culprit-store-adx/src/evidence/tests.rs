@@ -1,3 +1,4 @@
+use culprit_evidence::analytical::indexes::ProjectionIndexWriter;
 mod columnstore;
 mod columnstore_rowgroups;
 mod full_text_populations;
@@ -5,11 +6,12 @@ mod table_full_text;
 mod table_memory;
 use super::*;
 use crate::test_support::{Blobs, Fault, Queries, Recovery, Reply, returned};
-use culprit_collector::{
-    analytical::{encoding::BatchEncoder, evidence::*, publication, test_support},
-    delivery::recovery::reopen,
-};
+use culprit_collector::analytical::encoding::BatchEncoder;
 use culprit_core::telemetry::*;
+use culprit_evidence::analytical::evidence::*;
+use culprit_evidence::analytical::publication;
+use culprit_evidence::analytical::test_support;
+use culprit_evidence::delivery::recovery::reopen;
 use serde_json::json;
 
 mod activity;
@@ -84,7 +86,7 @@ impl Fixture {
     }
     async fn from_recovery(catalog: Arc<SchemaCatalog>, recovery: Arc<Recovery>) -> Self {
         let range = reopen(recovery.as_ref(), &recovery.manifest.range_id).await.unwrap();
-        let indexes = Arc::new(ProjectionIndexes::new(Arc::new(Blobs::default())));
+        let indexes = Arc::new(ProjectionIndexWriter::new(Arc::new(Blobs::default())));
         let scratch = tempfile::tempdir().unwrap();
         let encoder = BatchEncoder::new(catalog.clone(), recovery.clone(), scratch.path()).unwrap();
         let mut rows = vec![];
@@ -102,7 +104,15 @@ impl Fixture {
         let input = serde_json::from_slice(&schema.encode(&values).unwrap()).unwrap();
         let publication = returned(schema, &input);
         *recovery.fault.lock().unwrap() = Fault::Stall;
-        Self { query: Arc::new(Queries::default()), catalog, recovery, range, indexes, rows, publication }
+        Self {
+            query: Arc::new(Queries::default()),
+            catalog,
+            recovery,
+            range,
+            indexes: indexes.reader(),
+            rows,
+            publication,
+        }
     }
     fn reader(&self) -> EvidenceReader {
         super::new(self.query.clone(), self.indexes.clone()).unwrap()
@@ -533,3 +543,9 @@ mod pool_settings;
 mod managed_instance_resources;
 
 mod pool_wait_counters;
+
+mod incident_discovery;
+
+mod derived_outputs;
+
+mod resource_discovery;

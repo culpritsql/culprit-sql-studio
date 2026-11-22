@@ -1,7 +1,7 @@
 //! Minimal bounded probe server. No database, destination, credential or filesystem calls on request paths.
 use super::CollectorHealth;
-use crate::capture::CollectionCancellation;
 use culprit_core::{Result, telemetry::DeliveryProblem};
+use culprit_read::cancellation::CollectionCancellation;
 use std::{net::SocketAddr, time::Duration};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},

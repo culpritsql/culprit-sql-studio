@@ -1,8 +1,7 @@
 //! Synthetic sealed native evidence exercises the actual local CAS writer, never a native cost qualification.
 use super::*;
-use crate::analytical::test_support::{
-    focused_request_memory_evidence_with_peers, request_memory_investigation_fixture,
-};
+use culprit_evidence::analytical::test_support::focused_request_memory_evidence_with_peers;
+use culprit_evidence::analytical::test_support::request_memory_investigation_fixture;
 
 struct MemoryInvestigation {
     _root: tempfile::TempDir,

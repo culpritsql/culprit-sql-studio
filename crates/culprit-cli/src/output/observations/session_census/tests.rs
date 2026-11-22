@@ -1,6 +1,7 @@
 use super::*;
-use culprit_collector::analytical::test_support::{SessionCensusCase, session_census_evidence};
 use culprit_core::telemetry::*;
+use culprit_evidence::analytical::test_support::SessionCensusCase;
+use culprit_evidence::analytical::test_support::session_census_evidence;
 
 fn report(case: SessionCensusCase) -> SessionCensusReport {
     let (source, rows) = session_census_evidence(case);
@@ -71,7 +72,7 @@ fn native_session_and_request_database_context_is_rendered_separately_with_unkno
     report.entries[0].fields.iter_mut().find(|field| field.key == "session_database_name").unwrap().value =
         Some(raw.clone());
     let text = session_census(&report);
-    let expected = super::super::statement::preview_bounded(&raw, MAX_FIELD_PREVIEW_CHARACTERS);
+    let expected = culprit_core::format::escaped_preview(&raw, MAX_FIELD_PREVIEW_CHARACTERS).text;
     assert!(text.contains(&t!(
         "view.counter_ratios.cli.metric",
         label = t!("view.session_census.field.session_database_name"),
@@ -120,7 +121,7 @@ fn group_labels_use_the_existing_bounded_escaped_native_text_renderer_and_printe
     field.value = Some(raw.clone());
     let label = field.label.clone();
     let text = session_census(&report);
-    let expected = super::super::statement::preview_bounded(&raw, MAX_FIELD_PREVIEW_CHARACTERS);
+    let expected = culprit_core::format::escaped_preview(&raw, MAX_FIELD_PREVIEW_CHARACTERS).text;
     assert!(text.contains(&t!("view.counter_ratios.cli.metric", label = label, value = &expected)));
     assert!(text.contains(&t!("view.session_census.groups.cli.presented", available = "1", printed = "1")));
     assert!(expected.ends_with('…'));

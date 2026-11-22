@@ -1,11 +1,12 @@
 //! A configured forcing episode is independent context, never proof that forcing was applied or caused work.
 use super::*;
 use crate::MssqlProvider;
-use culprit_collector::capture::{CollectionCancellation, SourceFactory};
+use culprit_collector::capture::SourceFactory;
 use culprit_core::{
     Environment, Provider, QueryStoreScope, ScenarioKind, SourceOutcome, SourceState,
     plan_compare::NativeRuntimeInputRelation,
 };
+use culprit_read::cancellation::CollectionCancellation;
 use serde_json::{Value, json};
 use std::time::Duration;
 
@@ -55,7 +56,7 @@ async fn capture_tuning(owner: &mut OwnedCaptures, factory: &Factory) -> Capture
     assert!(capture.manifest.source_queries <= 19);
     let recipe = crate::telemetry::recipes().into_iter().find(|recipe| recipe.id == "mssql.tuning").unwrap();
     assert_eq!(recipe.version, 2);
-    assert_eq!(recipe.cost, RecipeCostQualification::Unqualified);
+    assert_eq!(recipe.admission, RecipeAdmission::Unqualified);
     capture
 }
 

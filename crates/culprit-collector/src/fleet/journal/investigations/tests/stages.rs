@@ -31,9 +31,9 @@ fn paired_intents() -> (DiagnosticInvestigationIntent, DiagnosticInvestigationIn
     .unwrap();
     let episode = &update.checkpoint.episodes[0];
     let focus = update.focuses[0].1.clone();
-    let component = fixture.intent.qualification.component;
+    let component = fixture.intent.qualification.component().clone();
     let mut recipe = fixture.recipe;
-    let RecipeCostQualification::Measured(receipt) = &mut recipe.cost else { panic!() };
+    let RecipeAdmission::Measured(receipt) = &mut recipe.admission else { panic!() };
     receipt.scope = RecipeCostScope::Activity(episode.scope.clone());
     let database =
         DiagnosticInvestigationIntent::new(episode, &recipe, focus.clone(), &component, &CollectionBudget::default())
@@ -57,7 +57,7 @@ fn paired_intents() -> (DiagnosticInvestigationIntent, DiagnosticInvestigationIn
     let owner =
         DiagnosticEvidenceRef::from_export(&owner_source, &digest(b"owned-shared-baseline"), &owner_row, 0).unwrap();
     recipe.subjects = vec![RecipeSubject::Shared(member.kind)];
-    let RecipeCostQualification::Measured(receipt) = &mut recipe.cost else { panic!() };
+    let RecipeAdmission::Measured(receipt) = &mut recipe.admission else { panic!() };
     receipt.scope = RecipeCostScope::SharedResource {
         target: member,
         partition: owner_source.partition.clone(),
@@ -253,7 +253,7 @@ async fn cancelled_stage_replacement_reuses_its_slot_without_erasing_the_other_c
     assert_eq!(receipts(&fixture.connection()).unwrap().len(), MAX_FOCUSED_STAGES_PER_EPISODE);
     let mut replacement = intent.clone();
     replacement.recipe_version += 1;
-    replacement.qualification.recipe_version = replacement.recipe_version;
+    replacement.qualification.measured_mut().unwrap().recipe_version = replacement.recipe_version;
     enqueue(&fixture, &journal, &mut scheduler, &replacement).await;
     assert_eq!(journal.focused_receipt(&other.episode_stage_key).await.unwrap(), Some(other));
     assert!(matches!(

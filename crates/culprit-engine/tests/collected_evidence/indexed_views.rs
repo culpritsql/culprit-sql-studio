@@ -1,9 +1,9 @@
 use super::fixture::Fixture;
-use culprit_collector::analytical::{
-    evidence::EvidenceFamily,
-    test_support::{IndexedViewsCase, assert_table_metadata_capture, indexed_views_evidence},
-};
 use culprit_core::{SourceState, telemetry::*};
+use culprit_evidence::analytical::evidence::EvidenceFamily;
+use culprit_evidence::analytical::test_support::IndexedViewsCase;
+use culprit_evidence::analytical::test_support::assert_table_metadata_capture;
+use culprit_evidence::analytical::test_support::indexed_views_evidence;
 const FAMILY: &[EvidenceFamily] = &[EvidenceFamily::OperationalSamples];
 #[tokio::test]
 async fn indexed_views_reuse_original_index_catalog_rows_and_keep_table_population_separate() {

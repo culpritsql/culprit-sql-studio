@@ -8,6 +8,10 @@ use crate::model::Capability;
 pub(super) struct Mssql;
 
 impl EngineSpec for Mssql {
+    fn default_port(&self) -> Option<u16> {
+        Some(1433)
+    }
+
     fn performance_counters(&self) -> Option<&'static crate::telemetry::PerformanceCounterProfile> {
         Some(&performance_counters::PROFILE)
     }

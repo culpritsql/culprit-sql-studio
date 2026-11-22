@@ -4,9 +4,13 @@ use test_support::StorageCase;
 async fn collected(case: StorageCase) -> (Fixture, CollectionDescription, Vec<TelemetryRecord>) {
     let (source, rows) = test_support::storage_evidence(case);
     let catalog = Arc::new(SchemaCatalog::new().unwrap());
-    let recovery =
-        test_support::collected_resource_recovery("clickhouse:test", catalog.digest(), source.clone(), rows.clone())
-            .await;
+    let recovery = culprit_collector::analytical::test_support::collected_resource_recovery(
+        "clickhouse:test",
+        catalog.digest(),
+        source.clone(),
+        rows.clone(),
+    )
+    .await;
     (Fixture::from_recovery(catalog, Arc::new(recovery), &[TelemetryStream::OperationalSamples]).await, source, rows)
 }
 #[tokio::test]

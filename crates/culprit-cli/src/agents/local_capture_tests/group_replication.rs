@@ -1,6 +1,7 @@
 use super::*;
-use culprit_collector::analytical::test_support::{GroupReplicationCase, group_replication_evidence};
 use culprit_engine::LocalCaptureAnalysisKind;
+use culprit_evidence::analytical::test_support::GroupReplicationCase;
+use culprit_evidence::analytical::test_support::group_replication_evidence;
 #[tokio::test]
 async fn actual_local_mcp_group_replication_route_keeps_native_values_and_authenticated_references_without_original_proof_exposure()
  {

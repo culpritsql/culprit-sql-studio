@@ -1,5 +1,6 @@
 use super::*;
-use culprit_collector::analytical::test_support::{GaleraCase, galera_evidence};
+use culprit_evidence::analytical::test_support::GaleraCase;
+use culprit_evidence::analytical::test_support::galera_evidence;
 fn report(case: GaleraCase) -> GaleraReport {
     let (source, records) = galera_evidence(case);
     let rows = records

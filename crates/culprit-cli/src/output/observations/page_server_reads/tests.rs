@@ -112,7 +112,7 @@ fn empty_unavailable_statistics_remain_qualified_without_counterfeit_numeric_obs
 
 #[test]
 fn original_archive_fragment_renders_its_native_ids_without_definition_or_sql_lookup() {
-    let case = culprit_collector::analytical::test_support::page_server_read_evidence_cases()
+    let case = culprit_evidence::analytical::test_support::page_server_read_evidence_cases()
         .into_iter()
         .find(|case| case.name == "native_fragment")
         .unwrap();

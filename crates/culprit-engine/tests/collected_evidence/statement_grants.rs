@@ -1,14 +1,14 @@
 use super::*;
-use culprit_collector::analytical::{
-    evidence::{EvidenceFamily, RecoveryPayloadBudget},
-    test_support::{self, StatementGrantCase},
-};
 use culprit_core::{SourceState, collected_resource_analysis::CollectedStatementGrantAnalysis};
 use culprit_engine::collected_resources;
+use culprit_evidence::analytical::evidence::EvidenceFamily;
+use culprit_evidence::analytical::evidence::RecoveryPayloadBudget;
+use culprit_evidence::analytical::test_support;
+use culprit_evidence::analytical::test_support::StatementGrantCase;
 
 const FAMILY: &[EvidenceFamily] = &[EvidenceFamily::OperationalSamples];
 
-fn original_wrapper(capture: &culprit_collector::analytical::evidence::EvidenceCapture) -> StatementGrantSnapshot {
+fn original_wrapper(capture: &culprit_evidence::analytical::evidence::EvidenceCapture) -> StatementGrantSnapshot {
     StatementGrantSnapshot {
         capture: capture.capture().clone(),
         description: capture.source().clone(),

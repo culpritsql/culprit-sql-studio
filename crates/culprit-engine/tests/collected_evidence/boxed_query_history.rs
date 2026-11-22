@@ -1,10 +1,9 @@
 use super::fixture::Fixture;
-use culprit_collector::analytical::{
-    evidence::EvidenceFamily,
-    test_support::{assert_query_cohort_capture, boxed_query_history_evidence},
-};
 use culprit_core::telemetry::*;
 use culprit_engine::collected_resources;
+use culprit_evidence::analytical::evidence::EvidenceFamily;
+use culprit_evidence::analytical::test_support::assert_query_cohort_capture;
+use culprit_evidence::analytical::test_support::boxed_query_history_evidence;
 #[tokio::test]
 async fn boxed_history_sdk_keeps_query_global_data_local_acquisition_and_original_definition_binding() {
     let (source, records) = boxed_query_history_evidence();

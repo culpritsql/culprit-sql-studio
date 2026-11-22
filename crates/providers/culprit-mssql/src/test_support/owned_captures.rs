@@ -1,12 +1,12 @@
 //! One fixture-owned outbox retains the actual original parents through selected native followups. Collection,
 //! source cancellation, publication and lease commit use the production collector; there is no second reader.
 use crate::conn::Pool;
-use culprit_collector::{
-    capture::{CollectionCancellation, SourceFactory, collect},
-    outbox::Outbox,
-};
+use culprit_collector::capture::SourceFactory;
+use culprit_collector::capture::collect;
+use culprit_collector::outbox::Outbox;
 use culprit_core::{Result, telemetry::*};
 use culprit_read::admission::SourceGate;
+use culprit_read::cancellation::CollectionCancellation;
 use std::{
     io::Read,
     path::{Path, PathBuf},

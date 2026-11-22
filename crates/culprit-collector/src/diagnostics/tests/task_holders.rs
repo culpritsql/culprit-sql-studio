@@ -1,11 +1,13 @@
 use super::*;
-use crate::analytical::test_support::{PageTaskHolderCase, PageTaskHolderFixture, page_task_holder_fixture};
-use crate::delivery::{
-    contract::Contract,
-    diagnostic_recovery::{load_diagnostic_checkpoint, load_diagnostic_input},
-    file_store::FileRecoveryStore,
-    recovery::RecoveryStore,
-};
+use crate::delivery::diagnostic_recovery::load_diagnostic_checkpoint;
+use crate::delivery::diagnostic_recovery::load_diagnostic_input;
+use crate::delivery::file_store::FileRecoveryStore;
+use culprit_evidence::analytical::test_support::PageTaskHolderCase;
+use culprit_evidence::analytical::test_support::PageTaskHolderFixture;
+use culprit_evidence::analytical::test_support::page_task_holder_fixture;
+use culprit_evidence::delivery::contract::Contract;
+use culprit_evidence::delivery::recovery::RecoveryRead;
+use culprit_read::cancellation::CollectionCancellation;
 
 struct Scenario {
     harness: Harness,
@@ -134,7 +136,7 @@ async fn declaration_only_holder_recipe_defers_the_exact_question_without_native
         selector: RecipeSelector::FocusedPageTaskHolders,
         subjects: vec![RecipeSubject::Database],
         budget: CollectionBudget::default(),
-        cost: RecipeCostQualification::Unqualified,
+        admission: RecipeAdmission::Unqualified,
     };
     scenario.harness.policies =
         DiagnosticPolicies::for_activity("fixture", CollectionSubject::Database, ActivityPolicy::default())

@@ -3,15 +3,20 @@ use super::super::{
     RouteBindings,
     planning::{PreparedInvestigation, prepare},
 };
-use crate::{
-    analytical::test_support::investigation_fixture,
-    capture::{CollectionAdmissionWindow, CollectionCancellation, SourceFactory, collect},
-    delivery::recovery::Fence,
-    diagnostics::{DiagnosticPolicies, drain_pending},
-    fleet::{FleetBackend, FleetCaptureOutcome, FleetJournal, FleetSourceAdmission},
-    outbox::Outbox,
-};
+use crate::capture::CollectionAdmissionWindow;
+use crate::capture::SourceFactory;
+use crate::capture::collect;
+use crate::diagnostics::DiagnosticPolicies;
+use crate::diagnostics::drain_pending;
+use crate::fleet::FleetBackend;
+use crate::fleet::FleetCaptureOutcome;
+use crate::fleet::FleetJournal;
+use crate::fleet::FleetSourceAdmission;
+use crate::outbox::Outbox;
 use culprit_core::{ComponentVersion, Engine, MeasurementScope, Result, telemetry::*};
+use culprit_evidence::analytical::test_support::investigation_fixture;
+use culprit_evidence::delivery::mutations::Fence;
+use culprit_read::cancellation::CollectionCancellation;
 use culprit_read::{FrozenObservation, FrozenSource, ObservationReader, admission::SourceGate};
 use std::sync::{
     Arc,
@@ -109,6 +114,8 @@ pub(in crate::fleet::investigations) struct Backend {
     pub(in crate::fleet::investigations) component: ComponentVersion,
     pub(in crate::fleet::investigations) revision: String,
     pub(in crate::fleet::investigations) verified: AtomicUsize,
+    pub(in crate::fleet::investigations) builtin_verified: AtomicUsize,
+    pub(in crate::fleet::investigations) followup_budget: Option<CollectionBudget>,
     pub(in crate::fleet::investigations) components: AtomicUsize,
     pub(in crate::fleet::investigations) accept: bool,
     pub(in crate::fleet::investigations) fail: bool,
@@ -140,6 +147,26 @@ impl FleetBackend for Backend {
             return Err(error.clone());
         }
         Ok(Some(if self.changed.load(Ordering::SeqCst) { digest(b"changed-route") } else { self.revision.clone() }))
+    }
+    fn investigation_budget(
+        &self,
+        _: &str,
+        _: &CollectionSubject,
+        _: TelemetryCollection,
+    ) -> Result<Option<CollectionBudget>> {
+        Ok(self.followup_budget.clone())
+    }
+    fn verify_builtin_safety(&self, _: &str, policy: &BuiltinRecipeSafety) -> Result<bool> {
+        self.builtin_verified.fetch_add(1, Ordering::SeqCst);
+        if let Some(cancellation) = &self.cancel {
+            cancellation.cancel();
+        }
+        if self.fail {
+            return Err(DeliveryProblem::Integrity.error());
+        }
+        Ok(self.accept
+            && policy.matches_recipe(&self.recipe)
+            && matches!(&self.recipe.admission, RecipeAdmission::BuiltinSafety(selected) if selected.as_ref() == policy))
     }
     fn qualification_component(&self, _: &str) -> Result<Option<ComponentVersion>> {
         self.components.fetch_add(1, Ordering::SeqCst);
@@ -474,7 +501,7 @@ impl Harness {
         let policies = DiagnosticPolicies::from_inventory(&inventory, "one").unwrap();
         drain_pending(&mut outbox, &policies, &CollectionCancellation::default(), None).await.unwrap();
         let mut recipe = fixture.recipe;
-        let RecipeCostQualification::Measured(receipt) = &mut recipe.cost else { panic!() };
+        let RecipeAdmission::Measured(receipt) = &mut recipe.admission else { panic!() };
         receipt.evidence = cost;
         receipt.scope = RecipeCostScope::Activity(DiagnosticScope::from_source(&source).unwrap());
         if let Some(shared) = &shared {
@@ -496,7 +523,7 @@ impl Harness {
             let mut database_recipe = recipe.clone();
             database_recipe.id = "fixture.database-page-wait-focus".into();
             database_recipe.subjects = vec![RecipeSubject::Database];
-            let RecipeCostQualification::Measured(receipt) = &mut database_recipe.cost else { panic!() };
+            let RecipeAdmission::Measured(receipt) = &mut database_recipe.admission else { panic!() };
             receipt.recipe_id = database_recipe.id.clone();
             receipt.scope = RecipeCostScope::Activity(DiagnosticScope::from_source(&source).unwrap());
             receipt.evidence = database_cost;
@@ -517,9 +544,11 @@ impl Harness {
             backend: Backend {
                 recipe,
                 additional_recipes,
-                component: fixture.intent.qualification.component,
+                component: fixture.intent.qualification.component().clone(),
                 revision,
                 verified: AtomicUsize::new(0),
+                builtin_verified: AtomicUsize::new(0),
+                followup_budget: None,
                 components: AtomicUsize::new(0),
                 accept: true,
                 fail: false,

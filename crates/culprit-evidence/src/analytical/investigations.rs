@@ -1,0 +1,132 @@
+//! Public control provenance retains recovery pointers without duplicating private questions or source authority.
+use super::{projection::ScalarType, schema::Field};
+use culprit_core::{Result, telemetry::*};
+use serde::Serialize;
+use serde_json::{Value, json};
+
+pub(super) const CONTEXT_FIELD: Field =
+    Field::optional("InvestigationContext", "/_culprit/investigation", ScalarType::JsonContainer);
+
+#[derive(Serialize)]
+struct DiagnosticContext<'a> {
+    controller_version: u32,
+    parent: &'a DiagnosticCaptureRef,
+    step_id: &'a str,
+    analyzed_at: &'a str,
+    records: u32,
+    checkpoint_records: u32,
+    scope_keys: Vec<&'a str>,
+}
+
+pub(super) fn diagnostic_context(value: &DiagnosticCaptureDescription) -> Result<Value> {
+    serde_json::to_value(DiagnosticContext {
+        controller_version: value.controller_version,
+        parent: &value.parent,
+        step_id: &value.step_id,
+        analyzed_at: &value.analyzed_at,
+        records: value.records,
+        checkpoint_records: value.checkpoint_records,
+        scope_keys: value.scope_bindings.keys().map(String::as_str).collect(),
+    })
+    .map_err(|_| DeliveryProblem::Integrity.error())
+}
+
+#[derive(Serialize)]
+struct PublicLineage<'a> {
+    intent_key: &'a str,
+    episode_id: &'a str,
+    episode_revision: &'a str,
+    recipe_id: &'a str,
+    recipe_version: u32,
+    budget: &'a CollectionBudget,
+    component: &'a culprit_core::ComponentVersion,
+    admission: PublicAdmission<'a>,
+    execution: PublicExecution<'a>,
+}
+
+#[derive(Serialize)]
+#[serde(tag = "kind", rename_all = "kebab-case")]
+enum PublicAdmission<'a> {
+    Measured { qualification_key: String, cost_evidence: &'a DiagnosticEvidenceRef },
+    BuiltinSafety { policy: &'a BuiltinRecipeSafety, original_scope_key: String },
+}
+
+#[derive(Serialize)]
+#[serde(tag = "kind", rename_all = "kebab-case")]
+enum PublicExecution<'a> {
+    Database,
+    Shared { owner: &'a DiagnosticEvidenceRef },
+    NativeRead { execution_key: String },
+}
+
+pub(super) fn lineage(value: &DiagnosticInvestigationLineage) -> Result<Value> {
+    serde_json::to_value(PublicLineage {
+        intent_key: &value.intent_key,
+        episode_id: &value.episode_id,
+        episode_revision: &value.episode_revision,
+        recipe_id: &value.recipe_id,
+        recipe_version: value.recipe_version,
+        budget: &value.budget,
+        component: value.qualification.component(),
+        admission: match &value.qualification {
+            RecipeExecutionAdmission::Measured { receipt } => {
+                PublicAdmission::Measured { qualification_key: receipt.key()?, cost_evidence: &receipt.evidence }
+            }
+            RecipeExecutionAdmission::BuiltinSafety { policy, scope, .. } => {
+                PublicAdmission::BuiltinSafety { policy, original_scope_key: scope.key()? }
+            }
+        },
+        execution: match &value.execution {
+            DiagnosticExecutionBinding::Database => PublicExecution::Database,
+            DiagnosticExecutionBinding::Shared { owner } => PublicExecution::Shared { owner },
+            DiagnosticExecutionBinding::NativeRead { execution } => {
+                PublicExecution::NativeRead { execution_key: execution.key()? }
+            }
+        },
+    })
+    .map_err(|_| DeliveryProblem::Integrity.error())
+}
+
+pub(super) fn event(value: &DiagnosticInvestigationEvent) -> Result<Value> {
+    let provenance = DiagnosticInvestigationLineage::from_intent(&value.intent)?;
+    Ok(json!({
+        "key": value.key()?,
+        "lineage": lineage(&provenance)?,
+        "attempt": value.attempt,
+        "source_work": value.source_work,
+        "outcome": value.outcome,
+    }))
+}
+
+#[derive(Serialize)]
+struct PublicSourceReadStage<'a> {
+    question: SourceReadQuestion,
+    focus_key: String,
+    state: &'static str,
+    result: Option<&'a DiagnosticCaptureRef>,
+    /// Consistency only. Public keys cannot recreate original scope, cost authority or an answer.
+    content_sha256: String,
+}
+
+pub(super) fn source_stage(stage: &SourceReadStage) -> Result<Value> {
+    if !stage.is_valid() {
+        return Err(DeliveryProblem::Integrity.error());
+    }
+    let body = serde_json::to_vec(stage).map_err(|_| DeliveryProblem::Integrity.error())?;
+    serde_json::to_value(PublicSourceReadStage {
+        question: stage.focus.question,
+        focus_key: stage.focus.key()?,
+        state: match &stage.state {
+            SourceReadStageState::Pending => "pending",
+            SourceReadStageState::Deferred { .. } => "deferred",
+            SourceReadStageState::Collecting => "collecting",
+            SourceReadStageState::Captured { .. } => "captured",
+            SourceReadStageState::Answered { .. } => "answered",
+            SourceReadStageState::Recovered => "recovered",
+            SourceReadStageState::Stopped { .. } => "stopped",
+        },
+        result: stage.result(),
+        content_sha256: digest(&body),
+    })
+    .map_err(|_| DeliveryProblem::Integrity.error())
+}

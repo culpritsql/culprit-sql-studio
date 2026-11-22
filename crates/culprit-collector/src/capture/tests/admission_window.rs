@@ -1,4 +1,5 @@
 use super::*;
+use culprit_read::cancellation::CollectionCancellation;
 use std::sync::{
     Mutex,
     atomic::{AtomicBool, AtomicU32, Ordering},

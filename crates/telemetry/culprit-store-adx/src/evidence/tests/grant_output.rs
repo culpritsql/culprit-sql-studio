@@ -3,7 +3,13 @@ use std::sync::atomic::Ordering;
 
 async fn collected(source: CollectionDescription, records: Vec<TelemetryRecord>, family: EvidenceFamily) -> Fixture {
     let catalog = Arc::new(SchemaCatalog::new().unwrap());
-    let recovery = test_support::collected_resource_recovery("adx:test", catalog.digest(), source, records).await;
+    let recovery = culprit_collector::analytical::test_support::collected_resource_recovery(
+        "adx:test",
+        catalog.digest(),
+        source,
+        records,
+    )
+    .await;
     assert!(recovery.manifest.batches.iter().all(|batch| batch.stream == family.stream()));
     Fixture::from_recovery(catalog, Arc::new(recovery)).await
 }

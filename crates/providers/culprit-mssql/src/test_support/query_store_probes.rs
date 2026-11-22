@@ -7,8 +7,8 @@ use crate::{
     read::measurement::shutdown_state,
     read::{NativeRead, Parameter, ReadError, ReadResult, ReadSession, invalid_data},
 };
-use culprit_collector::capture::CollectionCancellation;
 use culprit_core::{Result, telemetry::*};
+use culprit_read::cancellation::CollectionCancellation;
 use futures_util::FutureExt;
 use serde_json::json;
 use std::{collections::BTreeMap, panic::AssertUnwindSafe, path::Path, sync::Arc};

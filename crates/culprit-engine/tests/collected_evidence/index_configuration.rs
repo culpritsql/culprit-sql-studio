@@ -1,9 +1,9 @@
 use super::fixture::Fixture;
-use culprit_collector::analytical::{
-    evidence::EvidenceFamily,
-    test_support::{IndexConfigurationCase, assert_table_metadata_capture, index_configuration_evidence},
-};
 use culprit_core::{SourceState, telemetry::*};
+use culprit_evidence::analytical::evidence::EvidenceFamily;
+use culprit_evidence::analytical::test_support::IndexConfigurationCase;
+use culprit_evidence::analytical::test_support::assert_table_metadata_capture;
+use culprit_evidence::analytical::test_support::index_configuration_evidence;
 const FAMILY: &[EvidenceFamily] = &[EvidenceFamily::OperationalSamples];
 
 #[tokio::test]

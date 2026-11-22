@@ -1,9 +1,10 @@
 //! Cold verification reloads the exact paired original captures, never a current baseline or native reader.
 use super::*;
+use culprit_evidence::delivery::recovery::RecoveryRead;
 
 pub(super) async fn authenticate_episode(
-    store: &dyn RecoveryStore,
-    contract: &crate::delivery::contract::Contract,
+    store: &dyn RecoveryRead,
+    contract: &culprit_evidence::delivery::contract::Contract,
     episode: &DiagnosticEpisode,
 ) -> Result<()> {
     let DiagnosticSignal::PageTaskWait { parent, page, .. } = &episode.signal else { return Err(invalid()) };
@@ -26,8 +27,8 @@ pub(super) async fn authenticate_episode(
 }
 
 pub(super) async fn authenticate_focus(
-    store: &dyn RecoveryStore,
-    contract: &crate::delivery::contract::Contract,
+    store: &dyn RecoveryRead,
+    contract: &culprit_evidence::delivery::contract::Contract,
     focus: &PageTaskHolderFocus,
 ) -> Result<()> {
     let (original, source, point) = originals(store, contract, &focus.participant.parent, &focus.page).await?;
@@ -41,8 +42,8 @@ pub(super) async fn authenticate_focus(
 }
 
 async fn originals(
-    store: &dyn RecoveryStore,
-    contract: &crate::delivery::contract::Contract,
+    store: &dyn RecoveryRead,
+    contract: &culprit_evidence::delivery::contract::Contract,
     parent: &DiagnosticEvidenceRef,
     page: &DiagnosticEvidenceRef,
 ) -> Result<(RecoveredDiagnosticInput, CollectionDescription, PageWaitObservation)> {

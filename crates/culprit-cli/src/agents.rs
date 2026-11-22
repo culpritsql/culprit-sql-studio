@@ -12,6 +12,8 @@ use serde_json::json;
 use crate::output::{Format, Out};
 
 #[cfg(test)]
+mod incident_tests;
+#[cfg(test)]
 mod local_capture_tests;
 
 #[derive(Args)]
@@ -21,6 +23,8 @@ pub struct McpArgs {
     pub connections: Vec<String>,
     #[arg(long, value_name = "DIRECTORY", help=culprit_core::t!("mcp.local_capture.outbox"))]
     pub evidence_outbox: Option<PathBuf>,
+    #[arg(long, value_name = "FILE", help=culprit_core::t!("mcp.incident.warehouse_config"))]
+    pub warehouse_evidence: Option<PathBuf>,
 }
 
 #[derive(Args)]
@@ -115,6 +119,11 @@ impl From<AgentArg> for AgentAccess {
 
 /// Serve MCP on stdin/stdout. Diagnostics go to stderr only; stdout belongs to the protocol.
 pub async fn mcp(ws: Workspace, args: McpArgs) -> Result<u8> {
+    culprit_mcp::serve_stdio(mcp_server(ws, args)?).await?;
+    Ok(0)
+}
+
+pub(crate) fn mcp_server(ws: Workspace, args: McpArgs) -> Result<culprit_mcp::CulpritMcp> {
     for name in &args.connections {
         ws.connection(name)?;
     }
@@ -127,8 +136,12 @@ pub async fn mcp(ws: Workspace, args: McpArgs) -> Result<u8> {
         )?;
         server = server.with_local_captures(Arc::new(reader));
     }
-    culprit_mcp::serve_stdio(server).await?;
-    Ok(0)
+    if let Some(path) = args.warehouse_evidence {
+        let config = culprit_engine::evidence::EvidenceConfig::from_file(&path)?;
+        let reader = culprit_engine::evidence::EvidenceRuntime::default().evidence(&config)?;
+        server = server.with_incident_reader(Arc::new(reader));
+    }
+    Ok(server)
 }
 
 pub fn set(ws: &Workspace, args: SetArgs, out: &Out) -> Result<u8> {

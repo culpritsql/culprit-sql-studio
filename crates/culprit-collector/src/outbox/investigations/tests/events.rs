@@ -432,9 +432,9 @@ fn allocation_only_attempts_still_require_the_exact_native_focus_and_admitted_bu
 #[test]
 fn captured_events_reject_numerically_equal_foreign_admission_before_allocating_history() {
     let mut harness = Harness::new();
-    harness.intent.qualification.read_metrics.templates[0].client_elapsed_ms = 0.0;
+    harness.intent.qualification.measured_mut().unwrap().read_metrics.templates[0].client_elapsed_ms = 0.0;
     let mut event = harness.captured();
-    event.intent.qualification.read_metrics.templates[0].client_elapsed_ms = -0.0;
+    event.intent.qualification.measured_mut().unwrap().read_metrics.templates[0].client_elapsed_ms = -0.0;
     assert_eq!(event.intent.as_ref(), &harness.intent);
     assert_ne!(event.intent.key().unwrap(), harness.intent.key().unwrap());
     let before = harness.episode();

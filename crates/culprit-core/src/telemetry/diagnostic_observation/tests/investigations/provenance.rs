@@ -153,19 +153,22 @@ fn event_relation_requires_the_original_native_focus_scope_and_monotonic_episode
             "future-revision" => other.intent.episode_revision = "4".into(),
             "epoch" => {
                 other.intent.focus.activity_participant_mut().unwrap().epoch = "another-generation".into();
-                activity_scope(&mut other.intent.qualification).native_epoch =
+                activity_scope(other.intent.qualification.measured_mut().unwrap()).native_epoch =
                     Some(other.intent.focus.activity_participant().unwrap().epoch.clone());
             }
             "source" => {
                 other.intent.focus.activity_participant_mut().unwrap().source = "other-native-source".into();
-                activity_scope(&mut other.intent.qualification).source =
+                activity_scope(other.intent.qualification.measured_mut().unwrap()).source =
                     other.intent.focus.activity_participant().unwrap().source.clone();
             }
             "population" => {
-                activity_scope(&mut other.intent.qualification).population =
+                activity_scope(other.intent.qualification.measured_mut().unwrap()).population =
                     DiagnosticPopulation::Activity { population: ActivityPopulation::ClientBackends }
             }
-            "scope" => activity_scope(&mut other.intent.qualification).measurement_scope = MeasurementScope::Server,
+            "scope" => {
+                activity_scope(other.intent.qualification.measured_mut().unwrap()).measurement_scope =
+                    MeasurementScope::Server
+            }
             "statement" => {
                 other.intent.focus.activity_participant_mut().unwrap().statement_identity =
                     NativeIdentity::new("different-statement");
@@ -324,17 +327,22 @@ fn recovered_lifecycle_and_first_native_recovery_proof_survive_owner_events() {
 fn provenance_keys_preserve_exact_native_accounting_and_reject_existing_bounds_or_revision_overflow() {
     let scenario = scenario();
     let mut positive = event(&scenario);
-    positive.intent.qualification.read_metrics.templates[0].client_elapsed_ms = 0.0;
+    positive.intent.qualification.measured_mut().unwrap().read_metrics.templates[0].client_elapsed_ms = 0.0;
     let mut negative = positive.clone();
-    negative.intent.qualification.read_metrics.templates[0].client_elapsed_ms = -0.0;
+    negative.intent.qualification.measured_mut().unwrap().read_metrics.templates[0].client_elapsed_ms = -0.0;
     assert_eq!(positive, negative, "numeric equality alone is not immutable provenance identity");
     assert_ne!(positive.key().unwrap(), negative.key().unwrap());
     for changed in ["native-component", "caller-query-cap", "accounting", "episode-counter"] {
         let mut invalid = positive.clone();
         match changed {
-            "native-component" => invalid.intent.qualification.component.revision = Some("x".repeat(513)),
+            "native-component" => {
+                invalid.intent.qualification.measured_mut().unwrap().component.revision = Some("x".repeat(513))
+            }
             "caller-query-cap" => invalid.intent.budget.max_queries = CollectionBudget::upper_limits().max_queries + 1,
-            "accounting" => invalid.intent.qualification.read_metrics.templates[0].client_elapsed_ms = f64::INFINITY,
+            "accounting" => {
+                invalid.intent.qualification.measured_mut().unwrap().read_metrics.templates[0].client_elapsed_ms =
+                    f64::INFINITY
+            }
             _ => invalid.intent.episode_revision = "18446744073709551616".into(),
         }
         assert!(invalid.key().is_err(), "{changed}");

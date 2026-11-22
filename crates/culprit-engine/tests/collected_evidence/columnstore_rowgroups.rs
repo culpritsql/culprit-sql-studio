@@ -1,9 +1,9 @@
 use super::fixture::Fixture;
-use culprit_collector::analytical::{
-    evidence::EvidenceFamily,
-    test_support::{ColumnstoreRowgroupCase, assert_operational_capture, columnstore_rowgroup_evidence},
-};
 use culprit_core::telemetry::*;
+use culprit_evidence::analytical::evidence::EvidenceFamily;
+use culprit_evidence::analytical::test_support::ColumnstoreRowgroupCase;
+use culprit_evidence::analytical::test_support::assert_operational_capture;
+use culprit_evidence::analytical::test_support::columnstore_rowgroup_evidence;
 #[tokio::test]
 async fn selected_rowgroups_replay_original_owner_exact_quantities_and_one_canonical_explanation() {
     for case in ColumnstoreRowgroupCase::ALL {

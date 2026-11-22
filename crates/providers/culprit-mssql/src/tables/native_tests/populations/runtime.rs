@@ -132,7 +132,7 @@ fn require_positive(report: &FullTextPopulationReport, records: &[&TelemetryReco
 #[cfg(test)]
 mod tests {
     use super::*;
-    use culprit_collector::analytical::test_support::{FullTextPopulationCase, full_text_population_evidence};
+    use culprit_evidence::analytical::test_support::{FullTextPopulationCase, full_text_population_evidence};
 
     #[test]
     fn runtime_positive_needs_actual_full_population_rows_and_qualified_native_status() {

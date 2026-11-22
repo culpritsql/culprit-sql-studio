@@ -4,11 +4,13 @@ use crate::{
     LocalCaptureAnalysisKind, LocalCaptureReader, LocalCaptureRequest, LocalCapturedAnalysis, LocalSnapshotAnalysis,
     OutboxCaptureReader,
 };
-use culprit_collector::{
-    analytical::test_support::{CdcCase, ChangeFeedCase, LocalCaptureFixture, cdc_evidence, change_feed_evidence},
-    outbox::CompletedCaptureBudget,
-};
+use culprit_collector::analytical::test_support::LocalCaptureFixture;
+use culprit_collector::outbox::CompletedCaptureBudget;
 use culprit_core::{SourceState, limits::OperationGuard, telemetry::*};
+use culprit_evidence::analytical::test_support::CdcCase;
+use culprit_evidence::analytical::test_support::ChangeFeedCase;
+use culprit_evidence::analytical::test_support::cdc_evidence;
+use culprit_evidence::analytical::test_support::change_feed_evidence;
 async fn original(family: MssqlChangeCaptureFamily) -> LocalSnapshotAnalysis {
     let (source, rows) = match family {
         MssqlChangeCaptureFamily::Cdc => cdc_evidence(CdcCase::ErrorAndProgress),

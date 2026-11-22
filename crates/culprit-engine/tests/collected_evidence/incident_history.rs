@@ -1,9 +1,8 @@
 use super::*;
-use culprit_collector::analytical::{
-    evidence::EvidenceFamily,
-    test_support::{IncidentHistoryCase, incident_history_evidence},
-};
 use culprit_core::{IncidentHistoryProvenance, SourceState};
+use culprit_evidence::analytical::evidence::EvidenceFamily;
+use culprit_evidence::analytical::test_support::IncidentHistoryCase;
+use culprit_evidence::analytical::test_support::incident_history_evidence;
 #[tokio::test]
 async fn canonical_sdk_replays_selected_ongoing_uncertain_resolved_and_prefix_revisions_without_source_work() {
     for case in IncidentHistoryCase::ALL {
@@ -15,7 +14,7 @@ async fn canonical_sdk_replays_selected_ongoing_uncertain_resolved_and_prefix_re
         let original = if needs_original {
             assert!(public.records().is_empty());
             assert!(public.gaps().iter().all(|gap| gap.reason
-                == culprit_collector::analytical::evidence::EvidenceGapReason::NativeRepresentationRequired));
+                == culprit_evidence::analytical::evidence::EvidenceGapReason::NativeRepresentationRequired));
             fixture.read_families_with_recovery(&[EvidenceFamily::OperationalSamples], Default::default()).await
         } else {
             public
@@ -44,12 +43,12 @@ async fn missing_historical_rows_stay_partial_and_cannot_recover_current_control
 
 #[tokio::test]
 async fn an_authenticated_original_attempt_retains_its_recipe_outcome_and_native_settlement_as_history_only() {
-    let (source, rows) = culprit_collector::analytical::test_support::shared_investigation_evidence();
+    let (source, rows) = culprit_evidence::analytical::test_support::shared_investigation_evidence();
     let fixture = Fixture::new(source, rows).await;
     let original = fixture
         .read_families_with_recovery(
             &[EvidenceFamily::OperationalSamples],
-            culprit_collector::analytical::evidence::RecoveryPayloadBudget::default(),
+            culprit_evidence::analytical::evidence::RecoveryPayloadBudget::default(),
         )
         .await;
     let analysis = culprit_engine::collected_resources::incident_history(&original).unwrap();
@@ -67,7 +66,7 @@ async fn an_authenticated_original_attempt_retains_its_recipe_outcome_and_native
 
 #[tokio::test]
 async fn shared_targets_and_distinct_native_epochs_keep_original_scope_without_database_relabeling() {
-    for (source, rows) in culprit_collector::analytical::test_support::diagnostic_evidence_cases() {
+    for (source, rows) in culprit_evidence::analytical::test_support::diagnostic_evidence_cases() {
         let fixture = Fixture::new(source.clone(), rows).await;
         let original = fixture.read_families(&[EvidenceFamily::OperationalSamples]).await;
         let analysis = culprit_engine::collected_resources::incident_history(&original).unwrap();
@@ -87,7 +86,7 @@ async fn shared_targets_and_distinct_native_epochs_keep_original_scope_without_d
 #[tokio::test]
 async fn automatic_query_compilation_answer_replays_original_incarnations_gaps_and_partiality_without_native_rebinding()
 {
-    use culprit_collector::analytical::test_support::{
+    use culprit_evidence::analytical::test_support::{
         QueryCompilationFollowupCase, assert_query_compilation_followup_capture, query_compilation_followup_evidence,
     };
     for case in QueryCompilationFollowupCase::ALL {
@@ -96,7 +95,7 @@ async fn automatic_query_compilation_answer_replays_original_incarnations_gaps_a
         let capture = fixture
             .read_families_with_recovery(
                 &[EvidenceFamily::OperationalSamples],
-                culprit_collector::analytical::evidence::RecoveryPayloadBudget::default(),
+                culprit_evidence::analytical::evidence::RecoveryPayloadBudget::default(),
             )
             .await;
         assert_query_compilation_followup_capture(&capture, &source, &records, *case);

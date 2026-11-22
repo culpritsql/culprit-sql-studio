@@ -1,3 +1,5 @@
+pub mod derived_diagnosis;
+pub use derived_diagnosis::*;
 pub mod actual;
 pub mod advice;
 mod backup_history_report;
@@ -309,3 +311,11 @@ pub use index_configuration_report::{
 
 mod indexed_views_report;
 pub use indexed_views_report::{IndexedViewIndexEntry, IndexedViewsReport};
+
+mod published_resources;
+pub use published_resources::*;
+mod incident_read;
+pub use incident_read::*;
+
+mod diagnostic_ancestry;
+pub use diagnostic_ancestry::*;

@@ -1,12 +1,14 @@
 //! Prepare bounded questions from retained native evidence. This module never opens a source or grants admission.
 use super::{RouteBindings, evidence::resolve_optional_evidence, routes::RouteBinding};
-use crate::{
-    capture::CollectionCancellation,
-    delivery::recovery::RecoveryStore,
-    fleet::{FleetBackend, FleetJournal, journal::FocusedStage, scheduler::FocusedJob},
-    outbox::{DiagnosticInput, Outbox},
-};
+use crate::delivery::recovery::RecoveryStore;
+use crate::fleet::FleetBackend;
+use crate::fleet::FleetJournal;
+use crate::fleet::journal::FocusedStage;
+use crate::fleet::scheduler::FocusedJob;
+use crate::outbox::DiagnosticInput;
+use crate::outbox::Outbox;
 use culprit_core::{ComponentVersion, ErrorCode, Result, telemetry::*};
+use culprit_read::cancellation::CollectionCancellation;
 use std::{
     collections::{BTreeMap, BTreeSet},
     time::Duration,
@@ -150,7 +152,7 @@ async fn bounded(
                     }) else {
                         continue;
                     };
-                    if binding.budget(target).is_none() {
+                    if binding.budget(backend, target)?.is_none() {
                         continue;
                     }
                     if !selected_resources.insert(binding.source.target.telemetry_id()?) {
@@ -209,7 +211,9 @@ async fn bounded(
                     else {
                         continue;
                     };
-                    let Some(route) = routes.get(route_key).and_then(Option::as_ref) else { continue };
+                    let Some(route) = routes.get(route_key).and_then(Option::as_ref) else {
+                        continue;
+                    };
                     if let Some(candidate) = evidence.question(outbox, target, route, episode, binding, *focus).await?
                         && seen.insert(candidate.intent.episode_stage_key()?)
                     {
@@ -248,7 +252,9 @@ fn possible_questions(episode: &DiagnosticEpisode) -> Vec<RecipeSelector> {
             vec![RecipeSelector::CurrentRequestWork, RecipeSelector::PageWaitTasks]
         }
         DiagnosticSignal::RequestMemory { .. } => vec![RecipeSelector::FocusedRequestMemory],
-        DiagnosticSignal::CompilationAdmission { .. } => vec![RecipeSelector::FocusedCompilationAdmission],
+        DiagnosticSignal::CompilationAdmission { .. } => {
+            vec![RecipeSelector::FocusedCompilationAdmission]
+        }
         DiagnosticSignal::PageWait { .. } if matches!(episode.report, Some(DiagnosticReport::PageWait { .. })) => {
             vec![RecipeSelector::FocusedPageWaitWriters, RecipeSelector::FocusedPageWait]
         }
@@ -266,7 +272,9 @@ fn select_route(
     if metadata(backend.route_revision(&target.connection))?.flatten().as_deref() != Some(revision) {
         return Ok(None);
     }
-    let Some(recipes) = metadata(backend.telemetry_recipes(&target.connection))? else { return Ok(None) };
+    let Some(recipes) = metadata(backend.telemetry_recipes(&target.connection))? else {
+        return Ok(None);
+    };
     if !recipe_catalog_is_valid(&recipes) {
         return Err(CollectionStop::InvalidPage.error());
     }
@@ -279,14 +287,14 @@ fn select_route(
         recipe.purpose == RecipePurpose::Investigation
             && recipe.selector == selector
             && recipe.subjects.iter().any(|subject| subject.accepts(&target.subject))
-            && matches!(recipe.cost, RecipeCostQualification::Measured(_))
+            && !matches!(recipe.admission, RecipeAdmission::Unqualified)
     }) else {
         return Ok(None);
     };
     let Some(component) = metadata(backend.qualification_component(&target.connection))?.flatten() else {
         return Ok(None);
     };
-    if !qualification_component_is_valid(&component) {
+    if !recipe.admission.matches_component(&component) {
         return Ok(None);
     }
     Ok(Some(SelectedRoute { recipe, component, revision: revision.into() }))
@@ -302,7 +310,7 @@ impl EvidencePlanner<'_> {
         binding: &RouteBinding,
         focus: DiagnosticFocus,
     ) -> Result<Option<PreparedInvestigation>> {
-        let Some(budget) = binding.budget(target) else {
+        let Some(budget) = binding.budget(self.backend, target)? else {
             return Ok(None);
         };
         let proposed = if let DiagnosticFocus::SourceRead { focus } = focus {
@@ -314,7 +322,7 @@ impl EvidencePlanner<'_> {
                 *focus,
                 execution.clone(),
                 &route.component,
-                budget,
+                &budget,
             )
         } else if let Some(owner) = &binding.shared_owner {
             let Some((owner_source, owner_row)) =
@@ -330,16 +338,16 @@ impl EvidencePlanner<'_> {
                 &route.recipe,
                 focus,
                 &route.component,
-                budget,
+                &budget,
                 DiagnosticSharedOwner { source: &owner_source, row: &owner_row, reference: owner },
             )
         } else {
-            DiagnosticInvestigationIntent::new(episode, &route.recipe, focus, &route.component, budget)
+            DiagnosticInvestigationIntent::new(episode, &route.recipe, focus, &route.component, &budget)
         };
         let Ok(intent) = proposed else {
             return Ok(None);
         };
-        if !binding.matches_scope(&intent.qualification.scope) {
+        if !binding.matches_scope(intent.qualification.scope()) {
             return Ok(None);
         }
         match self.journal.focused_stage(&intent.episode_stage_key()?).await? {
@@ -350,20 +358,20 @@ impl EvidencePlanner<'_> {
         if self.cancellation.is_cancelled() {
             return Ok(None);
         }
-        let Some((cost_source, cost_row)) = resolve_optional_evidence(
-            outbox,
-            &target.connection,
-            &intent.qualification.evidence,
-            self.recovery,
-            self.cancellation,
-        )
-        .await?
-        else {
-            return Ok(None);
-        };
+        let authority = metadata(
+            super::evidence::verify_execution_admission(
+                self.backend,
+                outbox,
+                &target.connection,
+                &intent.qualification,
+                self.recovery,
+                self.cancellation,
+            )
+            .await,
+        )?
+        .is_some_and(|status| status == super::evidence::ExecutionAdmissionStatus::Verified);
         if self.cancellation.is_cancelled()
-            || !metadata(self.backend.verify_cost(&target.connection, &intent.qualification, &cost_source, &cost_row))?
-                .unwrap_or(false)
+            || !authority
             || metadata(self.backend.route_revision(&target.connection))?.flatten().as_deref()
                 != Some(route.revision.as_str())
         {

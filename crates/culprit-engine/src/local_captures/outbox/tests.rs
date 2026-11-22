@@ -8,8 +8,9 @@ mod table_full_text;
 mod table_memory;
 mod tempdb_metadata_memory;
 use super::*;
-use culprit_collector::analytical::test_support::{LocalCaptureFixture, page_server_read_evidence_cases};
+use culprit_collector::analytical::test_support::LocalCaptureFixture;
 use culprit_core::{ErrorDetail, limits::OperationGuard, query_store_statement_report::QueryStoreStatementBinding};
+use culprit_evidence::analytical::test_support::page_server_read_evidence_cases;
 mod snapshots;
 
 async fn read(reader: &OutboxCaptureReader, id: &str) -> Result<LocalPageServerReads> {

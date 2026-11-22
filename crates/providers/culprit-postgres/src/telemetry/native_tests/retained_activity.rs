@@ -1,7 +1,7 @@
 //! One actual sealed Activity acquisition supplies an original receipt shared by focused native tests.
 use super::owned_fixture;
-use culprit_collector::capture::CollectionCancellation;
 use culprit_core::{ConnectionSpec, telemetry::*};
+use culprit_read::cancellation::CollectionCancellation;
 
 pub(super) struct Original {
     pub focus: ActivityRequestFocus,

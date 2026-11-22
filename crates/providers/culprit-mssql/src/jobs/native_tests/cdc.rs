@@ -10,8 +10,8 @@ use crate::{
     },
     value::Rec,
 };
-use culprit_collector::capture::CollectionCancellation;
 use culprit_core::{Result, telemetry::*};
+use culprit_read::cancellation::CollectionCancellation;
 use futures_util::FutureExt;
 use serde_json::{Value, json};
 use std::{panic::AssertUnwindSafe, time::Duration};
@@ -298,7 +298,7 @@ impl Fixture {
                 .into_iter()
                 .find(|recipe| recipe.id == "mssql.cdc")
                 .expect("production CDC recipe");
-            assert_eq!(recipe.cost, RecipeCostQualification::Unqualified);
+            assert_eq!(recipe.admission, RecipeAdmission::Unqualified);
             assert!(captured.manifest.source_queries <= recipe.budget.max_queries);
             assert!(captured.source()?.partition.is_qualified());
             assert_eq!(captured.source()?.target.database().unwrap().incarnation, None);

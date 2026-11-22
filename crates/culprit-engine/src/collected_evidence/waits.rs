@@ -1,11 +1,11 @@
 //! Native wait meaning comes only from the selected authenticated capture. Sparse waits are lower bounds.
 use super::{groups, limit};
-use culprit_collector::analytical::evidence::{EvidenceCapture, EvidenceFamily};
 use culprit_core::{
     QueryStat, QueryWaitCoverage, WaitStat,
     collected_analysis::{CollectedAnalysisLimit, CollectedAnalysisLimitation},
     telemetry::*,
 };
+use culprit_evidence::original_projection::OriginalProjection;
 use std::collections::BTreeMap;
 
 pub(super) type NativeWait<'a> = (&'a ExportedRecord, &'a WaitMeasurement);
@@ -17,7 +17,7 @@ pub(super) struct Projection<'a> {
 }
 impl<'a> Projection<'a> {
     pub fn new(
-        capture: &'a EvidenceCapture,
+        capture: &'a dyn OriginalProjection,
         joins_complete: bool,
         limitations: &mut Vec<CollectedAnalysisLimitation>,
     ) -> Self {
@@ -44,7 +44,7 @@ impl<'a> Projection<'a> {
             }
         };
         // A selected, published empty batch is complete; an unselected or missing family is not an empty measure.
-        let family_complete = capture.families().contains(&EvidenceFamily::QueryWaits)
+        let family_complete = capture.selected_streams().any(|stream| stream == TelemetryStream::QueryWaits)
             && !capture.gaps().iter().any(|gap| gap.stream.is_none_or(|stream| stream == TelemetryStream::QueryWaits));
         if !family_complete {
             limitations.push(limit(None, CollectedAnalysisLimit::WaitFamilyIncomplete));

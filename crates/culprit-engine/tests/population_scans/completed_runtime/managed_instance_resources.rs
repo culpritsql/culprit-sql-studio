@@ -1,5 +1,6 @@
 use super::*;
-use culprit_collector::analytical::test_support::{ManagedInstanceResourceCase, managed_instance_resource_case};
+use culprit_evidence::analytical::test_support::ManagedInstanceResourceCase;
+use culprit_evidence::analytical::test_support::managed_instance_resource_case;
 #[tokio::test]
 async fn selected_original_mi_history_settles_once_and_survives_source_free_saved_report_reanalysis() {
     for case in ManagedInstanceResourceCase::ALL {

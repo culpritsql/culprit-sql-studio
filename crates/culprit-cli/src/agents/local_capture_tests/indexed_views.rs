@@ -1,5 +1,6 @@
 use super::*;
-use culprit_collector::analytical::test_support::{IndexedViewsCase, indexed_views_evidence};
+use culprit_evidence::analytical::test_support::IndexedViewsCase;
+use culprit_evidence::analytical::test_support::indexed_views_evidence;
 #[tokio::test]
 async fn original_indexed_view_action_preserves_scope_and_never_constructs_a_native_provider() {
     for case in IndexedViewsCase::ALL {

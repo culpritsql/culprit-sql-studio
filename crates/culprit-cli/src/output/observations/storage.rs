@@ -30,7 +30,7 @@ pub(crate) fn storage(report: &StorageReport) -> String {
                     let value = field
                         .value
                         .as_deref()
-                        .map(|value| super::statement::preview_bounded(value, 1024))
+                        .map(|value| culprit_core::format::escaped_preview(value, 1024).text)
                         .unwrap_or_else(|| t!("ui.memory_failures.not_reported"));
                     text.push_str(&t!("view.counter_ratios.cli.metric", label = &field.label, value = value));
                 }

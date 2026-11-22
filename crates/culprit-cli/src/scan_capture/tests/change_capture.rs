@@ -1,7 +1,10 @@
 //! Actual CLI intake -> sealed local original -> normal scan -> source-free saved replay for both families.
 use super::*;
-use culprit_collector::analytical::test_support::{CdcCase, ChangeFeedCase, cdc_evidence, change_feed_evidence};
 use culprit_core::telemetry::MssqlChangeCaptureFamily;
+use culprit_evidence::analytical::test_support::CdcCase;
+use culprit_evidence::analytical::test_support::ChangeFeedCase;
+use culprit_evidence::analytical::test_support::cdc_evidence;
+use culprit_evidence::analytical::test_support::change_feed_evidence;
 #[test]
 fn each_native_history_requires_one_explicit_original_and_an_outbox_without_enabling_acquisition() {
     for flag in ["--cdc-capture", "--change-feed-capture"] {

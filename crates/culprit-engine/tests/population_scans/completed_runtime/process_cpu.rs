@@ -1,5 +1,6 @@
 use super::*;
-use culprit_collector::analytical::test_support::{ProcessCpuIntervalCase, process_cpu_interval_evidence};
+use culprit_evidence::analytical::test_support::ProcessCpuIntervalCase;
+use culprit_evidence::analytical::test_support::process_cpu_interval_evidence;
 
 #[tokio::test]
 async fn two_explicit_cpu_originals_share_one_scan_owner_and_survive_offline_report_recovery() {

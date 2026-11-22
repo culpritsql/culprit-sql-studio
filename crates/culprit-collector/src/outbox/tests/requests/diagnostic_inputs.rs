@@ -1,11 +1,12 @@
 use super::*;
-use crate::delivery::{
-    contract::Contract,
-    diagnostic_recovery::{capture_reference, load_diagnostic_input},
-    file_store::{FileOwnership, FileRecoveryStore},
-    recovery::{CommittedRange, RecoveryStore, stage_and_commit},
-};
+use crate::delivery::diagnostic_recovery::load_diagnostic_input;
+use crate::delivery::file_store::FileOwnership;
+use crate::delivery::file_store::FileRecoveryStore;
+use crate::delivery::recovery::stage_and_commit;
 use crate::outbox::investigations::{RestoredInput, retirement};
+use culprit_evidence::delivery::contract::Contract;
+use culprit_evidence::delivery::heads::capture_reference;
+use culprit_evidence::delivery::recovery::CommittedRange;
 
 struct ArchivedFocus {
     root: tempfile::TempDir,

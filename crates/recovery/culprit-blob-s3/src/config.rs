@@ -1,5 +1,5 @@
-use culprit_collector::delivery::object_store::transport::valid_object_key as object_key;
 use culprit_core::{Result, telemetry::DeliveryProblem};
+use culprit_evidence::delivery::object_store::transport::valid_object_key as object_key;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Serialize, Deserialize)]

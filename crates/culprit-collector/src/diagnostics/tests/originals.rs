@@ -1,5 +1,9 @@
 use super::*;
-use crate::analytical::test_support::{DiagnosticOriginalCase as Case, diagnostic_original_evidence};
+use culprit_evidence::analytical::test_support::DiagnosticOriginalCase as Case;
+use culprit_evidence::analytical::test_support::diagnostic_original_evidence;
+use culprit_evidence::delivery::contract::Contract;
+use culprit_evidence::delivery::recovery::RecoveryRead;
+use culprit_read::cancellation::CollectionCancellation;
 
 fn observe(
     source: &CollectionDescription,
@@ -364,7 +368,7 @@ fn a_source_group_cannot_omit_an_original_fragment_or_borrow_changed_native_valu
 #[tokio::test]
 async fn original_source_reports_and_the_complete_cleanup_negative_use_the_existing_archive_authentication_and_recovery_owner()
  {
-    use crate::delivery::{contract::Contract, file_store::FileRecoveryStore, recovery::RecoveryStore};
+    use crate::delivery::{file_store::FileRecoveryStore, recovery::RecoveryStore};
     for case in [Case::Memory, Case::Cleanup] {
         let archive = tempfile::tempdir().unwrap();
         let contract = Contract::new(
@@ -504,7 +508,7 @@ fn a_shared_process_reset_or_changed_retained_slot_never_establishes_event_conti
 
 #[tokio::test]
 async fn unresolved_history_stays_canonically_retained_without_invalid_local_or_archived_incident_work() {
-    use crate::delivery::{contract::Contract, file_store::FileRecoveryStore, recovery::RecoveryStore};
+    use crate::delivery::{file_store::FileRecoveryStore, recovery::RecoveryStore};
     let (source, records) = diagnostic_original_evidence(Case::HistoryUnresolved);
     let archive = tempfile::tempdir().unwrap();
     let contract = Contract::new(
@@ -522,7 +526,7 @@ async fn unresolved_history_stays_canonically_retained_without_invalid_local_or_
     assert_eq!(harness.work(1).await, 0, "no unrepresentable original is pinned as diagnostic debt");
     let committed =
         super::recovery::archive_capture(&harness.outbox, &store, owner.fence(), &contract, &identity).await;
-    let original = crate::delivery::recovery::reopen(&store, &committed.manifest().range_id).await.unwrap();
+    let original = culprit_evidence::delivery::recovery::reopen(&store, &committed.manifest().range_id).await.unwrap();
     assert!(original.manifest().reference_coverage.integrity_complete);
     assert!(!original.manifest().reference_coverage.complete);
     assert!(store.pending_diagnostic_inputs(None, 10).await.unwrap().ranges.is_empty());
@@ -546,7 +550,7 @@ async fn unresolved_history_stays_canonically_retained_without_invalid_local_or_
 #[test]
 fn complete_original_definition_identity_accepts_unavailable_sql_but_rejects_missing_or_tampered_coverage() {
     let (source, rows) = diagnostic_original_evidence(Case::HistoryException);
-    let mut references = crate::collection_references::ObservationReferences::default();
+    let mut references = culprit_evidence::collection_references::ObservationReferences::default();
     for row in &rows {
         references.record(row);
     }
@@ -556,7 +560,7 @@ fn complete_original_definition_identity_accepts_unavailable_sql_but_rejects_mis
         if matches!(plan.plan, DefinitionPayload::Unavailable { .. }))));
     assert!(crate::outbox::diagnostic_manifest_eligible(&source, None, &complete).unwrap());
     let (unresolved, rows) = diagnostic_original_evidence(Case::HistoryUnresolved);
-    let mut references = crate::collection_references::ObservationReferences::default();
+    let mut references = culprit_evidence::collection_references::ObservationReferences::default();
     for row in &rows {
         references.record(row);
     }

@@ -140,6 +140,15 @@ pub trait Provider: Send + Sync {
         Err(Error::new(ErrorCode::Unsupported, crate::t!("collection.unsupported")))
     }
 
+    /// Only a selected trusted registration may supply this source-owned safety policy. This is not measured cost.
+    fn telemetry_source_for_safety(
+        &self,
+        _request: &crate::telemetry::CollectionRequest,
+        _profile: &crate::telemetry::SourceProfileAdmission,
+    ) -> Result<Box<dyn crate::telemetry::TelemetrySource>> {
+        Err(Error::new(ErrorCode::Unsupported, crate::t!("collection.unsupported")))
+    }
+
     /// Discover bounded native closed intervals for scheduling. Keep native boundaries, identity and reset evidence;
     /// an unavailable history source is an error. Owned native work must settle before returning a successful page.
     async fn telemetry_intervals(

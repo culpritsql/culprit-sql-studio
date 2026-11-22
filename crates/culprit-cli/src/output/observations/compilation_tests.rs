@@ -1,7 +1,8 @@
 use super::*;
 use culprit_checks::compilation::{CompilationEvidence, QueryStoreDefinitionEvidence, QueryStoreDefinitionRecord};
-use culprit_collector::analytical::test_support::{Recovery, compilation_definition_evidence_cases};
 use culprit_core::telemetry::*;
+use culprit_evidence::analytical::test_support::Recovery;
+use culprit_evidence::analytical::test_support::compilation_definition_evidence_cases;
 
 fn report_for(name: &str, missing_definition: bool) -> CompilationReport {
     let case = compilation_definition_evidence_cases().into_iter().find(|case| case.name == name).unwrap();

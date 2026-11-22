@@ -16,7 +16,7 @@ fn recipe(id: &str) -> RecipeDescriptor {
         selector: RecipeSelector::Collection(TelemetryCollection::Activity),
         subjects: vec![RecipeSubject::Database],
         budget: CollectionBudget::default(),
-        cost: RecipeCostQualification::Unqualified,
+        admission: RecipeAdmission::Unqualified,
     }
 }
 fn registration(calls: Arc<AtomicUsize>, recipes: Vec<RecipeDescriptor>) -> Result<ProviderRegistration> {

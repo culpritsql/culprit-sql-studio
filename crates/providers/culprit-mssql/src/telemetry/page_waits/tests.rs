@@ -439,7 +439,7 @@ async fn paired_task_population_echoes_the_original_capture_in_the_same_reader_w
     let recipe =
         crate::telemetry_recipes().into_iter().find(|recipe| recipe.selector == RecipeSelector::PageWaitTasks).unwrap();
     assert_eq!(recipe.purpose, RecipePurpose::Investigation);
-    assert_eq!(recipe.cost, RecipeCostQualification::Unqualified);
+    assert_eq!(recipe.admission, RecipeAdmission::Unqualified);
     assert_eq!(recipe.subjects, [RecipeSubject::Database]);
 }
 

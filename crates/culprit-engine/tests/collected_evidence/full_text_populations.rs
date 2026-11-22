@@ -1,9 +1,9 @@
 use super::fixture::Fixture;
-use culprit_collector::analytical::{
-    evidence::EvidenceFamily,
-    test_support::{FullTextPopulationCase, assert_operational_capture, full_text_population_evidence},
-};
 use culprit_core::telemetry::*;
+use culprit_evidence::analytical::evidence::EvidenceFamily;
+use culprit_evidence::analytical::test_support::FullTextPopulationCase;
+use culprit_evidence::analytical::test_support::assert_operational_capture;
+use culprit_evidence::analytical::test_support::full_text_population_evidence;
 
 #[tokio::test]
 async fn selected_runtime_populations_replay_the_same_original_rows_and_gaps_without_recovery_or_current_metadata() {

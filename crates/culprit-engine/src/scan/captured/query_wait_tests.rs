@@ -2,11 +2,10 @@ use super::*;
 use crate::{
     LocalCaptureAnalysisKind, LocalCaptureReader, LocalCaptureRequest, LocalCapturedAnalysis, OutboxCaptureReader,
 };
-use culprit_collector::{
-    analytical::test_support::{LocalCaptureFixture, query_wait_fragment_evidence},
-    outbox::CompletedCaptureBudget,
-};
+use culprit_collector::analytical::test_support::LocalCaptureFixture;
+use culprit_collector::outbox::CompletedCaptureBudget;
 use culprit_core::{SourceState, limits::OperationGuard, telemetry::*};
+use culprit_evidence::analytical::test_support::query_wait_fragment_evidence;
 async fn original() -> Box<CapturedQueryHistoryRead> {
     let (source, rows) = query_wait_fragment_evidence();
     let fixture = LocalCaptureFixture::query_history(source, rows).await;
@@ -79,7 +78,7 @@ async fn conflicting_selected_originals_refuse_and_sharing_withdraws_native_hist
 }
 
 async fn runtime_original() -> Box<CapturedQueryHistoryRead> {
-    let (source, rows) = culprit_collector::analytical::test_support::query_runtime_fragment_evidence(true);
+    let (source, rows) = culprit_evidence::analytical::test_support::query_runtime_fragment_evidence(true);
     let fixture = LocalCaptureFixture::query_history(source, rows).await;
     let reader =
         OutboxCaptureReader::delivery(fixture.outbox.as_ref().unwrap().delivery(), CompletedCaptureBudget::default())

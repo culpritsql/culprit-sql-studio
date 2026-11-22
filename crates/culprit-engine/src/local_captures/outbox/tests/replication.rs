@@ -1,5 +1,6 @@
 use super::*;
-use culprit_collector::analytical::test_support::{ReplicationCase, replication_evidence};
+use culprit_evidence::analytical::test_support::ReplicationCase;
+use culprit_evidence::analytical::test_support::replication_evidence;
 async fn analyze(reader: &OutboxCaptureReader, connection: &str, id: &str) -> Result<Box<LocalReplication>> {
     let operation = OperationGuard::new(reader.timeout()).unwrap();
     let result = reader

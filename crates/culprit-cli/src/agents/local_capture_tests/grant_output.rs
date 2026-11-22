@@ -1,6 +1,7 @@
 use super::*;
-use culprit_collector::analytical::test_support::{GrantOutputCase, grant_output_evidence};
 use culprit_engine::LocalCaptureAnalysisKind;
+use culprit_evidence::analytical::test_support::GrantOutputCase;
+use culprit_evidence::analytical::test_support::grant_output_evidence;
 use serde_json::Value;
 
 #[tokio::test]

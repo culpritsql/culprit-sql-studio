@@ -27,7 +27,8 @@ with a fixture.
 | `culprit-querylog` | Logs an application's framework already writes (Rails, Django, EF Core, Phoenix/Ecto, JSON lines), read into a `Workload` for an engine that keeps no statement history: one module per format behind a `Format` trait, statements grouped by `culprit_core::fingerprint`. The log's own timestamps are its period (`Workload.log`), never "the last N hours". |
 | `culprit-checks` | The analysis pipeline, every check, the refine rules, and the views built on a report. |
 | `culprit-engine` | Connections and secret storage, adapter composition, scans, saved reports and history. |
-| `culprit-collector` | Source-independent capture, local outbox, fleet scheduling, recovery/delivery contracts, analytical preparation and service lifecycles. |
+| `culprit-evidence` | Canonical warehouse schemas, projection and native-record decoding, immutable recovery/receipt proofs and bounded source-free evidence reads. No Collector, Outbox, scheduler or source database dependency. |
+| `culprit-collector` | Source-independent capture, local outbox, fleet scheduling, recovery mutations, analytical preparation and service lifecycles. It consumes the shared evidence contracts and verifier. |
 | `culprit-cloud` | Pluggable discovery and metrics with injected authentication, commands, HTTP and cache storage. |
 | `culprit-cli`, `culprit-mcp`, `app/` | Surfaces: the same report, worded for a terminal, a coding agent, a window. |
 
@@ -454,10 +455,16 @@ The package layout distinguishes independent extension roles:
 | `crates/authentication/` | Credential interfaces and native authentication | `culprit-auth`, `culprit-auth-azure`, `culprit-auth-aws` |
 
 A future ClickHouse database provider can be `crates/providers/culprit-clickhouse` independently of the telemetry
-store. The engine's `collector`, `store-adx`, `store-clickhouse`, `recovery-azure` and `recovery-s3` features are opt-in. Desktop and standalone MCP
-build graphs contain no collector, store or Blob transport packages; the full CLI enables both stores and both recovery providers. ClickHouse plus S3 has no ADX or Azure Blob dependency. Shared native
-admission and durable ownership live in `culprit-read`, so scans and fleet captures use one guard without importing
-fleet runtime. `python3 dev/check-boundaries.py` verifies these resolved dependency boundaries in CI.
+store. The engine's `evidence` feature owns query-only warehouse assembly. The explicit read-only compositions
+`warehouse-adx,evidence-azure` and `warehouse-clickhouse,evidence-s3`, with default features disabled, include no
+Collector, source provider or built-in authentication adapter. Hosts inject named credential interfaces separately.
+The `collector`, `store-adx`, `store-clickhouse`, `recovery-azure` and `recovery-s3` features enable the independent
+writer composition. Default desktop and standalone MCP graphs contain no Collector, store or Blob transport;
+MCP can receive an injected incident reader without enabling those dependencies. The full CLI composes both stores
+and both recovery providers. ClickHouse plus S3 has no ADX or Azure Blob dependency. Shared native admission and
+durable ownership live in `culprit-read`, so scans and fleet captures use one guard without importing fleet runtime.
+`python3 dev/check-boundaries.py` verifies normal/build graphs for defaults, selected readers, and writers separately;
+test/dev dependencies are not runtime dependency proofs.
 
 ```mermaid
 flowchart LR
@@ -468,10 +475,16 @@ flowchart LR
     AWS[AWS authentication] --> AUTH
     ENGINE --> DB
     ENGINE --> COLLECT[Collector capture, recovery and delivery]
-    ADX[ADX store adapter] --> COLLECT
-    CH[ClickHouse store adapter] --> COLLECT
-    BLOB[Azure Blob transport] --> COLLECT
-    S3[S3 transport] --> COLLECT
+    ENGINE --> EVIDENCE[Evidence contracts and verification]
+    COLLECT --> EVIDENCE
+    ADX[ADX store adapter] --> EVIDENCE
+    CH[ClickHouse store adapter] --> EVIDENCE
+    BLOB[Azure Blob transport] --> EVIDENCE
+    S3[S3 transport] --> EVIDENCE
+    ADX -- write feature --> COLLECT
+    CH -- write feature --> COLLECT
+    BLOB -- write feature --> COLLECT
+    S3 -- write feature --> COLLECT
     CLOUD[Cloud discovery and metrics adapters] --> AUTH
     ENGINE --> ADX
     ENGINE --> CH
@@ -480,15 +493,16 @@ flowchart LR
     ENGINE --> CLOUD
 ```
 
-The collector owns the logical analytical schemas, envelopes, payload recovery pointers, canonical digests, bounded
-encoding, receipt pagination and publication checks. Each store maps logical fields to its own physical types and
+`culprit-evidence` owns logical analytical schemas, envelopes, payload recovery pointers, canonical digests,
+receipt pagination and publication proof checks. The Collector owns bounded encoding, write scheduling, mutable
+recovery obligations and publication. Each store maps logical fields to its own physical types and
 owns native DDL, writes, membership audits and typed readback queries. ADX's nullable-string presence columns and
 100 ns timestamps are native policies; ClickHouse uses `Nullable(String)` and `DateTime64(9)`. Schema fingerprints
 include normalization, preparation and physical representation, so a contract cannot be adopted by a different store.
 Canonical revision and complete/current-set policies are shared; each adapter renders its query dialect and executes
 it in an owned native fixture. Push-only metrics/APM endpoints cannot claim this warehouse readback contract.
 
-`culprit-collector::analytical::evidence` owns read-only capture reconstruction over injected warehouse queries and
+`culprit_evidence::analytical::evidence` owns read-only capture reconstruction over injected warehouse queries and
 independent recovery proofs. It verifies publication, exact membership, normalized projections and native receipts
 before exposing typed records. Both stores share that reader; source coverage remains distinct from successful
 retrieval. Incomplete SQL/plan previews and precision absent from a store remain explicit recovery requirements
@@ -504,7 +518,7 @@ selection live in the plan dispatcher, including plain PostgreSQL-shaped Yugabyt
 archive analysis share strict native statement selection and original module binding. Derived plans retain insights
 without duplicate SQL/XML or executable changes that require current schema, indexes and settings.
 
-`CollectorRuntime::evidence` composes a query-only `EvidenceService` from independent warehouse and recovery
+`culprit_engine::evidence::EvidenceRuntime::evidence` composes a query-only `EvidenceService` from independent warehouse and recovery
 credentials. Its configuration has no source connection, fleet inventory, staging target or writer policy. Reading
 a committed range neither acquires collector ownership nor changes remote history. Cancellation and the read
 deadline bound the caller's wait; native transports retain their own request lifecycle, and a dropped caller does

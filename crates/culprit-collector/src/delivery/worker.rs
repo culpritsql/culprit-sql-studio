@@ -1,16 +1,18 @@
 //! Native archiving and analytical delivery own separate progress journals and independent I/O futures.
-use super::{
-    archive_worker::ArchiveWorker,
-    committed_cache::CommittedRangeCache,
-    contract::Contract,
-    driver::{DeliveryDriver, DeliveryPolicy},
-    hydration::Hydration,
-    journal::DeliveryJournal,
-    recovery::{Fence, RecoveryStore},
-    sink::TelemetrySink,
-};
-use crate::{capture::CollectionCancellation, lifecycle::with_background, outbox::OutboxDelivery};
+use super::archive_worker::ArchiveWorker;
+use super::committed_cache::CommittedRangeCache;
+use super::driver::DeliveryDriver;
+use super::driver::DeliveryPolicy;
+use super::hydration::Hydration;
+use super::journal::DeliveryJournal;
+use super::recovery::RecoveryStore;
+use super::sink::TelemetrySink;
+use crate::lifecycle::with_background;
+use crate::outbox::OutboxDelivery;
 use culprit_core::{Result, telemetry::*};
+use culprit_evidence::delivery::contract::Contract;
+use culprit_evidence::delivery::mutations::Fence;
+use culprit_read::cancellation::CollectionCancellation;
 use std::{sync::Arc, time::Duration};
 use tokio::sync::Notify;
 const WORK_PAGE: u32 = 32;

@@ -94,7 +94,7 @@ pub enum SubjectKind {
     Setting,
 }
 
-#[derive(Serialize, Deserialize, TS, Clone, Debug)]
+#[derive(Serialize, Deserialize, TS, Clone, Debug, PartialEq)]
 #[ts(export)]
 pub struct Subject {
     pub kind: SubjectKind,
@@ -115,7 +115,7 @@ pub enum Unit {
     Text,
 }
 
-#[derive(Serialize, Deserialize, TS, Clone, Debug)]
+#[derive(Serialize, Deserialize, TS, Clone, Debug, PartialEq)]
 #[ts(export)]
 pub struct Metric {
     pub label: String,
@@ -160,7 +160,7 @@ impl Metric {
     }
 }
 
-#[derive(Serialize, Deserialize, TS, Clone, Debug, Default)]
+#[derive(Serialize, Deserialize, TS, Clone, Debug, Default, PartialEq)]
 #[ts(export)]
 pub struct Impact {
     /// 0–100, the ranking key across all findings.
@@ -188,7 +188,7 @@ impl Impact {
     }
 }
 
-#[derive(Serialize, Deserialize, TS, Clone, Debug)]
+#[derive(Serialize, Deserialize, TS, Clone, Debug, PartialEq)]
 #[ts(export)]
 pub struct QueryRef {
     pub id: String,
@@ -204,7 +204,7 @@ pub struct Fix {
     pub cost: Option<String>,
 }
 
-#[derive(Serialize, Deserialize, TS, Clone, Debug)]
+#[derive(Serialize, Deserialize, TS, Clone, Debug, PartialEq)]
 #[ts(export)]
 pub struct Finding {
     pub id: String,

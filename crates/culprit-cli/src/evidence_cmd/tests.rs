@@ -819,7 +819,7 @@ fn paired_page_tasks_use_the_explicit_activity_range_and_the_existing_shared_arc
     let request = selected.common.request(selected.plan.families, Format::Json).unwrap();
     assert_eq!(request.budget.max_queries, 7);
     assert!(request.budget.recovery_payloads.is_none());
-    let (mut source, _) = culprit_collector::analytical::test_support::page_wait_evidence_cases().remove(0);
+    let (mut source, _) = culprit_evidence::analytical::test_support::page_wait_evidence_cases().remove(0);
     assert!(culprit_core::PageWaitActivityEvidence::declared_parent(&source).is_none());
     let original = DiagnosticCaptureRef {
         capture: CaptureIdentity { observation_id: "original-native-activity".into(), revision: None },
@@ -834,3 +834,5 @@ fn paired_page_tasks_use_the_explicit_activity_range_and_the_existing_shared_arc
 }
 
 mod incident_history;
+
+mod derived_outputs;

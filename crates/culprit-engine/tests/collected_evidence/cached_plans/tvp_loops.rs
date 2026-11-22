@@ -1,5 +1,6 @@
 use super::*;
-use culprit_collector::analytical::test_support::{TvpLoopCase, tvp_loop_evidence};
+use culprit_evidence::analytical::test_support::TvpLoopCase;
+use culprit_evidence::analytical::test_support::tvp_loop_evidence;
 
 const FAMILY: &[EvidenceFamily] = &[EvidenceFamily::ObjectDefinitions];
 

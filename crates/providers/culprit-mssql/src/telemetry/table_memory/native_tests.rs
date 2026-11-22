@@ -8,7 +8,7 @@ use crate::{
         owned_case::{finish_case, until_cancelled},
     },
 };
-use culprit_collector::capture::CollectionCancellation;
+use culprit_read::cancellation::CollectionCancellation;
 use std::time::Duration;
 use tokio::time::Instant;
 
@@ -77,8 +77,8 @@ INSERT dbo.[{table}] VALUES(1,10),(2,20);
         assert_eq!(captured.manifest.status, CollectionStatus::Complete);
         assert_eq!(captured.manifest.request.budget.max_queries, 12);
         assert_eq!(
-            crate::telemetry::recipes().into_iter().find(|recipe| recipe.id == "mssql.table-memory").unwrap().cost,
-            RecipeCostQualification::Unqualified
+            crate::telemetry::recipes().into_iter().find(|recipe| recipe.id == "mssql.table-memory").unwrap().admission,
+            RecipeAdmission::Unqualified
         );
     }
     assert_ne!(point(&original).table, point(&later).table);
@@ -121,7 +121,9 @@ async fn command_target(
         command.query(sql, Vec::<Parameter>::new(), 1).await.map_err(ReadError::into_error)
     })
     .await?;
-    let [row] = rows.as_slice() else { return Err(invalid_data()) };
+    let [row] = rows.as_slice() else {
+        return Err(invalid_data());
+    };
     Ok(MssqlObjectIdentity {
         database_id: integer(row, "database_id")?.try_into().map_err(|_| invalid_data())?,
         object_id: integer(row, "object_id")?.try_into().map_err(|_| invalid_data())?,

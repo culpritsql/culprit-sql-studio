@@ -6,16 +6,15 @@ use crate::{
     schema::quote,
 };
 use async_trait::async_trait;
-use culprit_collector::{
-    analytical::{
-        ProjectionCatalog,
-        evidence::EvidenceReader,
-        indexes::ProjectionIndexes,
-        read_store::{AnalyticalReadPage, AnalyticalReadStore},
-    },
-    delivery::recovery::CommittedRange,
-};
 use culprit_core::{Result, telemetry::DeliveryProblem};
+use culprit_evidence::analytical::ProjectionCatalog;
+use culprit_evidence::analytical::evidence::EvidenceReader;
+use culprit_evidence::analytical::evidence::{IncidentDiscoveryRequest, PublishedResourceQuery};
+use culprit_evidence::analytical::indexes::ProjectionIndexes;
+use culprit_evidence::analytical::read_store::AnalyticalReadPage;
+use culprit_evidence::analytical::read_store::AnalyticalReadStore;
+use culprit_evidence::delivery::contract::Contract;
+use culprit_evidence::delivery::recovery::CommittedRange;
 use serde_json::{Value, json};
 use std::{collections::BTreeMap, sync::Arc};
 
@@ -47,6 +46,22 @@ impl AnalyticalReadStore for ClickHouseReadStore {
         self.catalog.get(stream)?.logical_values(row)
     }
 
+    async fn resource_candidates(
+        &self,
+        contract: &Contract,
+        request: &PublishedResourceQuery,
+        byte_limit: usize,
+    ) -> Result<AnalyticalReadPage> {
+        resources::read(self, contract, request, byte_limit).await
+    }
+    async fn incident_candidates(
+        &self,
+        contract: &Contract,
+        request: &IncidentDiscoveryRequest,
+        byte_limit: usize,
+    ) -> Result<AnalyticalReadPage> {
+        incidents::read(self, contract, request, byte_limit).await
+    }
     async fn audit_membership(&self, range: &CommittedRange, byte_limit: usize) -> Result<usize> {
         let branches = self
             .catalog
@@ -154,5 +169,8 @@ fn invalid() -> culprit_core::Error {
     DeliveryProblem::Integrity.error()
 }
 
-#[cfg(test)]
+mod incidents;
+mod resources;
+
+#[cfg(all(test, feature = "write"))]
 mod tests;

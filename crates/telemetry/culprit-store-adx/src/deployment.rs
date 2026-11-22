@@ -1,7 +1,8 @@
 //! Offline deployment output uses exactly the same schemas, mappings and projection contract as the sink.
 use super::{catalog::SchemaCatalog, projection::ScalarType, schema::Schema};
-use culprit_collector::analytical::semantics::{CurrentScope, stream_semantics};
 use culprit_core::Result;
+use culprit_evidence::analytical::semantics::CurrentScope;
+use culprit_evidence::analytical::semantics::stream_semantics;
 use serde::Serialize;
 
 #[derive(Serialize)]

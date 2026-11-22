@@ -109,6 +109,9 @@ impl SessionIdFormat {
 
 /// One engine, as checks and every surface see it.
 pub trait EngineSpec: Send + Sync {
+    /// Source-free network endpoint default. None means this provider does not have a network port.
+    fn default_port(&self) -> Option<u16>;
+
     /// Fixed native counter vocabulary is source-owned, not inferred by common consumers from an engine name.
     fn performance_counters(&self) -> Option<&'static crate::telemetry::PerformanceCounterProfile> {
         None
@@ -501,6 +504,7 @@ impl Connect {
 #[derive(Serialize, Deserialize, TS, Clone, Debug)]
 #[ts(export)]
 pub struct EngineFacts {
+    pub default_port: Option<u16>,
     pub evidence_presentation: EvidencePresentation,
     pub partition_tail: PartitionTail,
     pub label: String,
@@ -524,6 +528,13 @@ pub struct EngineFacts {
 }
 
 impl Engine {
+    /// Resolve only the configured/default route. This never establishes a native database incarnation.
+    pub fn network_port(self, explicit: Option<u16>) -> crate::Result<u16> {
+        explicit
+            .or_else(|| self.spec().default_port())
+            .ok_or_else(|| Error::new(ErrorCode::Unsupported, t!("core.connection.network_port_unavailable")))
+    }
+
     /// Everything Culprit knows about this engine.
     pub fn spec(self) -> &'static dyn EngineSpec {
         match self {
@@ -571,6 +582,7 @@ impl Engine {
         let spec = self.spec();
         let abilities = spec.abilities();
         EngineFacts {
+            default_port: spec.default_port(),
             evidence_presentation: spec.evidence_presentation(),
             connection_security: spec.connection_security(),
             partition_tail: spec.partition_tail(),

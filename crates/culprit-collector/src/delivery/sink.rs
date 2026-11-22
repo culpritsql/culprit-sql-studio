@@ -1,8 +1,10 @@
 //! Transport acknowledgement is a hint; publication requires exact distinct row membership and valid projections.
 pub use super::verification::{VerifiedRange, verify};
-use super::{contract::*, evidence::*, recovery::CommittedRange};
 use async_trait::async_trait;
 use culprit_core::{Result, telemetry::DeliveryProblem};
+use culprit_evidence::delivery::contract::*;
+use culprit_evidence::delivery::receipts::ReceiptPage;
+use culprit_evidence::delivery::recovery::CommittedRange;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -30,12 +32,6 @@ pub enum Submission {
     Accepted,
     Unknown,
     Rejected,
-}
-#[derive(Clone, Debug)]
-pub struct ReceiptPage {
-    pub rows: Vec<RowReceipt>,
-    pub next_cursor: Option<String>,
-    pub complete: bool,
 }
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Publication {

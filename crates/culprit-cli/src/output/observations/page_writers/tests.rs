@@ -1,6 +1,7 @@
 use super::*;
-use culprit_collector::analytical::test_support::{PageWriterCase, page_writer_evidence};
 use culprit_core::{SourceOutcome, telemetry::*};
+use culprit_evidence::analytical::test_support::PageWriterCase;
+use culprit_evidence::analytical::test_support::page_writer_evidence;
 
 fn report(case: PageWriterCase, row_available: bool, source_available: bool) -> PageWaitWriterReport {
     report_with(case, row_available, source_available, |_| {})

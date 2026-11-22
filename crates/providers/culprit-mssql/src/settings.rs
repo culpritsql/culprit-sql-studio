@@ -262,26 +262,7 @@ fn ordered(mut values: Vec<SettingObservation>) -> Result<Vec<SettingObservation
     Ok(values)
 }
 pub(crate) fn application(value: &SettingObservation) -> Option<Setting> {
-    let observed = if value.namespace == Kind::Server.namespace() {
-        value.value_in_use.as_ref()?
-    } else {
-        value.value.as_ref()?
-    };
-    Some(Setting {
-        name: if value.namespace == Kind::QueryStore.namespace() {
-            format!("query_store_options.{}", value.name)
-        } else {
-            value.name.clone()
-        },
-        value: observed.clone(),
-        default_value: value.default_value.clone(),
-        scope: match value.scope {
-            MeasurementScope::Database => "database",
-            MeasurementScope::Server => "server",
-            _ => return None,
-        }
-        .into(),
-    })
+    value.to_mssql_setting()
 }
 
 pub(crate) struct CollectedSettings {

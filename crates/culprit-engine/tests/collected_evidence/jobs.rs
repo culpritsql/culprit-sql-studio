@@ -1,17 +1,19 @@
 use super::fixture::Fixture;
-use culprit_collector::analytical::{
-    evidence::{EvidenceFamily, EvidenceGapReason},
-    test_support::{JobsCase, assert_jobs_capture, jobs_evidence, jobs_evidence_cases},
-};
 use culprit_core::{SourceState, telemetry::*};
 use culprit_engine::collected_resources;
+use culprit_evidence::analytical::evidence::EvidenceFamily;
+use culprit_evidence::analytical::evidence::EvidenceGapReason;
+use culprit_evidence::analytical::test_support::JobsCase;
+use culprit_evidence::analytical::test_support::assert_jobs_capture;
+use culprit_evidence::analytical::test_support::jobs_evidence;
+use culprit_evidence::analytical::test_support::jobs_evidence_cases;
 const FAMILY: &[EvidenceFamily] = &[EvidenceFamily::OperationalSamples];
 #[tokio::test]
 async fn original_job_capabilities_outcomes_counts_and_receipts_reuse_the_same_pure_view_without_recovery() {
     for (source, records) in jobs_evidence_cases()
         .into_iter()
-        .chain(culprit_collector::analytical::test_support::mssql_agent_jobs_evidence_cases())
-        .chain(culprit_collector::analytical::test_support::mysql_events_evidence_cases())
+        .chain(culprit_evidence::analytical::test_support::mssql_agent_jobs_evidence_cases())
+        .chain(culprit_evidence::analytical::test_support::mysql_events_evidence_cases())
     {
         let rows = records
             .iter()
@@ -153,7 +155,7 @@ async fn current_validation_function_survives_authenticated_readback_without_att
 
 #[tokio::test]
 async fn scheduled_events_preserve_original_unknown_results_body_gaps_and_withhold_private_catalog_binding_for_share() {
-    use culprit_collector::analytical::test_support::{MysqlEventsCase, mysql_events_evidence};
+    use culprit_evidence::analytical::test_support::{MysqlEventsCase, mysql_events_evidence};
     let (source, records) = mysql_events_evidence(MysqlEventsCase::Disabled);
     let fixture = Fixture::new(source.clone(), records.clone()).await;
     let opened = fixture.recovery_object_reads();

@@ -21,7 +21,7 @@ impl Registration {
             selector: self.selector(),
             subjects: vec![RecipeSubject::Database],
             budget: CollectionBudget::upper_limits(),
-            cost: RecipeCostQualification::Unqualified,
+            admission: RecipeAdmission::Unqualified,
         }
     }
     pub fn bounded_request(&self, requested: &CollectionRequest) -> CollectionRequest {

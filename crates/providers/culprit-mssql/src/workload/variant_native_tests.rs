@@ -37,7 +37,7 @@ async fn native_child_only_psp_relationships_preserve_original_runtime_populatio
         let mut application = crate::test_support::connect(&config(port,&database,&password,"parameter-variant-fixture"),SessionKind::User).await.unwrap();
         crate::test_support::query_store_ready(&mut application).await;
         batch(&mut application,"ALTER DATABASE SCOPED CONFIGURATION SET PARAMETER_SENSITIVE_PLAN_OPTIMIZATION=ON").await;
-        let seed=parameter_variants::seed(&mut application,&culprit_collector::capture::CollectionCancellation::default()).await;
+        let seed=parameter_variants::seed(&mut application,&culprit_read::cancellation::CollectionCancellation::default()).await;
         let seed_object_id=seed.object_id;
         batch(&mut application,"CREATE PROCEDURE dbo.parameter_variant_probe @bucket int AS SELECT SUM(CONVERT(bigint,LEN(payload))) AS native_payload_length FROM dbo.parameter_variant_rows WHERE bucket=@bucket").await;
         let object = crate::conn::query_one(&mut application,"SELECT /* culprit */ OBJECT_ID(N'dbo.parameter_variant_probe') AS object_id").await.unwrap();

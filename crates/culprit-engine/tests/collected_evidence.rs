@@ -390,7 +390,7 @@ async fn a_competing_native_generation_cannot_be_joined_by_query_number_or_displ
         .native
         .qualifiers
         .insert("native-generation".into(), "recycled".into());
-    let result = culprit_collector::analytical::test_support::Recovery::try_capture(
+    let result = culprit_evidence::analytical::test_support::Recovery::try_capture(
         "fixture:offline-analysis",
         &digest(b"original-schema"),
         source,
@@ -404,7 +404,7 @@ async fn a_competing_native_generation_cannot_be_joined_by_query_number_or_displ
 
 #[tokio::test]
 async fn a_plan_from_another_query_generation_cannot_be_attached_through_matching_display_sql() {
-    let (source, mut records) = culprit_collector::analytical::test_support::query_evidence();
+    let (source, mut records) = culprit_evidence::analytical::test_support::query_evidence();
     let TelemetryRecord::QueryDefinition(original) = &records[0] else { panic!() };
     let mut next = original.clone();
     next.identity.qualifiers.insert("userid".into(), "18".into());
@@ -429,7 +429,7 @@ async fn a_plan_from_another_query_generation_cannot_be_attached_through_matchin
 
 #[tokio::test]
 async fn interval_shape_and_a_recorded_plan_version_do_not_invent_source_or_current_server_facts() {
-    let (source, mut records) = culprit_collector::analytical::test_support::query_evidence();
+    let (source, mut records) = culprit_evidence::analytical::test_support::query_evidence();
     for record in &mut records {
         if let TelemetryRecord::QueryRuntime(row) = record {
             row.executions = "10".into();

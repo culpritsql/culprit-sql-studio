@@ -1,10 +1,11 @@
 use super::fixture::Fixture;
-use culprit_collector::analytical::{
-    evidence::{EvidenceFamily, EvidenceGapReason, RecoveryPayloadBudget},
-    test_support::{PageWriterCase, page_writer_evidence},
-};
 use culprit_core::{SourceOutcome, SourceState, telemetry::*};
 use culprit_engine::collected_resources;
+use culprit_evidence::analytical::evidence::EvidenceFamily;
+use culprit_evidence::analytical::evidence::EvidenceGapReason;
+use culprit_evidence::analytical::evidence::RecoveryPayloadBudget;
+use culprit_evidence::analytical::test_support::PageWriterCase;
+use culprit_evidence::analytical::test_support::page_writer_evidence;
 
 const FAMILY: &[EvidenceFamily] = &[EvidenceFamily::OperationalSamples];
 
@@ -273,6 +274,6 @@ fn native<'a>(
 }
 
 fn page_writer_evidence_capture() -> CaptureIdentity {
-    let (manifest, _) = culprit_collector::analytical::test_support::fixture();
+    let (manifest, _) = culprit_evidence::analytical::test_support::fixture();
     manifest.capture
 }

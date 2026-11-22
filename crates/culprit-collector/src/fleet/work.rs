@@ -6,9 +6,9 @@ use super::{
     storage::CaptureStorage,
     windows,
 };
-use crate::capture::CollectionCancellation;
 use chrono::{DateTime, Utc};
 use culprit_core::{Error, ErrorCode, ErrorDetail, Result, telemetry::*};
+use culprit_read::cancellation::CollectionCancellation;
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Default)]

@@ -1,10 +1,11 @@
 use super::fixture::Fixture;
-use culprit_collector::analytical::{
-    evidence::{EvidenceFamily, EvidenceGapReason, RecoveryPayloadBudget},
-    test_support::{PageTaskHolderCase, page_task_holder_evidence},
-};
 use culprit_core::{SourceOutcome, SourceState, telemetry::*};
 use culprit_engine::collected_resources;
+use culprit_evidence::analytical::evidence::EvidenceFamily;
+use culprit_evidence::analytical::evidence::EvidenceGapReason;
+use culprit_evidence::analytical::evidence::RecoveryPayloadBudget;
+use culprit_evidence::analytical::test_support::PageTaskHolderCase;
+use culprit_evidence::analytical::test_support::page_task_holder_evidence;
 
 const FAMILY: &[EvidenceFamily] = &[EvidenceFamily::OperationalSamples];
 
@@ -128,7 +129,7 @@ async fn a_missing_warehouse_body_is_distinct_from_an_original_partial_or_permis
 #[test]
 fn producer_boundary_rejects_foreign_original_receipts_native_scopes_pointers_and_invalid_payloads() {
     let (source, records) = page_task_holder_evidence(PageTaskHolderCase::QualifiedBoth);
-    let capture = culprit_collector::analytical::test_support::fixture().0.capture;
+    let capture = culprit_evidence::analytical::test_support::fixture().0.capture;
     assert!(ExportedRecord::new(&source, &capture, records[0].clone()).is_ok());
     for field in ["page-receipt", "activity-receipt", "role", "member", "epoch", "database", "pointer", "payload"] {
         let mut changed_source = source.clone();

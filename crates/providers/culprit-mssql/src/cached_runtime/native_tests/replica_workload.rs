@@ -10,8 +10,9 @@ use crate::{
     },
     value::Rec,
 };
-use culprit_collector::capture::{CollectionCancellation, SourceFactory};
+use culprit_collector::capture::SourceFactory;
 use culprit_core::{Engine, Environment, Provider, Result, telemetry::*};
+use culprit_read::cancellation::CollectionCancellation;
 use futures_util::FutureExt;
 use serde_json::{Value, json};
 use std::{
@@ -26,7 +27,7 @@ struct Factory(MssqlProvider);
 impl SourceFactory for Factory {
     async fn open(&self, request: &CollectionRequest) -> Result<Box<dyn TelemetrySource>> {
         let recipe = crate::telemetry::recipes().into_iter().find(|recipe| recipe.selector.matches(request)).unwrap();
-        assert_eq!(recipe.cost, RecipeCostQualification::Unqualified);
+        assert_eq!(recipe.admission, RecipeAdmission::Unqualified);
         let source = self.0.telemetry_source(request)?;
         assert_eq!(source.query_count(), 0, "the actual factory does not acquire before the collector owns it");
         Ok(source)

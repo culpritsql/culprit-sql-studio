@@ -1,5 +1,6 @@
 use super::*;
 use crate::fleet::FleetCaptureOutcome;
+use culprit_read::cancellation::CollectionCancellation;
 use std::sync::atomic::AtomicU32;
 
 struct Backend {

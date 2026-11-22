@@ -1,18 +1,20 @@
 use super::*;
-use crate::{
-    delivery::{
-        contract::Contract,
-        diagnostic_recovery::{load_diagnostic_checkpoint, load_diagnostic_input},
-        file_store::FileRecoveryStore,
-        recovery::{RecoveryStore, stage_and_commit},
-    },
-    diagnostics::{DiagnosticPolicies, drain_pending, set_analysis},
-    fleet::{
-        admission::AdmittedBackend,
-        investigations::tests::support::{Harness, capture_frame},
-        scheduler::{Outcome, Work},
-    },
-};
+use crate::delivery::diagnostic_recovery::load_diagnostic_checkpoint;
+use crate::delivery::diagnostic_recovery::load_diagnostic_input;
+use crate::delivery::file_store::FileRecoveryStore;
+use crate::delivery::recovery::RecoveryStore;
+use crate::delivery::recovery::stage_and_commit;
+use crate::diagnostics::DiagnosticPolicies;
+use crate::diagnostics::drain_pending;
+use crate::diagnostics::set_analysis;
+use crate::fleet::admission::AdmittedBackend;
+use crate::fleet::investigations::tests::support::Harness;
+use crate::fleet::investigations::tests::support::capture_frame;
+use crate::fleet::scheduler::Outcome;
+use crate::fleet::scheduler::Work;
+use culprit_evidence::delivery::contract::Contract;
+use culprit_evidence::delivery::recovery::RecoveryRead as _;
+use culprit_read::cancellation::CollectionCancellation;
 
 async fn scheduler(harness: &Harness) -> Scheduler {
     let mut scheduler = Scheduler::new(&harness.inventory, "one").unwrap();
@@ -359,10 +361,10 @@ async fn an_interrupted_receipt_inventory_walk_never_turns_an_unvisited_head_int
 
 #[test]
 fn numerically_equal_cost_accounting_cannot_replace_the_original_immutable_intent_lineage() {
-    let mut intent = crate::analytical::test_support::investigation_fixture().intent;
-    intent.qualification.read_metrics.templates[0].client_elapsed_ms = 0.0;
+    let mut intent = culprit_evidence::analytical::test_support::investigation_fixture().intent;
+    intent.qualification.measured_mut().unwrap().read_metrics.templates[0].client_elapsed_ms = 0.0;
     let mut changed = intent.clone();
-    changed.qualification.read_metrics.templates[0].client_elapsed_ms = -0.0;
+    changed.qualification.measured_mut().unwrap().read_metrics.templates[0].client_elapsed_ms = -0.0;
     assert_eq!(intent, changed, "numeric equality is weaker than canonical artifact identity");
     assert_ne!(intent.key().unwrap(), changed.key().unwrap());
     let result = ActivityWaitFocusResult {

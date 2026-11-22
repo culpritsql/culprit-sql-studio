@@ -1,3 +1,5 @@
+use culprit_evidence::delivery::recovery::RecoveryRead;
+use culprit_evidence::delivery::{mutations::Fence, recovery::RecoveryOrder};
 mod canonical_rows;
 mod events;
 mod focus;
@@ -289,7 +291,7 @@ fn quota_backpressure_keeps_the_native_input_pending_and_pinned() {
 #[tokio::test]
 async fn publication_before_analysis_survives_volume_loss_and_preserves_the_full_pending_working_set() {
     let root = tempfile::tempdir().unwrap();
-    let contract = crate::delivery::contract::Contract::new(
+    let contract = culprit_evidence::delivery::contract::Contract::new(
         "pipeline".into(),
         "shard-0".into(),
         "file:warehouse".into(),
@@ -347,7 +349,7 @@ async fn publication_before_analysis_survives_volume_loss_and_preserves_the_full
     let (range, rows) = recovered.into_parts();
     cold.restore_diagnostic_input(RestoredInput {
         store_id: store.id().into(),
-        parent: crate::delivery::diagnostic_recovery::capture_reference(range.manifest()).unwrap(),
+        parent: culprit_evidence::delivery::heads::capture_reference(range.manifest()).unwrap(),
         source: range.manifest().source.clone(),
         investigation: range.manifest().investigation.clone(),
         connection: "fixture".into(),
@@ -540,7 +542,7 @@ fn a_complete_inventory_cannot_resolve_a_present_actor_whose_required_measuremen
 #[tokio::test]
 async fn caching_unknown_authenticated_history_after_epoch_binding_does_not_enqueue_or_acknowledge_pending_work() {
     let root = tempfile::tempdir().unwrap();
-    let contract = crate::delivery::contract::Contract::new(
+    let contract = culprit_evidence::delivery::contract::Contract::new(
         "pipeline".into(),
         "shard-0".into(),
         "file:warehouse".into(),
@@ -575,7 +577,7 @@ async fn caching_unknown_authenticated_history_after_epoch_binding_does_not_enqu
     let (range, rows) = pending.into_parts();
     cold.restore_diagnostic_input(RestoredInput {
         store_id: store.id().into(),
-        parent: crate::delivery::diagnostic_recovery::capture_reference(range.manifest()).unwrap(),
+        parent: culprit_evidence::delivery::heads::capture_reference(range.manifest()).unwrap(),
         source: range.manifest().source.clone(),
         investigation: range.manifest().investigation.clone(),
         connection: "pending".into(),
@@ -590,7 +592,7 @@ async fn caching_unknown_authenticated_history_after_epoch_binding_does_not_enqu
     let (range, rows) = recovered.into_parts();
     cold.cache_diagnostic_evidence(RestoredInput {
         store_id: store.id().into(),
-        parent: crate::delivery::diagnostic_recovery::capture_reference(range.manifest()).unwrap(),
+        parent: culprit_evidence::delivery::heads::capture_reference(range.manifest()).unwrap(),
         source: range.manifest().source.clone(),
         investigation: range.manifest().investigation.clone(),
         connection: "historical".into(),

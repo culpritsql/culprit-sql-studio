@@ -1,8 +1,7 @@
 //! One declaration drives typed projection, deployment mappings and exact verification columns.
-use super::{
-    projection::{self, ScalarType},
-    response::Column,
-};
+use super::projection;
+use super::projection::{KustoType, ScalarType};
+use super::response::Column;
 use culprit_core::{Result, telemetry::DeliveryProblem};
 use serde_json::{Value, json};
 use std::collections::BTreeSet;
@@ -12,12 +11,11 @@ mod tests;
 
 const MAX_COLUMNS: usize = 128;
 
-use crate::projection::KustoType;
-pub use culprit_collector::analytical::schema::{Field, OutputColumn};
-use culprit_collector::analytical::{
-    RowProjection,
-    schema::{LogicalSchema, encode_row},
-};
+use culprit_evidence::analytical::RowProjection;
+pub use culprit_evidence::analytical::schema::Field;
+use culprit_evidence::analytical::schema::LogicalSchema;
+pub use culprit_evidence::analytical::schema::OutputColumn;
+use culprit_evidence::analytical::schema::encode_row;
 fn has_presence(field: Field) -> bool {
     field.nullable && field.kind == ScalarType::String
 }
@@ -169,6 +167,9 @@ impl Schema {
 impl RowProjection for Schema {
     fn from_logical(schema: LogicalSchema) -> Result<Self> {
         Self::from_logical(schema)
+    }
+    fn logical_values(&self, values: &[Value]) -> Result<serde_json::Map<String, Value>> {
+        self.logical_values(values)
     }
     fn table(&self) -> &str {
         self.table()

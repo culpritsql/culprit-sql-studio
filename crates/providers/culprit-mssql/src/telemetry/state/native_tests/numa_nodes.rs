@@ -1,6 +1,7 @@
 use super::*;
 use crate::test_support::{owned_captures::OwnedCaptures, receipt_directory, save_cost_receipt};
-use culprit_collector::capture::{CollectionCancellation, SourceFactory};
+use culprit_collector::capture::SourceFactory;
+use culprit_read::cancellation::CollectionCancellation;
 struct Factory<'a>(&'a MssqlProvider);
 #[async_trait::async_trait]
 impl SourceFactory for Factory<'_> {

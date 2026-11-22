@@ -113,9 +113,12 @@ async fn real_streaming_sender_receiver_and_slot_share_native_identity_across_sc
                         .all(|counter| counter.reset == culprit_core::ResetMarker::Unknown)
                 );
             }
-            assert!(crate::telemetry_recipes().iter().any(
-                |recipe| recipe.id == "postgres.replication" && recipe.cost == RecipeCostQualification::Unqualified
-            ));
+            assert!(
+                crate::telemetry_recipes()
+                    .iter()
+                    .any(|recipe| recipe.id == "postgres.replication"
+                        && recipe.admission == RecipeAdmission::Unqualified)
+            );
         }
         .boxed_local()
     })

@@ -1,11 +1,11 @@
 use super::fixture::Fixture;
-use culprit_collector::analytical::{
-    evidence::{EvidenceFamily, EvidenceGapReason},
-    test_support::{assert_connection_outcome_capture, connection_outcome_evidence_cases},
-};
 use culprit_core::{
     ConnectionOutcomeAvailability, ConnectionOutcomeMetricKind, ConnectionOutcomeSnapshot, SourceState, telemetry::*,
 };
+use culprit_evidence::analytical::evidence::EvidenceFamily;
+use culprit_evidence::analytical::evidence::EvidenceGapReason;
+use culprit_evidence::analytical::test_support::assert_connection_outcome_capture;
+use culprit_evidence::analytical::test_support::connection_outcome_evidence_cases;
 
 const FAMILY: &[EvidenceFamily] = &[EvidenceFamily::OperationalSamples];
 
@@ -104,7 +104,7 @@ async fn missing_or_unpublished_evidence_keeps_original_counts_and_cannot_become
 
 #[tokio::test]
 async fn another_valid_operational_fact_shape_is_not_reinterpreted_as_connection_evidence() {
-    let (source, records) = culprit_collector::analytical::test_support::file_io_evidence_cases().remove(0);
+    let (source, records) = culprit_evidence::analytical::test_support::file_io_evidence_cases().remove(0);
     let fixture = Fixture::new(source, records).await;
     let capture = fixture.read_families(FAMILY).await;
     let error = culprit_engine::collected_resources::connection_outcomes(&capture).unwrap_err();

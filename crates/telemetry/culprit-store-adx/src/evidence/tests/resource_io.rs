@@ -4,7 +4,13 @@ use std::sync::atomic::Ordering;
 
 async fn collected(source: CollectionDescription, records: Vec<TelemetryRecord>) -> Fixture {
     let catalog = Arc::new(SchemaCatalog::new().unwrap());
-    let recovery = test_support::collected_resource_recovery("adx:test", catalog.digest(), source, records).await;
+    let recovery = culprit_collector::analytical::test_support::collected_resource_recovery(
+        "adx:test",
+        catalog.digest(),
+        source,
+        records,
+    )
+    .await;
     Fixture::from_recovery(catalog, Arc::new(recovery)).await
 }
 

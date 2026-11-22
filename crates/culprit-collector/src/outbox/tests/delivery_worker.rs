@@ -1,15 +1,16 @@
 use super::*;
-use crate::delivery::{
-    contract::Contract,
-    driver::DeliveryPolicy,
-    file_sink::FileTelemetrySink,
-    file_store::FileRecoveryStore,
-    journal::DeliveryJournal,
-    recovery::*,
-    sink::*,
-    worker::{DeliveryJournals, DeliveryWorker},
-};
+use crate::delivery::driver::DeliveryPolicy;
+use crate::delivery::file_sink::FileTelemetrySink;
+use crate::delivery::file_store::FileRecoveryStore;
+use crate::delivery::journal::DeliveryJournal;
+use crate::delivery::recovery::*;
+use crate::delivery::sink::*;
+use crate::delivery::worker::DeliveryJournals;
+use crate::delivery::worker::DeliveryWorker;
 use async_trait::async_trait;
+use culprit_evidence::delivery::contract::Contract;
+use culprit_evidence::delivery::receipts::ReceiptPage;
+use culprit_evidence::delivery::recovery::*;
 use std::sync::{
     Arc,
     atomic::{AtomicBool, AtomicUsize, Ordering},
@@ -71,7 +72,8 @@ impl crate::service::ServiceReporter for Quiet {
 
 #[tokio::test]
 async fn a_stalled_analytical_readback_does_not_block_new_native_archive_commits() {
-    use crate::{capture::CollectionCancellation, service::run_delivery};
+    use crate::service::run_delivery;
+    use culprit_read::cancellation::CollectionCancellation;
     use std::time::Duration;
     // This proves ownership independence, not a five-second filesystem throughput budget on every runner.
     const PROGRESS_WATCHDOG: Duration = Duration::from_secs(60);
@@ -194,7 +196,7 @@ async fn destination_outage_does_not_prevent_remote_commit_eviction_or_more_sour
     let mut now = 0;
     for _ in 0..12 {
         worker
-            .work_once(now, &crate::capture::CollectionCancellation::default(), |_, result| {
+            .work_once(now, &culprit_read::cancellation::CollectionCancellation::default(), |_, result| {
                 if let Err(error) = result {
                     assert_eq!(error.detail, Some(culprit_core::ErrorDetail::Delivery(DeliveryProblem::Transport)));
                 }
@@ -217,7 +219,7 @@ async fn destination_outage_does_not_prevent_remote_commit_eviction_or_more_sour
     let second = outbox.reserve("fixture", &request()).await.unwrap();
     let mut errors = 0;
     worker
-        .work_once(now, &crate::capture::CollectionCancellation::default(), |_, result| {
+        .work_once(now, &culprit_read::cancellation::CollectionCancellation::default(), |_, result| {
             assert_eq!(
                 result.err().unwrap().detail,
                 Some(culprit_core::ErrorDetail::Delivery(DeliveryProblem::Transport))
@@ -233,7 +235,10 @@ async fn destination_outage_does_not_prevent_remote_commit_eviction_or_more_sour
     second.finish().await.unwrap();
     for _ in 0..12 {
         now += 1;
-        worker.work_once(now, &crate::capture::CollectionCancellation::default(), |_, _| Ok(())).await.unwrap();
+        worker
+            .work_once(now, &culprit_read::cancellation::CollectionCancellation::default(), |_, _| Ok(()))
+            .await
+            .unwrap();
         if outbox.status(50, None).await.unwrap().captures == 0 {
             break;
         }
@@ -244,7 +249,7 @@ async fn destination_outage_does_not_prevent_remote_commit_eviction_or_more_sour
     for _ in 0..60 {
         let mut next = now + 1;
         worker
-            .work_once(now, &crate::capture::CollectionCancellation::default(), |_, result| {
+            .work_once(now, &culprit_read::cancellation::CollectionCancellation::default(), |_, result| {
                 let status = result.unwrap();
                 next = next.max(status.retry_at_ms.parse::<i64>().unwrap());
                 Ok(())

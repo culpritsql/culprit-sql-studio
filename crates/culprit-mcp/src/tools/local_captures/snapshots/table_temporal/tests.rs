@@ -1,6 +1,7 @@
 use super::*;
-use culprit_collector::analytical::test_support::{TableTemporalCase, table_temporal_evidence};
 use culprit_core::{Snapshot, telemetry::*};
+use culprit_evidence::analytical::test_support::TableTemporalCase;
+use culprit_evidence::analytical::test_support::table_temporal_evidence;
 #[test]
 fn compact_configuration_keeps_canonical_fields_and_limits_but_withholds_original_receipt_keys() {
     let (_, records) = table_temporal_evidence(TableTemporalCase::MixedAvailability);

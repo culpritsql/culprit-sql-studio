@@ -11,8 +11,13 @@ async fn collected(case: PerformanceCounterCase) -> (Fixture, CollectionDescript
 
 async fn collected_original(source: CollectionDescription, records: Vec<TelemetryRecord>) -> Fixture {
     let catalog = Arc::new(SchemaCatalog::new().unwrap());
-    let recovery =
-        test_support::collected_resource_recovery("clickhouse:test", catalog.digest(), source, records).await;
+    let recovery = culprit_collector::analytical::test_support::collected_resource_recovery(
+        "clickhouse:test",
+        catalog.digest(),
+        source,
+        records,
+    )
+    .await;
     Fixture::from_recovery(catalog, Arc::new(recovery), &[TelemetryStream::OperationalSamples]).await
 }
 
@@ -132,7 +137,7 @@ async fn selected_database_counters_restore_only_original_native_database_proof_
     for case in Case::ALL {
         let (source, records) = database_performance_counter_evidence(case);
         let catalog = Arc::new(SchemaCatalog::new().unwrap());
-        let recovery = test_support::collected_resource_recovery(
+        let recovery = culprit_collector::analytical::test_support::collected_resource_recovery(
             "clickhouse:test",
             catalog.digest(),
             source.clone(),

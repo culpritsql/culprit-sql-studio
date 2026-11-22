@@ -1,5 +1,6 @@
 use super::*;
-use culprit_collector::analytical::test_support::{IndexedViewsCase, indexed_views_evidence};
+use culprit_evidence::analytical::test_support::IndexedViewsCase;
+use culprit_evidence::analytical::test_support::indexed_views_evidence;
 #[tokio::test]
 async fn original_view_catalog_is_authenticated_once_and_replayed_independently_of_current_scan_objects() {
     for case in IndexedViewsCase::ALL {

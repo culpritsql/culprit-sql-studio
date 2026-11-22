@@ -22,11 +22,18 @@ postgres = ["dep:culprit-postgres"]
 yugabyte = ["dep:culprit-yugabyte"]
 mysql = ["dep:culprit-mysql"]
 sqlite = ["dep:culprit-sqlite"]
-collector = ["dep:culprit-collector"]
-store-adx = ["collector", "dep:culprit-store-adx", "dep:culprit-blob-azure"]
-store-clickhouse = ["collector", "dep:culprit-store-clickhouse"]
-recovery-azure = ["collector", "dep:culprit-blob-azure"]
-recovery-s3 = ["collector", "dep:culprit-blob-s3"]
+collector = ["dep:culprit-collector", "evidence"]
+evidence = ["dep:culprit-evidence"]
+warehouse-adx = ["evidence", "dep:culprit-store-adx"]
+warehouse-clickhouse = ["evidence", "dep:culprit-store-clickhouse"]
+evidence-azure = ["evidence", "dep:culprit-blob-azure"]
+evidence-s3 = ["evidence", "dep:culprit-blob-s3"]
+# Explicit ignored-test fixture only. Normal/default/no-default source and desktop dependencies are unchanged.
+postgres-native-tests = ["collector", "postgres", "culprit-postgres/native-test-support"]
+store-adx = ["collector", "warehouse-adx", "culprit-store-adx/write", "dep:culprit-blob-azure", "culprit-blob-azure/write"]
+store-clickhouse = ["collector", "warehouse-clickhouse", "culprit-store-clickhouse/write"]
+recovery-azure = ["collector", "evidence-azure", "culprit-blob-azure/write"]
+recovery-s3 = ["collector", "evidence-s3", "culprit-blob-s3/write"]
 
 # All of tests/ in one binary: each test binary is linked, and scanned on its first run, on its own.
 [[test]]
@@ -43,10 +50,11 @@ async-trait.workspace = true
 zeroize.workspace = true
 culprit-core.workspace = true
 culprit-collector = { workspace = true, optional = true }
-culprit-store-adx = { workspace = true, optional = true }
-culprit-blob-azure = { workspace = true, optional = true }
-culprit-blob-s3 = { workspace = true, optional = true }
-culprit-store-clickhouse = { workspace = true, optional = true }
+culprit-evidence = { workspace = true, optional = true }
+culprit-store-adx = { workspace = true, optional = true, default-features = false }
+culprit-blob-azure = { workspace = true, optional = true, default-features = false }
+culprit-blob-s3 = { workspace = true, optional = true, default-features = false }
+culprit-store-clickhouse = { workspace = true, optional = true, default-features = false }
 culprit-checks.workspace = true
 culprit-mssql = { workspace = true, optional = true }
 culprit-postgres = { workspace = true, optional = true }
@@ -70,6 +78,7 @@ ts-rs.workspace = true
 ureq = { workspace = true, optional = true }
 
 [dev-dependencies]
+culprit-evidence = { workspace = true, features = ["test-support"] }
 culprit-collector = { workspace = true, features = ["test-support"] }
 culprit-checks.workspace = true
 proptest.workspace = true

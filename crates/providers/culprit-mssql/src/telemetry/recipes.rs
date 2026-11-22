@@ -57,7 +57,7 @@ impl Registration {
             selector: self.selector,
             subjects: self.subjects.to_vec(),
             budget: self.native_budget(),
-            cost: RecipeCostQualification::Unqualified,
+            admission: RecipeAdmission::Unqualified,
         }
     }
     fn native_budget(&self) -> CollectionBudget {

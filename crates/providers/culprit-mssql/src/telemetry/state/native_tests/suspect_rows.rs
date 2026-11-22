@@ -8,7 +8,7 @@ use crate::{
     },
     value::Rec,
 };
-use culprit_collector::capture::CollectionCancellation;
+use culprit_read::cancellation::CollectionCancellation;
 use futures_util::{FutureExt, future::LocalBoxFuture};
 use std::{collections::BTreeMap, panic::AssertUnwindSafe};
 

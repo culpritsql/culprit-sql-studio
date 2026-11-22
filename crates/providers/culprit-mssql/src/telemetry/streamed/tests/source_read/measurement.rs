@@ -1,8 +1,10 @@
 //! The measuring purpose uses the actual reader/capture owner. Scripted native values prove wiring, not cost.
 use super::*;
 use crate::read::session_work::{Observation, SessionWork};
-use culprit_collector::capture::{self, CollectionCancellation, SourceFactory};
+use culprit_collector::capture;
+use culprit_collector::capture::SourceFactory;
 use culprit_core::{RecipeQualificationAssessment, RecipeQualificationGap};
+use culprit_read::cancellation::CollectionCancellation;
 use std::sync::Mutex;
 
 struct RecordedStream {

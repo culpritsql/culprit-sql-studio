@@ -96,7 +96,8 @@ fn scripted() -> NativeReader {
     }
 }
 fn source(io: NativeReader, request: &CollectionRequest) -> FrozenSource<Reader<NativeReader>> {
-    FrozenSource::new(Reader { io, host: "fixture.invalid".into(), port: 9, verified: None }, request).unwrap()
+    FrozenSource::new(Reader { io, host: "fixture.invalid".into(), port: 9, verified: None, profile: None }, request)
+        .unwrap()
 }
 
 #[tokio::test]
@@ -324,7 +325,7 @@ fn lazy_recipe_and_every_caller_dimension_remain_stricter_without_a_runtime_or_c
     assert_eq!(provider.telemetry_source(&request).unwrap().query_count(), 0);
     let descriptor = crate::telemetry_recipes().into_iter().find(|recipe| recipe.id == "postgres.blocking").unwrap();
     assert_eq!(descriptor.purpose, RecipePurpose::Investigation);
-    assert_eq!(descriptor.cost, RecipeCostQualification::Unqualified);
+    assert!(!matches!(descriptor.admission, RecipeAdmission::Measured(_)));
     assert!(!RecipeSelector::Collection(TelemetryCollection::Activity).matches(&request));
     let mut strict = request.budget.clone();
     strict.max_queries = 1;
@@ -422,4 +423,105 @@ async fn the_final_native_member_process_and_role_guard_runs_before_any_complete
     let error = capture(&mut reader, "fixture.invalid", 9, &request(unavailable)).await.err().unwrap();
     assert_eq!(CollectionStop::from_error(&error), CollectionStop::SourceUnavailable);
     assert_eq!(reader.calls.len(), 2, "unmatched original role provenance cannot be filled by a current read");
+}
+
+/// The shared guard delegates to the actual scripted native reader; it does not interpret any SQL or output.
+struct ProfiledBlockingRead {
+    native: NativeReader,
+    guard: culprit_read::SourceProfileGuard,
+    active: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    retire_after: Option<usize>,
+}
+#[async_trait::async_trait]
+impl crate::read::QueryRead for ProfiledBlockingRead {
+    fn connection_generation(&self) -> Option<u64> {
+        Some(1)
+    }
+    async fn query(&mut self, sql: &str, limit: usize) -> Result<Vec<Row>> {
+        self.guard.check_connection(Some(1))?;
+        let result = self.native.query(sql, limit).await;
+        if self.retire_after == Some(self.native.calls.len()) {
+            self.active.store(false, std::sync::atomic::Ordering::Release);
+        }
+        result
+    }
+}
+#[async_trait::async_trait]
+impl crate::read::NativeRead for ProfiledBlockingRead {
+    fn queries(&self) -> u32 {
+        self.native.queries()
+    }
+    fn metrics(&self) -> Option<ReadWorkMetrics> {
+        self.native.metrics()
+    }
+    async fn close(&mut self) -> SourceShutdown {
+        self.native.close().await
+    }
+}
+#[tokio::test]
+async fn builtin_focused_blocking_uses_the_same_native_reader_and_refuses_every_retired_dispatch_or_unknown_major() {
+    use std::sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    };
+    let original = qualified_focus().await;
+    let scope = DiagnosticScope {
+        target: original.target.clone(),
+        partition: original.partition.clone(),
+        source: original.source.clone(),
+        native_epoch: Some(original.epoch.clone()),
+        population: DiagnosticPopulation::Activity {
+            population: ActivityPopulation::ActiveRequestsOpenTransactionsAndBlockers,
+        },
+        measurement_scope: culprit_core::MeasurementScope::Database,
+    };
+    let request = request(original);
+    let recipe = crate::telemetry::declarations().into_iter().find(|recipe| recipe.id == "postgres.blocking").unwrap();
+    let RecipeAdmission::BuiltinSafety(policy) = recipe.admission else { panic!() };
+    for stop in std::iter::once(None).chain((1..=10).map(Some)) {
+        let active = Arc::new(AtomicBool::new(true));
+        let flag = active.clone();
+        let admission = SourceProfileAdmission::for_builtin(
+            digest(b"original-blocking-route"),
+            policy.as_ref().clone(),
+            Some(RecipeCostScope::Activity(scope.clone())),
+            request.budget.clone(),
+            move || flag.load(Ordering::Acquire),
+        )
+        .unwrap();
+        assert!(admission.qualification().is_none());
+        let guard = culprit_read::SourceProfileGuard::new(&request, &admission).unwrap();
+        let mut reader = ProfiledBlockingRead { native: scripted(), guard: guard.clone(), active, retire_after: stop };
+        let capture = capture_with_profile(&mut reader, "fixture.invalid", 9, &request, Some(&guard)).await;
+        if let Some(stop) = stop {
+            assert!(capture.is_err(), "retired after native dispatch {stop}");
+            assert_eq!(reader.native.calls.len(), stop);
+            reader.active.store(true, Ordering::Release);
+            assert!(guard.ensure_active().is_err());
+        } else {
+            let captured = capture.unwrap();
+            let SourceObservation::FocusedBlocking { result, .. } = &captured.description.observation else { panic!() };
+            assert_eq!(result.binding, FocusedRequestBinding::Matched);
+            assert_eq!(reader.native.calls.len(), 10);
+            assert_eq!(captured.records.len(), 2);
+        }
+    }
+    let admission = SourceProfileAdmission::for_builtin(
+        digest(b"original-blocking-route"),
+        *policy,
+        Some(RecipeCostScope::Activity(scope)),
+        request.budget.clone(),
+        || true,
+    )
+    .unwrap();
+    let guard = culprit_read::SourceProfileGuard::new(&request, &admission).unwrap();
+    let mut reader = ProfiledBlockingRead {
+        native: scripted(),
+        guard: guard.clone(),
+        active: Arc::new(AtomicBool::new(true)),
+        retire_after: None,
+    };
+    reader.native.replies[0] = Ok(vec![fixture::metadata_on_version(170_000, "f", PROCESS)]);
+    assert!(capture_with_profile(&mut reader, "fixture.invalid", 9, &request, Some(&guard)).await.is_err());
+    assert_eq!(reader.native.calls.len(), 1, "unsupported major is refused before member/population work");
 }

@@ -83,34 +83,10 @@ pub(crate) async fn application<R: NativeRead>(reader: &mut R) -> Result<Vec<Col
 }
 impl NativeColumn {
     fn project(self) -> Result<ColumnInfo> {
-        let column = self.definition;
-        if let Some(default) = &column.default {
+        if let Some(default) = &self.definition.default {
             crate::catalog_expression::require_available(default)?;
         }
-        Ok(ColumnInfo {
-            data_type: declared_type(&column),
-            generated: column.identity || column.computed.is_some(),
-            schema: column.schema,
-            table: column.table_name,
-            name: column.name,
-            nullable: column.nullable,
-            default: self.default_sql,
-            ordinal: column.column_id,
-        })
-    }
-}
-
-fn declared_type(column: &MssqlColumnDefinition) -> String {
-    let name = &column.type_name;
-    let length = column.max_length;
-    match name.to_ascii_lowercase().as_str() {
-        "varchar" | "char" | "varbinary" | "binary" if length < 0 => format!("{name}(max)"),
-        "varchar" | "char" | "varbinary" | "binary" => format!("{name}({length})"),
-        "nvarchar" | "nchar" if length < 0 => format!("{name}(max)"),
-        "nvarchar" | "nchar" => format!("{name}({})", length / 2),
-        "decimal" | "numeric" => format!("{name}({},{})", column.precision, column.scale),
-        "datetime2" | "datetimeoffset" | "time" => format!("{name}({})", column.scale),
-        _ => name.clone(),
+        Ok(self.definition.into_column_info(self.default_sql))
     }
 }
 

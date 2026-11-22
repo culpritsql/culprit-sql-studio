@@ -1,13 +1,13 @@
 use super::fixture::Fixture;
-use culprit_collector::analytical::{
-    evidence::{EvidenceFamily, EvidenceGapReason},
-    test_support::{
-        focused_request_memory_evidence_with_peers, maintenance_memory_evidence_cases, request_memory_evidence,
-        request_memory_evidence_cases, reservation_demand_evidence_cases,
-    },
-};
 use culprit_core::{Snapshot, SourceOutcome, SourceState, telemetry::*};
 use culprit_engine::collected_resources;
+use culprit_evidence::analytical::evidence::EvidenceFamily;
+use culprit_evidence::analytical::evidence::EvidenceGapReason;
+use culprit_evidence::analytical::test_support::focused_request_memory_evidence_with_peers;
+use culprit_evidence::analytical::test_support::maintenance_memory_evidence_cases;
+use culprit_evidence::analytical::test_support::request_memory_evidence;
+use culprit_evidence::analytical::test_support::request_memory_evidence_cases;
+use culprit_evidence::analytical::test_support::reservation_demand_evidence_cases;
 
 fn observations(rows: &[TelemetryRecord]) -> Vec<&ExecutionGrantObservation> {
     rows.iter()

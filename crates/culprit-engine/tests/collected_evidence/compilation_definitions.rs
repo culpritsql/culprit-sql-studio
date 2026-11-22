@@ -1,10 +1,9 @@
 use super::fixture::Fixture;
-use culprit_collector::analytical::{
-    evidence::{EvidenceFamily, RecoveryPayloadBudget},
-    test_support::compilation_definition_evidence_cases,
-};
 use culprit_core::{query_store_statement_report::QueryStoreStatementBinding, telemetry::*};
 use culprit_engine::collected_resources;
+use culprit_evidence::analytical::evidence::EvidenceFamily;
+use culprit_evidence::analytical::evidence::RecoveryPayloadBudget;
+use culprit_evidence::analytical::test_support::compilation_definition_evidence_cases;
 
 const COUNTERS: &[EvidenceFamily] = &[EvidenceFamily::OperationalSamples];
 const DEFINITIONS: &[EvidenceFamily] = &[EvidenceFamily::QueryDefinitions];

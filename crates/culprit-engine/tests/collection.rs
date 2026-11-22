@@ -1,5 +1,4 @@
 use async_trait::async_trait;
-use culprit_collector::capture::CollectionCancellation;
 use culprit_core::telemetry::{
     MeasurementValue, NativeDefinitionReference, NativeIdentity, RuntimeMetric, RuntimeMetricKey, RuntimeMetricUnit,
     SourceWorkState, StatementReferences,
@@ -15,6 +14,7 @@ use culprit_core::{
     },
 };
 use culprit_engine::{NewConnection, Workspace};
+use culprit_read::cancellation::CollectionCancellation;
 use serde_json::Value;
 use std::{
     path::PathBuf,

@@ -1,11 +1,11 @@
 //! The canonical interpreter owns native meanings; the terminal only bounds and escapes derived fields.
-use super::{SourceQualification, Summary, append_remaining_limitations, render_summary, statement};
+use super::{SourceQualification, Summary, append_remaining_limitations, render_summary};
 use culprit_core::{ManagedInstanceResourceReport, SourceState, t};
 const INTERVAL_LIMIT: usize = 3;
 const FIELD_LIMIT: usize = 11;
 const TEXT_LIMIT: usize = 1024;
 fn text(value: &str) -> String {
-    statement::preview_bounded(value, TEXT_LIMIT)
+    culprit_core::format::escaped_preview(value, TEXT_LIMIT).text
 }
 pub(crate) fn managed_instance_resources(report: &ManagedInstanceResourceReport) -> String {
     let title = text(&report.title);

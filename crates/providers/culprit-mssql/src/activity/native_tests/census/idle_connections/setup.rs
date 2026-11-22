@@ -1,5 +1,6 @@
 //! Retains every attempted idle client until awaited retirement; uncertain identity work never heals on close.
 use super::*;
+use futures_util::FutureExt;
 
 #[derive(Default)]
 struct Work {

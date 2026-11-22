@@ -1,11 +1,13 @@
 //! Only a live selected native issuer can install authority; sealed/imported JSON remains evidence alone.
 use super::completed_capture::ReadControl;
 use super::{CompletedCaptureBudget, CompletedQualificationOriginal, Outbox, OutboxDelivery, problem, storage};
-use crate::capture::{self, CollectionCancellation, SourceFactory};
+use crate::capture;
+use crate::capture::SourceFactory;
 use culprit_core::{
     RecipeQualificationGap, RecipeQualificationState, RecipeQualificationSummary, Result, telemetry::*,
 };
 use culprit_read::admission::SourceGate;
+use culprit_read::cancellation::CollectionCancellation;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::BTreeMap,

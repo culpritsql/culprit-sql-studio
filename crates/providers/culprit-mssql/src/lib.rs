@@ -121,11 +121,13 @@ pub struct MssqlProvider {
 
 impl MssqlProvider {
     pub fn new(spec: &ConnectionSpec) -> Result<Self> {
+        let config = conn::build_config(spec)?;
+        let endpoint_port = culprit_core::Engine::Mssql.network_port(spec.port)?;
         Ok(MssqlProvider {
             environment: spec.environment,
-            pool: std::sync::Arc::new(Pool::new(conn::build_config(spec)?, spec.transport.clone())),
+            pool: std::sync::Arc::new(Pool::new(config, spec.transport.clone())),
             endpoint_host: spec.host.trim().into(),
-            endpoint_port: spec.port.unwrap_or(conn::DEFAULT_PORT),
+            endpoint_port,
         })
     }
 

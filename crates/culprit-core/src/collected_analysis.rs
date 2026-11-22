@@ -3,7 +3,7 @@ use crate::{
     AnalysisProvenance, CheckAssessment, Finding, LockedCheck, Workload,
     telemetry::{CaptureIdentity, CollectionDescription, ExportedRecord, StatementReferences, TelemetryStream},
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, TS)]
@@ -75,7 +75,7 @@ pub struct CollectedQueryInput {
     pub measurements: Vec<crate::telemetry::NativeMeasurementKey>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, TS)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "kebab-case")]
 #[ts(export)]
 pub enum CollectedAnalysisLimit {
@@ -111,7 +111,7 @@ pub struct CollectedAnalysisLimitation {
     pub reason: CollectedAnalysisLimit,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, TS)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(tag = "kind", rename_all = "kebab-case")]
 #[ts(export)]
 pub enum CollectedQueryPopulation {

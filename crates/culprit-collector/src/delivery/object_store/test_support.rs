@@ -1,10 +1,12 @@
 //! The same executable recovery contract runs against every native object provider.
-use super::{ObjectRecoveryStore, transport::*};
+use super::ObjectRecoveryStore;
 use crate::delivery::recovery::RecoveryStore;
 use culprit_core::telemetry::DeliveryProblem;
+use culprit_evidence::delivery::object_store::transport::*;
+use culprit_evidence::delivery::{mutations::RecoveryWrite as _, recovery::RecoveryRead as _};
 use std::sync::Arc;
 use tokio::io::AsyncReadExt;
-const DOWNLOAD_CHUNK_BYTES: usize = super::bridge::DOWNLOAD_CHUNK_BYTES;
+const DOWNLOAD_CHUNK_BYTES: usize = culprit_evidence::delivery::object_store::bridge::DOWNLOAD_CHUNK_BYTES;
 fn typed(error: culprit_core::Error) -> DeliveryProblem {
     let Some(culprit_core::ErrorDetail::Delivery(problem)) = error.detail else { panic!("typed delivery failure") };
     problem
@@ -20,7 +22,7 @@ pub async fn verify_recovery_contract(transport: Arc<dyn ObjectTransport>) {
     let bytes = vec![b'x'; 2 * DOWNLOAD_CHUNK_BYTES + 7];
     std::fs::write(temp.path(), &bytes).unwrap();
     let hash = culprit_core::telemetry::digest(&bytes);
-    let payload = crate::delivery::recovery::PayloadObject {
+    let payload = culprit_evidence::delivery::recovery::PayloadObject {
         object: format!("payloads/{hash}.ndjson"),
         sha256: hash,
         bytes: bytes.len() as u64,
@@ -44,7 +46,9 @@ pub async fn verify_recovery_contract(transport: Arc<dyn ObjectTransport>) {
     let empty = tempfile::NamedTempFile::new().unwrap();
     let mut staged = Vec::new();
     for batch in &manifest.batches {
-        staged.push(store.stage(&crate::delivery::recovery::PayloadObject::from(batch), empty.path()).await.unwrap());
+        staged.push(
+            store.stage(&culprit_evidence::delivery::recovery::PayloadObject::from(batch), empty.path()).await.unwrap(),
+        );
     }
     assert_eq!(typed(store.commit(&old, None, &manifest, &staged).await.err().unwrap()), DeliveryProblem::Fenced);
     store.commit(&owner, None, &manifest, &staged).await.unwrap();
@@ -59,8 +63,8 @@ pub async fn verify_recovery_contract(transport: Arc<dyn ObjectTransport>) {
     assert!(page.next_cursor.is_none());
 }
 
-fn fixture_contract() -> crate::delivery::contract::Contract {
-    crate::delivery::contract::Contract::new(
+fn fixture_contract() -> culprit_evidence::delivery::contract::Contract {
+    culprit_evidence::delivery::contract::Contract::new(
         "pipeline".into(),
         "shard-0".into(),
         "adx:test".into(),
@@ -69,9 +73,12 @@ fn fixture_contract() -> crate::delivery::contract::Contract {
     .unwrap()
 }
 
-fn empty_range(contract: crate::delivery::contract::Contract, epoch: u64) -> crate::delivery::evidence::RangeManifest {
-    use crate::delivery::evidence::*;
+fn empty_range(
+    contract: culprit_evidence::delivery::contract::Contract,
+    epoch: u64,
+) -> culprit_evidence::delivery::evidence::RangeManifest {
     use culprit_core::telemetry::*;
+    use culprit_evidence::delivery::evidence::*;
     let capture = CaptureIdentity {
         observation_id: "object-observation".into(),
         revision: Some(CaptureRevision {
@@ -127,7 +134,7 @@ fn empty_range(contract: crate::delivery::contract::Contract, epoch: u64) -> cra
         contract,
         range_id,
         capture,
-        reference_coverage: crate::collection_references::ObservationReferences::default()
+        reference_coverage: culprit_evidence::collection_references::ObservationReferences::default()
             .coverage(true, Some(&source)),
         source,
         collected_from: "2020-01-01T06:02:00Z".into(),

@@ -1,9 +1,9 @@
 //! Actual controller/scheduler/Outbox ownership with controlled native facts; no test approves native source cost.
 use super::*;
-use crate::{
-    analytical::test_support::{temporary_resource_basis, temporary_resource_result},
-    fleet::investigations::tests::support::capture_frame,
-};
+use crate::fleet::investigations::tests::support::capture_frame;
+use culprit_evidence::analytical::test_support::temporary_resource_basis;
+use culprit_evidence::analytical::test_support::temporary_resource_result;
+use culprit_read::cancellation::CollectionCancellation;
 
 pub(in crate::fleet::investigations) fn frame(focus: &SourceReadFocus, execution: &SourceReadExecutionScope) -> Frame {
     let (source, records) = temporary_resource_result(focus, execution, culprit_core::SourceState::Collected);
@@ -39,7 +39,7 @@ async fn fixture_with_age(qualified: bool, boundary: bool, age: Option<&str>) ->
     let mut harness = Harness::with_activity(Frame { source, records }).await;
     harness.backend.recipe.id = "fixture.temporary-resource-context".into();
     harness.backend.recipe.selector = SourceReadQuestion::TemporarySpaceContributors.selector();
-    let RecipeCostQualification::Measured(receipt) = &mut harness.backend.recipe.cost else { panic!() };
+    let RecipeAdmission::Measured(receipt) = &mut harness.backend.recipe.admission else { panic!() };
     receipt.recipe_id = harness.backend.recipe.id.clone();
     receipt.selector = harness.backend.recipe.selector;
     receipt.scope = RecipeCostScope::NativeRead(
@@ -52,7 +52,7 @@ async fn fixture_with_age(qualified: bool, boundary: bool, age: Option<&str>) ->
     receipt.tested_budget.max_snapshot_rows = 200;
     receipt.tested_budget.page_rows = 32;
     if !qualified {
-        harness.backend.recipe.cost = RecipeCostQualification::Unqualified
+        harness.backend.recipe.admission = RecipeAdmission::Unqualified
     }
     harness
 }

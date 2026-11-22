@@ -1,6 +1,7 @@
 //! Synthetic native inputs use the existing manifest writer and actual recovery commit/EOF verification.
 use super::*;
-use crate::analytical::test_support::{PageTaskHolderCase, page_task_holder_fixture};
+use culprit_evidence::analytical::test_support::PageTaskHolderCase;
+use culprit_evidence::analytical::test_support::page_task_holder_fixture;
 
 struct ManualArchive {
     root: tempfile::TempDir,
@@ -219,10 +220,10 @@ async fn cold_paired_question_authenticates_the_full_original_frame_and_rejects_
     };
     // The independent cost fields are structural fixture data only. This read-only test authenticates original
     // prerequisites; it neither invokes a native cost verifier nor admits any source work.
-    let mut recipe = crate::analytical::test_support::investigation_fixture().recipe;
+    let mut recipe = culprit_evidence::analytical::test_support::investigation_fixture().recipe;
     recipe.id = "fixture.archived-page-task-population".into();
     recipe.selector = RecipeSelector::PageWaitTasks;
-    let RecipeCostQualification::Measured(cost) = &mut recipe.cost else { panic!() };
+    let RecipeAdmission::Measured(cost) = &mut recipe.admission else { panic!() };
     cost.recipe_id = recipe.id.clone();
     cost.selector = recipe.selector;
     cost.scope = episode.scope.clone().into();

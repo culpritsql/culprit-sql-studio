@@ -138,8 +138,8 @@ impl Files {
                 })
             })
             .collect::<Vec<_>>();
-        write_stream(&mut files, 0, &records)?;
-        write_stream(&mut files, 1, &parts.into_iter().map(TelemetryRecord::DiagnosticCheckpoint).collect::<Vec<_>>())?;
+        files.write_stream(0, &records)?;
+        files.write_stream(1, &parts.into_iter().map(TelemetryRecord::DiagnosticCheckpoint).collect::<Vec<_>>())?;
         files.confirm_source(SourceCompletion::Verified)?;
         let manifest = files.finish(0)?;
         if manifest.status != CollectionStatus::Complete {
@@ -559,24 +559,6 @@ impl Files {
     }
 }
 
-fn write_stream(files: &mut ObservationFiles, index: usize, records: &[TelemetryRecord]) -> Result<()> {
-    let mut offset = 0;
-    while offset < records.len() {
-        files.begin_page(index).map_err(CollectionStop::error)?;
-        let mut end = (offset + files.manifest.request.budget.page_rows as usize).min(records.len());
-        loop {
-            match files.write_page(index, &records[offset..end])? {
-                None => break,
-                Some(CollectionStop::ByteLimit | CollectionStop::RowLimit) if end - offset > 1 => {
-                    end = offset + (end - offset) / 2;
-                }
-                Some(reason) => return Err(reason.error()),
-            }
-        }
-        offset = end;
-    }
-    files.seal(index)
-}
 pub(in crate::outbox) fn checkpoint_parts(
     checkpoint: &DiagnosticCheckpoint,
     budget: &CollectionBudget,

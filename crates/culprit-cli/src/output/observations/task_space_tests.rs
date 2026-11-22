@@ -1,6 +1,6 @@
 use super::*;
-use culprit_collector::analytical::test_support::task_space_evidence_cases;
 use culprit_core::{TaskAllocationActivity, telemetry::*};
+use culprit_evidence::analytical::test_support::task_space_evidence_cases;
 
 fn observation() -> TaskSpaceObservation {
     let (_, records) = task_space_evidence_cases().remove(0);

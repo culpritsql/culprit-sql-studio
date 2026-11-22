@@ -1,5 +1,6 @@
 use super::*;
-use culprit_collector::analytical::test_support::{PoolSettingsCase, pool_settings_evidence};
+use culprit_evidence::analytical::test_support::PoolSettingsCase;
+use culprit_evidence::analytical::test_support::pool_settings_evidence;
 async fn analyze(reader: &OutboxCaptureReader, connection: &str, id: &str) -> Result<Box<LocalPoolSettings>> {
     let guard = OperationGuard::new(reader.timeout()).unwrap();
     let result = reader

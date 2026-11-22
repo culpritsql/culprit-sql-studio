@@ -9,9 +9,14 @@ impl BlobRequest {
     pub fn new(endpoint: Arc<Endpoint>, path: String, authorization: RequestAuthorization) -> Self {
         Self { endpoint, path, authorization }
     }
+    #[cfg(feature = "write")]
     pub fn upload(self, body: Upload, condition: Condition) -> Result<ObjectWrite> {
         let date = storage_date();
-        let auth = self.authorization.header("PUT", &self.path, body.len(), Some(&condition), &date);
+        let borrowed = match &condition {
+            Condition::Absent => WriteCondition::Absent,
+            Condition::Matches(etag) => WriteCondition::Matches(etag),
+        };
+        let auth = self.authorization.header("PUT", &self.path, body.len(), Some(&borrowed), &date);
         let mut request = agent(self.endpoint.origin.starts_with("https://"))
             .put(format!("{}{}", self.endpoint.origin, self.path))
             .header("x-ms-version", STORAGE_VERSION)
@@ -48,6 +53,7 @@ impl BlobRequest {
         Ok(Some((response, etag, bytes)))
     }
 }
+#[cfg(feature = "write")]
 impl Upload {
     fn send(
         self,
@@ -62,6 +68,7 @@ impl Upload {
         result.map_err(|_| transport_error())
     }
 }
+#[cfg(feature = "write")]
 fn write_result(response: &ureq::http::Response<ureq::Body>, condition: &Condition) -> Result<ObjectWrite> {
     let code = response.headers().get("x-ms-error-code");
     match response.status().as_u16() {

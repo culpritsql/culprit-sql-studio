@@ -278,7 +278,7 @@ async fn prove_factory(pool: Arc<Pool>, session: &str, port: u16, original: &Tas
     );
     let recipe = crate::telemetry::recipes().into_iter().find(|recipe| recipe.id == "mssql.task-space").unwrap();
     assert_eq!(recipe.version, 3);
-    assert_eq!(recipe.cost, RecipeCostQualification::Unqualified);
+    assert_eq!(recipe.admission, RecipeAdmission::Unqualified);
 }
 
 #[tokio::test]

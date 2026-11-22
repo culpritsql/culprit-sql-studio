@@ -1,12 +1,12 @@
 use super::*;
 use crate::{NewConnection, Workspace};
 use async_trait::async_trait;
-use culprit_collector::capture::CollectionCancellation;
 use culprit_core::{
     AuthKind, Engine, Error, ErrorCode, ExplainMode, LiveState, Plan, Provider, ResultSet, ServerInfo, Snapshot,
     SnapshotOptions,
     telemetry::{CollectionRequest, CollectionSelection, SnapshotDataset},
 };
+use culprit_read::cancellation::CollectionCancellation;
 use std::sync::{
     Arc,
     atomic::{AtomicBool, AtomicUsize, Ordering},

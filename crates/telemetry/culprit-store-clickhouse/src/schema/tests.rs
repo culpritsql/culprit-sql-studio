@@ -1,5 +1,5 @@
 use super::*;
-use culprit_collector::analytical::schema::Field;
+use culprit_evidence::analytical::schema::Field;
 use serde_json::json;
 fn schema() -> Schema {
     Schema::new(
@@ -65,14 +65,14 @@ fn every_stream_has_one_physical_schema_without_adx_presence_columns() {
 
 #[tokio::test]
 async fn recovered_shared_resources_preserve_subject_and_scope_in_the_clickhouse_projection() {
-    use culprit_collector::{
+    use culprit_core::telemetry::{SharedResourceKind, TelemetryStream};
+    use culprit_evidence::{
         analytical::{
             envelope::Envelope,
             test_support::{Recovery, shared_resource},
         },
         delivery::recovery::reopen,
     };
-    use culprit_core::telemetry::{SharedResourceKind, TelemetryStream};
     let catalog = crate::catalog::SchemaCatalog::new().unwrap();
     let schema = catalog.get(TelemetryStream::ResourceSamples).unwrap();
     for kind in
@@ -112,11 +112,11 @@ async fn recovered_shared_resources_preserve_subject_and_scope_in_the_clickhouse
 
 #[tokio::test]
 async fn raw_tuning_plan_scopes_roundtrip_and_cannot_change_under_existing_receipts() {
-    use culprit_collector::{
+    use culprit_core::telemetry::{DeliveryProblem, ExportedRecord, TelemetryStream};
+    use culprit_evidence::{
         analytical::{envelope::Envelope, test_support},
         delivery::recovery::reopen,
     };
-    use culprit_core::telemetry::{DeliveryProblem, ExportedRecord, TelemetryStream};
     let catalog = crate::catalog::SchemaCatalog::new().unwrap();
     let schema = catalog.get(TelemetryStream::TuningObservations).unwrap();
     let (source, records) = test_support::tuning_scope_evidence();
@@ -157,3 +157,6 @@ async fn raw_tuning_plan_scopes_roundtrip_and_cannot_change_under_existing_recei
         );
     }
 }
+
+#[path = "tests/derived_diagnoses.rs"]
+mod derived_diagnoses;

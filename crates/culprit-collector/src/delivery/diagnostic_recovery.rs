@@ -1,156 +1,23 @@
 //! Diagnostic recovery retains the entire working set and exact original receipt references, not one latest episode.
-use super::{
-    evidence::{RangeManifest, range_id_for},
-    recovery::{self, CommittedRange, RecoveryRecords, RecoveryStore},
-};
+use super::recovery::RecoveryStore;
 use culprit_core::{Result, telemetry::*};
-use serde::{Deserialize, Serialize};
+use culprit_evidence::delivery::evidence::RangeManifest;
+use culprit_evidence::delivery::evidence::range_id_for;
+use culprit_evidence::delivery::recovery::CommittedRange;
+use culprit_evidence::delivery::recovery::RecoveryRead;
+use culprit_evidence::delivery::recovery::RecoveryRecords;
 use std::collections::{BTreeMap, BTreeSet};
 mod originals;
 mod source_reads;
-pub use originals::{
-    MAX_ORIGINAL_HISTORY_LOOKUP_GROUPS, OriginalHistoryLookup, OriginalHistoryPointer, authenticate_original_history,
-    original_revision,
+use culprit_evidence::delivery::{
+    heads::{DiagnosticHead, capture_reference},
+    originals::{OriginalHistoryPointer, original_revision, validate_original_group_keys},
 };
-pub(crate) use originals::{MAX_ORIGINAL_INDEX_BYTES, MAX_POINTER_BYTES, OriginalGroupHeads};
-pub(crate) use originals::{authenticate_original_capture, validate_original_group_keys};
+pub(crate) use originals::authenticate_original_capture;
+pub use originals::authenticate_original_history;
 mod task_holders;
 
 const MAX_DIAGNOSTIC_RECOVERY_BYTES: u64 = 16 * 1024 * 1024;
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
-#[serde(deny_unknown_fields)]
-pub struct DiagnosticHead {
-    pub controller_key: String,
-    pub controller_version: u32,
-    pub target: CollectionTarget,
-    pub parent: DiagnosticCaptureRef,
-    pub capture: DiagnosticCaptureRef,
-    pub range_id: String,
-    pub manifest_digest: String,
-}
-impl DiagnosticHead {
-    pub fn validate(&self) -> Result<()> {
-        let expected = DiagnosticCheckpoint {
-            controller_version: self.controller_version,
-            target: self.target.clone(),
-            input: self.parent.clone(),
-            episodes: vec![],
-        }
-        .key()?;
-        if expected != self.controller_key
-            || !self.capture.is_valid()
-            || !valid_digest(&self.range_id)
-            || !valid_digest(&self.manifest_digest)
-        {
-            return Err(invalid());
-        }
-        Ok(())
-    }
-    fn rank(&self) -> Result<(u64, u64)> {
-        let revision = self.capture.capture.revision.as_ref().ok_or_else(invalid)?;
-        Ok((revision.owner_epoch.parse().map_err(|_| invalid())?, revision.sequence.parse().map_err(|_| invalid())?))
-    }
-}
-#[derive(Clone)]
-pub struct DiagnosticHeadPage {
-    pub heads: Vec<DiagnosticHead>,
-    pub next_cursor: Option<String>,
-    pub high_sequence: u64,
-}
-#[derive(Default, Serialize, Deserialize)]
-#[serde(transparent)]
-pub(super) struct DiagnosticHeads(BTreeMap<String, DiagnosticHead>);
-impl DiagnosticHeads {
-    pub fn validate(&self) -> Result<()> {
-        if self.0.len() > MAX_DIAGNOSTIC_EPISODES {
-            return Err(DeliveryProblem::Capacity.error());
-        }
-        for (key, head) in &self.0 {
-            head.validate()?;
-            if key != &head.controller_key {
-                return Err(invalid());
-            }
-        }
-        Ok(())
-    }
-    pub fn is_empty(&self) -> bool {
-        self.0.is_empty()
-    }
-    pub fn observe(&mut self, manifest: &RangeManifest, manifest_digest: &str) -> Result<()> {
-        let SourceObservation::Diagnostics(description) = &manifest.source.observation else {
-            return Ok(());
-        };
-        let key = DiagnosticCheckpoint {
-            controller_version: description.controller_version,
-            target: manifest.source.target.clone(),
-            input: description.parent.clone(),
-            episodes: vec![],
-        }
-        .key()?;
-        let candidate = DiagnosticHead {
-            controller_key: key.clone(),
-            controller_version: description.controller_version,
-            target: manifest.source.target.clone(),
-            parent: description.parent.clone(),
-            capture: capture_reference(manifest)?,
-            range_id: manifest.range_id.clone(),
-            manifest_digest: manifest_digest.into(),
-        };
-        candidate.validate()?;
-        if let Some(previous) = self.0.get(&key) {
-            if previous.capture.capture.revision.as_ref().map(|revision| &revision.outbox_id)
-                != candidate.capture.capture.revision.as_ref().map(|revision| &revision.outbox_id)
-            {
-                return Err(DeliveryProblem::Conflict.error());
-            }
-            if previous.rank()? > candidate.rank()? {
-                return Ok(());
-            }
-            if previous.rank()? == candidate.rank()? && previous != &candidate {
-                return Err(invalid());
-            }
-        } else if self.0.len() == MAX_DIAGNOSTIC_EPISODES {
-            return Err(DeliveryProblem::Capacity.error());
-        }
-        self.0.insert(key, candidate);
-        Ok(())
-    }
-    pub fn page(&self, cursor: Option<&str>, limit: u32, high_sequence: u64) -> Result<DiagnosticHeadPage> {
-        self.validate()?;
-        if !(1..=128).contains(&limit) {
-            return Err(DeliveryProblem::Capacity.error());
-        }
-        let snapshot = digest(&serde_json::to_vec(self).map_err(|_| invalid())?);
-        let after = match cursor {
-            Some(text) if text.len() <= 512 => {
-                let (prior, after): (String, String) = serde_json::from_str(text).map_err(|_| invalid())?;
-                if prior != snapshot || !valid_digest(&after) {
-                    return Err(DeliveryProblem::Conflict.error());
-                }
-                after
-            }
-            Some(_) => return Err(invalid()),
-            None => String::new(),
-        };
-        let mut heads = self
-            .0
-            .range((std::ops::Bound::Excluded(after), std::ops::Bound::Unbounded))
-            .take(limit as usize + 1)
-            .map(|(_, head)| head.clone())
-            .collect::<Vec<_>>();
-        let next_cursor = if heads.len() > limit as usize {
-            heads.pop();
-            Some(
-                serde_json::to_string(&(snapshot, &heads.last().ok_or_else(invalid)?.controller_key))
-                    .map_err(|_| invalid())?,
-            )
-        } else {
-            None
-        };
-        Ok(DiagnosticHeadPage { heads, next_cursor, high_sequence })
-    }
-}
-
 pub struct RecoveredDiagnosticInput {
     range: CommittedRange,
     rows: Vec<(u32, ExportedRecord)>,
@@ -185,7 +52,7 @@ impl RecoveredDiagnosticEvidence {
 
 /// Resolve an artifact by exact receipt, including operational qualification evidence outside the work queue.
 pub async fn load_diagnostic_evidence(
-    store: &dyn RecoveryStore,
+    store: &dyn RecoveryRead,
     reference: &DiagnosticEvidenceRef,
 ) -> Result<RecoveredDiagnosticEvidence> {
     if !reference.is_valid() {
@@ -194,7 +61,7 @@ pub async fn load_diagnostic_evidence(
     let advertised = store.capture_manifest(&reference.capture).await?;
     verify_reference(&advertised, reference)?;
     let advertised_digest = advertised.digest()?;
-    let range = recovery::reopen(store, &advertised.range_id).await?;
+    let range = culprit_evidence::delivery::recovery::reopen(store, &advertised.range_id).await?;
     if range.manifest_digest() != advertised_digest || capture_reference(range.manifest())? != reference.capture_ref() {
         return Err(invalid());
     }
@@ -267,17 +134,6 @@ impl RecoveredDiagnosticCheckpoint {
         (self.range, self.checkpoint)
     }
 }
-pub fn capture_reference(manifest: &RangeManifest) -> Result<DiagnosticCaptureRef> {
-    let reference = DiagnosticCaptureRef {
-        capture: manifest.capture.clone(),
-        manifest_sha256: manifest.capture_manifest_sha256.clone(),
-        source_scope_id: manifest.source.captured_range()?.scope_id,
-    };
-    if !reference.is_valid() {
-        return Err(invalid());
-    }
-    Ok(reference)
-}
 pub(super) fn validate_pending_input(
     manifest: &RangeManifest,
     input: &DiagnosticCaptureRef,
@@ -297,8 +153,8 @@ pub(super) fn validate_pending_input(
     }
     Ok(())
 }
-pub async fn load_diagnostic_input(store: &dyn RecoveryStore, range_id: &str) -> Result<RecoveredDiagnosticInput> {
-    let range = recovery::reopen(store, range_id).await?;
+pub async fn load_diagnostic_input(store: &dyn RecoveryRead, range_id: &str) -> Result<RecoveredDiagnosticInput> {
+    let range = culprit_evidence::delivery::recovery::reopen(store, range_id).await?;
     if !crate::outbox::diagnostic_manifest_eligible(
         &range.manifest().source,
         range.manifest().investigation.as_ref(),
@@ -320,7 +176,7 @@ pub async fn load_diagnostic_input(store: &dyn RecoveryStore, range_id: &str) ->
     Ok(RecoveredDiagnosticInput { range, rows })
 }
 
-async fn input_body(store: &dyn RecoveryStore, manifest: &RangeManifest) -> Result<Vec<(u32, ExportedRecord)>> {
+async fn input_body(store: &dyn RecoveryRead, manifest: &RangeManifest) -> Result<Vec<(u32, ExportedRecord)>> {
     let focus = crate::outbox::source_read_result_focus(&manifest.source, manifest.investigation.as_ref())?;
     let (rows, references) = read_positions(store, manifest, None, focus).await?;
     if !references.coverage(true, Some(&manifest.source)).complete {
@@ -329,11 +185,11 @@ async fn input_body(store: &dyn RecoveryStore, manifest: &RangeManifest) -> Resu
     Ok(rows)
 }
 pub async fn load_diagnostic_checkpoint(
-    store: &dyn RecoveryStore,
+    store: &dyn RecoveryRead,
     head: &DiagnosticHead,
 ) -> Result<RecoveredDiagnosticCheckpoint> {
     head.validate()?;
-    let range = recovery::reopen(store, &head.range_id).await?;
+    let range = culprit_evidence::delivery::recovery::reopen(store, &head.range_id).await?;
     if range.manifest_digest() != head.manifest_digest || capture_reference(range.manifest())? != head.capture {
         return Err(invalid());
     }
@@ -356,7 +212,7 @@ pub(super) async fn validate_staged(
         return Ok(vec![]);
     };
     let rows = read_rows(store, manifest, None).await?;
-    let mut references = crate::collection_references::ObservationReferences::default();
+    let mut references = culprit_evidence::collection_references::ObservationReferences::default();
     for row in &rows {
         references.record(&row.record);
     }
@@ -414,7 +270,11 @@ pub(super) async fn validate_staged(
             task_holders::authenticate_episode(store, &manifest.contract, episode).await?;
         }
         if let Some(capture) = episode.source_read_capture() {
-            let native = recovery::reopen(store, &range_id_for(&manifest.contract, &capture.capture)?).await?;
+            let native = culprit_evidence::delivery::recovery::reopen(
+                store,
+                &range_id_for(&manifest.contract, &capture.capture)?,
+            )
+            .await?;
             if capture_reference(native.manifest())? != *capture {
                 return Err(invalid());
             }
@@ -641,7 +501,7 @@ fn input_rows(input: &RecoveredDiagnosticInput) -> Result<Vec<(DiagnosticEvidenc
 }
 
 async fn original_source_evidence<'a>(
-    store: &dyn RecoveryStore,
+    store: &dyn RecoveryRead,
     manifest: &RangeManifest,
     originals: &'a mut BTreeMap<String, DiagnosticOriginalEvidence>,
 ) -> Result<&'a DiagnosticOriginalEvidence> {
@@ -666,7 +526,7 @@ async fn original_source_evidence<'a>(
 }
 
 async fn authenticate_report_participants(
-    store: &dyn RecoveryStore,
+    store: &dyn RecoveryRead,
     manifest: &RangeManifest,
     episode: &DiagnosticEpisode,
     originals: &mut BTreeMap<String, DiagnosticOriginalEvidence>,
@@ -806,7 +666,7 @@ async fn authenticate_report_participants(
 }
 
 async fn authenticate_owned_report(
-    store: &dyn RecoveryStore,
+    store: &dyn RecoveryRead,
     manifest: &RangeManifest,
     episode: &DiagnosticEpisode,
     authenticated: &mut BTreeSet<String>,
@@ -836,8 +696,8 @@ fn authorize_shared_owner(
 }
 
 async fn authenticate_investigation_intent(
-    store: &dyn RecoveryStore,
-    contract: &crate::delivery::contract::Contract,
+    store: &dyn RecoveryRead,
+    contract: &culprit_evidence::delivery::contract::Contract,
     intent: &DiagnosticInvestigationIntent,
     authenticated: &mut BTreeSet<String>,
 ) -> Result<()> {
@@ -911,8 +771,8 @@ async fn authenticate_investigation_intent(
 }
 
 async fn authenticate_page_writer_focus(
-    store: &dyn RecoveryStore,
-    contract: &crate::delivery::contract::Contract,
+    store: &dyn RecoveryRead,
+    contract: &culprit_evidence::delivery::contract::Contract,
     focus: &PageWaitWriterFocus,
 ) -> Result<Vec<DiagnosticEvidenceRef>> {
     let original = focus.waiter.participant();
@@ -967,7 +827,7 @@ pub fn verify_reference(manifest: &RangeManifest, reference: &DiagnosticEvidence
     }
     Ok(())
 }
-async fn read_checkpoint(store: &dyn RecoveryStore, manifest: &RangeManifest) -> Result<DiagnosticCheckpoint> {
+async fn read_checkpoint(store: &dyn RecoveryRead, manifest: &RangeManifest) -> Result<DiagnosticCheckpoint> {
     let SourceObservation::Diagnostics(description) = &manifest.source.observation else {
         return Err(invalid());
     };
@@ -992,7 +852,7 @@ async fn read_checkpoint(store: &dyn RecoveryStore, manifest: &RangeManifest) ->
     Ok(checkpoint)
 }
 async fn read_rows(
-    store: &dyn RecoveryStore,
+    store: &dyn RecoveryRead,
     manifest: &RangeManifest,
     only: Option<TelemetryStream>,
 ) -> Result<Vec<ExportedRecord>> {
@@ -1003,11 +863,11 @@ async fn read_rows(
 /// Selection changes retained memory only. The same paid stream still verifies all original bytes, rows,
 /// source references and EOF before any selected native position becomes usable.
 async fn read_positions(
-    store: &dyn RecoveryStore,
+    store: &dyn RecoveryRead,
     manifest: &RangeManifest,
     only: Option<TelemetryStream>,
     focus: Option<&SourceReadFocus>,
-) -> Result<(Vec<(u32, ExportedRecord)>, crate::collection_references::ObservationReferences)> {
+) -> Result<(Vec<(u32, ExportedRecord)>, culprit_evidence::collection_references::ObservationReferences)> {
     let batches =
         manifest.batches.iter().filter(|batch| only.is_none_or(|stream| stream == batch.stream)).collect::<Vec<_>>();
     if batches.iter().map(|batch| batch.bytes).sum::<u64>() > MAX_DIAGNOSTIC_RECOVERY_BYTES
@@ -1016,7 +876,7 @@ async fn read_positions(
         return Err(DeliveryProblem::Capacity.error());
     }
     let mut output = vec![];
-    let mut references = crate::collection_references::ObservationReferences::default();
+    let mut references = culprit_evidence::collection_references::ObservationReferences::default();
     for batch in batches {
         let mut records = RecoveryRecords::open(store, batch).await?;
         let mut ordinal = 0;

@@ -1,10 +1,11 @@
 use super::*;
-use culprit_collector::analytical::test_support::{InstanceResourceCase, instance_resource_evidence};
 use culprit_core::{SourceState, telemetry::*};
+use culprit_evidence::analytical::test_support::InstanceResourceCase;
+use culprit_evidence::analytical::test_support::instance_resource_evidence;
 
 #[test]
 fn processor_cpu_text_uses_the_canonical_point_with_exact_totals_and_independent_native_clock() {
-    use culprit_collector::analytical::test_support::{ProcessCpuCase, instance_resource_cpu_evidence};
+    use culprit_evidence::analytical::test_support::{ProcessCpuCase, instance_resource_cpu_evidence};
     for case in ProcessCpuCase::ALL {
         let (source, rows) = instance_resource_cpu_evidence(case);
         let rows = rows
@@ -95,7 +96,7 @@ fn resource_summaries_keep_source_gaps_with_one_bounded_general_qualification() 
 
 #[test]
 fn scheduler_text_retains_each_native_field_exact_values_nullable_states_and_original_source_qualification() {
-    use culprit_collector::analytical::test_support::{SchedulerCase, instance_resource_scheduler_evidence};
+    use culprit_evidence::analytical::test_support::{SchedulerCase, instance_resource_scheduler_evidence};
     for case in SchedulerCase::ALL {
         let (source, rows) = instance_resource_scheduler_evidence(case);
         let rows = rows
@@ -132,7 +133,7 @@ fn scheduler_text_retains_each_native_field_exact_values_nullable_states_and_ori
 
 #[test]
 fn scheduler_text_bounds_and_escapes_each_native_field_without_hiding_later_queue_values() {
-    use culprit_collector::analytical::test_support::{SchedulerCase, instance_resource_scheduler_evidence};
+    use culprit_evidence::analytical::test_support::{SchedulerCase, instance_resource_scheduler_evidence};
     let (source, rows) = instance_resource_scheduler_evidence(SchedulerCase::Limited);
     let rows = rows
         .into_iter()
@@ -157,7 +158,7 @@ fn scheduler_text_bounds_and_escapes_each_native_field_without_hiding_later_queu
 
 #[test]
 fn modern_scheduler_cli_never_words_raw_spinlock_zero_or_positive_as_measured_activity() {
-    use culprit_collector::analytical::test_support::{SchedulerCase, instance_resource_scheduler_evidence};
+    use culprit_evidence::analytical::test_support::{SchedulerCase, instance_resource_scheduler_evidence};
     for case in [SchedulerCase::Exact, SchedulerCase::SpinlockRawPositive] {
         let (source, rows) = instance_resource_scheduler_evidence(case);
         let rows = rows
@@ -181,7 +182,7 @@ fn modern_scheduler_cli_never_words_raw_spinlock_zero_or_positive_as_measured_ac
 
 #[test]
 fn numa_cli_keeps_both_original_populations_exact_values_and_separate_null_or_unavailable_fields() {
-    use culprit_collector::analytical::test_support::{NumaNodeCase, numa_node_evidence};
+    use culprit_evidence::analytical::test_support::{NumaNodeCase, numa_node_evidence};
     for case in NumaNodeCase::ALL {
         let (source, rows) = numa_node_evidence(case);
         let rows = rows
@@ -214,7 +215,7 @@ fn numa_cli_keeps_both_original_populations_exact_values_and_separate_null_or_un
 }
 #[test]
 fn numa_cli_bounds_each_field_and_entry_without_hiding_the_other_native_population() {
-    use culprit_collector::analytical::test_support::{NumaNodeCase, numa_node_evidence};
+    use culprit_evidence::analytical::test_support::{NumaNodeCase, numa_node_evidence};
     let (source, rows) = numa_node_evidence(NumaNodeCase::Limited);
     let rows = rows
         .into_iter()
@@ -243,7 +244,7 @@ fn numa_cli_bounds_each_field_and_entry_without_hiding_the_other_native_populati
 
 #[test]
 fn boxed_cpu_cli_keeps_original_pool_totals_interval_denominator_and_unknown_idle_qualifications() {
-    use culprit_collector::analytical::test_support::{ProcessCpuIntervalCase, process_cpu_interval_originals};
+    use culprit_evidence::analytical::test_support::{ProcessCpuIntervalCase, process_cpu_interval_originals};
     for case in ProcessCpuIntervalCase::ALL {
         let [first, second] = process_cpu_interval_originals(case);
         let mut report = culprit_checks::instance_resources::explain_captured(&second).unwrap();
@@ -262,8 +263,8 @@ fn boxed_cpu_cli_keeps_original_pool_totals_interval_denominator_and_unknown_idl
 }
 #[test]
 fn boxed_cpu_cli_bounds_each_original_population_field_without_control_characters_or_late_field_loss() {
-    let [_, second] = culprit_collector::analytical::test_support::process_cpu_interval_originals(
-        culprit_collector::analytical::test_support::ProcessCpuIntervalCase::Exact,
+    let [_, second] = culprit_evidence::analytical::test_support::process_cpu_interval_originals(
+        culprit_evidence::analytical::test_support::ProcessCpuIntervalCase::Exact,
     );
     let mut report = culprit_checks::instance_resources::explain_captured(&second).unwrap();
     let cpu = report.process_cpu.as_mut().unwrap();
@@ -279,7 +280,7 @@ fn boxed_cpu_cli_bounds_each_original_population_field_without_control_character
 
 #[test]
 fn same_record_other_process_cpu_and_both_raw_inputs_fit_the_existing_eight_field_cli_budget() {
-    use culprit_collector::analytical::test_support::{ProcessCpuIntervalCase, process_cpu_interval_originals};
+    use culprit_evidence::analytical::test_support::{ProcessCpuIntervalCase, process_cpu_interval_originals};
     for case in ProcessCpuIntervalCase::ALL {
         let [_, original] = process_cpu_interval_originals(case);
         let report = culprit_checks::instance_resources::explain_captured(&original).unwrap();
