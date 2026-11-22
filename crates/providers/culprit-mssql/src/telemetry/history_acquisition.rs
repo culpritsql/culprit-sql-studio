@@ -9,6 +9,7 @@ use culprit_core::{Error, ErrorCode, Result, telemetry::*};
 enum Profile {
     AzureLogical,
     BoxedSql2022,
+    ManagedInstance,
 }
 #[derive(Clone)]
 pub(super) struct HistoryAcquisition {
@@ -25,7 +26,10 @@ impl HistoryAcquisition {
         let profile = match (context.activity.edition, context.activity.major) {
             (5, _) => Profile::AzureLogical,
             (2..=4, 16) => Profile::BoxedSql2022,
-            // Managed Instance and other native versions need their own real compatibility acceptance.
+            // Managed version numbers do not establish a boxed engine's compatibility level. Optional Query Store
+            // fields remain source-observed; this profile establishes acquisition authority, not native/cost approval.
+            (8, _) => Profile::ManagedInstance,
+            // Other boxed native versions retain their separate compatibility boundary.
             _ => return Err(Error::new(ErrorCode::Unsupported, culprit_core::t!("collection.unsupported"))),
         };
         if !context.is_qualified() {
@@ -52,7 +56,9 @@ impl HistoryAcquisition {
         }
         match self.profile {
             Profile::AzureLogical => crate::resources::admit_resources(reader).await,
-            Profile::BoxedSql2022 => crate::resources::admit_instance_resources(reader).await,
+            Profile::BoxedSql2022 | Profile::ManagedInstance => {
+                crate::resources::admit_instance_resources(reader).await
+            }
         }
         .map_err(ReadError::into_error)
     }

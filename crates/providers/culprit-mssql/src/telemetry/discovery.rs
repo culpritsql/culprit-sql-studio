@@ -190,7 +190,7 @@ mod tests {
     }
     #[tokio::test]
     async fn discovery_pages_preserve_native_boundaries_and_one_fixed_closed_horizon() {
-        for edition in [5, 3] {
+        for edition in [5, 3, 8] {
             let mut request = request();
             let first = interval(17, "2026-11-10T06:00:00.1234567Z", "2026-11-10T07:00:00.1234567Z");
             let second = interval(18, "2026-11-10T07:00:00.1234567Z", "2026-11-10T08:00:00Z");
@@ -233,7 +233,7 @@ mod tests {
     }
     #[tokio::test]
     async fn a_changed_native_owner_or_repeated_interval_cannot_complete_discovery() {
-        for edition in [5, 3] {
+        for edition in [5, 3, 8] {
             let field = if edition == 5 { "physical_incarnation" } else { "recovery_fork_guid" };
             let mut reader = replies(
                 edition,

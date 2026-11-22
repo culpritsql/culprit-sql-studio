@@ -410,6 +410,12 @@ On Azure SQL Database, admission for the heavier background sources checks datab
 
 Query Store and the plan cache are aggregate histories, not application request traces. Cache eviction, resets, retention, permissions and the selected interval limit what can be compared. A compilation plan does not measure the work of the execution being investigated.
 
+Background Query Store runtime and wait capture also has a Managed Instance acquisition profile. It uses the same
+reader, native layout discovery and caller limits, with the local process, recovery, role and connection checked
+before and after collection. This acquisition identity does not identify the historical executor or invent a replica
+group. The profile remains manual and unqualified until actual Managed Instance compatibility, cancellation and cost
+have been validated; scripted tests alone do not enable automatic production collection.
+
 Host CPU or filesystem capacity is shown only when the relevant source supplies it. Backup recoverability, database corruption and application transaction boundaries cannot be certified from a successful statistics scan. Cloud limits retain their measured scope and period.
 
 Rates require sufficient history, and an unused-index verdict requires at least a week of dated counters. See the shared [evidence rules](coverage.md).

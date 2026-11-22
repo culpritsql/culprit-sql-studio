@@ -138,7 +138,7 @@ const REGISTRATIONS: &[Registration] = &[
         |pool, request, host, port| Ok(Box::new(Source::new(pool, request, host, port)?)),
     )
     .baseline()
-    .version(7),
+    .version(8),
     Registration::database(
         "mssql.resource-history",
         RecipeSelector::Collection(TelemetryCollection::ResourceHistory),

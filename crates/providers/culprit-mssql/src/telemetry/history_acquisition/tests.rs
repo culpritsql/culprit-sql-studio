@@ -20,7 +20,7 @@ fn initial(edition: i64, identity: Rec) -> Vec<ReadResult<Vec<Rec>>> {
 }
 #[tokio::test]
 async fn acquired_owner_is_local_and_does_not_change_the_logical_history_namespace() {
-    for edition in [2, 3, 4, 5] {
+    for edition in [2, 3, 4, 5, 8] {
         let mut rows = initial(edition, authority(edition));
         rows.push(Ok(vec![if edition == 5 { pressure() } else { instance_pressure_row() }]));
         let mut reader = FakeRead::new(rows);
@@ -41,21 +41,24 @@ async fn acquired_owner_is_local_and_does_not_change_the_logical_history_namespa
 }
 #[tokio::test]
 async fn unsupported_platforms_and_missing_native_authority_stop_before_pressure_or_history() {
-    for edition in [8, 2, 3, 4, 5] {
-        let identity = if edition == 8 {
-            authority(edition)
-        } else {
-            replace(&authority(edition), &[(if edition == 5 { "replica_id" } else { "recovery_fork_guid" }, Val::Null)])
-        };
+    for edition in [2, 3, 4, 5, 8] {
+        let identity = replace(
+            &authority(edition),
+            &[(if edition == 5 { "replica_id" } else { "recovery_fork_guid" }, Val::Null)],
+        );
         let mut reader = FakeRead::new(initial(edition, identity));
         let error = HistoryAcquisition::read(&mut reader, "fixture.invalid", 1433).await.err().unwrap();
-        if edition == 8 {
-            assert_eq!(error.code, ErrorCode::Unsupported);
-        } else {
-            assert_eq!(CollectionStop::from_error(&error), CollectionStop::SourceUnavailable);
-        }
+        assert_eq!(CollectionStop::from_error(&error), CollectionStop::SourceUnavailable);
         assert_eq!(reader.calls.len(), if edition == 5 { 2 } else { 3 });
         assert!(reader.calls.iter().all(|call| !call.sql.contains("sys.database_query_store_options")));
+        assert_eq!(reader.close().await, SourceShutdown::Quiescent);
+    }
+    for edition in [6, 9, 11] {
+        let mut reader = FakeRead::new(initial(edition, authority(edition)));
+        let error = HistoryAcquisition::read(&mut reader, "fixture.invalid", 1433).await.err().unwrap();
+        assert_eq!(error.code, ErrorCode::Unsupported);
+        assert_eq!(reader.calls.len(), 1, "unsupported platform never reaches instance/database authority");
+        assert_eq!(reader.close().await, SourceShutdown::Quiescent);
     }
     let mut rows = initial(3, replace(&authority(3), &[("major", Val::Int(17))]));
     let Ok(metadata) = &mut rows[0] else { panic!() };
@@ -66,32 +69,36 @@ async fn unsupported_platforms_and_missing_native_authority_stop_before_pressure
         ErrorCode::Unsupported
     );
     assert_eq!(reader.calls.len(), 3, "a known future server is not this accepted SQL2022 compatibility profile");
+    assert_eq!(reader.close().await, SourceShutdown::Quiescent);
 }
 #[tokio::test]
 async fn final_native_recovery_process_or_updateability_change_cannot_complete_an_owner() {
-    for changes in [
-        vec![("recovery_fork_guid", Val::Text("other-native-fork".into()))],
-        vec![("database_file_guid", Val::Null)],
-        vec![("updateability", Val::Text("READ_ONLY".into()))],
-    ] {
-        let mut rows = initial(3, authority(3));
-        rows.extend(initial(3, replace(&authority(3), &changes)));
+    for edition in [3, 8] {
+        for changes in [
+            vec![("recovery_fork_guid", Val::Text("other-native-fork".into()))],
+            vec![("database_file_guid", Val::Null)],
+            vec![("updateability", Val::Text("READ_ONLY".into()))],
+        ] {
+            let mut rows = initial(edition, authority(edition));
+            rows.extend(initial(edition, replace(&authority(edition), &changes)));
+            let mut reader = FakeRead::new(rows);
+            let original = HistoryAcquisition::read(&mut reader, "fixture.invalid", 1433).await.unwrap();
+            assert!(original.recheck(&mut reader, "fixture.invalid", 1433).await.is_err());
+            assert_eq!(reader.calls.len(), 6);
+            assert_eq!(reader.close().await, SourceShutdown::Quiescent);
+        }
+        let mut rows = initial(edition, authority(edition));
+        let mut after = initial(edition, authority(edition));
+        after[1] = Ok(vec![crate::instance::test_support::epoch(101)]);
+        rows.extend(after);
         let mut reader = FakeRead::new(rows);
         let original = HistoryAcquisition::read(&mut reader, "fixture.invalid", 1433).await.unwrap();
-        assert!(original.recheck(&mut reader, "fixture.invalid", 1433).await.is_err());
-        assert_eq!(reader.calls.len(), 6);
+        assert_eq!(
+            CollectionStop::from_error(&original.recheck(&mut reader, "fixture.invalid", 1433).await.err().unwrap()),
+            CollectionStop::SourceChanged
+        );
         assert_eq!(reader.close().await, SourceShutdown::Quiescent);
     }
-    let mut rows = initial(3, authority(3));
-    let mut after = initial(3, authority(3));
-    after[1] = Ok(vec![crate::instance::test_support::epoch(101)]);
-    rows.extend(after);
-    let mut reader = FakeRead::new(rows);
-    let original = HistoryAcquisition::read(&mut reader, "fixture.invalid", 1433).await.unwrap();
-    assert_eq!(
-        CollectionStop::from_error(&original.recheck(&mut reader, "fixture.invalid", 1433).await.err().unwrap()),
-        CollectionStop::SourceChanged
-    );
 }
 struct FencedRead {
     inner: FakeRead,
@@ -114,44 +121,70 @@ impl NativeRead for FencedRead {
 }
 #[tokio::test]
 async fn fencing_and_native_lifecycle_stops_do_not_reenter_with_a_replacement_reader() {
-    let generation = Arc::new(AtomicU64::new(1));
-    let mut reader = FencedRead { inner: FakeRead::new(initial(3, authority(3))), generation: generation.clone() };
-    let original = HistoryAcquisition::read(&mut reader, "fixture.invalid", 1433).await.unwrap();
-    generation.store(2, Ordering::SeqCst);
-    assert_eq!(
-        CollectionStop::from_error(&original.admit(&mut reader).await.err().unwrap()),
-        CollectionStop::SourceChanged
-    );
-    assert_eq!(reader.inner.calls.len(), 3, "fence is checked before another native dispatch");
-    for stop in [CollectionStop::TimedOut, CollectionStop::CancellationUnconfirmed, CollectionStop::QueryLimit] {
-        let mut rows = initial(3, authority(3));
-        rows.push(Err(ReadError::Stopped(stop)));
-        let mut reader = FakeRead::new(rows);
-        reader.shutdown = SourceShutdown::Unconfirmed;
+    for edition in [3, 8] {
+        let generation = Arc::new(AtomicU64::new(1));
+        let mut reader =
+            FencedRead { inner: FakeRead::new(initial(edition, authority(edition))), generation: generation.clone() };
         let original = HistoryAcquisition::read(&mut reader, "fixture.invalid", 1433).await.unwrap();
-        assert_eq!(CollectionStop::from_error(&original.admit(&mut reader).await.err().unwrap()), stop);
-        assert_eq!(reader.calls.len(), 4);
-        assert_eq!(reader.close().await, SourceShutdown::Unconfirmed);
+        generation.store(2, Ordering::SeqCst);
+        assert_eq!(
+            CollectionStop::from_error(&original.admit(&mut reader).await.err().unwrap()),
+            CollectionStop::SourceChanged
+        );
+        assert_eq!(reader.inner.calls.len(), 3, "fence is checked before another native dispatch");
+        assert_eq!(reader.close().await, SourceShutdown::Quiescent);
+        assert_eq!(reader.inner.closed, 1);
+        for stop in [CollectionStop::TimedOut, CollectionStop::CancellationUnconfirmed, CollectionStop::QueryLimit] {
+            let mut rows = initial(edition, authority(edition));
+            rows.push(Err(ReadError::Stopped(stop)));
+            let mut reader = FakeRead::new(rows);
+            reader.shutdown = SourceShutdown::Unconfirmed;
+            let original = HistoryAcquisition::read(&mut reader, "fixture.invalid", 1433).await.unwrap();
+            assert_eq!(CollectionStop::from_error(&original.admit(&mut reader).await.err().unwrap()), stop);
+            assert_eq!(reader.calls.len(), 4);
+            assert_eq!(reader.close().await, SourceShutdown::Unconfirmed);
+        }
     }
 }
 
 #[tokio::test]
 async fn a_valid_final_native_clock_regression_is_source_changed_before_header_completion() {
-    let mut replies = initial(3, authority(3));
-    let mut final_rows =
-        initial(3, replace(&authority(3), &[("observed_at", Val::Text("2020-01-01T05:59:59Z".into()))]));
-    let Ok(platform) = &mut final_rows[0] else { panic!() };
-    platform[0] = replace(&platform[0], &[("observed_at", Val::Text("2020-01-01T05:59:58Z".into()))]);
-    replies.extend(final_rows);
-    let mut reader = FakeRead::new(replies);
-    let original = HistoryAcquisition::read(&mut reader, "fixture.invalid", 1433).await.unwrap();
-    let final_owner = original.recheck(&mut reader, "fixture.invalid", 1433).await.unwrap();
-    assert!(original.owner().unwrap().is_valid());
-    assert!(final_owner.owner().unwrap().is_valid(), "each native observation is well formed within its own read");
-    assert_eq!(
-        CollectionStop::from_error(&original.completed(&final_owner).err().unwrap()),
-        CollectionStop::SourceChanged
-    );
-    assert_eq!(reader.calls.len(), 6, "chronology comparison performs no repair read");
+    for edition in [3, 8] {
+        let mut replies = initial(edition, authority(edition));
+        let mut final_rows = initial(
+            edition,
+            replace(&authority(edition), &[("observed_at", Val::Text("2020-01-01T05:59:59Z".into()))]),
+        );
+        let Ok(platform) = &mut final_rows[0] else { panic!() };
+        platform[0] = replace(&platform[0], &[("observed_at", Val::Text("2020-01-01T05:59:58Z".into()))]);
+        replies.extend(final_rows);
+        let mut reader = FakeRead::new(replies);
+        let original = HistoryAcquisition::read(&mut reader, "fixture.invalid", 1433).await.unwrap();
+        let final_owner = original.recheck(&mut reader, "fixture.invalid", 1433).await.unwrap();
+        assert!(original.owner().unwrap().is_valid());
+        assert!(final_owner.owner().unwrap().is_valid(), "each native observation is well formed within its own read");
+        assert_eq!(
+            CollectionStop::from_error(&original.completed(&final_owner).err().unwrap()),
+            CollectionStop::SourceChanged
+        );
+        assert_eq!(reader.calls.len(), 6, "chronology comparison performs no repair read");
+        assert_eq!(reader.close().await, SourceShutdown::Quiescent);
+    }
+}
+
+#[tokio::test]
+async fn managed_profile_does_not_borrow_a_boxed_major_and_uses_the_existing_instance_admission() {
+    let mut rows = initial(8, replace(&authority(8), &[("major", Val::Int(12))]));
+    let Ok(platform) = &mut rows[0] else { panic!() };
+    platform[0] = replace(&platform[0], &[("major", Val::Text("12".into()))]);
+    rows.push(Ok(vec![instance_pressure_row()]));
+    let mut reader = FakeRead::new(rows);
+    let acquisition = HistoryAcquisition::read(&mut reader, "fixture.invalid", 1433).await.unwrap();
+    assert!(matches!(acquisition.profile, Profile::ManagedInstance));
+    assert!(acquisition.target().database().unwrap().incarnation.is_none());
+    acquisition.admit(&mut reader).await.unwrap();
+    assert_eq!(reader.calls.len(), 4);
+    assert!(reader.calls[3].sql.contains("sys.dm_os_schedulers"));
+    assert!(!reader.calls[3].sql.contains("sys.dm_db_resource_stats"));
     assert_eq!(reader.close().await, SourceShutdown::Quiescent);
 }
