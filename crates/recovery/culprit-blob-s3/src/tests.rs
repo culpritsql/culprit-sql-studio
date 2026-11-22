@@ -1,6 +1,7 @@
 use super::*;
 use culprit_auth::AccessKeyCredential;
 use culprit_evidence::delivery::{mutations::RecoveryWrite as _, recovery::RecoveryRead as _};
+use tokio::io::AsyncReadExt;
 use zeroize::Zeroizing;
 
 fn server(response: Vec<u8>) -> (u16, std::thread::JoinHandle<String>) {
@@ -165,13 +166,13 @@ async fn owned_transport(settings: S3Config) -> Arc<S3Transport> {
 #[tokio::test]
 #[ignore = "requires the owned S3 and ClickHouse fixtures from dev/smoke-s3.py"]
 async fn s3_recovery_clickhouse_delivery_and_restart() {
-    use culprit_collector::{
+    use culprit_collector::delivery::{
+        object_store::ObjectRecoveryStore,
+        sink::{DeliveryAttempt, TelemetrySink, VerificationBudget, dispatch_range, verify},
+    };
+    use culprit_evidence::{
         analytical::test_support,
-        delivery::{
-            object_store::ObjectRecoveryStore,
-            recovery::{PayloadObject, RecoveryStore, reopen},
-            sink::{DeliveryAttempt, TelemetrySink, VerificationBudget, dispatch_range, verify},
-        },
+        delivery::recovery::{PayloadObject, reopen},
     };
     use culprit_store_clickhouse::{
         catalog::SchemaCatalog,

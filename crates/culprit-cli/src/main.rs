@@ -528,19 +528,19 @@ fn main() -> ExitCode {
 async fn run(command: Command, out: &Out) -> culprit_core::Result<u8> {
     // Needs no workspace, so an update works even when the configuration can't be read.
     if let Command::Update(args) = command {
-        return update_cmd::run(args, out).await;
+        return command_task(|| update_cmd::run(args, out)).await;
     }
     if let Command::Collect(command) = command {
-        return collect_cmd::run(command, out).await;
+        return command_task(|| collect_cmd::run(command, out)).await;
     }
     if let Command::Logs(args) = command {
-        return logs_cmd::run(args, out).await;
+        return command_task(|| logs_cmd::run(args, out)).await;
     }
     if let Command::Resources(args) = command {
-        return resources_cmd::run(args, out).await;
+        return command_task(|| resources_cmd::run(args, out)).await;
     }
     if let Command::Incident(args) = command {
-        return incident_cmd::run(args, out).await;
+        return command_task(|| incident_cmd::run(args, out)).await;
     }
     let mut ws = Workspace::open()?;
     // A device-code sign-in needs a person to read the code; scripts and agents get an error with a hint instead.

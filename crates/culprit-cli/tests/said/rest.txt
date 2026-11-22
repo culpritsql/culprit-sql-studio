@@ -125,6 +125,17 @@ last-actual-plans  Actual plans without re-running queries
                   SQL Server · SQL Server 2019+ can keep each query's last actual plan (LAST_QUERY_PLAN_STATS) and report live per-operator progress (LIGHTWEIGHT_QUERY_PROFILING).
 $ culprit --format text sources
 SQL Server
+  managed-instance-resource-history Native Azure SQL Managed Instance resource history. · adds detail
+  database backup history   Database backup history · adds detail
+  columnstore rowgroups     Selected current native columnstore rowgroup catalog · adds detail
+  full-text populations     Selected native full-text population metadata. · adds detail
+  memory-optimized table memory Current allocated and used memory for one selected memory-optimized table and its indexes. · adds detail
+  change feed availability  Native change-feed layout and permission visibility · adds detail
+  change feed scan sessions Retained change-feed log-scan progress · adds detail
+  change feed processing errors Retained change-feed error numbers and task context · adds detail
+  cdc status                Native CDC feature, layout and permission state · adds detail
+  cdc scan sessions         Native database-local CDC scan sessions · adds detail
+  cdc processing errors     Retained native CDC processing errors without message text · adds detail
   mssql-agent-jobs          Current Agent job definitions and recorded activity · adds detail
   mssql-agent-job-steps     Current Agent step metadata, excluding commands · adds detail
   mssql-agent-job-history   Bounded retained Agent history, excluding messages · adds detail
@@ -133,6 +144,7 @@ SQL Server
   configured-log-rates      Configured transaction-log rate limits from sys.dm_user_db_resource_governance. · adds detail
   memory failures           retained database-engine out-of-memory observations · adds detail
   current request memory    current query memory requests and reservations · adds detail
+  mssql-current-request-work Counters and selected cached-statement metadata for one original request, with native source and endpoint checks. · adds detail
   cache entry memory        selected cache objects and their native cache-key attributes · adds detail
   page wait targets         observed page waits and bounded current page/object metadata · adds detail
   task space                current task temporary-space counters and request context · adds detail
@@ -160,8 +172,11 @@ SQL Server
   resources                 resource statistics · Resource usage
   pool resources            Elastic-pool resource history · adds detail
   memory clerks             database engine memory allocations by component · adds detail
+  tempdb metadata memory    tempdb metadata memory feature and consumers · adds detail
   instance-resources        Shared instance resource views · adds detail
   schedulers                native scheduler tasks, worker queues and CPU counters · adds detail
+  cpu-node-state            Current SQLOS CPU-node metadata and counters · adds detail
+  memory-node-state         Current SQL memory-manager node counters · adds detail
   forwarded_fetches         forwarded fetches · adds detail
   query_families            query families · adds detail
   plan cache use            plan cache use · adds detail
@@ -176,6 +191,7 @@ SQL Server
   database scoped settings  database scoped configurations · adds detail
   server settings           configured and active server settings · adds detail
   query store settings      Query Store configuration and status · adds detail
+  pool-resource-governance-settings Current native user-resource-pool settings through a verified member · adds detail
   processor topology        host processors and online SQL scheduler topology · adds detail
   compilation gateways      the optimizer’s resource-pool compiler gateways · adds detail
   compilation queue         requests waiting for compiler admission · adds detail
@@ -198,6 +214,7 @@ SQL Server
 PostgreSQL
   timescale-jobs            Installed TimescaleDB job definitions and reported scheduler statistics · adds detail
   timescale-job-runs        Bounded retained TimescaleDB job execution records and SQLSTATEs · adds detail
+  timescale-continuous-aggregates continuous-aggregate catalog configuration · adds detail
   timescale-hypertables     TimescaleDB hypertables, dimensions and aggregate storage sizes · Table statistics, Optimizer statistics, Index usage statistics
   timescale-chunks          TimescaleDB managed chunks and compressed storage sizes · adds detail
   timescale-indexes         TimescaleDB logical hypertable index sizes · adds detail
@@ -243,6 +260,8 @@ YugabyteDB
   settings                  YSQL and DocDB supported configuration · adds detail
   docdb-index-usage         complete cluster-wide index usage and its reset epochs · Index usage statistics
 MySQL
+  mysql-group-replication   Group Replication members, certification and transaction queues · adds detail
+  mysql-scheduled-events    Event Scheduler configuration and visible scheduled-event metadata. · adds detail
   mysql-current-request-work Selected current statement events and their native parent-linked stage: exact temporary-table, row and sort counters, picosecond timers and stage work where recorded. · adds detail
   session memory            instrumented session allocations and native statement-event context from Performance Schema · adds detail
   native failures           retained native error-log metadata · adds detail
@@ -275,7 +294,8 @@ SQLite
   query log                 the application's query log · Application query log
   wal_file                  WAL sidecar file size (metadata only) · adds detail
 $ culprit --format text deadlocks --file -
-1 deadlock (file).
+The source returned 1 recorded deadlock graph.
+The source does not establish deadlock counts for this database. Recorded incidents remain available in deadlock history.
 
 2026-10-11 13:48:28 Two transactions locked customers in opposite order and waited on each other; session 539's transaction was rolled back.
   Each transaction had already changed rows the other one wanted next: session 539 was running “UPDATE customers SET id = id WHERE id = 1” and session 545 “UPDATE orders SET id = id WHERE id = 1”. With the same order in both, the second would simply wait instead of deadlocking.

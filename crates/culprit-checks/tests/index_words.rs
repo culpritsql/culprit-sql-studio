@@ -2630,7 +2630,7 @@ verify: A later scan must show a new request inside its workload window and enou
 caveat: None of the last 60 minutes' statements asked for it: SQL Server's optimizer last did on Oct 11 at 06:00 UTC, 6 h 14 min before this scan's data ends, too short a time to say the statements that wanted it stopped."#,
     );
     let mut s = snapshot("mssql-demo.json");
-    s.tables.retain(|t| t.name != "orders");
+    table(&mut s, "orders").rows = None;
     pin(
         "missing-index",
         &s,

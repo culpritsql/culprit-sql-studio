@@ -160,6 +160,7 @@ async fn discovery_is_bounded_metadata_and_does_not_turn_a_nonpooled_database_in
         vec![
             TelemetryCollection::ResourceHistory,
             TelemetryCollection::Snapshot(SnapshotDataset::MemoryFailures),
+            TelemetryCollection::Snapshot(SnapshotDataset::WaitCounters),
             TelemetryCollection::Snapshot(SnapshotDataset::Settings)
         ]
     );

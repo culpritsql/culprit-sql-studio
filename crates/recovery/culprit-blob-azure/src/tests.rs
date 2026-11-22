@@ -1,6 +1,8 @@
 use super::*;
 use base64::{Engine, prelude::BASE64_STANDARD};
+use culprit_evidence::delivery::object_store::bridge::DOWNLOAD_CHUNK_BYTES;
 use std::io::{Read, Write};
+use tokio::{io::AsyncReadExt, sync::mpsc};
 
 pub(super) fn shared_key(
     account: &str,
@@ -26,7 +28,7 @@ pub(super) fn shared_key(
         String::new(),
     ];
     match condition {
-        Some(WriteCondition::Matches(etag)) => fields[8] = etag.clone(),
+        Some(WriteCondition::Matches(etag)) => fields[8] = (*etag).to_owned(),
         Some(WriteCondition::Absent) => fields[9] = "*".into(),
         None => (),
     }
@@ -172,8 +174,8 @@ async fn dropping_a_download_releases_the_blocked_worker_and_its_admission_permi
 #[tokio::test]
 async fn conditional_writes_do_not_turn_ambiguous_failures_into_acknowledgements() {
     for (status, condition, expected_header) in [
-        (201, WriteWriteCondition::Absent, "if-none-match: *"),
-        (412, WriteWriteCondition::Matches("\"old\""), "if-match: \"old\""),
+        (201, WriteCondition::Absent, "if-none-match: *"),
+        (412, WriteCondition::Matches("\"old\""), "if-match: \"old\""),
     ] {
         let (port, task) =
             server(format!("HTTP/1.1 {status} Test\r\nx-ms-error-code: ConditionNotMet\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").into_bytes());
@@ -184,7 +186,7 @@ async fn conditional_writes_do_not_turn_ambiguous_failures_into_acknowledgements
     let (port, task) =
         server(b"HTTP/1.1 500 Internal Server Error\r\nContent-Length: 6\r\nConnection: close\r\n\r\nsecret".to_vec());
     let error =
-        local_transport(port, "/test").put("recovery.json", vec![], WriteWriteCondition::Absent).await.err().unwrap();
+        local_transport(port, "/test").put("recovery.json", vec![], WriteCondition::Absent).await.err().unwrap();
     assert_eq!(typed(error.clone()), DeliveryProblem::Transport);
     assert!(!format!("{error:?}").contains("secret"));
     task.join().unwrap();
@@ -193,7 +195,7 @@ async fn conditional_writes_do_not_turn_ambiguous_failures_into_acknowledgements
             "HTTP/1.1 409 Conflict\r\nx-ms-error-code: {code}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
         );
         let (port, task) = server(response.into_bytes());
-        let result = local_transport(port, "/test").put("payload", vec![], WriteWriteCondition::Absent).await;
+        let result = local_transport(port, "/test").put("payload", vec![], WriteCondition::Absent).await;
         assert_eq!(matches!(result, Ok(ObjectWrite::ConditionNotMet)), conflict);
         task.join().unwrap();
     }

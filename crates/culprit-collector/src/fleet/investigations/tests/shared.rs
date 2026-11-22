@@ -55,6 +55,26 @@ async fn shared_owner_executes_exact_question_and_updates_only_its_original_data
     assert_eq!(intent.qualification.scope().target(), owner_source.target);
     assert!(matches!(intent.selection().unwrap(), CollectionSelection::SharedPageWaitFocus { .. }));
     let original = runtime.fixture.outbox.diagnostic_evidence(intent.focus.parent()).await.unwrap();
+    let checkpoints_before =
+        runtime.fixture.outbox.diagnostic_checkpoints(DIAGNOSTIC_CONTROLLER_VERSION, None, 10).await.unwrap();
+    assert!(checkpoints_before.next_cursor.is_none());
+    assert_eq!(
+        checkpoints_before.checkpoints.len(),
+        2,
+        "the database original and independently observed shared baseline each own one controller head"
+    );
+    let shared_before = checkpoints_before
+        .checkpoints
+        .iter()
+        .find(|checkpoint| checkpoint.target == owner_source.target)
+        .expect("the shared baseline has its own original controller head")
+        .clone();
+    let database_before = checkpoints_before
+        .checkpoints
+        .iter()
+        .find(|checkpoint| checkpoint.target == *intent.focus.target())
+        .expect("the database original retains its controller head")
+        .clone();
     let owner_before = (owner_source, owner_row);
 
     let job = runtime.take_focus().await;
@@ -88,17 +108,50 @@ async fn shared_owner_executes_exact_question_and_updates_only_its_original_data
     );
     let revisions = runtime.revisions(&capture.capture).await;
     assert_eq!(revisions.len(), 1);
+    assert!(revisions[0].is_valid(), "the complete canonical replay retains the exact terminal revision");
     let episode = &revisions[0].episode;
     assert_eq!(episode.id, intent.episode_id);
     assert_eq!(episode.scope.target, intent.focus.target().clone());
     assert_eq!(episode.scope.partition, intent.focus.activity_participant().unwrap().partition);
     assert_eq!(episode.latest, intent.focus.parent().clone());
+    assert_eq!(episode.lifecycle, DiagnosticLifecycle::Resolved);
+    assert_eq!(episode.analysis, DiagnosticAnalysisStatus::Unresolved);
     assert_eq!(episode.issue, Some(DiagnosticAnalysisIssue::NativeContextGone));
+    assert_eq!(
+        episode.recovery,
+        Some(DiagnosticRecoveryProof::FocusedParticipantGone {
+            capture: capture.clone(),
+            parent: Box::new(intent.focus.parent().clone()),
+        })
+    );
     assert!(episode.report.is_none());
+    assert!(!episode.has_owed_question());
+    assert!(!episode.retained_in_checkpoint());
     let checkpoints =
         runtime.fixture.outbox.diagnostic_checkpoints(DIAGNOSTIC_CONTROLLER_VERSION, None, 10).await.unwrap();
-    assert_eq!(checkpoints.checkpoints.len(), 1, "shared execution must not create a different controller head");
-    assert_eq!(checkpoints.checkpoints[0].target, intent.focus.target().clone());
+    assert!(checkpoints.next_cursor.is_none());
+    assert_eq!(
+        checkpoints.checkpoints.len(),
+        checkpoints_before.checkpoints.len(),
+        "shared execution must not create a different controller head"
+    );
+    assert_eq!(
+        checkpoints.checkpoints.iter().find(|checkpoint| checkpoint.target == shared_before.target),
+        Some(&shared_before),
+        "the focused database answer must not update the independent shared baseline head"
+    );
+    let database = checkpoints
+        .checkpoints
+        .iter()
+        .find(|checkpoint| checkpoint.target == database_before.target)
+        .expect("the answer updates the original database head");
+    assert_ne!(database, &database_before);
+    assert_eq!(database.input, capture);
+    assert_eq!(
+        database.episodes,
+        database_before.episodes.iter().filter(|prior| prior.id != episode.id).cloned().collect::<Vec<_>>(),
+        "only the completed non-owed episode leaves the working head; its exact revision remains in history"
+    );
     assert_eq!(runtime.fixture.outbox.diagnostic_evidence(intent.focus.parent()).await.unwrap(), original);
     assert_eq!(runtime.fixture.outbox.diagnostic_evidence(owner).await.unwrap(), owner_before);
     assert_eq!(

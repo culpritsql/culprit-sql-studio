@@ -43,6 +43,15 @@ fn request(registration: &Registration, budget: CollectionBudget) -> CollectionR
             Route::CurrentRequestWork => CollectionSelection::CurrentRequestWork {
                 focus: Box::new(crate::progress::test_support::original_focus()),
             },
+            Route::TransactionMetadata => {
+                let original = culprit_evidence::analytical::test_support::transaction_metadata_original(
+                    TransactionMetadataWait::Subtransaction,
+                );
+                CollectionSelection::SourceRead {
+                    focus: Box::new(original.focus),
+                    execution: Box::new(original.execution),
+                }
+            }
             _ => match registration.route.collection() {
                 TelemetryCollection::Activity => CollectionSelection::Activity,
                 TelemetryCollection::Snapshot(dataset) => CollectionSelection::Snapshot { dataset },
@@ -149,6 +158,16 @@ fn focused_sources_preserve_native_profiles_while_generic_recipes_keep_larger_va
             assert_eq!(bounded.budget.max_snapshot_rows, 1);
             assert_eq!(bounded.budget.page_rows, 1);
             assert_eq!(bounded.budget.max_sql_bytes, MAX_CURRENT_REQUEST_WORK_SQL_BYTES as u32);
+            assert_eq!(bounded.budget.statement_timeout_ms, 1_000);
+            assert_eq!(bounded.budget.total_timeout_ms, 5_000);
+            assert_eq!(registration.descriptor().purpose, RecipePurpose::Investigation);
+        } else if matches!(registration.route, Route::TransactionMetadata) {
+            assert_eq!(bounded.budget, super::super::transaction_metadata::bounded_budget(&maximum));
+            assert_eq!(bounded.budget.max_queries, 12);
+            assert_eq!(bounded.budget.max_snapshot_rows, MAX_TRANSACTION_METADATA_BACKENDS as u32);
+            assert_eq!(bounded.budget.page_rows, MAX_TRANSACTION_METADATA_BACKENDS as u32);
+            assert_eq!(bounded.budget.page_bytes, bounded.budget.total_bytes);
+            assert_eq!(bounded.budget.total_bytes, 1024 * 1024);
             assert_eq!(bounded.budget.statement_timeout_ms, 1_000);
             assert_eq!(bounded.budget.total_timeout_ms, 5_000);
             assert_eq!(registration.descriptor().purpose, RecipePurpose::Investigation);

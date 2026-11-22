@@ -136,7 +136,7 @@ fn log_rate_request() -> CollectionRequest {
     }
 }
 #[tokio::test]
-async fn source_read_uses_the_same_native_stream_with_separate_logical_and_execution_scopes_and_ten_queries() {
+async fn source_read_uses_the_same_native_stream_with_separate_logical_and_execution_scopes_and_eight_queries() {
     let request = log_rate_request();
     let before = replace(
         &crate::activity::memory::tests::context(),
@@ -146,30 +146,30 @@ async fn source_read_uses_the_same_native_stream_with_separate_logical_and_execu
         &crate::activity::memory::tests::context(),
         &[("observed_at", Val::Text("2020-01-01T08:01:01Z".into()))],
     );
+    let layout = replace(&layout_row(), &[("database_id", Val::Int(7))]);
+    let component = replace(&native_row(), &[("database_id", Val::Int(7))]);
     let mut native = FakeRead::new(vec![
-        Ok(vec![Rec::of(&[("edition", Val::Int(5))])]),
+        Ok(vec![crate::grants::tests::platform()]),
         Ok(vec![before]),
-        Ok(vec![clock("2020-01-01T08:01:00Z")]),
         Ok(vec![pressure()]),
-        Ok(vec![layout_row()]),
+        Ok(vec![layout.clone()]),
         Ok(vec![pressure()]),
-        Ok(vec![layout_row()]),
-        Ok(vec![clock("2020-01-01T08:01:01Z")]),
+        Ok(vec![layout]),
         Ok(vec![after]),
     ])
-    .with_query_limit(10);
+    .with_query_limit(8);
     native.shutdown = SourceShutdown::Quiescent;
-    let io = StreamingRead { native, batches: vec![batch(native_row(), true)].into(), starts: 0, pause_batches: false };
+    let io = StreamingRead { native, batches: vec![batch(component, true)].into(), starts: 0, pause_batches: false };
     let mut source =
         StreamedSnapshot::with_io(io, &request, "fixture.invalid".into(), 1433, HyperscaleLogComponents).unwrap();
     let initial = source.describe().await.unwrap();
-    assert_eq!(source.query_count(), 5);
+    assert_eq!(source.query_count(), 4);
     assert_eq!(initial.partition, SourcePartition::Target);
     assert!(initial.observation.execution_context().unwrap().has_qualified_local_owner());
     let rows = drain(&mut source).await;
-    assert_eq!(source.query_count(), 7);
+    assert_eq!(source.query_count(), 6);
     let completed = initial.completed(source.finish().await.unwrap()).unwrap().unwrap();
-    assert_eq!(source.query_count(), 10);
+    assert_eq!(source.query_count(), 8);
     let observations = rows
         .into_iter()
         .map(|row| {
@@ -182,8 +182,24 @@ async fn source_read_uses_the_same_native_stream_with_separate_logical_and_execu
     assert_eq!(read.context().unwrap().partition, SourcePartition::Target);
     assert!(read.context().unwrap().database_writable.is_none());
     assert!(read.description.observation.execution_context().unwrap().database_writable == Some(true));
+    let [row] = read.observations.as_slice() else { panic!("one native component") };
+    let OperationalFact::HyperscaleLogComponent(point) = &row.fact else { panic!("native component") };
+    assert_eq!(point.database_id, "7");
     let calls = &source.inner.reader().io.native.calls;
-    assert_eq!(calls.len(), 10);
+    let expected_queries = [
+        "SERVERPROPERTY('ProductMajorVersion')",
+        "AS selected_database_id",
+        "sys.dm_db_resource_stats",
+        "AS supported_columns",
+        "sys.dm_db_resource_stats",
+        "FROM sys.dm_hs_database_log_rate(",
+        "AS supported_columns",
+        "AS selected_database_id",
+    ];
+    assert_eq!(calls.len(), expected_queries.len());
+    for (position, (call, expected)) in calls.iter().zip(expected_queries).enumerate() {
+        assert!(call.sql.contains(expected), "query {} must retain {expected}", position + 1);
+    }
     assert_eq!(calls.iter().filter(|call| call.sql.contains("supported_columns")).count(), 2);
     assert_eq!(calls.iter().filter(|call| call.sql.contains("FROM sys.dm_hs_database_log_rate(")).count(), 1);
     assert_eq!(source.close().await, SourceShutdown::Quiescent);

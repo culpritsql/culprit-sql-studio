@@ -1,7 +1,9 @@
 //! MariaDB rides on the MySQL engine: the same checks, in MariaDB's words and syntax, on the MariaDB demo scan.
 
 use culprit_checks::{analyze, index_advice};
-use culprit_core::{Capability, Finding, Report, Setting, Severity, Snapshot, WaitStat};
+use culprit_core::{
+    Capability, DeadlockReport, Finding, MeasurementScope, Report, Setting, Severity, Snapshot, WaitStat,
+};
 
 fn snapshot() -> Snapshot {
     let path = format!("{}/../../fixtures/mariadb-demo.report.json", env!("CARGO_MANIFEST_DIR"));
@@ -271,10 +273,31 @@ fn a_full_read_does_not_prove_that_an_index_would_help() {
     }
 }
 
+// Word pins use an explicitly synthetic database-scoped source, independently of the demo's shared native source.
+fn database_scoped_deadlock_words() -> Snapshot {
+    let mut snapshot = snapshot();
+    let shared = snapshot.deadlocks.take().expect("retained native graph");
+    assert_eq!(shared.scope, Some(MeasurementScope::Server));
+    snapshot.deadlocks = Some(DeadlockReport { scope: Some(MeasurementScope::Database), ..shared });
+    snapshot
+}
+
+#[test]
+fn shared_innodb_history_stays_inspectable_without_a_database_finding() {
+    let snapshot = snapshot();
+    let original = snapshot.deadlocks.clone().expect("retained native graph");
+    assert_eq!(original.scope, Some(MeasurementScope::Server));
+    assert_eq!(original.deadlocks.len(), 1);
+    assert!(!original.has_database_scope());
+    let report = analyze(snapshot);
+    assert_eq!(report.snapshot.deadlocks.as_ref(), Some(&original));
+    assert!(report.findings.iter().all(|finding| finding.check != "deadlocks"));
+}
+
 // InnoDB keeps only its most recent deadlock: "deadlocked once in the last day" counted what it doesn't count.
 #[test]
 fn innodbs_latest_deadlock_is_at_least_one() {
-    let report = analyze(snapshot());
+    let report = analyze(database_scoped_deadlock_words());
     let f = report.findings.iter().find(|f| f.check == "deadlocks").expect("finding");
     assert_eq!(
         f.title,
@@ -286,7 +309,7 @@ fn innodbs_latest_deadlock_is_at_least_one() {
 // victim itself.
 #[test]
 fn a_deadlocks_brief_names_both_tables_and_its_victim_is_a_session() {
-    let report = analyze(snapshot());
+    let report = analyze(database_scoped_deadlock_words());
     let f = report.findings.iter().find(|f| f.check == "deadlocks").expect("finding");
     let victim = f.metrics.iter().find(|m| m.label == "Rolled back").and_then(|m| m.text.as_deref());
     assert_eq!(victim, Some("session 202 (login root)"));

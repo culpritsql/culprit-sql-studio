@@ -71,6 +71,18 @@ pub(super) async fn activity(
     at: &str,
     observation: Option<ActivityObservation>,
 ) -> CollectionManifest {
+    activity_in_partition(outbox, at, observation, SourcePartition::Target).await
+}
+pub(super) async fn activity_in_partition(
+    outbox: &mut Outbox,
+    at: &str,
+    observation: Option<ActivityObservation>,
+    partition: SourcePartition,
+) -> CollectionManifest {
+    let epoch = match &partition {
+        SourcePartition::Target => Some("native-activity-epoch".into()),
+        SourcePartition::InstanceLocal { epoch, .. } => epoch.clone(),
+    };
     let request = CollectionRequest {
         subject: CollectionSubject::Database,
         selection: CollectionSelection::Activity,
@@ -78,11 +90,12 @@ pub(super) async fn activity(
     };
     let mut lease = outbox.reserve("fixture", &request).await.unwrap();
     let mut source = source();
+    source.partition = partition;
     source.source = "live_requests".into();
     source.observation = SourceObservation::Activity(ActivitySnapshotDescription {
         database_writable: None,
         population: ActivityPopulation::ActiveRequestsOpenTransactionsAndBlockers,
-        epoch: Some("native-activity-epoch".into()),
+        epoch,
         observed_from: at.into(),
         observed_until: at.into(),
         at: at.into(),

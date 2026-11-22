@@ -176,7 +176,10 @@ fn files_that_dont_read_say_what_they_said() {
     .unwrap();
     culprit_engine::reports::save(&reports, &report).unwrap();
     let summary = reports.join("latest.json");
-    let other = write("other.json", r#"{"hello": "world"}"#);
+    // Pin the missing-snapshot error, independently of which other report fields are required.
+    let mut missing_snapshot = serde_json::to_value(culprit_engine::reports::display(&report)).unwrap();
+    assert!(missing_snapshot.as_object_mut().unwrap().remove("snapshot").is_some());
+    let other = write("other.json", &serde_json::to_string(&missing_snapshot).unwrap());
     let not_json = write("words.txt", "hello");
     let empty_log = write("app.log", "nothing to see here\n");
     let mut out = vec![

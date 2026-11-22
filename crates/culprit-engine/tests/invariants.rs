@@ -747,12 +747,11 @@ fn stopped_is_said_after_a_day_of_silence_and_history_creates_nothing() {
 
 #[test]
 fn a_floor_is_said_as_one_and_a_scan_named_when_it_is_compared_with() {
-    let mut deadlocks = 0;
-    for (name, report) in demo_reports() {
+    let reports = demo_reports();
+    for (name, report) in &reports {
         for f in &report.findings {
             // InnoDB keeps its latest deadlock: "at least once" in the title is "at least" beside it too.
             if f.title.contains("at least once") {
-                deadlocks += 1;
                 assert!(f.impact.label.starts_with("at least "), "{name} {}: {}", f.id, f.impact.label);
             }
             // "The previous scan" says which one, where a sentence compares with it.
@@ -765,7 +764,38 @@ fn a_floor_is_said_as_one_and_a_scan_named_when_it_is_compared_with() {
             }
         }
     }
-    assert!(deadlocks > 0, "a demo has an InnoDB deadlock");
+    let mut snapshot = reports
+        .iter()
+        .find(|(_, report)| report.snapshot.server.engine == culprit_core::Engine::Mysql)
+        .expect("MySQL demo")
+        .1
+        .snapshot
+        .clone();
+    // The real shared demo supplies no database deadlock finding. This controlled word case supplies the scope
+    // explicitly; the sample's participant/object labels never establish database membership.
+    let samples: serde_json::Value =
+        serde_json::from_str(include_str!("../../../fixtures/deadlocks.sample.json")).unwrap();
+    let sample: culprit_core::DeadlockReport = serde_json::from_value(samples["mysql"].clone()).unwrap();
+    assert_eq!(sample.scope, Some(culprit_core::MeasurementScope::Server));
+    assert!(!sample.deadlocks.is_empty());
+    assert!(
+        reports
+            .iter()
+            .filter(|(_, report)| report.snapshot.server.engine == culprit_core::Engine::Mysql)
+            .all(|(_, report)| report.findings.iter().all(|finding| finding.check != "deadlocks"))
+    );
+    for scope in [Some(culprit_core::MeasurementScope::Server), None, Some(culprit_core::MeasurementScope::Database)] {
+        snapshot.deadlocks = Some(culprit_core::DeadlockReport { scope, recent_only: true, ..sample.clone() });
+        let analyzed = culprit_checks::analyze(snapshot.clone());
+        let deadlocks: Vec<_> = analyzed.findings.iter().filter(|finding| finding.check == "deadlocks").collect();
+        if scope == Some(culprit_core::MeasurementScope::Database) {
+            assert_eq!(deadlocks.len(), 1, "the explicitly scoped word case exercises the native count floor");
+            assert!(deadlocks[0].title.contains("at least once"));
+            assert!(deadlocks[0].impact.label.starts_with("at least "));
+        } else {
+            assert!(deadlocks.is_empty(), "shared/unknown deadlock history cannot supply a database finding");
+        }
+    }
 }
 
 /// Each demo read again on a server started `days` before its scan, its counters that old (`uptime_hours`), and, with

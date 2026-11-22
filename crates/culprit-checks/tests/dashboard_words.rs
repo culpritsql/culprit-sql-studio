@@ -285,6 +285,11 @@ Deadlocks Info Deadlocks: PostgreSQL counted 3 deadlocks; it keeps no details to
 fn findings_say_what_they_said() {
     let mut out = Vec::new();
     let base = report("mssql-demo.report.json");
+    // The retained server-wide graph is context; it does not add a database deadlock opportunity.
+    let deadlocks = base.snapshot.deadlocks.as_ref().expect("retained deadlock graph");
+    assert_eq!(deadlocks.scope, Some(culprit_core::MeasurementScope::Server));
+    assert!(!deadlocks.deadlocks.is_empty());
+    assert!(base.findings.iter().all(|finding| finding.check != "deadlocks"));
     let board = |r: &Report| tile(&dashboard(r), TileKey::Findings);
     // Nothing actionable, over a window and without one.
     let mut r = base.clone();
@@ -376,61 +381,61 @@ Findings Bad Findings: 3 opportunities; the top ones touch 3 min of database tim
   item An update of orders takes 2 min of database time over the last 5 hours (34%), with at least 2 min of recorded waiting (Lock): 2 min of database time over the last 5 hours (34%)
   item A read from order_items times out on every run, at about 15 s: 100% of runs fail
   item A read from orders fails 25% of the time: 25% of runs fail
-Findings Bad Findings: 22 opportunities; the top ones touch 3 min of database time over the last 5 hours (61%).
+Findings Bad Findings: 21 opportunities; the top ones touch 3 min of database time over the last 5 hours (61%).
   detail: 1 more is about a query that stopped running: a deploy may have changed it.
   metric High: 2
   metric Medium: 9
-  metric Low: 11
-  metric Information and history: 5
-  metric Stopped running: 1
-  item A read from order_items times out on every run, at about 15 s: 100% of runs fail
-  item A read from orders fails 25% of the time: 25% of runs fail
-  item An update of orders has at least 2 min of recorded lock waits: Recorded lock waits: 2 min
-Findings Bad Findings: 22 opportunities; the top ones touch 3 min of database time over the last 5 hours (61%).
-  detail: 1 more is about a query that stopped running: a deploy may have changed it.
-  metric High: 2
-  metric Medium: 9
-  metric Low: 11
+  metric Low: 10
   metric Information and history: 5
   metric Stopped running: 1
   item A read from order_items times out on every run, at about 15 s: 100% of runs fail
   item A read from orders fails 25% of the time: 25% of runs fail
   item An update of orders has at least 2 min of recorded lock waits: Recorded lock waits: 2 min
 Findings Bad Findings: 21 opportunities; the top ones touch 3 min of database time over the last 5 hours (61%).
+  detail: 1 more is about a query that stopped running: a deploy may have changed it.
+  metric High: 2
+  metric Medium: 9
+  metric Low: 10
+  metric Information and history: 5
+  metric Stopped running: 1
+  item A read from order_items times out on every run, at about 15 s: 100% of runs fail
+  item A read from orders fails 25% of the time: 25% of runs fail
+  item An update of orders has at least 2 min of recorded lock waits: Recorded lock waits: 2 min
+Findings Bad Findings: 20 opportunities; the top ones touch 3 min of database time over the last 5 hours (61%).
   detail: 2 more are about queries that stopped running: a deploy may have changed them.
   metric High: 1
   metric Medium: 9
-  metric Low: 11
+  metric Low: 10
   metric Information and history: 5
   metric Stopped running: 2
   item A read from orders fails 25% of the time: 25% of runs fail
   item An update of orders has at least 2 min of recorded lock waits: Recorded lock waits: 2 min
   item Compares each of 1.5M rows of order_items with 999 rows the Table Spool replays (1.5B pairs): 27% of DB time
-Findings Bad Findings: 21 opportunities; the top ones touch 3 min of database time over the last 5 hours (61%).
+Findings Bad Findings: 20 opportunities; the top ones touch 3 min of database time over the last 5 hours (61%).
   detail: 2 more are about queries that stopped running: a deploy may have changed them.
   metric High: 1
   metric Medium: 9
-  metric Low: 11
+  metric Low: 10
   metric Information and history: 5
   metric Stopped running: 2
   item A read from orders fails 25% of the time: 25% of runs fail
   item An update of orders has at least 2 min of recorded lock waits: Recorded lock waits: 2 min
   item Compares each of 1.5M rows of order_items with 999 rows the Table Spool replays (1.5B pairs): 27% of DB time
-Findings Watch Findings: 19 opportunities; the top ones touch 3 min of database time over the last 5 hours (48%).
+Findings Watch Findings: 18 opportunities; the top ones touch 3 min of database time over the last 5 hours (48%).
   detail: 4 more are about queries that stopped running: a deploy may have changed them.
   metric High: 0
   metric Medium: 8
-  metric Low: 11
+  metric Low: 10
   metric Information and history: 5
   metric Stopped running: 4
   item Compares each of 1.5M rows of order_items with 999 rows the Table Spool replays (1.5B pairs): 27% of DB time
   item This plan runs on one CPU because its statement says OPTION (MAXDOP 1): 27% of DB time
   item A read from orders takes 1 min of database time over the last 5 hours (21%), with at least 1 min of recorded waiting (Lock): 1 min of database time over the last 5 hours (21%)
-Findings Watch Findings: 19 opportunities; the top ones touch 3 min of database time over the last 5 hours (48%).
+Findings Watch Findings: 18 opportunities; the top ones touch 3 min of database time over the last 5 hours (48%).
   detail: 4 more are about queries that stopped running: a deploy may have changed them.
   metric High: 0
   metric Medium: 8
-  metric Low: 11
+  metric Low: 10
   metric Information and history: 5
   metric Stopped running: 4
   item Compares each of 1.5M rows of order_items with 999 rows the Table Spool replays (1.5B pairs): 27% of DB time
@@ -1031,6 +1036,17 @@ fn storage_connections_replication_failures_and_statistics_say_what_they_said() 
     out.push(said(io(50_000.0), TileKey::Storage));
     out.push(said(io(10.0), TileKey::Storage));
     let mssql = snapshot("mssql-demo.report.json");
+    // The file's retained database scope is said independently of its tempdb display label.
+    let tempdb = mssql
+        .pressure
+        .as_ref()
+        .expect("file statistics")
+        .files
+        .iter()
+        .find(|file| file.kind == culprit_core::FileKind::Temp)
+        .expect("tempdb data file");
+    assert_eq!(tempdb.database.as_deref(), Some("tempdb"));
+    assert_eq!(tempdb.scope, Some(culprit_core::FileScope::Database));
     let mut s = edited(&mssql, |v| {
         for f in v["pressure"]["files"].as_array_mut().unwrap() {
             if f["kind"] == json!("log") {
@@ -1201,7 +1217,7 @@ Storage Info Storage: Too few measured storage operations for a storage-speed as
   item WAL (whole server): 500 µs per flush
   item tables and indexes (whole server): 20 µs per read
 Storage Info Storage: Native I/O timings are recorded; their accounting does not establish physical storage speed.
-  detail: tempdb log: tempdb, over an unknown statistics period Native accounting: reads count storage operations; writes count non-durable log work.; culprit_demo log: this database, over an unknown statistics period Native accounting: reads count storage operations; writes count storage operations.; culprit_demo: this database, over an unknown statistics period Native accounting: reads count storage operations; writes count storage operations.; tempdb, over an unknown statistics period Native accounting: reads count storage operations; writes count storage operations.
+  detail: tempdb log: tempdb, over an unknown statistics period Native accounting: reads count storage operations; writes count non-durable log work.; culprit_demo log: this database, over an unknown statistics period Native accounting: reads count storage operations; writes count storage operations.; culprit_demo: this database, over an unknown statistics period Native accounting: reads count storage operations; writes count storage operations.; tempdb: tempdb, over an unknown statistics period Native accounting: reads count storage operations; writes count storage operations.
   item tempdb log: Native average: 2.2 ms (non-durable log work).
   item culprit_demo log (this database): 632 µs per write
   item culprit_demo (this database): 40 µs per read

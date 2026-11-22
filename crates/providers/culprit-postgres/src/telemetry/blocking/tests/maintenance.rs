@@ -207,13 +207,7 @@ fn blocking_reader(owner_pid: &str, owner_backend: &str) -> NativeReader {
     reader.replies[2] = Ok(vec![maintenance_actor(true)]);
     reader.replies[3] = Ok(vec![edge(&format!("[{owner_pid}]"))]);
     reader.replies[4] = Ok(vec![current_owner(owner_pid, owner_backend)]);
-    reader.replies[5] = Ok(vec![fixture::row(&[
-        ("pid", Some("42")),
-        ("mode", Some("ShareLock")),
-        ("locktype", Some("virtualxid")),
-        ("elapsed_ms", Some("1")),
-        ("object", None),
-    ])]);
+    reader.replies[5] = Ok(vec![lock_point("virtualxid", "ShareLock", &[(owner_pid, true)])]);
     reader.replies[6] = Ok(vec![statement()]);
     reader.replies[7] = Ok(vec![maintenance_actor(true)]);
     reader
@@ -431,7 +425,10 @@ async fn independent_blocker_membership_and_source_guards_still_control_admissio
     for failure in ["membership", "member", "role", "process", "cancel", "budget"] {
         let mut reader = blocking_reader("43", NEW_OWNER_BACKEND);
         match failure {
-            "membership" => reader.replies[4] = Ok(vec![fixture::row(&[("observed_at", Some(AT)), ("pid", None)])]),
+            "membership" => {
+                reader.replies[4] = Ok(vec![fixture::row(&[("observed_at", Some(AT)), ("pid", None)])]);
+                reader.replies[5] = Ok(vec![lock_point("virtualxid", "ShareLock", &[("43", false)])]);
+            }
             "member" => reader.replies[9] = Ok(vec![fixture::member("127.0.0.2")]),
             "role" => reader.replies[8] = Ok(vec![fixture::metadata_with("t", PROCESS)]),
             "process" => reader.replies[8] = Ok(vec![fixture::metadata_with("f", "2026-11-14T01:00:00Z")]),

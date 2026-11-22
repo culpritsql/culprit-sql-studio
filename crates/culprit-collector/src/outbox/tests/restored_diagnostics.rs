@@ -1,9 +1,18 @@
 use super::*;
 use crate::delivery::{diagnostic_recovery::*, recovery::*};
+use culprit_evidence::analytical::test_support::{MssqlWorkCase, mssql_current_work_evidence};
 use culprit_evidence::delivery::{mutations::Fence, recovery::CommittedRange};
 
 fn observation() -> ActivityObservation {
-    serde_json::from_value(serde_json::json!({"key":{"session":{"id":"61","generation":"login-1"},"request":{"id":"0","generation":"request-1"}},"blocking_status":"known","idle":false,"scope":"request-database","state":"running","open_transactions":0,"elapsed_ms":"120000","session_counters":{},"request_counters":{},"statement":{"state":"unavailable","reason":"not-collected"}})).unwrap()
+    let mut observation: ActivityObservation = serde_json::from_value(serde_json::json!({"key":{"session":{"id":"61","generation":"2020-01-01T05:58:00.0000000"},"request":{"id":"0","generation":"2020-01-01T05:58:01.0000000"}},"blocking_status":"known","idle":false,"scope":"request-database","state":"running","open_transactions":0,"elapsed_ms":"120000","session_counters":{},"request_counters":{},"statement":{"state":"unavailable","reason":"not-collected"}})).unwrap();
+    observation.statement_identity =
+        Some(mssql_request_statement_identity(&"AB".repeat(64), 0, -1, 5).expect("valid synthetic native statement"));
+    assert!(CurrentRequestWorkProfile::MssqlRequest.matches_identity(
+        &observation.key,
+        observation.scope,
+        observation.statement_identity.as_ref().unwrap()
+    ));
+    observation
 }
 pub(super) fn pending_update(input: &DiagnosticInput, step: &str) -> DiagnosticUpdate {
     let rows = input
@@ -61,10 +70,29 @@ async fn checkpoint(store: &dyn RecoveryStore) -> RecoveredDiagnosticCheckpoint 
 async fn volume_loss_restores_native_episode_history_and_a_complete_empty_successor_preserves_owed_analysis() {
     let root = tempfile::tempdir().unwrap();
     let (store, owner, contract, mut original) = super::eviction::remote_box(root.path()).await;
-    super::eviction::activity(&mut original, "2020-01-01T06:00:00Z", Some(observation())).await;
+    let partition = mssql_current_work_evidence(MssqlWorkCase::Observed).0.partition;
+    assert!(matches!(&partition, SourcePartition::InstanceLocal { member: Some(_), epoch: Some(_) }));
+    super::eviction::activity_in_partition(
+        &mut original,
+        "2020-01-01T06:00:00Z",
+        Some(observation()),
+        partition.clone(),
+    )
+    .await;
     archive_input_and_update(&mut original, &store, owner.fence(), &contract).await;
     let first = checkpoint(&store).await;
+    assert_eq!(first.checkpoint().episodes.len(), 1);
     let prior = first.checkpoint().episodes[0].clone();
+    assert_eq!(prior.analysis, DiagnosticAnalysisStatus::Pending);
+    assert!(prior.has_owed_question());
+    let (source, row) = original.diagnostic_evidence(&prior.first).await.unwrap();
+    assert_eq!(source.partition, partition);
+    assert_eq!(source.observation.activity().unwrap().epoch.as_deref(), partition.native_epoch());
+    let TelemetryRecord::Activity(actor) = &row.record else { panic!("the authentic original activity") };
+    assert!(matches!(
+        prior.plan_focus(&source, actor, &prior.first).unwrap(),
+        DiagnosticFocusPlan::Ready(focus) if matches!(focus.as_ref(), DiagnosticFocus::CurrentRequestWork { .. })
+    ));
     let destination = root.path().join("replacement");
     let mut outbox = Outbox::create_remote(&destination, OutboxLimits::default(), store.id()).unwrap();
     outbox.recover().await.unwrap();
@@ -74,7 +102,7 @@ async fn volume_loss_restores_native_episode_history_and_a_complete_empty_succes
     outbox.recover().await.unwrap();
     let restored = outbox.diagnostic_checkpoints(DIAGNOSTIC_CONTROLLER_VERSION, None, 10).await.unwrap();
     assert_eq!(restored.checkpoints[0].episodes[0], prior);
-    super::eviction::activity(&mut original, "2020-01-01T06:01:00Z", None).await;
+    super::eviction::activity_in_partition(&mut original, "2020-01-01T06:01:00Z", None, partition).await;
     archive_input_and_update(&mut original, &store, owner.fence(), &contract).await;
     outbox.restore_diagnostics(checkpoint(&store).await).await.unwrap();
     let episode = outbox.diagnostic_checkpoints(DIAGNOSTIC_CONTROLLER_VERSION, None, 10).await.unwrap().checkpoints[0]
@@ -83,6 +111,9 @@ async fn volume_loss_restores_native_episode_history_and_a_complete_empty_succes
     assert_eq!(episode.id, prior.id);
     assert_eq!(episode.lifecycle, DiagnosticLifecycle::Resolved);
     assert_eq!(episode.analysis, DiagnosticAnalysisStatus::Pending);
+    assert!(episode.has_owed_question());
+    assert_eq!(episode.first, prior.first);
+    assert_eq!(episode.latest, prior.latest);
     assert_eq!(episode.last_seen_at, prior.last_seen_at);
 }
 #[tokio::test]

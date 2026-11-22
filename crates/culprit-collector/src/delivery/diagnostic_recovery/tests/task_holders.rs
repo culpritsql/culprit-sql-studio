@@ -35,6 +35,25 @@ impl ManualArchive {
         if long_running {
             let TelemetryRecord::Activity(actor) = &mut fixture.activity_rows[0] else { panic!() };
             actor.elapsed_ms = Some("120000".into());
+            actor.key.session.generation = "2020-01-01T11:58:00.0000000".into();
+            actor.key.request.as_mut().unwrap().generation = "2020-01-01T11:58:01.0000000".into();
+            actor.statement_identity = Some(
+                mssql_request_statement_identity(&"AB".repeat(64), 0, -1, 5).expect("valid synthetic native statement"),
+            );
+            assert!(CurrentRequestWorkProfile::MssqlRequest.matches_identity(
+                &actor.key,
+                actor.scope,
+                actor.statement_identity.as_ref().unwrap()
+            ));
+            let TelemetryRecord::Operational(row) = &mut fixture.page_rows[0] else {
+                panic!("paired native page point")
+            };
+            let OperationalFact::PageWait(page) = &mut row.fact else { panic!("paired native page fact") };
+            // Both originals retain this same native request/token before either capture is sealed.
+            page.request = actor.as_ref().clone();
+            page.statement_identity = actor.statement_identity.clone();
+            row.key = page.key().unwrap();
+            assert!(row.is_valid(), "the changed native actor has its own canonical page key");
         }
         let SourceObservation::PageTaskHolders { focus: template, .. } = &fixture.source.observation else { panic!() };
         let original = prepared(

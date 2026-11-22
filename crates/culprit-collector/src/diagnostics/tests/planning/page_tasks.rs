@@ -21,8 +21,20 @@ fn frame(second: u32, token: bool) -> Frame {
     for (index, row) in records.iter_mut().enumerate() {
         let TelemetryRecord::Activity(row) = row else { panic!() };
         row.elapsed_ms = Some(if index == 0 { "120000" } else { "1" }.into());
-        if index == 0 && !token {
-            row.statement_identity = None;
+        if index == 0 {
+            row.key.session.generation = "2020-01-01T11:58:00.0000000".into();
+            row.key.request.as_mut().unwrap().generation = "2020-01-01T11:58:01.0000000".into();
+            row.statement_identity = Some(
+                mssql_request_statement_identity(&"AB".repeat(64), 0, -1, 5).expect("valid synthetic native statement"),
+            );
+            assert!(CurrentRequestWorkProfile::MssqlRequest.matches_identity(
+                &row.key,
+                row.scope,
+                row.statement_identity.as_ref().unwrap()
+            ));
+            if !token {
+                row.statement_identity = None;
+            }
         }
     }
     Frame { source, records }

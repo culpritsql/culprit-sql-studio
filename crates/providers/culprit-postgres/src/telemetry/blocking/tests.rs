@@ -37,12 +37,41 @@ fn edge(ids: &str) -> Row {
     fixture::row(&[("pid", Some("42")), ("owners", Some(ids))])
 }
 fn lock() -> Row {
+    lock_point("relation", "AccessExclusiveLock", &[("0", false), ("43", true)])
+}
+fn lock_point(locktype: &str, mode: &str, owners: &[(&str, bool)]) -> Row {
+    let relation = locktype == "relation";
+    let matched_owners = owners.iter().filter(|(_, matched)| *matched).count();
+    let snapshot_rows = (matched_owners + 1).to_string();
+    let blockers = owners
+        .iter()
+        .map(|(pid, matched)| {
+            serde_json::json!({
+                "pid": pid,
+                "actor_matches": matched,
+                "single_backend": matched,
+                "granted": if relation && *matched { vec!["AccessShareLock"] } else { vec![] },
+                "waiting": Vec::<String>::new(),
+            })
+        })
+        .collect::<Vec<_>>();
+    let blockers = serde_json::to_string(&blockers).unwrap();
     fixture::row(&[
         ("pid", Some("42")),
-        ("mode", Some("AccessExclusiveLock")),
-        ("locktype", Some("relation")),
-        ("object", Some("public.orders")),
-        ("elapsed_ms", Some("60000")),
+        ("observed_at", Some(AT)),
+        ("waiter_matches", Some("true")),
+        ("single_backend", Some("true")),
+        ("actor_rows", Some(&snapshot_rows)),
+        ("snapshot_rows", Some(&snapshot_rows)),
+        ("blockers_complete", Some("true")),
+        ("mode", Some(mode)),
+        ("locktype", Some(locktype)),
+        ("database_oid", relation.then_some("16384")),
+        ("relation_oid", relation.then_some("16420")),
+        ("object", relation.then_some("public.orders")),
+        ("index_name", None),
+        ("elapsed_ms", Some(if relation { "60000" } else { "1" })),
+        ("owners", Some(&blockers)),
     ])
 }
 fn sql() -> Row {
@@ -131,6 +160,13 @@ async fn original_native_member_and_request_bind_all_owner_roles_through_one_fro
         ActivityWaitOwner::Transaction { owner: TransactionWaitOwner::Prepared, .. }
     ) && !edge.owner_observed));
     assert!(edges.iter().any(|edge| edge.owner_observed));
+    let native_lock = observations[0].wait.as_ref().unwrap().resources.as_ref().unwrap()[0].native.as_deref();
+    let Some(culprit_core::blocking::NativeLockEvidence::Postgres(point)) = native_lock else {
+        panic!("original focused native lock point")
+    };
+    assert_eq!(point.resource.as_ref().unwrap().relation_oid, "16420");
+    assert!(point.blockers.iter().any(|owner| owner.native_pid == "0" && owner.actor.is_none()));
+    assert!(point.blockers.iter().any(|owner| owner.native_pid == "43" && owner.actor.is_some()));
     assert!(observations[1].idle && observations[1].statement_identity.is_none());
     assert!(
         matches!(observations[1].statement, DefinitionPayload::Unavailable { .. }),

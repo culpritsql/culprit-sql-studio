@@ -189,7 +189,13 @@ async fn a_new_incident_first_capture_can_progress_after_the_earlier_population_
     native.observed_until = (at + chrono::Duration::seconds(1)).to_rfc3339();
     for row in &mut runtime.fixture.backend.activity.records {
         let TelemetryRecord::Activity(row) = row else { panic!() };
-        row.key.session.generation.push_str("-independent-incarnation");
+        row.key.session.generation = "2020-01-01T11:59:00.0000000".into();
+        row.key.request.as_mut().unwrap().generation = "2020-01-01T11:59:01.0000000".into();
+        assert!(CurrentRequestWorkProfile::MssqlRequest.matches_identity(
+            &row.key,
+            row.scope,
+            row.statement_identity.as_ref().unwrap()
+        ));
     }
     runtime.started -= runtime.scheduler.wait_allowed(runtime.started.elapsed(), |_| false);
     runtime.baseline().await;

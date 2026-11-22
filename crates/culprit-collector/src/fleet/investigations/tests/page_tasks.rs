@@ -22,6 +22,17 @@ fn activity(long_running: bool, siblings: bool) -> Frame {
     for (index, row) in records.iter_mut().enumerate() {
         let TelemetryRecord::Activity(row) = row else { panic!() };
         row.elapsed_ms = Some(if long_running && (index == 0 || siblings) { "120000" } else { "1" }.into());
+        row.key.session.generation = "2020-01-01T11:58:00.0000000".into();
+        row.key.request.as_mut().unwrap().generation = format!("2020-01-01T11:58:{:02}.0000000", index + 1);
+        row.statement_identity = Some(
+            mssql_request_statement_identity(&format!("{:02X}", index + 1).repeat(64), 0, -1, 5)
+                .expect("valid synthetic native statement"),
+        );
+        assert!(CurrentRequestWorkProfile::MssqlRequest.matches_identity(
+            &row.key,
+            row.scope,
+            row.statement_identity.as_ref().unwrap()
+        ));
     }
     Frame { source: fixture.activity_source, records }
 }
@@ -64,6 +75,11 @@ pub(super) fn population_frame(
     source.partition = current.source.partition.clone();
     let TelemetryRecord::Operational(row) = &mut records[0] else { panic!() };
     let OperationalFact::PageWait(point) = &mut row.fact else { panic!() };
+    let TelemetryRecord::Activity(request) = &current.records[0] else { panic!("current native requester") };
+    assert_eq!(point.request.key.session.id, request.key.session.id);
+    assert_eq!(point.request.key.request.as_ref().unwrap().id, request.key.request.as_ref().unwrap().id);
+    point.request = request.as_ref().clone();
+    point.statement_identity = request.statement_identity.clone();
     point.observed_from = at(0);
     point.observed_until = at(500);
     point.before_check.as_mut().unwrap().observed_at = at(100);

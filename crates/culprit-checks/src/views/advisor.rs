@@ -1049,13 +1049,13 @@ mod tests {
         let mut r = report("mssql-demo.report.json");
         let before = index_advice(&r);
         let first = before.candidates.first().expect("a candidate").clone();
-        // The table is gone from the scan: its candidate is left out, and a note says so.
+        // Missing current catalog ownership excludes table-only advice before candidate lifecycle pruning.
         r.snapshot
             .tables
             .retain(|t| !(t.schema.eq_ignore_ascii_case(&first.schema) && t.name.eq_ignore_ascii_case(&first.table)));
         let after = index_advice(&r);
         assert!(after.candidates.iter().all(|c| !(c.schema == first.schema && c.table == first.table)));
-        assert!(after.notes.iter().any(|n| n.contains("table that is gone")), "{:?}", after.notes);
+        assert!(after.tables.iter().all(|table| !(table.schema == first.schema && table.table == first.table)));
 
         // Every query behind a candidate stopped running: left out too.
         let mut r = report("mssql-demo.report.json");
