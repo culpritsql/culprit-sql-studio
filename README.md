@@ -20,12 +20,12 @@
   <br>
   <img alt="MCP server" src="https://img.shields.io/badge/MCP-ready-1b1a18?style=flat-square">
   <img alt="macOS, Linux and Windows" src="https://img.shields.io/badge/macOS%20%C2%B7%20Linux%20%C2%B7%20Windows-1b1a18?style=flat-square">
-  <a href="https://github.com/cristipufu/culprit-sql-studio/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/cristipufu/culprit-sql-studio/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="https://github.com/culpritsql/culprit-sql-studio/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/culpritsql/culprit-sql-studio/actions/workflows/ci.yml/badge.svg"></a>
   <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/badge/license-MIT-ffcf33?style=flat-square"></a>
 </p>
 
 <p align="center">
-  <a href="https://github.com/cristipufu/culprit-sql-studio/releases/latest"><strong>Download</strong></a> ·
+  <a href="https://github.com/culpritsql/culprit-sql-studio/releases/latest"><strong>Download</strong></a> ·
   <a href="#get-started">Quick start</a> ·
   <a href="#what-you-get">Features</a> ·
   <a href="#supported-databases">Providers</a> ·
@@ -43,7 +43,7 @@ Culprit brings query statistics, execution plans, waits and schema context into 
 
 ## Get started
 
-[Download the desktop app or standalone CLI](https://github.com/cristipufu/culprit-sql-studio/releases/latest). In the app, add a connection or open a SQLite file to see its dashboard.
+[Download the desktop app or standalone CLI](https://github.com/culpritsql/culprit-sql-studio/releases/latest). In the app, add a connection or open a SQLite file to see its dashboard.
 
 From the terminal:
 
@@ -61,7 +61,7 @@ Reopening a connection shows its saved report while a fresh scan runs in the bac
 With [Bun](https://bun.sh) installed:
 
 ```sh
-git clone https://github.com/cristipufu/culprit-sql-studio.git
+git clone https://github.com/culpritsql/culprit-sql-studio.git
 cd culprit-sql-studio/app
 bun install --frozen-lockfile
 bun run dev
@@ -238,7 +238,7 @@ Culprit is built with Rust, Tauri and React. The app, CLI and MCP server share o
 Install [Rust stable](https://rustup.rs) and [Bun](https://bun.sh). Linux also needs the [platform dependencies](docs/guide.md#platforms).
 
 ```sh
-git clone https://github.com/cristipufu/culprit-sql-studio.git
+git clone https://github.com/culpritsql/culprit-sql-studio.git
 cd culprit-sql-studio
 
 # CLI

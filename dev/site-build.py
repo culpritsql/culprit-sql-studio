@@ -48,10 +48,10 @@ def documentation(root: Path, site: Path) -> str:
             if destination:
                 base = "/" + destination
             elif path.suffix.lower() in {".png", ".svg", ".jpg", ".webp"}:
-                base = "https://raw.githubusercontent.com/cristipufu/culprit-sql-studio/main/" + relative
+                base = "https://raw.githubusercontent.com/culpritsql/culprit-sql-studio/main/" + relative
             else:
                 kind = "tree" if path.is_dir() else "blob"
-                base = f"https://github.com/cristipufu/culprit-sql-studio/{kind}/main/{relative}"
+                base = f"https://github.com/culpritsql/culprit-sql-studio/{kind}/main/{relative}"
             parsed = urlsplit(base)
             return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, parts.query, parts.fragment))
 
@@ -70,7 +70,7 @@ def documentation(root: Path, site: Path) -> str:
         destination.write_text(text)
         published[source] = text
     full_sources = ["README.md", "docs/guide.md", "docs/parity.md"] + provider_sources + ["docs/ssh.md", "docs/agents.md", "docs/providers/coverage.md"]
-    full = "# Culprit SQL Studio: full documentation\n\nSource: https://github.com/cristipufu/culprit-sql-studio · Website: https://culpritsql.com\n"
+    full = "# Culprit SQL Studio: full documentation\n\nSource: https://github.com/culpritsql/culprit-sql-studio · Website: https://culpritsql.com\n"
     for source in full_sources:
         full += "\n---\n\n" + published[source]
     (site / "llms-full.txt").write_text(full)
@@ -88,7 +88,7 @@ def documentation(root: Path, site: Path) -> str:
             f'<article class="engine" data-provider="{slug}"><span class="provider-logo" aria-hidden="true">'
             f'<img src="/images/providers/{slug}.svg" alt="" width="40" height="40" loading="lazy" decoding="async"></span>'
             f'<h3>{html.escape(label)}</h3><p>{html.escape(summary)}.</p><p>'
-            f'<a href="https://github.com/cristipufu/culprit-sql-studio/blob/main/docs/{provider}">Coverage and setup →</a></p></article>'
+            f'<a href="https://github.com/culpritsql/culprit-sql-studio/blob/main/docs/{provider}">Coverage and setup →</a></p></article>'
         )
     return "\n          ".join(cards)
 
@@ -125,7 +125,7 @@ def build(root: Path) -> None:
             "default-src 'none'; "
             f"script-src 'self' https://plausible.io/js/pa-r5EkaWqkhpILeZH2bizcF.js {hashes}; "
             "style-src 'self'; font-src 'self'; img-src 'self' data:; "
-            "connect-src 'self' https://api.github.com/repos/cristipufu/culprit-sql-studio https://plausible.io/api/event; "
+            "connect-src 'self' https://api.github.com/repos/culpritsql/culprit-sql-studio https://plausible.io/api/event; "
             "object-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'"
         )
         path.write_text(text.replace("__CONTENT_SECURITY_POLICY__", html.escape(policy, quote=True)))

@@ -13,7 +13,7 @@ use serde_json::{Value, json};
 
 use crate::output::{Format, Out};
 
-const REPO: &str = "cristipufu/culprit-sql-studio";
+const REPO: &str = "culpritsql/culprit-sql-studio";
 const CURRENT: &str = env!("CARGO_PKG_VERSION");
 /// Far above any release binary, so a wrong or hostile response can't fill memory.
 const MAX_DOWNLOAD: u64 = 256 * 1024 * 1024;

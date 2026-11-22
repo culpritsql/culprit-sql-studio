@@ -7,7 +7,7 @@
   window.plausible.init = window.plausible.init || function (options) { window.plausible.o = options || {}; };
   window.plausible.init();
 
-  const RELEASE = "https://github.com/cristipufu/culprit-sql-studio/releases/latest/download/";
+  const RELEASE = "https://github.com/culpritsql/culprit-sql-studio/releases/latest/download/";
   // Fixed icons, defined here; nothing from the network or the URL is ever inserted as markup.
   const PLATFORMS = {
     mac: {
@@ -57,7 +57,7 @@
   // The star count, when GitHub answers; nothing is shown otherwise.
   const stars = document.querySelector("[data-stars]");
   if (stars) {
-    fetch("https://api.github.com/repos/cristipufu/culprit-sql-studio", { headers: { Accept: "application/vnd.github+json" } })
+    fetch("https://api.github.com/repos/culpritsql/culprit-sql-studio", { headers: { Accept: "application/vnd.github+json" } })
       .then((r) => (r.ok ? r.json() : null))
       .then((repo) => {
         const n = repo && Number(repo.stargazers_count);
