@@ -46,7 +46,7 @@ fn registered_source_versions_include_native_acquisition_policy_revisions() {
             ("mssql.columnstore-rowgroups", 3),
             ("mssql.cdc", 3),
             ("mssql.backup-history", 3),
-            ("mssql.operational", 10),
+            ("mssql.operational", 11),
             ("mssql.shared-operational", 12),
             ("mssql.memory-failures", 2),
             ("mssql.plan-cache-summary", 2),
@@ -791,4 +791,16 @@ async fn declared_node_followup_does_not_open_an_ordinary_or_foreign_provider_so
     assert!(
         open(Arc::new(Pool::new(tiberius::Config::new(), None)), &request, "fixture.invalid".into(), 1433).is_err()
     );
+}
+
+#[test]
+fn local_file_census_registration_keeps_ordinary_bounds_and_unqualified_admission() {
+    let registration = REGISTRATIONS.iter().find(|recipe| recipe.id == "mssql.operational").unwrap();
+    assert_eq!(registration.editions, [2, 3, 4, 5, 8]);
+    assert_eq!(registration.subjects, [RecipeSubject::Database]);
+    let descriptor = registration.descriptor();
+    assert_eq!(descriptor.purpose, RecipePurpose::Baseline);
+    assert_eq!(descriptor.admission, RecipeAdmission::Unqualified);
+    assert_eq!(descriptor.budget, CollectionBudget::upper_limits());
+    assert_eq!(descriptor.version, 11);
 }

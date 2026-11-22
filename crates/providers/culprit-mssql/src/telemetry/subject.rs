@@ -115,9 +115,13 @@ impl Identity {
 pub(super) enum DatabaseAuthority {
     AzureOnly,
     LocalDatabase,
+    LocalFiles,
 }
 impl DatabaseAuthority {
     pub fn for_source(dataset: SnapshotDataset, subject: &CollectionSubject) -> Result<Self> {
+        if dataset == SnapshotDataset::Operational && matches!(subject, CollectionSubject::Database) {
+            return Ok(Self::LocalFiles);
+        }
         if !matches!(
             dataset,
             SnapshotDataset::Tuning
@@ -144,11 +148,14 @@ impl DatabaseAuthority {
     ) -> Result<SubjectRead> {
         let profile = match self {
             Self::AzureOnly => description::supported_profile(reader, detail).await?,
-            Self::LocalDatabase => description::observed_profile(reader, detail).await?,
+            Self::LocalDatabase | Self::LocalFiles => description::observed_profile(reader, detail).await?,
         };
         if profile.edition != crate::probe::ENGINE_EDITION_AZURE_SQL_DATABASE {
             let generation = reader.connection_generation();
             let context = local_source::Context::read(reader, host, port).await?;
+            if matches!(self, Self::LocalDatabase) && context.activity.writable != Some(true) {
+                return Err(Error::new(ErrorCode::Unsupported, culprit_core::t!("collection.unsupported")));
+            }
             require_local_database(&context)?;
             if generation != context.connection_generation() || profile.edition != context.activity.edition {
                 return Err(CollectionStop::SourceChanged.error());
@@ -177,9 +184,7 @@ impl DatabaseAuthority {
 }
 
 fn require_local_database(context: &local_source::Context) -> Result<()> {
-    if context.activity.writable != Some(true)
-        || !matches!(context.source_instance(), Some(member) if member.kind == SharedResourceKind::Instance)
-    {
+    if !matches!(context.source_instance(), Some(member) if member.kind == SharedResourceKind::Instance) {
         return Err(Error::new(ErrorCode::Unsupported, culprit_core::t!("collection.unsupported")));
     }
     if !context.is_qualified() || context.connection_generation().is_none_or(|generation| generation == 0) {

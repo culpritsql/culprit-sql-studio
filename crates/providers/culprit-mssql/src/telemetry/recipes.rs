@@ -344,7 +344,7 @@ const REGISTRATIONS: &[Registration] = &[
     .bounded(backup_history::bounded_budget)
     .on_editions(&[2, 3, 4, 5, 8])
     .version(3),
-    state!("mssql.operational", Operational).baseline().version(10),
+    state!("mssql.operational", Operational).baseline().on_editions(&[2, 3, 4, 5, 8]).version(11),
     state!("mssql.process-cpu", ProcessCpu)
         .shared(&[RecipeSubject::Shared(SharedResourceKind::Instance)])
         .on_editions(&[2, 3, 4])

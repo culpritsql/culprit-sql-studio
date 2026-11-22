@@ -14,6 +14,7 @@ const SNAPSHOT_CLOCK_QUERIES: u32 = 2;
 #[cfg(test)]
 mod database_counters;
 mod local_point;
+mod operational_files;
 mod pool_current;
 pub(super) use pool_current::bounded_budget as pool_current_budget;
 mod numa_nodes;
@@ -150,6 +151,10 @@ impl<R: NativeRead> StateSource<R> {
         };
         for family in families {
             let source = family.source().name.to_string();
+            if self.local_file_profile() && !operational_files::allows(*family) {
+                outcomes.push(StateSourceCoverage::unavailable(source, ErrorCode::Unsupported, None));
+                continue;
+            }
             match family.availability(metadata_visible, tuning_layout.as_ref(), self.identity.as_ref()) {
                 Ok(point::Availability::NotApplicable) => {
                     outcomes.push(StateSourceCoverage::not_applicable(source));
@@ -174,6 +179,12 @@ impl<R: NativeRead> StateSource<R> {
                     self.identity.as_ref(),
                 )
                 .await;
+            if let Err(changed) = self.check_local_file_transport() {
+                return Err(result.err().unwrap_or(changed));
+            }
+            if self.local_file_profile() {
+                operational_files::validate(self.identity.as_ref().ok_or_else(invalid_data)?, &result)?;
+            }
             if let Ok(point::ReadOutcome::Observed(batch)) = &result
                 && let Some(point) = &batch.pool_settings_point
                 && self.pool_settings_point.replace(point.clone()).is_some()
@@ -185,6 +196,19 @@ impl<R: NativeRead> StateSource<R> {
         }
         Ok(outcomes)
     }
+    fn local_file_profile(&self) -> bool {
+        matches!(self.request.selection, CollectionSelection::Snapshot { dataset: SnapshotDataset::Operational })
+            && matches!(self.identity, Some(subject::Identity::LocalDatabase(_)))
+    }
+    fn check_local_file_transport(&self) -> Result<()> {
+        if self.local_file_profile() {
+            operational_files::check_transport(
+                self.identity.as_ref().ok_or_else(invalid_data)?,
+                self.io.connection_generation(),
+            )?;
+        }
+        Ok(())
+    }
     async fn admit(&mut self) -> Result<usize> {
         let remaining = (self.request.budget.max_snapshot_rows as usize).saturating_sub(self.rows.len());
         if remaining == 0 {
@@ -192,7 +216,9 @@ impl<R: NativeRead> StateSource<R> {
         }
         // Ordinary instance statistics are an explicitly selected bounded source family. They do not execute
         // application work or optional enrichment; Azure database reads retain their native pressure guard.
+        self.check_local_file_transport()?;
         self.identity.as_ref().ok_or_else(invalid_data)?.admit(&mut self.io).await?;
+        self.check_local_file_transport()?;
         Ok(remaining)
     }
 }
@@ -289,26 +315,30 @@ impl<R: NativeRead> TelemetrySource for StateSource<R> {
             );
         }
         self.identity = Some(read.identity);
-        let (mut observed_from, metadata_visible, properties) = if !shared && dataset == SnapshotDataset::Operational {
-            let read = crate::database_properties::read(&mut self.io).await?;
-            if target.database().is_none_or(|database| database.database != read.database) {
-                return Err(CollectionStop::SourceChanged.error());
-            }
-            let source = match read.properties {
-                Ok(point) => {
-                    if self.rows.len() >= self.request.budget.max_snapshot_rows as usize {
-                        return Err(CollectionStop::RowLimit.error());
-                    }
-                    self.rows.push(TelemetryRecord::Operational(crate::database_properties::observation(point)?));
-                    StateSourceCoverage::collected(DATABASE_PROPERTIES_SOURCE.into(), 1)
+        let (mut observed_from, metadata_visible, properties) =
+            if !shared && dataset == SnapshotDataset::Operational && !self.local_file_profile() {
+                let read = crate::database_properties::read(&mut self.io).await?;
+                if target.database().is_none_or(|database| database.database != read.database) {
+                    return Err(CollectionStop::SourceChanged.error());
                 }
-                Err(error) => source_failure(DATABASE_PROPERTIES_SOURCE.into(), error)?,
+                let source = match read.properties {
+                    Ok(point) => {
+                        if self.rows.len() >= self.request.budget.max_snapshot_rows as usize {
+                            return Err(CollectionStop::RowLimit.error());
+                        }
+                        self.rows.push(TelemetryRecord::Operational(crate::database_properties::observation(point)?));
+                        StateSourceCoverage::collected(DATABASE_PROPERTIES_SOURCE.into(), 1)
+                    }
+                    Err(error) => source_failure(DATABASE_PROPERTIES_SOURCE.into(), error)?,
+                };
+                (canonical_time(&read.observed_at)?, read.metadata_visible, Some(source))
+            } else {
+                let (at, visible) = self.clock().await?;
+                let properties = self.local_file_profile().then(|| {
+                    StateSourceCoverage::unavailable(DATABASE_PROPERTIES_SOURCE.into(), ErrorCode::Unsupported, None)
+                });
+                (at, visible, properties)
             };
-            (canonical_time(&read.observed_at)?, read.metadata_visible, Some(source))
-        } else {
-            let (at, visible) = self.clock().await?;
-            (at, visible, None)
-        };
         let mut sources = self.read_families(&families, metadata_visible).await?;
         if detail == crate::database_identity::log_rates::Detail::ConfiguredLogRates {
             sources.push(match read.configured_log_rates {
@@ -334,6 +364,7 @@ impl<R: NativeRead> TelemetrySource for StateSource<R> {
                 Err(error) => source_failure(CONFIGURED_LOG_RATES_SOURCE.into(), error)?,
             });
         }
+        self.check_local_file_transport()?;
         let closing =
             pool_current::closing(self.identity.as_ref().ok_or_else(invalid_data)?, &mut self.io, &observed_from)
                 .await?;
@@ -344,6 +375,7 @@ impl<R: NativeRead> TelemetrySource for StateSource<R> {
                 (at, visible, None)
             }
         };
+        self.check_local_file_transport()?;
         if !final_metadata_visible {
             for (source, family) in sources.iter_mut().zip(&families) {
                 if family.requires_metadata()
@@ -511,6 +543,7 @@ impl<R: NativeRead> TelemetrySource for StateSource<R> {
             return Err(invalid_data());
         }
         self.progress = Progress::Failed;
+        self.check_local_file_transport()?;
         let owner = self.identity.as_ref().ok_or_else(invalid_data)?;
         let (identity, final_at) = if self.point_generation.is_some() {
             owner.recheck_clock(&mut self.io, &self.host, self.port).await?
