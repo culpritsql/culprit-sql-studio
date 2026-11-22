@@ -9,14 +9,14 @@ const requirePkg = process.argv.includes("--require-pkg");
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const manifest = JSON.parse(await readFile(path.join(root, "package.json"), "utf8"));
 
-assert.equal(manifest.name, "@culpritsql/culprit-wasm");
+assert.equal(manifest.name, "@culpritsql/plans");
 assert.equal(manifest.private, undefined, "published manifest must not set private");
 assert.equal(manifest.type, "module");
 assert.equal(manifest.license, "MIT");
 assert.deepEqual(manifest.files, ["pkg"]);
 assert.deepEqual(manifest.exports, { ".": { types: "./pkg/index.d.ts", import: "./pkg/index.js" } });
 assert.equal(manifest.publishConfig?.access, "public");
-assert.equal(manifest.repository?.url, "git+https://github.com/culpritsql/culprit-wasm.git");
+assert.equal(manifest.repository?.url, "git+https://github.com/culpritsql/culprit-plans.git");
 
 const reportPath = path.join(root, "pkg/build-report.json");
 let hasPkg = true;

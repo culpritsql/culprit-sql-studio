@@ -1,9 +1,9 @@
-name: WASM Package Sync
+name: Plans Package Sync
 
-# Builds, browser-tests, and syncs @culpritsql/culprit-wasm to https://github.com/culpritsql/culprit-wasm.
-# Configure secret CULPRIT_WASM_SYNC_TOKEN with a fine-grained PAT scoped only to culpritsql/culprit-wasm
+# Builds, browser-tests, and syncs @culpritsql/plans to https://github.com/culpritsql/culprit-plans.
+# Configure secret CULPRIT_PLANS_SYNC_TOKEN with a fine-grained PAT scoped only to culpritsql/culprit-plans
 # (Repository permissions -> Contents: Read and write).
-# When a v* release tag is pushed here, the matching v* tag is pushed to culpritsql/culprit-wasm, triggering npm publish.
+# When a v* release tag is pushed here, the matching v* tag is pushed to culpritsql/culprit-plans, triggering npm publish.
 on:
   push:
     branches: [main]
@@ -11,7 +11,7 @@ on:
   workflow_dispatch:
     inputs:
       sync_tag:
-        description: "Optional existing v* tag to sync and tag in culpritsql/culprit-wasm"
+        description: "Optional existing v* tag to sync and tag in culpritsql/culprit-plans"
         required: false
         type: string
         default: ""
@@ -107,7 +107,7 @@ jobs:
           PY
 
   sync:
-    name: Build, verify, and sync @culpritsql/culprit-wasm
+    name: Build, verify, and sync @culpritsql/plans
     if: needs.changes.outputs.should_run == 'true'
     needs: [changes]
     runs-on: ubuntu-latest
@@ -158,27 +158,27 @@ jobs:
         run: python3 -B dev/check-boundaries.py --wasm-artifacts
       - name: Run browser runtime smoke suite
         run: node dev/smoke-wasm.mjs > target/wasm-browser-smoke.json
-      - name: Stage public @culpritsql/culprit-wasm repository
+      - name: Stage public @culpritsql/plans repository
         run: |
-          python3 -B .github/scripts/stage_wasm_repo.py --omit-workflows "$RUNNER_TEMP/staged-wasm-repo"
-          node "$RUNNER_TEMP/staged-wasm-repo/test/smoke.mjs" --require-pkg
+          python3 -B .github/scripts/stage_wasm_repo.py --omit-workflows "$RUNNER_TEMP/staged-plans-repo"
+          node "$RUNNER_TEMP/staged-plans-repo/test/smoke.mjs" --require-pkg
       - name: Upload staged npm package artifact
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: culprit-wasm-staged
-          path: ${{ runner.temp }}/staged-wasm-repo/
+          name: culprit-plans-staged
+          path: ${{ runner.temp }}/staged-plans-repo/
           include-hidden-files: true
           if-no-files-found: error
           retention-days: 7
-      - name: Push synced package to culpritsql/culprit-wasm
+      - name: Push synced package to culpritsql/culprit-plans
         env:
-          SYNC_TOKEN: ${{ secrets.CULPRIT_WASM_SYNC_TOKEN }}
+          SYNC_TOKEN: ${{ secrets.CULPRIT_PLANS_SYNC_TOKEN }}
           SOURCE_SHA: ${{ needs.changes.outputs.sha }}
           SYNC_TAG: ${{ needs.changes.outputs.tag }}
         run: |
           set -euo pipefail
           if [ -z "$SYNC_TOKEN" ]; then
-            echo "::warning::CULPRIT_WASM_SYNC_TOKEN is not configured; skipping push to culpritsql/culprit-wasm."
+            echo "::warning::CULPRIT_PLANS_SYNC_TOKEN is not configured; skipping push to culpritsql/culprit-plans."
             exit 0
           fi
           AUTH_HEADER="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$SYNC_TOKEN" | base64 | tr -d '\n')"
@@ -186,8 +186,8 @@ jobs:
           export GIT_CONFIG_KEY_0="http.https://github.com/.extraheader"
           export GIT_CONFIG_VALUE_0="$AUTH_HEADER"
 
-          git clone --branch main https://github.com/culpritsql/culprit-wasm.git "$RUNNER_TEMP/target-repo"
-          rsync -a --delete --exclude '.git/' --exclude '.github/' "$RUNNER_TEMP/staged-wasm-repo/" "$RUNNER_TEMP/target-repo/"
+          git clone --branch main https://github.com/culpritsql/culprit-plans.git "$RUNNER_TEMP/target-repo"
+          rsync -a --delete --exclude '.git/' --exclude '.github/' "$RUNNER_TEMP/staged-plans-repo/" "$RUNNER_TEMP/target-repo/"
 
           cd "$RUNNER_TEMP/target-repo"
           git config user.name "culprit-bot"
@@ -196,7 +196,7 @@ jobs:
 
           if [ -n "$(git status --porcelain)" ]; then
             git add -A
-            git commit -m "Sync @culpritsql/culprit-wasm from culprit-sql-studio@${SHORT_SHA}"
+            git commit -m "Sync @culpritsql/plans from culprit-sql-studio@${SHORT_SHA}"
             if [ -z "$SYNC_TAG" ]; then
               git push origin HEAD:main
             else
@@ -204,14 +204,14 @@ jobs:
               git push origin HEAD:main || echo "main has advanced beyond ${SHORT_SHA}; tagging synced commit directly"
             fi
           else
-            echo "culpritsql/culprit-wasm is already identical to culprit-sql-studio@${SHORT_SHA}."
+            echo "culpritsql/culprit-plans is already identical to culprit-sql-studio@${SHORT_SHA}."
           fi
 
           if [ -n "$SYNC_TAG" ]; then
             if git ls-remote --exit-code --tags origin "refs/tags/${SYNC_TAG}" >/dev/null 2>&1; then
-              echo "Tag ${SYNC_TAG} already exists on culpritsql/culprit-wasm."
+              echo "Tag ${SYNC_TAG} already exists on culpritsql/culprit-plans."
             else
-              git tag -a "$SYNC_TAG" -m "Release @culpritsql/culprit-wasm ${SYNC_TAG#v} (culprit-sql-studio@${SHORT_SHA})"
+              git tag -a "$SYNC_TAG" -m "Release @culpritsql/plans ${SYNC_TAG#v} (culprit-sql-studio@${SHORT_SHA})"
               git push origin "refs/tags/${SYNC_TAG}"
             fi
           fi

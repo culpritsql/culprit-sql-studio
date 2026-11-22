@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Stage the public @culpritsql/culprit-wasm repository from the monorepo source of truth."""
+"""Stage the public @culpritsql/plans repository (culpritsql/culprit-plans) from the monorepo source of truth."""
 from __future__ import annotations
 
 import argparse
@@ -15,9 +15,9 @@ DESCRIPTION = (
     "Portable WebAssembly execution plan parser, comparator, deadlock parser, and exporter "
     "for SQL Server, PostgreSQL, MySQL, MariaDB, YugabyteDB, and SQLite."
 )
-REPOSITORY_URL = "git+https://github.com/culpritsql/culprit-wasm.git"
+REPOSITORY_URL = "git+https://github.com/culpritsql/culprit-plans.git"
 HOMEPAGE_URL = "https://culpritsql.com"
-BUGS_URL = "https://github.com/culpritsql/culprit-wasm/issues"
+BUGS_URL = "https://github.com/culpritsql/culprit-plans/issues"
 KEYWORDS = [
     "sql",
     "execution-plan",
@@ -54,7 +54,7 @@ def sha256_bytes(data: bytes) -> str:
 
 
 def build_public_manifest(source_manifest: dict[str, object], workspace_version: str) -> dict[str, object]:
-    if source_manifest.get("name") != "@culpritsql/culprit-wasm":
+    if source_manifest.get("name") != "@culpritsql/plans":
         raise RuntimeError(f"unexpected package name: {source_manifest.get('name')}")
     if source_manifest.get("version") != workspace_version:
         raise RuntimeError(

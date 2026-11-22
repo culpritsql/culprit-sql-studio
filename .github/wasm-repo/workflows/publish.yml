@@ -1,6 +1,6 @@
 name: Publish
 
-# Publishes @culpritsql/culprit-wasm to npm via OIDC Trusted Publishing when a v* tag is pushed
+# Publishes @culpritsql/plans to npm via OIDC Trusted Publishing when a v* tag is pushed
 # (either synced from culpritsql/culprit-sql-studio or dispatched manually for an existing tag).
 on:
   push:
@@ -47,11 +47,11 @@ jobs:
         run: node test/smoke.mjs --require-pkg
       - name: Inspect npm tarball
         run: npm pack --dry-run
-      - name: Publish @culpritsql/culprit-wasm with OIDC provenance
+      - name: Publish @culpritsql/plans with OIDC provenance
         run: |
           set -euo pipefail
-          if npm view "@culpritsql/culprit-wasm@${PACKAGE_VERSION}" version >/dev/null 2>&1; then
-            echo "@culpritsql/culprit-wasm@${PACKAGE_VERSION} is already published on npm; nothing to do."
+          if npm view "@culpritsql/plans@${PACKAGE_VERSION}" version >/dev/null 2>&1; then
+            echo "@culpritsql/plans@${PACKAGE_VERSION} is already published on npm; nothing to do."
             exit 0
           fi
           npm publish --access public --provenance

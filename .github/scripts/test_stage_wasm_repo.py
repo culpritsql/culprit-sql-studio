@@ -25,7 +25,7 @@ class StageWasmRepoTests(unittest.TestCase):
         (package / "package.json").write_text(
             json.dumps(
                 {
-                    "name": "@culpritsql/culprit-wasm",
+                    "name": "@culpritsql/plans",
                     "private": True,
                     "version": "0.5.6",
                     "type": "module",
@@ -42,7 +42,7 @@ class StageWasmRepoTests(unittest.TestCase):
         (package / "tsconfig.json").write_text("{}\n")
         (package / "tsconfig.contract.json").write_text("{}\n")
 
-        (template / "README.md").write_text("# @culpritsql/culprit-wasm\n")
+        (template / "README.md").write_text("# @culpritsql/plans\n")
         (template / ".gitattributes").write_text("pkg/** linguist-generated=true\n")
         (template / "smoke.mjs").write_text("#!/usr/bin/env node\n")
         (template / "workflows/ci.yml").write_text("name: CI\n")
@@ -91,10 +91,10 @@ class StageWasmRepoTests(unittest.TestCase):
         stage_repository(self.out, root=self.root, include_pkg=True, include_workflows=False)
         manifest = json.loads((self.out / "package.json").read_text())
         self.assertNotIn("private", manifest)
-        self.assertEqual(manifest["name"], "@culpritsql/culprit-wasm")
+        self.assertEqual(manifest["name"], "@culpritsql/plans")
         self.assertEqual(manifest["version"], "0.5.6")
         self.assertEqual(manifest["publishConfig"], {"access": "public", "provenance": True})
-        self.assertEqual(manifest["repository"]["url"], "git+https://github.com/culpritsql/culprit-wasm.git")
+        self.assertEqual(manifest["repository"]["url"], "git+https://github.com/culpritsql/culprit-plans.git")
         self.assertFalse((self.out / ".github").exists())
 
         report_text = (self.out / "pkg/build-report.json").read_text()

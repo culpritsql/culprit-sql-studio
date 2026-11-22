@@ -1,4 +1,4 @@
-# @culpritsql/culprit-wasm
+# @culpritsql/plans
 
 Portable WebAssembly execution plan parser, comparator, deadlock parser, and exporter extracted from [Culprit SQL Studio](https://github.com/culpritsql/culprit-sql-studio).
 
@@ -17,7 +17,7 @@ Runs locally in browsers and JavaScript runtimes with zero runtime npm dependenc
 ## Install
 
 ```sh
-npm install @culpritsql/culprit-wasm
+npm install @culpritsql/plans
 ```
 
 ## Quickstart
@@ -32,7 +32,7 @@ import {
   parseDeadlock,
   exportPlan,
   ParserError,
-} from "@culpritsql/culprit-wasm";
+} from "@culpritsql/plans";
 
 await init();
 
@@ -53,11 +53,11 @@ In browsers, `init()` resolves `culprit_wasm_bg.wasm` relative to `import.meta.u
 
 ```ts
 import { readFile } from "node:fs/promises";
-import { init, parsePlan } from "@culpritsql/culprit-wasm";
+import { init, parsePlan } from "@culpritsql/plans";
 
 const wasmBytes = await readFile(
   new URL(
-    "./node_modules/@culpritsql/culprit-wasm/pkg/native/culprit_wasm_bg.wasm",
+    "./node_modules/@culpritsql/plans/pkg/native/culprit_wasm_bg.wasm",
     import.meta.url,
   ),
 );
@@ -69,8 +69,8 @@ const plan = parsePlan("QUERY PLAN\n`--SCAN orders", "sqlite");
 With Vite or Next.js static asset imports:
 
 ```ts
-import wasmUrl from "@culpritsql/culprit-wasm/pkg/native/culprit_wasm_bg.wasm?url";
-import { init } from "@culpritsql/culprit-wasm";
+import wasmUrl from "@culpritsql/plans/pkg/native/culprit_wasm_bg.wasm?url";
+import { init } from "@culpritsql/plans";
 
 await init({ module_or_path: wasmUrl });
 ```
