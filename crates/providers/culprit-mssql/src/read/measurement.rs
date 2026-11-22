@@ -418,7 +418,7 @@ impl NativeRead for MeasuredRead {
         self.owner.queries()
     }
     fn connection_generation(&self) -> Option<u64> {
-        Some(self.owner.connection_generation)
+        self.owner.connection_generation()
     }
     fn read_metrics(&self) -> Option<ReadWorkMetrics> {
         self.owner.read_metrics()

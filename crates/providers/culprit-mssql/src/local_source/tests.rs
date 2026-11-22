@@ -244,3 +244,80 @@ async fn missing_invalid_or_foreign_catalog_rows_cannot_supply_authority() {
     assert_eq!(reader.queries(), 3, "boxed/MI namespaces must still agree");
     assert_eq!(reader.closed, 0);
 }
+
+/// Script the same current-owned transition as ReadSession, including legitimate first acquisition.
+struct HeldEpochRead {
+    inner: FakeRead,
+    held: Option<u64>,
+    lose_epoch_owner: bool,
+}
+#[async_trait::async_trait]
+impl NativeRead for HeldEpochRead {
+    async fn query(
+        &mut self,
+        sql: &str,
+        parameters: Vec<Parameter>,
+        limit: usize,
+    ) -> crate::read::ReadResult<Vec<Rec>> {
+        let result = self.inner.query(sql, parameters, limit).await;
+        match self.inner.queries() {
+            1 if result.is_ok() => self.held = Some(1),
+            2 if self.lose_epoch_owner => self.held = None,
+            _ => (),
+        }
+        result
+    }
+    fn queries(&self) -> u32 {
+        self.inner.queries()
+    }
+    fn connection_generation(&self) -> Option<u64> {
+        self.held
+    }
+    async fn close(&mut self) -> SourceShutdown {
+        self.held = None;
+        self.inner.close().await
+    }
+}
+#[tokio::test]
+async fn optional_epoch_transport_loss_stops_before_projection_and_preserves_the_original_error() {
+    for failure in [false, true] {
+        let original = Error::new(ErrorCode::PermissionDenied, "controlled optional epoch failure");
+        let mut reader = HeldEpochRead {
+            inner: FakeRead::new(vec![
+                Ok(vec![metadata()]),
+                if failure { Err(ReadError::Source(original.clone())) } else { Ok(vec![epoch(100)]) },
+            ]),
+            held: None,
+            lose_epoch_owner: true,
+        };
+        assert_eq!(reader.connection_generation(), None);
+        let error = Context::read(&mut reader, "fixture.invalid", 1433).await.err().unwrap();
+        assert_eq!(reader.connection_generation(), None);
+        if failure {
+            assert_eq!(error.code, original.code);
+            assert_eq!(error.detail, original.detail);
+            assert_eq!(error.message, original.message);
+        } else {
+            assert_eq!(CollectionStop::from_error(&error), CollectionStop::SourceChanged);
+        }
+        assert_eq!(reader.queries(), 2, "no database projection or replacement authority read after ownership loss");
+        assert_eq!(reader.close().await, SourceShutdown::Quiescent);
+        assert_eq!(reader.inner.closed, 1);
+    }
+}
+#[tokio::test]
+async fn optional_epoch_unavailability_on_the_unchanged_held_connection_preserves_raw_unqualified_context() {
+    let original = Error::new(ErrorCode::PermissionDenied, "controlled optional epoch failure");
+    let mut reader = HeldEpochRead {
+        inner: FakeRead::new(vec![Ok(vec![metadata()]), Err(ReadError::Source(original)), Ok(vec![row(3)])]),
+        held: None,
+        lose_epoch_owner: false,
+    };
+    let context = Context::read(&mut reader, "fixture.invalid", 1433).await.unwrap();
+    assert_eq!(reader.connection_generation(), Some(1));
+    assert!(!context.is_qualified());
+    assert_eq!(context.qualification_error, Some(ErrorCode::PermissionDenied));
+    assert_eq!(context.capture_context().unwrap().epoch, None);
+    assert_eq!(reader.queries(), 3);
+    assert_eq!(reader.close().await, SourceShutdown::Quiescent);
+}

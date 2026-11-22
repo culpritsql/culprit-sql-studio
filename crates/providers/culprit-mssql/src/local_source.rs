@@ -183,7 +183,13 @@ async fn read_initial_context<R: NativeRead>(
     if platform.edition != crate::probe::ENGINE_EDITION_AZURE_SQL_DATABASE && !platform.supports_instance() {
         return Err(Error::new(ErrorCode::Unsupported, culprit_core::t!("collection.unsupported")));
     }
-    let (instance, error) = match platform.context(reader).await {
+    let observed = platform.context(reader).await;
+    // Capture after the successful first platform read: an initially unacquired reader may legitimately
+    // obtain its first client there. A retired optional read cannot authorize a replacement projection.
+    if connection_generation != reader.connection_generation() {
+        return Err(observed.err().unwrap_or_else(|| CollectionStop::SourceChanged.error()));
+    }
+    let (instance, error) = match observed {
         Ok(context) => (context, None),
         Err(error) if stops_remaining_reads(&error) => return Err(error),
         Err(error) => (None, Some(error.code)),

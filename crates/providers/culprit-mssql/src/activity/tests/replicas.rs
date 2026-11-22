@@ -127,7 +127,7 @@ async fn reconnecting_to_the_same_native_member_and_process_cannot_reuse_an_earl
 }
 
 #[tokio::test]
-async fn reconnecting_during_boxed_authority_acquisition_keeps_baseline_rows_without_borrowing_the_prior_instance() {
+async fn reconnecting_during_boxed_authority_acquisition_stops_before_projection_or_baseline_work() {
     let platform = crate::instance::test_support::metadata();
     let other_platform = replace(
         &platform,
@@ -149,12 +149,11 @@ async fn reconnecting_during_boxed_authority_acquisition_keeps_baseline_rows_wit
     let base = reader(native, IdentityDetail::Endpoint);
     let mut owner =
         ActivityReader::new(Reconnecting { inner: base.io, after: 2 }, base.options, "fixture.invalid".into(), 1433);
-    let (description, rows) = crate::telemetry::activity::capture(&mut owner).await.unwrap();
-    assert_eq!(rows.len(), 1);
-    assert!(matches!(description.partition, SourcePartition::InstanceLocal { member: None, epoch: None }));
-    assert_eq!(description.observation.activity().unwrap().coverage.state, culprit_core::SourceState::Partial);
-    assert_eq!(owner.query_count(), 7);
+    let error = crate::telemetry::activity::capture(&mut owner).await.err().unwrap();
+    assert_eq!(CollectionStop::from_error(&error), CollectionStop::SourceChanged);
+    assert_eq!(owner.query_count(), 2, "ownership loss cannot start database projection or replacement baseline work");
     assert_eq!(owner.close().await, SourceShutdown::Quiescent);
+    assert_eq!(owner.io.inner.closed, 1);
 }
 
 #[tokio::test]

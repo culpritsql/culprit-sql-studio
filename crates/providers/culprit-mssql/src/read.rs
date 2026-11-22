@@ -122,7 +122,9 @@ impl ReadQuery {
 pub(crate) trait NativeRead: Send {
     async fn query(&mut self, sql: &str, parameters: Vec<Parameter>, row_limit: usize) -> ReadResult<Vec<Rec>>;
     fn queries(&self) -> u32;
-    /// Reader-local transport ownership only. It is not a server, replica or native counter generation.
+    /// Currently owned transport generation, not the last acquisition counter. None before first acquisition,
+    /// after retirement/return, or when ownership is uncertain. An unsettled original task retains its owner;
+    /// callers must still await that task and source completion. This is no native server/counter identity.
     fn connection_generation(&self) -> Option<u64> {
         None
     }
@@ -276,6 +278,14 @@ impl ReadSession {
     }
     pub(crate) fn queries(&self) -> u32 {
         self.queries
+    }
+
+    fn owned_connection_generation(&self) -> Option<u64> {
+        (self.connection_generation > 0
+            && self.cancellation_confirmed
+            && !self.acquiring
+            && (self.client.is_some() || self.active.is_some()))
+        .then_some(self.connection_generation)
     }
 
     pub(crate) async fn query(
@@ -536,7 +546,7 @@ impl NativeRead for ReadSession {
         self.queries()
     }
     fn connection_generation(&self) -> Option<u64> {
-        Some(self.connection_generation)
+        self.owned_connection_generation()
     }
     fn observe_session_work(&mut self, observation: session_work::Observation) {
         self.native_work.observe(observation);
