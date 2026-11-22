@@ -53,7 +53,9 @@ mod partition_storage;
 mod partitions;
 mod performance;
 mod periods;
-pub mod plan_xml;
+use culprit_plans::mssql;
+#[cfg(test)]
+mod plan_tests;
 mod pressure;
 mod probe;
 mod processors;
@@ -322,7 +324,7 @@ impl Provider for MssqlProvider {
         else {
             return Ok(None);
         };
-        definition.payload.text().map(plan_xml::parse).transpose()
+        definition.payload.text().map(mssql::parse).transpose()
     }
 
     async fn last_actual_plan(

@@ -65,7 +65,6 @@ pub enum CachedPlanPayload {
 #[ts(export)]
 pub enum CachedPlanLimit {
     UnsupportedDefinition,
-    NativeParserUnavailable,
     PayloadUnavailable { payload: CachedPlanPayload, reason: PayloadUnavailable },
     UnusablePlan,
     MissingActualMeasurements,

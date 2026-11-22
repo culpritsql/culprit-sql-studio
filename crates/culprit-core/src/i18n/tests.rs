@@ -92,9 +92,10 @@ fn every_catalog_is_compiled_in_and_agrees_with_english() {
     let on_disk: BTreeSet<String> = std::fs::read_dir(root().join("locales"))
         .unwrap()
         .filter_map(|e| e.ok()?.file_name().to_str()?.strip_suffix(".json").map(str::to_string))
+        .filter(|code| cfg!(feature = "locales") || code == "en")
         .collect();
     let compiled: BTreeSet<String> = CATALOGS.iter().map(|(code, _)| code.to_string()).collect();
-    assert_eq!(compiled, on_disk, "every locales/*.json is a language the build compiled in");
+    assert_eq!(compiled, on_disk, "the selected catalogs are compiled into the library");
     let english = english();
     for (code, text) in CATALOGS {
         let lang = Lang::parse(code, text).unwrap_or_else(|e| panic!("{e}"));
@@ -115,7 +116,8 @@ fn a_scope_speaks_its_language_and_restores_the_one_before() {
         let nested = scope("de", || current().code.clone());
         (nested, current().code.clone())
     });
-    assert_eq!(inner, ("de".to_string(), "fr".to_string()));
+    let expected = if cfg!(feature = "locales") { ("de", "fr") } else { ("en", "en") };
+    assert_eq!(inner, (expected.0.to_string(), expected.1.to_string()));
     assert_eq!(current().code, "en");
     // A language Culprit doesn't have speaks English, and can't become the process's (tests never set one: every
     // other test reads English).

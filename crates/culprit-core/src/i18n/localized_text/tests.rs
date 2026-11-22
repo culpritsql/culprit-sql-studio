@@ -12,8 +12,8 @@ fn one_saved_observation_renders_for_another_reader_without_changing_its_message
     stored = serde_json::from_slice(&bytes).unwrap();
     assert_eq!(stored.text(), first);
     scope("fr", || stored.render());
-    assert_ne!(stored.text(), first);
-    assert!(stored.text().contains("1,2K"));
+    assert_eq!(stored.text() != first, cfg!(feature = "locales"));
+    assert!(stored.text().contains(if cfg!(feature = "locales") { "1,2K" } else { "1.2K" }));
     assert_eq!(stored.source(), Some(&catalog()));
 }
 #[test]
@@ -88,10 +88,9 @@ fn existing_message_arguments_retain_nested_authority_without_interpreting_raw_k
     assert_eq!(MessageValue::from(text.clone()), MessageValue::Message(Box::new(catalog())));
     assert_eq!(Message::from(LocalizedText::raw("raw-key")), Message::from("raw-key"));
     let nested = Message::paragraph(vec![Message::from(&text), Message::from(LocalizedText::raw("raw-key"))]);
-    assert!(scope("fr", || nested.render()).contains("1,2K"));
+    assert!(scope("fr", || nested.render()).contains(if cfg!(feature = "locales") { "1,2K" } else { "1.2K" }));
     assert!(scope("fr", || nested.render()).ends_with("raw-key"));
-    assert_ne!(
-        scope("en", || crate::t!("model.source.failed", error = &text)),
-        scope("fr", || crate::t!("model.source.failed", error = &text))
-    );
+    let english = scope("en", || crate::t!("model.source.failed", error = &text));
+    let french = scope("fr", || crate::t!("model.source.failed", error = &text));
+    assert_eq!(english != french, cfg!(feature = "locales"));
 }

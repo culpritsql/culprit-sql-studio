@@ -11,6 +11,7 @@ use std::collections::HashMap;
 
 use crate::read::QueryRead;
 use culprit_core::{NodeKind, Plan, PlanNode, t};
+use culprit_plans::postgres::{guessed_selectivity, parameter_guess};
 
 const SIZES_SQL: &str =
     "SELECT n.nspname || '.' || c.relname AS qualified, c.relname AS name, c.reltuples::float8 AS rows,
@@ -110,14 +111,6 @@ fn guessed_step() -> String {
     t!("provider.postgres.plan.guessed")
 }
 
-/// PostgreSQL/YSQL parameter evidence, independent of heap storage and catalog I/O. The annotation makes no promise
-/// that an index exists or can serve the predicate; distributed hash keys need their own lookup evidence.
-pub fn parameter_guess(node: &PlanNode) -> Option<String> {
-    (node.act_rows.is_none()
-        && [node.predicate.as_deref(), node.seek_predicate.as_deref()].into_iter().flatten().any(guessed_selectivity))
-    .then(guessed_step)
-}
-
 fn apply(node: &mut PlanNode, sizes: &HashMap<String, Size>, under_append: bool) {
     // Rows a run measured aren't a guess, whatever the plan was planned with.
     let guessed = parameter_guess(node).is_some();
@@ -167,111 +160,6 @@ fn apply(node: &mut PlanNode, sizes: &HashMap<String, Size>, under_append: bool)
     }
 }
 
-/// Operators whose estimate for an unknown value is a fixed default (a third for a range, a fraction of a percent for
-/// a pattern), not the column's statistics: `col > $1`, `col ~~ $1` (LIKE), `col ~ $1`.
-const DEFAULT_SELECTIVITY: &[&str] =
-    &["<", ">", "<=", ">=", "~~", "~~*", "!~~", "!~~*", "~", "~*", "!~", "!~*", "@>", "<@", "&&"];
-
-/// Operators that combine a parameter with another value before any comparison sees it: `now() - $1`, `'%' || $1`.
-const COMBINING: &[&str] = &["+", "-", "*", "/", "%", "||"];
-
-/// Whether a filter compares a column with a generic plan's parameter (`$1`) by a range or a pattern, the parameter
-/// perhaps inside arithmetic: `created_at > (now() - $1)` compares with a value the planner doesn't know either. Or
-/// with every value of an array parameter (`= ANY ($1)`, `<> ALL ($1)`): the planner doesn't know how many it holds and
-/// takes 10, so the rows it expects are that guess times a value's.
-pub fn guessed_selectivity(filter: &str) -> bool {
-    let bytes = filter.as_bytes();
-    let mut i = 0;
-    while i < bytes.len() {
-        if bytes[i] != b'$' || !bytes.get(i + 1).is_some_and(u8::is_ascii_digit) {
-            i += 1;
-            continue;
-        }
-        let end = i + 1 + bytes[i + 1..].iter().take_while(|b| b.is_ascii_digit()).count();
-        // The operators around the parameter and, while those combine it with something (PostgreSQL parenthesizes
-        // every such expression), the operators around the parentheses that hold it.
-        let (mut start, mut stop) = (i, end);
-        loop {
-            let around = [operator_before(&filter[..start]), operator_after(&filter[stop..])];
-            if around.iter().flatten().any(|op| DEFAULT_SELECTIVITY.contains(&op.as_str()))
-                || array_argument(&filter[..start])
-            {
-                return true;
-            }
-            if !around.iter().flatten().any(|op| COMBINING.contains(&op.as_str())) {
-                break;
-            }
-            let Some((open, close)) = enclosing(filter, start, stop) else { break };
-            (start, stop) = (open, close + 1);
-        }
-        i = end;
-    }
-    false
-}
-
-/// The parentheses around `filter[start..end]`: the nearest `(` before it that isn't closed before it, and the `)`
-/// that closes it.
-fn enclosing(filter: &str, start: usize, end: usize) -> Option<(usize, usize)> {
-    let bytes = filter.as_bytes();
-    let mut depth = 0;
-    let open = (0..start).rev().find(|&at| {
-        match bytes[at] {
-            b')' => depth += 1,
-            b'(' if depth == 0 => return true,
-            b'(' => depth -= 1,
-            _ => {}
-        }
-        false
-    })?;
-    let mut depth = 0;
-    let close = (end..bytes.len()).find(|&at| {
-        match bytes[at] {
-            b'(' => depth += 1,
-            b')' if depth == 0 => return true,
-            b')' => depth -= 1,
-            _ => {}
-        }
-        false
-    })?;
-    Some((open, close))
-}
-
-fn is_operator_char(c: char) -> bool {
-    "<>=~!*@&|#%^-+/".contains(c)
-}
-
-/// Whether what comes right before a parameter makes it the array of `ANY (…)` or `ALL (…)`: `= ANY (($1)::text[])`.
-fn array_argument(before: &str) -> bool {
-    let rest = before.trim_end_matches(|c: char| c.is_whitespace() || c == '(');
-    let word: Vec<char> = rest.chars().rev().take_while(|c| c.is_alphanumeric() || *c == '_').collect();
-    let word: String = word.into_iter().rev().collect();
-    word.eq_ignore_ascii_case("ANY") || word.eq_ignore_ascii_case("ALL")
-}
-
-/// The operator right before a parameter: `created_at > ($1)` → `>`; `= ANY ($1)` → `=`.
-fn operator_before(text: &str) -> Option<String> {
-    let mut rest = text.trim_end_matches(|c: char| c.is_whitespace() || c == '(');
-    for word in ["ANY", "ALL", "any", "all"] {
-        if let Some(stripped) = rest.strip_suffix(word) {
-            rest = stripped.trim_end_matches(|c: char| c.is_whitespace() || c == '(');
-        }
-    }
-    let op: String =
-        rest.chars().rev().take_while(|c| is_operator_char(*c)).collect::<Vec<_>>().into_iter().rev().collect();
-    (!op.is_empty()).then_some(op)
-}
-
-/// The operator right after a parameter: `($1)::date < created_at` → `<`.
-fn operator_after(text: &str) -> Option<String> {
-    let mut rest = text.trim_start_matches(|c: char| c.is_whitespace() || c == ')');
-    while let Some(cast) = rest.strip_prefix("::") {
-        let type_end = cast.find(|c: char| !(c.is_ascii_alphanumeric() || c == '_' || c == '"')).unwrap_or(cast.len());
-        rest = cast[type_end..].trim_start_matches(|c: char| c.is_whitespace() || c == ')');
-    }
-    let op: String = rest.chars().take_while(|c| is_operator_char(*c)).collect();
-    (!op.is_empty()).then_some(op)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -281,7 +169,7 @@ mod tests {
     fn measured_rows_withdraw_saved_generic_pruning_and_default_guess_annotations() {
         let json = r#"[{"Plan":{"Node Type":"Seq Scan","Relation Name":"orders","Schema":"public",
             "Plan Rows":10,"Total Cost":100,"Filter":"(created_at > $1)"}}]"#;
-        let mut plan = crate::plan_json::parse(json, PlanKind::Generic, None).unwrap();
+        let mut plan = culprit_plans::postgres::parse(json, PlanKind::Generic, None).unwrap();
         apply(&mut plan.root, &sizes(&[("public.orders", 100000.0, true)]), true);
         assert!(plan.root.facts().partition_pruning.is_some());
         assert!(plan.root.facts().selectivity_guess.is_some());
@@ -308,7 +196,7 @@ mod tests {
     fn a_sequential_scan_reads_the_whole_table() {
         let json = r#"[{"Plan": {"Node Type": "Seq Scan", "Relation Name": "orders", "Schema": "public",
             "Plan Rows": 5, "Total Cost": 4500.0, "Filter": "(customer_id = $1)"}}]"#;
-        let mut plan = crate::plan_json::parse(json, PlanKind::Generic, Some("SELECT 1")).unwrap();
+        let mut plan = culprit_plans::postgres::parse(json, PlanKind::Generic, Some("SELECT 1")).unwrap();
         apply(&mut plan.root, &sizes(&[("public.orders", 2_000_000.0, false)]), false);
         assert_eq!(plan.root.table_rows, Some(2_000_000.0));
         assert_eq!(plan.root.rows_read, Some(2_000_000.0));
@@ -330,7 +218,7 @@ mod tests {
              "Total Cost": 4500.0, "Filter": "(tenant_id = $1)"},
             {"Node Type": "Seq Scan", "Relation Name": "events_2026_10", "Schema": "public", "Plan Rows": 5,
              "Total Cost": 4500.0, "Filter": "(tenant_id = $1)"}]}}]"#;
-        let mut plan = crate::plan_json::parse(json, PlanKind::Generic, Some("SELECT 1")).unwrap();
+        let mut plan = culprit_plans::postgres::parse(json, PlanKind::Generic, Some("SELECT 1")).unwrap();
         let known =
             sizes(&[("public.events_2026_09", 2_000_000.0, true), ("public.events_2026_10", 1_500_000.0, true)]);
         apply(&mut plan.root, &known, false);
@@ -347,7 +235,7 @@ mod tests {
         );
 
         // A UNION ALL of two plain tables is an Append too; its scans do read their tables.
-        let mut plan = crate::plan_json::parse(json, PlanKind::Generic, Some("SELECT 1")).unwrap();
+        let mut plan = culprit_plans::postgres::parse(json, PlanKind::Generic, Some("SELECT 1")).unwrap();
         let tables =
             sizes(&[("public.events_2026_09", 2_000_000.0, false), ("public.events_2026_10", 1_500_000.0, false)]);
         apply(&mut plan.root, &tables, false);
@@ -358,28 +246,10 @@ mod tests {
     fn a_range_on_a_parameter_is_a_guess_in_a_generic_plan() {
         let json = r#"[{"Plan": {"Node Type": "Seq Scan", "Relation Name": "orders", "Schema": "public",
             "Plan Rows": 5, "Total Cost": 4500.0, "Filter": "(created_at > ($1)::timestamp with time zone)"}}]"#;
-        let mut plan = crate::plan_json::parse(json, PlanKind::Generic, Some("SELECT 1")).unwrap();
+        let mut plan = culprit_plans::postgres::parse(json, PlanKind::Generic, Some("SELECT 1")).unwrap();
         apply(&mut plan.root, &sizes(&[("public.orders", 2_000_000.0, false)]), false);
         assert_eq!(plan.root.rows_read, None);
         assert!(plan.root.props.contains_key("Selectivity"));
-    }
-
-    #[test]
-    fn which_filters_on_parameters_are_guesses() {
-        assert!(guessed_selectivity("(created_at > $1)"));
-        assert!(guessed_selectivity("((name)::text ~~ $2)"));
-        assert!(guessed_selectivity("(($1)::date <= created_at)"));
-        assert!(guessed_selectivity("((status = $1) AND (amount >= $2))"));
-        assert!(!guessed_selectivity("(customer_id = $1)"));
-        // An array parameter's length is a guess (10 values), whatever the operator.
-        assert!(guessed_selectivity("(status = ANY ($1))"));
-        assert!(guessed_selectivity("((a.id)::text = ANY (($1)::text[]))"));
-        assert!(guessed_selectivity("(id <> ALL ($2))"));
-        assert!(!guessed_selectivity("(status = ANY ('{a,b}'::text[]))"));
-        assert!(!guessed_selectivity("(company = $1)"));
-        assert!(!guessed_selectivity("(status <> $1)"));
-        assert!(!guessed_selectivity("(created_at > now())"));
-        assert!(!guessed_selectivity("(price > 10)"));
     }
 
     // `WHERE created_at > now() - interval $1`: the parameter sits in arithmetic, and the range compares with a value
@@ -395,7 +265,7 @@ mod tests {
 
         let json = r#"[{"Plan": {"Node Type": "Seq Scan", "Relation Name": "orders", "Schema": "public",
             "Plan Rows": 277777, "Total Cost": 4500.0, "Filter": "(orders.created_at > (now() - $1))"}}]"#;
-        let mut plan = crate::plan_json::parse(json, PlanKind::Generic, Some("SELECT 1")).unwrap();
+        let mut plan = culprit_plans::postgres::parse(json, PlanKind::Generic, Some("SELECT 1")).unwrap();
         apply(&mut plan.root, &sizes(&[("public.orders", 2_000_000.0, false)]), false);
         assert_eq!(plan.root.rows_read, None);
         assert!(plan.root.facts().selectivity_guess.is_some());
@@ -409,7 +279,7 @@ mod tests {
             "Total Cost": 70.54, "Plan Rows": 10, "Recheck Cond": "((id)::text = ANY ($1))", "Plans": [
               {"Node Type": "Bitmap Index Scan", "Index Name": "PK_apps", "Total Cost": 38.90, "Plan Rows": 10,
                "Index Cond": "((id)::text = ANY ($1))"}]}}]"#;
-        let mut plan = crate::plan_json::parse(json, PlanKind::Generic, Some("SELECT 1")).unwrap();
+        let mut plan = culprit_plans::postgres::parse(json, PlanKind::Generic, Some("SELECT 1")).unwrap();
         apply(&mut plan.root, &sizes(&[("public.apps", 6_285.0, false)]), false);
         let index_scan = &plan.root.children[0];
         assert!(index_scan.props[culprit_core::GUESSED_SELECTIVITY].contains("10 values for ANY"));
@@ -419,7 +289,7 @@ mod tests {
         // An equality on a parameter is estimated from statistics: no mark.
         let json = r#"[{"Plan": {"Node Type": "Index Scan", "Relation Name": "apps", "Schema": "public",
             "Index Name": "PK_apps", "Total Cost": 8.3, "Plan Rows": 1, "Index Cond": "((id)::text = $1)"}}]"#;
-        let mut plan = crate::plan_json::parse(json, PlanKind::Generic, Some("SELECT 1")).unwrap();
+        let mut plan = culprit_plans::postgres::parse(json, PlanKind::Generic, Some("SELECT 1")).unwrap();
         apply(&mut plan.root, &sizes(&[("public.apps", 6_285.0, false)]), false);
         assert!(plan.root.facts().selectivity_guess.is_none());
     }
@@ -429,7 +299,7 @@ mod tests {
     fn a_guess_note_never_promises_an_index_the_table_lacks() {
         let json = r#"[{"Plan": {"Node Type": "Seq Scan", "Relation Name": "orders", "Schema": "public",
             "Plan Rows": 10000, "Total Cost": 45000.0, "Filter": "((o.note)::text ~~ $1)"}}]"#;
-        let saved = crate::plan_json::parse(json, PlanKind::Generic, Some("SELECT 1")).unwrap();
+        let saved = culprit_plans::postgres::parse(json, PlanKind::Generic, Some("SELECT 1")).unwrap();
         // The size and index columns a scan's lookup (`fill`) finds for the table.
         let note = |plan: &Plan, indexed: &[&str]| {
             let mut plan = plan.clone();
@@ -450,7 +320,7 @@ mod tests {
         let json = r#"[{"Plan": {"Node Type": "Seq Scan", "Relation Name": "orders", "Schema": "public",
             "Plan Rows": 1111, "Total Cost": 45000.0,
             "Filter": "((o.total >= $3) AND (o.customer_id > $4) AND ((o.id % $1) = $2))"}}]"#;
-        let saved = crate::plan_json::parse(json, PlanKind::Generic, Some("SELECT 1")).unwrap();
+        let saved = culprit_plans::postgres::parse(json, PlanKind::Generic, Some("SELECT 1")).unwrap();
         let text = note(&saved, &["id"]);
         assert!(!text.contains("use an index"), "{text}");
     }
@@ -474,7 +344,7 @@ mod tests {
              "Sort Key": ["note"], "Plans": [
               {"Node Type": "Seq Scan", "Relation Name": "orders", "Schema": "public", "Plan Rows": 277777,
                "Total Cost": 30000.0, "Filter": "(orders.created_at > (now() - $1))"}]}]}}]"#;
-        let mut plan = crate::plan_json::parse(json, PlanKind::Generic, Some("SELECT 1")).unwrap();
+        let mut plan = culprit_plans::postgres::parse(json, PlanKind::Generic, Some("SELECT 1")).unwrap();
         let rules = |plan: &culprit_core::Plan| {
             culprit_core::insights::insights(plan).into_iter().map(|i| i.rule).collect::<Vec<_>>()
         };
@@ -495,7 +365,7 @@ mod tests {
         let index = format!("{guess}with a real value the planner may well use an index instead.");
         let json = r#"[{"Plan": {"Node Type": "Seq Scan", "Relation Name": "orders", "Schema": "public",
             "Plan Rows": 10000, "Total Cost": 45000.0, "Filter": "((o.note)::text ~~ $1)"}}]"#;
-        let saved = crate::plan_json::parse(json, PlanKind::Generic, Some("SELECT 1")).unwrap();
+        let saved = culprit_plans::postgres::parse(json, PlanKind::Generic, Some("SELECT 1")).unwrap();
         assert_eq!(parameter_guess(&saved.root).map(|s| s.to_string()), Some(step.clone()));
         let said = |indexed: Option<&[&str]>, partition: bool, under_append: bool| {
             let mut plan = saved.clone();

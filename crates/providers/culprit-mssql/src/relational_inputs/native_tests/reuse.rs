@@ -91,13 +91,13 @@ async fn record_run(
     };
     let selected = plans.iter().filter(|xml| super::expressions::has_statement(xml, hash)).collect::<Vec<_>>();
     let [xml] = selected.as_slice() else { panic!("one original native statement in {procedure}") };
-    let plan = crate::plan_xml::parse_cached_statement(
+    let plan = culprit_plans::mssql::parse_cached_statement(
         xml,
-        crate::plan_xml::CachedInputContext {
+        culprit_plans::mssql::CachedInputContext {
             statement: &detail.context,
             module_parameters: detail.module_parameters.as_ref(),
             text: Some(&original.original_statement),
-            origin: crate::plan_xml::PlanInputOrigin::OriginalNative { read: source.as_ref() },
+            origin: culprit_plans::mssql::PlanInputOrigin::OriginalNative { read: source.as_ref() },
         },
     )
     .unwrap();

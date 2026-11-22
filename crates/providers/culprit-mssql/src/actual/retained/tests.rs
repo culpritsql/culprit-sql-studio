@@ -156,7 +156,7 @@ async fn original_tvp_metadata_travels_with_the_retained_read_and_is_withheld_wh
         } else {
             let plan = super::super::plan_from_retained(
                 Read { setting_on: Some(true), plan: Some(retained) },
-                &crate::plan_xml::test_read_context("app"),
+                &culprit_plans::mssql::test_support::test_read_context("app"),
             )
             .unwrap();
             assert_eq!(

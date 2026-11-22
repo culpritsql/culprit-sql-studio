@@ -30,14 +30,14 @@ pub(super) fn classify(
     }
     let accesses = culprit_core::xml::read(xml, |document| {
         let document = document.ok()?;
-        let selected = crate::plan_xml::select_native_statement(&document, None).ok()?;
+        let selected = culprit_plans::mssql::select_native_statement(&document, None).ok()?;
         if !tag(selected, "StmtSimple")
             || selected.attribute("StatementText").map(str::trim) != Some(statement.trim())
             || !top_level(selected)
         {
             return None;
         }
-        let query = crate::plan_xml::query_plan_of(selected)?;
+        let query = culprit_plans::mssql::query_plan_of(selected)?;
         if query.descendants().filter(Node::is_element).any(|node| {
             node != query && tag(node, "QueryPlan")
                 || matches!(
@@ -74,7 +74,7 @@ pub(super) fn classify(
             if logical != expected {
                 return None;
             }
-            let operator = crate::plan_xml::operator_element(relop)?;
+            let operator = culprit_plans::mssql::operator_element(relop)?;
             let mut objects = operator.children().filter(|node| tag(*node, "Object"));
             let object = objects.next()?;
             if objects.next().is_some() || object.attribute("Server").is_some() {

@@ -1,131 +1,18 @@
-//! Share what Culprit found: a finding, a whole report, a plan or a comparison of two plans, as Markdown for a pull
-//! request or as one self-contained HTML file (inline CSS and SVG; no scripts, fonts or network). Literal values are
-//! redacted by default, and exports never include connection names, hosts or credentials: only the engine, the
-//! environment and what the database reported about its own objects.
-
+//! Native sharing for findings/reports. Pure plan/diff formatting is owned by culprit-plans.
 mod html;
 mod markdown;
-mod svg;
-
-use std::borrow::Cow;
-
-use culprit_core::redact::{redact_native, redact_plan, redact_sql};
-use culprit_core::{Confidence, Engine, Environment, Finding, Plan, PlanKind, PlanNode, Report, Severity, t};
-use serde::{Deserialize, Serialize};
-use ts_rs::TS;
-
-pub use html::{diff_html, finding_html, plan_html, report_html};
+pub use culprit_core::export::{ExportFile, ExportFormat, ExportNote, ExportOptions};
+use culprit_core::{Confidence, Environment, Finding, Plan, PlanDiff, Report, Severity, t};
+pub use culprit_plans::export::{file_stem, native_extension, plan_native, shares_note};
+pub(crate) use culprit_plans::export::{node_label, prepared, rows_phrase, sql_text};
+pub use html::{finding_html, report_html};
 pub(crate) use markdown::finding_detail_shared;
-pub use markdown::{
-    diff_markdown, finding_detail, finding_markdown, plan_markdown, report_markdown, verification_markdown,
-};
+pub use markdown::{finding_detail, finding_markdown, report_markdown, verification_markdown};
 
-#[derive(Serialize, Deserialize, TS, Clone, Copy, Debug, PartialEq, Eq, Default)]
-#[serde(rename_all = "lowercase")]
-#[ts(export)]
-pub enum ExportFormat {
-    /// Markdown for a pull request, an issue or a chat.
-    #[default]
-    Markdown,
-    /// One self-contained HTML page with the plan diagram.
-    Html,
-    /// The plan's own text (.sqlplan, EXPLAIN JSON or text), so it opens in the engine's tools.
-    Native,
-}
-
-/// Something to say about a plan beyond Culprit's own summary, e.g. a plan insight: what it is, why it matters, how to
-/// fix it and which operator it is about. Rendered under the plan in every export format.
-#[derive(Serialize, Deserialize, TS, Clone, Debug, PartialEq)]
-#[ts(export)]
-pub struct ExportNote {
-    pub title: String,
-    #[serde(default)]
-    pub detail: Option<String>,
-    #[serde(default)]
-    pub fix: Option<String>,
-    /// Plan node id, to mark the operator in the diagram.
-    #[serde(default)]
-    pub node: Option<u32>,
-}
-
-#[derive(Serialize, Deserialize, TS, Clone, Debug, PartialEq)]
-#[ts(export)]
-pub struct ExportOptions {
-    /// Replace literal values in SQL text, predicates and parameter values with placeholders. On unless asked.
-    #[serde(default = "on")]
-    pub redact: bool,
-    /// Notes to include with the plan (e.g. insights). The insights engine fills these; exports render them.
-    #[serde(default)]
-    pub notes: Vec<ExportNote>,
-}
-
-fn on() -> bool {
-    true
-}
-
-impl Default for ExportOptions {
-    fn default() -> Self {
-        ExportOptions { redact: true, notes: Vec::new() }
-    }
-}
-
-/// A file to save or copy: a suggested name and the contents.
-#[derive(Serialize, Deserialize, TS, Clone, Debug)]
-#[ts(export)]
-pub struct ExportFile {
-    pub name: String,
-    pub contents: String,
-    pub format: ExportFormat,
-}
-
-/// The plan's own text with literal values redacted (or as is), when the plan kept it.
-pub fn plan_native(plan: &Plan, options: &ExportOptions) -> Option<String> {
-    let raw = plan.raw.as_deref()?;
-    Some(if options.redact { redact_native(raw, plan.engine) } else { raw.to_string() })
-}
-
-/// File extension for the plan's own text.
-pub fn native_extension(plan: &Plan) -> &'static str {
-    let raw = plan.raw.as_deref().unwrap_or("").trim_start();
-    if raw.starts_with('<') {
-        "sqlplan"
-    } else if raw.starts_with('{') || raw.starts_with('[') {
-        "json"
-    } else {
-        "txt"
-    }
-}
-
-/// A short, safe file name from a title: "plan-orders-by-customer".
-pub fn file_stem(title: &str) -> String {
-    let mut out = String::new();
-    for c in title.chars() {
-        if c.is_ascii_alphanumeric() {
-            out.push(c.to_ascii_lowercase());
-        } else if !out.ends_with('-') && !out.is_empty() {
-            out.push('-');
-        }
-        if out.len() >= 60 {
-            break;
-        }
-    }
-    let out = out.trim_end_matches('-').to_string();
-    if out.is_empty() { "culprit".into() } else { out }
-}
-
-pub(crate) fn prepared<'a>(plan: &'a Plan, options: &ExportOptions) -> Cow<'a, Plan> {
-    if options.redact { Cow::Owned(redact_plan(plan)) } else { Cow::Borrowed(plan) }
-}
-
-/// The report as it may leave the machine: checked again from its redacted snapshot, so every finding's text quotes
-/// only SQL the lexer has already redacted.
 pub(crate) fn shared_report(report: &Report) -> Report {
     crate::analysis::shared(report.clone().into(), &[])
 }
 
-/// `finding` as it may leave the machine: the same finding from `shared` (see [`shared_report`]) with its prose
-/// redacted again as a second layer. A finding the re-check doesn't produce (a plug-in check) gets the second layer
-/// only.
 pub(crate) fn shareable(report: &Report, shared: &Report, finding: &Finding) -> Finding {
     let engine = report.snapshot.server.engine;
     let rechecked = shared.findings.iter().find(|f| f.id == finding.id);
@@ -141,47 +28,14 @@ pub(crate) fn shareable(report: &Report, shared: &Report, finding: &Finding) -> 
     redacted
 }
 
-pub(crate) fn sql_text(text: &str, engine: Engine, options: &ExportOptions) -> String {
-    if options.redact { redact_sql(text.trim(), engine) } else { text.trim().to_string() }
-}
-
-/// The server a plan came from, MariaDB included (its plans carry `flavor`; the engine is MySQL's for both). Always one
-/// of a fixed set of names: a plan opened from a file can carry any `flavor`, and this text goes into HTML pages.
-pub(crate) fn plan_engine_label(plan: &Plan) -> &'static str {
-    let mariadb =
-        plan.engine == Engine::Mysql && plan.facts().flavor.as_ref().is_some_and(|f| f.eq_ignore_ascii_case("mariadb"));
-    if mariadb { "MariaDB" } else { plan.engine.label() }
-}
-
-/// The server a report came from, MariaDB included.
 pub(crate) fn report_engine_label(report: &Report) -> &'static str {
     report.snapshot.server.name()
 }
 
-/// The environment's id, for a message's `select`: "production", "staging", "development", "local".
 fn environment_id(environment: Environment) -> String {
     format!("{environment:?}").to_lowercase()
 }
 
-/// "Estimated plan": the plan's kind as a label of its own.
-pub(crate) fn kind_label(kind: PlanKind) -> String {
-    match kind {
-        PlanKind::Estimated => t!("common.plan_kind.estimated"),
-        PlanKind::Generic => t!("common.plan_kind.generic"),
-        PlanKind::Actual => t!("common.plan_kind.actual"),
-    }
-}
-
-/// "estimated plan": the plan's kind inside a line.
-pub(crate) fn kind_inline(kind: PlanKind) -> String {
-    match kind {
-        PlanKind::Estimated => t!("engine.export.plan_kind_inline.estimated"),
-        PlanKind::Generic => t!("engine.export.plan_kind_inline.generic"),
-        PlanKind::Actual => t!("engine.export.plan_kind_inline.actual"),
-    }
-}
-
-/// A severity's id, for a message's `select`.
 fn severity_id(severity: Severity) -> &'static str {
     match severity {
         Severity::High => "high",
@@ -190,7 +44,6 @@ fn severity_id(severity: Severity) -> &'static str {
     }
 }
 
-/// A confidence's id, for a message's `select`.
 fn confidence_id(confidence: Confidence) -> &'static str {
     match confidence {
         Confidence::High => "high",
@@ -199,8 +52,6 @@ fn confidence_id(confidence: Confidence) -> &'static str {
     }
 }
 
-/// "28% of runs fail · Needs attention · high impact, high confidence · MySQL 8.4.11, local environment": what a
-/// finding is, under its title. `impact` is its impact as the format shows it.
 pub(crate) fn finding_line(report: &Report, finding: &Finding, impact: String) -> String {
     let has_impact = if impact.is_empty() { "no" } else { "yes" };
     t!(
@@ -214,85 +65,6 @@ pub(crate) fn finding_line(report: &Report, finding: &Finding, impact: String) -
     )
 }
 
-/// A step's share of the plan's cost where the plan can state one (`Plan::step_share`): none on a plan without costs, a
-/// cheap plan, beside a step the plan puts no cost on (MySQL's filesort), or for a step whose cost rests on a guess.
-pub(crate) fn share(plan: &Plan, node: &PlanNode) -> Option<f64> {
-    plan.step_share(node)
-}
-
-/// Why steps of a plan that weighs them show no share of its cost, for under its steps (every surface that lists a
-/// plan's steps says it the same, `culprit_checks::plan_shares_note`); `None` when each costed step shows one. `q` is
-/// the statement it was planned for, where known.
-pub fn shares_note(plan: &Plan, q: Option<&culprit_core::QueryStat>) -> Option<String> {
-    culprit_checks::plan_shares_note(plan, q)
-}
-
-/// Rows flowing out of an operator: actual when the plan ran, else the estimate across executions.
-pub(crate) fn rows_out(node: &PlanNode) -> Option<f64> {
-    node.act_rows.or_else(|| (!node.facts().estimated_rows_unavailable).then(|| node.est_rows_total()))
-}
-
-pub(crate) fn estimated_cost(plan: &Plan) -> String {
-    if plan.facts().estimated_cost_unavailable {
-        t!("engine.export.unavailable")
-    } else if plan.total_cost < 10.0 {
-        format!("{:.3}", plan.total_cost)
-    } else {
-        culprit_core::format::count(plan.total_cost)
-    }
-}
-
-pub(crate) fn table(node: &PlanNode) -> Option<String> {
-    let object = node.object.as_deref()?;
-    Some(object.rsplit('.').next().unwrap_or(object).chars().filter(|c| !matches!(c, '[' | ']' | '"' | '`')).collect())
-}
-
-/// "customers · ix_customers_email", the object column of operator lists.
-pub(crate) fn where_(node: &PlanNode) -> String {
-    match (table(node), node.index.as_deref()) {
-        (Some(t), Some(i)) => format!("{t} · {i}"),
-        (Some(t), None) => t,
-        (None, _) => node.detail.clone().unwrap_or_default(),
-    }
-}
-
-pub(crate) fn rows_text(node: &PlanNode) -> String {
-    if node.facts().estimated_rows_unavailable {
-        return node.act_rows.map_or_else(
-            || t!("engine.export.unavailable"),
-            |act| format!("{} → {}", t!("engine.export.unavailable"), culprit_core::format::count(act)),
-        );
-    }
-    let est = node.est_rows_total();
-    match node.act_rows {
-        Some(act) => format!("{} → {}", culprit_core::format::count(est), culprit_core::format::count(act)),
-        None => culprit_core::format::count(est),
-    }
-}
-
-/// `rows_text` with its noun: "1 row", "12 rows", "12 → 1 row" (the noun follows the last number).
-pub(crate) fn rows_phrase(node: &PlanNode) -> String {
-    let Some(last) = rows_out(node) else { return t!("engine.export.row_count_unavailable") };
-    t!("engine.export.rows_phrase", n = last.round(), rows = rows_text(node))
-}
-
-/// The plan's statement and the highest-cost operators, for the one-line "where the cost goes" summary.
-pub(crate) fn top_costs(plan: &Plan, limit: usize) -> Vec<(&'_ PlanNode, f64)> {
-    let mut list: Vec<(&PlanNode, f64)> = plan.nodes().into_iter().filter_map(|n| Some((n, share(plan, n)?))).collect();
-    list.sort_by(|a, b| b.1.total_cmp(&a.1));
-    list.into_iter().filter(|(_, s)| *s >= 0.01).take(limit).collect()
-}
-
-pub(crate) fn node_label(node: &PlanNode) -> String {
-    match table(node) {
-        Some(table) => t!("engine.export.step_on", op = &node.op, table = table),
-        None => node.op.clone(),
-    }
-}
-
-/// What a finding's statement costs, as the brief says it ([`culprit_core::Workload::cost_of`]): "33% of database time ·
-/// about 642 runs a day over 89 hours of Culprit's scans · 2.5 ms on average (19% of database time … over the 1295 days
-/// since statistics were reset)", the totals beside only where they differ twofold.
 pub(crate) fn stats_line(workload: &culprit_core::Workload, q: &culprit_core::QueryStat) -> String {
     let cost = workload.cost_of(q);
     // One run or two far apart: what they took, never an average that hides it (`QueryStat::few_runs`).
@@ -318,15 +90,34 @@ pub(crate) fn stats_line(workload: &culprit_core::Workload, q: &culprit_core::Qu
     }
 }
 
-/// When the export was made, for the footer.
 pub(crate) fn exported_at() -> String {
     chrono::Utc::now().format("%Y-%m-%d %H:%M UTC").to_string()
 }
 
-/// The report's server, without names that identify the deployment: "SQL Server 2022, production".
 pub(crate) fn server_line(report: &Report) -> String {
     let s = &report.snapshot;
     t!("engine.export.server_line", product = &s.server.product, environment = environment_id(s.environment))
+}
+
+/// Native callers resolve the export clock here; supplied plans use the shared pure renderer.
+pub fn plan_html(plan: &Plan, title: &str, options: &ExportOptions) -> String {
+    culprit_plans::export::plan_html(plan, title, options, &exported_at())
+}
+pub fn plan_markdown(plan: &Plan, title: &str, options: &ExportOptions) -> String {
+    culprit_plans::export::plan_markdown(plan, title, options, &exported_at())
+}
+pub fn diff_html(a: &Plan, b: &Plan, diff: &PlanDiff, name_a: &str, name_b: &str, options: &ExportOptions) -> String {
+    culprit_plans::export::diff_html(a, b, diff, name_a, name_b, options, &exported_at())
+}
+pub fn diff_markdown(
+    a: &Plan,
+    b: &Plan,
+    diff: &PlanDiff,
+    name_a: &str,
+    name_b: &str,
+    options: &ExportOptions,
+) -> String {
+    culprit_plans::export::diff_markdown(a, b, diff, name_a, name_b, options, &exported_at())
 }
 
 #[cfg(test)]

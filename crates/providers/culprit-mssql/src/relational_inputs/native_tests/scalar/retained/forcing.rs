@@ -198,7 +198,7 @@ async fn exercise(probe: &mut Probe, fixture: &OwnedSourceFixture, database: &st
     assert_eq!(identity, metadata::read(probe, &prime, Some(&identity)).await);
     assert_eq!(original.result, counterpart.result);
     assert_eq!(prime.plan.statement, original.plan.statement);
-    let pair = crate::plan_xml::runtime_input_pair(&original.plan, &counterpart.plan);
+    let pair = culprit_plans::mssql::runtime_input_pair(&original.plan, &counterpart.plan);
     let input_relation = pair.relation();
     let original_hash = original.plan.facts().query_hash.as_ref().expect("original native query hash");
     let counterpart_hash = counterpart.plan.facts().query_hash.as_ref().expect("counterpart native query hash");
@@ -297,7 +297,7 @@ async fn forced_context(fixture: &OwnedSourceFixture, database: &str) {
     }
     let recovered = episode.retained.explain();
     assert_eq!(
-        crate::plan_xml::runtime_input_pair(&recovered, &episode.counterpart.plan).relation(),
+        culprit_plans::mssql::runtime_input_pair(&recovered, &episode.counterpart.plan).relation(),
         NativeRuntimeInputRelation::Unavailable
     );
     let captures =

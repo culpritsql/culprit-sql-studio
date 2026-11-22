@@ -15,6 +15,7 @@ doctest = false
 native-test-support = ["dep:culprit-collector"]
 
 [dependencies]
+culprit-plans.workspace = true
 culprit-collector = { workspace = true, optional = true }
 culprit-core.workspace = true
 culprit-read.workspace = true

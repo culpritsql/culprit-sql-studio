@@ -21,6 +21,8 @@ with a fixture.
 
 | Crate | What it owns |
 |---|---|
+| `culprit-plans` | Pure plan/deadlock parsers, comparison, presentation and explicit-clock plan exports, shared by database providers and the browser. No drivers or native I/O. |
+| `culprit-wasm` | JSON ABI for the same plan operations; the typed JavaScript package reuses generated Core declarations. |
 | `culprit-read` | Provider-independent response budgets, bounded row delivery, native admission fences and snapshot/frame paging. No SQL, connections, scheduling or destination state. |
 | `culprit-core` | The model (`Snapshot`, `Plan`, `Finding`), the `Check` and `Provider` traits, plan insights, `Coverage`. No I/O. |
 | `culprit-mssql`, `culprit-postgres`, `culprit-yugabyte`, `culprit-mysql`, `culprit-sqlite` | Providers: the sources for one engine, and explain, live sessions, deadlocks where supported. YugabyteDB owns DocDB measurements and shares PostgreSQL wire transport, not its heap collectors. SQLite reads a file, read-only: schema, statistics, settings and plans, no sessions or waits. |
@@ -1278,7 +1280,7 @@ populations. The scalar's missing rows and executions remain unknown. Sorts requ
 population; conflicting counts, parallel metadata, filters and row goals cannot authorize this traversal.
 
 Every plan and plan step carries its facts: the engine's parser records them from the native plan, and a provider that
-plugs in either fills them in or hands its native text to the built-in parser (`culprit_engine::plans::parse_plan`).
+plugs in either fills them in or hands its native text to the built-in parser (`culprit_plans::parse_plan`).
 A fact the parser doesn't know is unknown; a display property never stands in for one, and a saved plan without facts
 is refused. Preparation updates typed facts and their inspection strings together, withdrawing stale derived
 annotations. Catalog enrichment requires an unambiguous table/index identity; an unqualified name shared by

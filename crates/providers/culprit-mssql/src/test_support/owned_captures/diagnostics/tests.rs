@@ -36,7 +36,7 @@ impl TelemetrySource for Original {
     }
 }
 fn row() -> TelemetryRecord {
-    let source = crate::plan_xml::test_source(SnapshotDataset::RetainedPlans);
+    let source = culprit_plans::mssql::test_support::test_source(SnapshotDataset::RetainedPlans);
     let layout = crate::retained_definitions::Layout {
         maximum_bytes: 128 * 1024,
         maximum_statement_bytes: crate::actual::retained::MAX_STATEMENT_BYTES,
@@ -54,7 +54,7 @@ fn row() -> TelemetryRecord {
 }
 fn original(page: Result<CollectionRead>) -> (SourceDiagnostics, Arc<Calls>) {
     let calls = Arc::new(Calls::default());
-    let source = crate::plan_xml::test_source(SnapshotDataset::RetainedPlans);
+    let source = culprit_plans::mssql::test_support::test_source(SnapshotDataset::RetainedPlans);
     // Only delegation is under test; this controlled protocol identity grants no source or artifact authority.
     let capture = CaptureIdentity { observation_id: "owned-diagnostic-protocol".into(), revision: None };
     (
@@ -115,7 +115,7 @@ async fn native_errors_keep_their_original_stop_and_diagnostic_facts_never_inclu
     let error = spy.read_page(TelemetryStream::ObjectDefinitions, None).await.err().unwrap();
     assert_eq!(CollectionStop::from_error(&error), CollectionStop::CancellationUnconfirmed);
     assert_eq!(spy.failure_samples, 0);
-    let source = crate::plan_xml::test_source(SnapshotDataset::RetainedPlans);
+    let source = culprit_plans::mssql::test_support::test_source(SnapshotDataset::RetainedPlans);
     let facts = row_facts(&source, &row());
     assert_eq!(facts["kind"], "mssql-retained-plan");
     assert_eq!(facts["record_valid"], true);

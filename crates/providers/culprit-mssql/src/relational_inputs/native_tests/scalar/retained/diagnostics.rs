@@ -13,7 +13,7 @@ pub(super) fn report(source: &CollectionDescription, definition: &MssqlRetainedP
 }
 
 fn describe(source: &CollectionDescription, definition: &MssqlRetainedPlanDefinition) -> Value {
-    let parsed = crate::plan_xml::parse_retained_definition(definition, source);
+    let parsed = culprit_plans::mssql::parse_retained_definition(definition, source);
     let parameters = parsed.as_ref().ok().and_then(|plan| plan.facts().parameter_context.as_ref());
     json!({
         "source_supports_relational_proof":MssqlRelationalInputProof::supports_source(source),
@@ -45,8 +45,10 @@ fn payload_structure(definition: &MssqlRetainedPlanDefinition) -> Value {
         return json!({"payload_available":false});
     };
     culprit_core::xml::read(xml, |document| {
-        let Ok(document) = document else { return json!({"xml_readable":false}) };
-        let candidates = || document.descendants().filter(|node| crate::plan_xml::query_plan_of(*node).is_some());
+        let Ok(document) = document else {
+            return json!({"xml_readable":false});
+        };
+        let candidates = || document.descendants().filter(|node| culprit_plans::mssql::query_plan_of(*node).is_some());
         let candidate_count = candidates().take(2).count();
         let relop_count = document
             .descendants()
@@ -64,11 +66,11 @@ fn payload_structure(definition: &MssqlRetainedPlanDefinition) -> Value {
             .take(2)
             .count();
         let Ok(statement) =
-            crate::plan_xml::select_native_statement(&document, definition.context.query_hash.as_deref())
+            culprit_plans::mssql::select_native_statement(&document, definition.context.query_hash.as_deref())
         else {
             return json!({"xml_readable":true,"candidate_statement_count_capped_at_two":candidate_count,"matching_statement_count_capped_at_two":matching,"native_selection_succeeded":false,"relop_count_capped_at_two":relop_count,"has_runtime_information":has_runtime});
         };
-        let plan = crate::plan_xml::query_plan_of(statement).unwrap();
+        let plan = culprit_plans::mssql::query_plan_of(statement).unwrap();
         let sql = match &definition.statement.payload {
             DefinitionPayload::Available { text, .. } => Some(text.as_str()),
             _ => None,
@@ -92,7 +94,7 @@ mod tests {
     use crate::{resources::test_support::replace, value::Val};
 
     fn source() -> CollectionDescription {
-        crate::plan_xml::test_source(SnapshotDataset::RetainedPlans)
+        culprit_plans::mssql::test_support::test_source(SnapshotDataset::RetainedPlans)
     }
     fn limits() -> crate::retained_definitions::Layout {
         crate::retained_definitions::Layout {

@@ -61,7 +61,6 @@ async fn original_scalar_access_and_independent_native_blocking_survive_recovery
     ] {
         assert!(!rendered.contains(private), "{private}");
     }
-    #[cfg(feature = "mssql")]
     {
         let plan = before.report.entries[0].plan.as_ref().unwrap();
         let parameter =
@@ -110,7 +109,6 @@ async fn original_optimizer_statistics_metadata_survives_recovery_without_curren
         expected,
         "the exact original capture remains the evidence after the current warehouse head disappears"
     );
-    #[cfg(feature = "mssql")]
     {
         let plan = replayed.report.entries[0].plan.as_ref().unwrap();
         let parameter =
@@ -172,14 +170,7 @@ async fn original_scalar_comparison_access_and_visibility_replay_without_runtime
             continue;
         }
         let [entry] = result.report.entries.as_slice() else { panic!("one exact native definition: {case:?}") };
-        #[cfg(not(feature = "mssql"))]
-        {
-            if case != Case::PayloadUnavailable {
-                assert!(entry.limitations.iter().any(|limit| limit.reason == CachedPlanLimit::NativeParserUnavailable));
-            }
-            assert!(entry.plan.is_none());
-        }
-        #[cfg(feature = "mssql")]
+
         verify_plan(case, &source, &records, entry);
         let encoded = serde_json::to_string(&result.report).unwrap();
         for private in [
@@ -195,7 +186,6 @@ async fn original_scalar_comparison_access_and_visibility_replay_without_runtime
     }
 }
 
-#[cfg(feature = "mssql")]
 fn verify_plan(
     case: Case,
     source: &CollectionDescription,
@@ -212,7 +202,7 @@ fn verify_plan(
         return;
     }
     let ObjectDefinitionFact::MssqlRetainedPlan(native) = &definition(&records[0]).fact else { panic!() };
-    let direct = culprit_mssql::plan_xml::parse_retained_definition(native, source).unwrap();
+    let direct = culprit_plans::mssql::parse_retained_definition(native, source).unwrap();
     let plan = entry.plan.as_ref().unwrap();
     assert_eq!(plan.facts().parameter_context, direct.facts().parameter_context, "{case:?}");
     if let Some(proof) = &native.parameter_context_proof {
@@ -266,7 +256,6 @@ fn verify_plan(
     assert!(plan.insights.as_ref().unwrap().items.iter().all(|insight| insight.fix_sql.is_none()));
 }
 
-#[cfg(feature = "mssql")]
 #[test]
 fn scalar_proof_cannot_move_to_another_scope_statement_node_or_native_body() {
     let (source, records) = parameter_evidence(Case::AccessMismatch);
@@ -297,7 +286,7 @@ fn scalar_proof_cannot_move_to_another_scope_statement_node_or_native_body() {
             "native-body" => native.batch_plan.native_sha256 = Some(digest(b"another-native-parameter-body")),
             _ => unreachable!(),
         }
-        let error = culprit_mssql::plan_xml::parse_retained_definition(&native, &source).unwrap_err();
+        let error = culprit_plans::mssql::parse_retained_definition(&native, &source).unwrap_err();
         assert_eq!(error.detail, Some(culprit_core::ErrorDetail::Delivery(DeliveryProblem::Integrity)), "{changed}");
     }
 }
@@ -334,7 +323,6 @@ async fn original_grant_queue_and_completed_scalar_work_recover_independently_wi
         assert!(memory.report.limitations.contains(&message));
     }
     let completed = collected_resources::cached_plans(&retained).unwrap();
-    #[cfg(feature = "mssql")]
     {
         let plan = completed.report.entries[0].plan.as_ref().unwrap();
         assert!(plan.facts().memory_grant_wait_ms.is_some_and(|wait| wait > 0.0));

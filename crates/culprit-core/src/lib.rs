@@ -75,6 +75,7 @@ pub mod drift;
 pub mod engines;
 pub mod error;
 pub mod events;
+pub mod export;
 pub mod finding;
 pub mod finding_facts;
 pub mod fingerprint;
@@ -112,6 +113,7 @@ pub mod plan_diff;
 pub mod plan_facts;
 #[cfg(test)]
 mod plan_facts_tests;
+pub mod plan_format;
 pub mod plan_view;
 pub mod platform;
 pub mod provenance;
@@ -249,6 +251,7 @@ pub use plan_facts::{
     PlanIndexColumns, PlanMemoryGrantFeedback, PlanMemoryGrantFeedbackIssue, PlanMemoryGrantFeedbackState,
     PlanNodeFacts, PlanParentRelationship, PlanSampleSource,
 };
+pub use plan_format::PlanFormat;
 pub use plan_view::{PlanInsightShare, PlanOperatorView, PlanPageServerIoView, PlanView};
 pub use platform::Platform;
 pub use provenance::{

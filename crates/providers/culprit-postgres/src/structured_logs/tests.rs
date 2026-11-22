@@ -316,7 +316,10 @@ fn unqualified_cycles_and_unknown_modes_preserve_the_native_condition_without_a_
         assert!(safe.deadlock.is_none());
         assert!(safe.statement.is_available());
         assert!(
-            crate::deadlocks::parse_deadlock_log(&format!("ERROR: deadlock detected\nDETAIL: {detail}")).is_empty()
+            culprit_plans::postgres::deadlocks::parse_deadlock_log(&format!(
+                "ERROR: deadlock detected\nDETAIL: {detail}"
+            ))
+            .is_empty()
         );
     }
     let mut value = native("40P01");
@@ -350,7 +353,7 @@ fn unsupported_graph_tail_is_not_silently_replaced_by_a_valid_cycle_prefix() {
     let pasted = format!(
         "2026-11-13 12:00:00 UTC [539] ERROR: deadlock detected\nDETAIL: {cycle}\nHINT: See server log\nCONTEXT: while updating tuple (0,1) in relation \"customers\""
     );
-    let pasted = crate::deadlocks::parse_deadlock_log(&pasted);
+    let pasted = culprit_plans::postgres::deadlocks::parse_deadlock_log(&pasted);
     assert_eq!(pasted.len(), 1, "pasted log headers are separated before native DETAIL parsing");
 }
 

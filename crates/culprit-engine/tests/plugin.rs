@@ -76,7 +76,7 @@ async fn retained_native_plans_open_offline_without_borrowing_current_catalog_or
     let mut snapshot: Snapshot = serde_json::from_str(include_str!("../../../fixtures/yugabyte-demo.json")).unwrap();
     snapshot.connection = "native-cache".into();
     let q = &mut snapshot.workload.as_mut().unwrap().queries[0];
-    let mut cached = culprit_yugabyte::plan::parse(
+    let mut cached = culprit_plans::yugabyte::parse(
         include_str!("../../providers/culprit-yugabyte/tests/data/qpm.json"),
         culprit_core::PlanKind::Estimated,
         None,
@@ -264,7 +264,7 @@ impl Provider for NativeText {
     }
 
     async fn explain(&self, _: &str, _: ExplainMode) -> Result<Plan> {
-        culprit_engine::plans::parse_plan(SPILLED_SORT)
+        culprit_plans::parse_plan(SPILLED_SORT)
     }
 
     async fn live(&self) -> Result<LiveState> {

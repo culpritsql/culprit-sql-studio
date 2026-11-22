@@ -38,24 +38,24 @@ fn limits() -> Layout {
 
 #[test]
 fn original_scalar_facts_and_node_access_are_identical_interactive_and_offline_without_literal_or_counter_borrowing() {
-    let source = crate::plan_xml::test_source(SnapshotDataset::RetainedPlans);
+    let source = culprit_plans::mssql::test_support::test_source(SnapshotDataset::RetainedPlans);
     let row = row(Some(SQL), XML);
     let definition = decode(&row, &limits(), Some(&source)).unwrap();
     let proof = definition.parameter_context_proof.as_ref().unwrap();
     assert!(proof.matches_retained(&source, &definition));
     assert_eq!(proof.context.parameters[0].comparison, Comparison::DifferentRepresentation);
     assert_eq!(proof.context.uses[0].node_id, 7);
-    let original = crate::plan_xml::parse_cached_statement(
+    let original = culprit_plans::mssql::parse_cached_statement(
         XML,
-        crate::plan_xml::CachedInputContext {
+        culprit_plans::mssql::CachedInputContext {
             statement: &definition.context,
             module_parameters: None,
             text: Some(SQL),
-            origin: crate::plan_xml::PlanInputOrigin::OriginalCapture { source: &source },
+            origin: culprit_plans::mssql::PlanInputOrigin::OriginalCapture { source: &source },
         },
     )
     .unwrap();
-    let offline = crate::plan_xml::parse_retained_definition(&definition, &source).unwrap();
+    let offline = culprit_plans::mssql::parse_retained_definition(&definition, &source).unwrap();
     assert_eq!(offline.facts().parameter_context, original.facts().parameter_context);
     assert_eq!(offline.root.facts().access_rows, original.root.facts().access_rows);
     assert_eq!(offline.root.facts().serial_execution_count.as_deref(), Some("1"));
@@ -73,17 +73,17 @@ fn original_scalar_facts_and_node_access_are_identical_interactive_and_offline_w
 
 #[test]
 fn missing_or_different_original_statement_never_gets_scalar_proof_from_a_matching_query_hash() {
-    let source = crate::plan_xml::test_source(SnapshotDataset::RetainedPlans);
+    let source = culprit_plans::mssql::test_support::test_source(SnapshotDataset::RetainedPlans);
     for sql in [None, Some("SELECT customer FROM dbo.other_orders WHERE customer=@customer")] {
         let definition = decode(&row(sql, XML), &limits(), Some(&source)).unwrap();
         assert!(definition.parameter_context_proof.is_none());
-        let original = crate::plan_xml::parse_cached_statement(
+        let original = culprit_plans::mssql::parse_cached_statement(
             XML,
-            crate::plan_xml::CachedInputContext {
+            culprit_plans::mssql::CachedInputContext {
                 statement: &definition.context,
                 module_parameters: None,
                 text: sql,
-                origin: crate::plan_xml::PlanInputOrigin::OriginalCapture { source: &source },
+                origin: culprit_plans::mssql::PlanInputOrigin::OriginalCapture { source: &source },
             },
         )
         .unwrap();
@@ -91,39 +91,39 @@ fn missing_or_different_original_statement_never_gets_scalar_proof_from_a_matchi
         assert!(context.issues.contains(&Issue::UnboundStatement));
         assert!(context.uses.is_empty());
         assert!(context.parameters.iter().all(|parameter| parameter.comparison == Comparison::Unavailable));
-        let offline = crate::plan_xml::parse_retained_definition(&definition, &source).unwrap();
+        let offline = culprit_plans::mssql::parse_retained_definition(&definition, &source).unwrap();
         assert!(culprit_core::insights::insights(&offline).iter().all(|insight| insight.rule != "parameter-context"));
     }
 }
 
 #[test]
 fn native_statement_ambiguity_and_changed_source_never_choose_a_representative_parameter_context() {
-    let source = crate::plan_xml::test_source(SnapshotDataset::RetainedPlans);
+    let source = culprit_plans::mssql::test_support::test_source(SnapshotDataset::RetainedPlans);
     let statement = XML.split("<Statements>").nth(1).unwrap().split("</Statements>").next().unwrap();
     let duplicate = format!(
         "<ShowPlanXML><BatchSequence><Batch><Statements>{statement}{statement}</Statements></Batch></BatchSequence></ShowPlanXML>"
     );
     let definition = decode(&row(Some(SQL), &duplicate), &limits(), Some(&source)).unwrap();
     assert!(definition.parameter_context_proof.is_none());
-    assert!(crate::plan_xml::parse_retained_definition(&definition, &source).is_err());
+    assert!(culprit_plans::mssql::parse_retained_definition(&definition, &source).is_err());
     let definition = decode(&row(Some(SQL), XML), &limits(), Some(&source)).unwrap();
     let mut changed = source;
     let SourcePartition::InstanceLocal { epoch, .. } = &mut changed.partition else { panic!() };
     *epoch = Some("different-native-process".into());
-    let error = crate::plan_xml::parse_retained_definition(&definition, &changed).unwrap_err();
+    let error = culprit_plans::mssql::parse_retained_definition(&definition, &changed).unwrap_err();
     assert_eq!(error.detail, Some(culprit_core::ErrorDetail::Delivery(DeliveryProblem::Integrity)));
 }
 
 #[test]
 fn content_binding_cannot_replace_the_native_access_relationship_even_with_a_recomputed_digest() {
-    let source = crate::plan_xml::test_source(SnapshotDataset::RetainedPlans);
+    let source = culprit_plans::mssql::test_support::test_source(SnapshotDataset::RetainedPlans);
     let mut definition = decode(&row(Some(SQL), XML), &limits(), Some(&source)).unwrap();
     let mut facts = definition.parameter_context_proof.take().unwrap().context;
     facts.uses[0].node_id = 8;
     definition.parameter_context_proof =
         Some(MssqlParameterContextProof::for_retained(&source, &definition, facts).unwrap());
     assert!(definition.is_valid(), "structural content binding is separate from native parser qualification");
-    let error = crate::plan_xml::parse_retained_definition(&definition, &source).unwrap_err();
+    let error = culprit_plans::mssql::parse_retained_definition(&definition, &source).unwrap_err();
     assert_eq!(error.detail, Some(culprit_core::ErrorDetail::Delivery(DeliveryProblem::Integrity)));
 }
 
@@ -131,7 +131,7 @@ mod full_batch;
 
 #[test]
 fn native_xml_attribute_whitespace_keeps_original_parameter_proof_through_canonical_export_and_restore() {
-    let source = crate::plan_xml::test_source(SnapshotDataset::RetainedPlans);
+    let source = culprit_plans::mssql::test_support::test_source(SnapshotDataset::RetainedPlans);
     let sql = SQL.replacen("SELECT ", "SELECT\r\n\t", 1);
     let xml = XML.replacen("StatementText=\"SELECT ", "StatementText=\"SELECT&#xD;&#xA;&#x9;", 1);
     let definition = decode(&row(Some(&sql), &xml), &limits(), Some(&source)).unwrap();
@@ -156,7 +156,7 @@ fn native_xml_attribute_whitespace_keeps_original_parameter_proof_through_canoni
     assert_eq!(retained.parameter_context_proof.as_ref(), Some(&original_proof));
     assert_eq!(retained.batch_plan.native_sha256, original_native_sha);
     assert!(original_proof.matches_retained(&source, retained));
-    let restored = crate::plan_xml::parse_retained_definition(retained, &source).unwrap();
+    let restored = culprit_plans::mssql::parse_retained_definition(retained, &source).unwrap();
     assert_eq!(restored.facts().parameter_context.as_ref(), Some(&original_proof.context));
     assert_eq!(restored.root.facts().access_rows.unwrap().actual_total, Some(10000.0));
     let encoded = serde_json::to_string(&first).unwrap();

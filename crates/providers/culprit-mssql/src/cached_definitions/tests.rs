@@ -87,7 +87,7 @@ pub(crate) fn joined_parameter_row(count: usize) -> Rec {
 
 #[test]
 fn the_native_binding_limit_retains_payloads_when_optional_classification_exceeds_its_envelope() {
-    let source = crate::plan_xml::test_source(SnapshotDataset::CachedDefinitions);
+    let source = culprit_plans::mssql::test_support::test_source(SnapshotDataset::CachedDefinitions);
     let limits = Limits::from_budget(&CollectionBudget::default()).unwrap();
     for count in [MAX_MSSQL_RELATIONAL_INPUT_BINDINGS, MAX_MSSQL_RELATIONAL_INPUT_BINDINGS + 1] {
         let row = joined_parameter_row(count);

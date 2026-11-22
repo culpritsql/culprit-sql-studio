@@ -1,0 +1,17 @@
+{
+  "name": "@culpritsql/culprit-wasm",
+  "private": true,
+  "version": "0.5.6",
+  "type": "module",
+  "sideEffects": false,
+  "files": [
+    "pkg"
+  ],
+  "exports": {
+    ".": {
+      "types": "./pkg/index.d.ts",
+      "import": "./pkg/index.js"
+    }
+  },
+  "license": "MIT"
+}

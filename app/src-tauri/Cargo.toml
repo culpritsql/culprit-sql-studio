@@ -16,6 +16,7 @@ doctest = false
 tauri-build = { version = "2.7.2", features = [] }
 
 [dependencies]
+culprit-plans.workspace = true
 culprit-auth.workspace = true
 culprit-core.workspace = true
 culprit-engine = { workspace = true, features = ["warehouse-adx", "warehouse-clickhouse", "evidence-azure", "evidence-s3"] }

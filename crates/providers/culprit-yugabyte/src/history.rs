@@ -244,11 +244,11 @@ pub(crate) async fn capture(
 }
 
 fn decode_stored(raw: &str) -> Result<Plan> {
-    let mut plan = crate::plan::parse(raw, PlanKind::Estimated, None).map_err(|_| {
+    let mut plan = culprit_plans::yugabyte::parse(raw, PlanKind::Estimated, None).map_err(|_| {
         Error::invalid(culprit_core::message!("provider.yugabyte.error.retained_plan_unreadable"))
             .with_hint(culprit_core::message!("provider.yugabyte.error.retained_plan_unreadable_hint"))
     })?;
-    crate::plan::redacted_constants(&mut plan);
+    culprit_plans::yugabyte::redacted_constants(&mut plan);
     Ok(plan)
 }
 

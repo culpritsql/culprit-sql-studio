@@ -5,7 +5,7 @@ use std::path::PathBuf;
 
 use clap::Args;
 use culprit_core::{BlockNode, Deadlock, DeadlockReport, Error, LiveState, Result, format, t};
-use culprit_engine::{Workspace, deadlocks};
+use culprit_engine::Workspace;
 use serde_json::{Value, json};
 
 use crate::output::{Format, Out};
@@ -125,7 +125,7 @@ pub async fn deadlocks(ws: &Workspace, args: DeadlocksArgs, out: &Out) -> Result
                 std::fs::read_to_string(path).map_err(|e| Error::invalid(format!("{}: {e}", path.display())))?
             };
             DeadlockReport {
-                deadlocks: deadlocks::parse_deadlock(&text)?,
+                deadlocks: culprit_plans::parse_deadlocks(&text)?,
                 source: t!("cli.deadlocks.from_file"),
                 ..Default::default()
             }

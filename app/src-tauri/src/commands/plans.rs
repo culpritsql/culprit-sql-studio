@@ -45,7 +45,7 @@ pub(crate) async fn query_progress(
 /// A plan pasted or opened in the Plans view (.sqlplan, EXPLAIN JSON or text, MySQL JSON or tree).
 #[tauri::command]
 pub(crate) async fn parse_plan(text: String) -> Result<Plan> {
-    culprit_engine::run_blocking(move || culprit_engine::plans::parse_plan(&text)).await
+    culprit_engine::run_blocking(move || culprit_plans::parse_plan(&text)).await
 }
 /// `connection`, when the plans came from one, lets scenarios name stale statistics from its latest scan.
 #[tauri::command]

@@ -1,0 +1,23 @@
+[package]
+name = "culprit-plans"
+description = "Portable plan and deadlock parsers, comparison and plan exports without database drivers"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+autotests = false
+
+[lib]
+doctest = false
+
+[features]
+default = ["locales"]
+locales = ["culprit-core/locales"]
+test-support = []
+
+[dependencies]
+# Standalone consumers can select English only without changing native workspace defaults.
+culprit-core = { path = "../culprit-core", default-features = false }
+roxmltree.workspace = true
+serde_json.workspace = true
+serde.workspace = true

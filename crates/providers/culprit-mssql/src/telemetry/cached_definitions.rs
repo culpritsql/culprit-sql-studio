@@ -77,7 +77,7 @@ mod tests {
             })
             .collect::<Vec<_>>();
         recipe.observe_batch(&rows, &mut layout).unwrap();
-        let source = crate::plan_xml::test_source(SnapshotDataset::CachedDefinitions);
+        let source = culprit_plans::mssql::test_support::test_source(SnapshotDataset::CachedDefinitions);
         let first = recipe.decode(&rows[0], &layout, &source).unwrap();
         assert!(recipe.complete_record_scope(&first));
         let overflow = recipe.decode(rows.last().unwrap(), &layout, &source).unwrap();

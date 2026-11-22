@@ -45,8 +45,7 @@ use culprit_core::{Capability, Check, CheckInfo, LockedCheck, Report, ServerInfo
 
 pub use advisor::index_advice;
 pub use brief::{
-    TOTAL_WAIT_METRICS, agent_brief, finding_no_share_reason, finding_step, finding_step_share, gone_after_rescan,
-    metric_text, no_share_reason, plan_shares_note, query_share,
+    TOTAL_WAIT_METRICS, agent_brief, finding_step, finding_step_share, gone_after_rescan, metric_text, query_share,
 };
 pub use dashboard::dashboard;
 pub use digest::{digest, digest_since};
@@ -55,7 +54,6 @@ pub use pipeline::{Pipeline, Prepare, Refine};
 pub(crate) use refine::{all_stopped, query_is_history, query_stopped, ran_once, without_database};
 pub use summary::summarize;
 pub use views::plan_advice::{annotate_plans, present_retained_plan, query_plan_insights};
-pub use views::plan_view::{plan_type_schema, plan_view, present_plan, present_progress_plan};
 pub use views::sql_lint::{apply_sql_fixes, lint_sql};
 
 /// Every built-in check: each area's own list (`checks::AREAS`), in the order they run.

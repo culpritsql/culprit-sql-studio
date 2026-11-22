@@ -1,7 +1,6 @@
 //! Statement counters, families and safe plan capture from pg_stat_statements.
 use crate::read::QueryRead;
 use crate::{
-    plan_json,
     probe::{Probe, StatementsAccess},
     read::{query, query_one},
     rows::iso,
@@ -323,10 +322,10 @@ async fn attach_plans(
         let Some(statement) = plannable(text) else { continue };
         attempted += 1;
         let Some(json) = generic_plan_json(client, statement, probe).await else { continue };
-        if let Ok(mut plan) = plan_json::parse(&json, PlanKind::Generic, Some(statement)) {
+        if let Ok(mut plan) = culprit_plans::postgres::parse(&json, PlanKind::Generic, Some(statement)) {
             crate::tables::fill(client, &mut plan).await;
-            plan_json::mark_generic(&mut plan);
-            plan_json::mark_planned_text(&mut plan, &queries[index].id);
+            culprit_plans::postgres::mark_generic(&mut plan);
+            culprit_plans::postgres::mark_planned_text(&mut plan, &queries[index].id);
             queries[index].plan = Some(plan);
             planned += 1;
         }

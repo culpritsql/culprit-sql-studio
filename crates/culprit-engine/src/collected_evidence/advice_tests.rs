@@ -4,7 +4,7 @@ use culprit_core::{PlanHistory, PlanHistoryKind};
 
 #[test]
 fn missing_prerequisites_withhold_current_and_retained_plan_sql_after_native_annotation() {
-    let plan = crate::plans::parse_native_plan(
+    let plan = culprit_plans::parse_native_plan(
         include_str!("../../tests/insights/pg-heap-fetches.json"),
         culprit_core::Engine::Postgres,
     )

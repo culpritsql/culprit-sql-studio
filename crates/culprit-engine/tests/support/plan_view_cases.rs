@@ -85,7 +85,7 @@ fn variant(id: &str, mean: f64, reads: f64) -> PlanVariant {
 
 fn finish(name: &str, mut plan: Plan, query: Option<QueryStat>) -> Case {
     culprit_core::insights::annotate(&mut plan);
-    culprit_checks::present_plan(&mut plan, query.as_ref());
+    culprit_plans::view::present_plan(&mut plan, query.as_ref());
     Case { name: name.into(), plan, query }
 }
 
@@ -231,7 +231,7 @@ pub fn cases() -> Vec<Case> {
         vec![timed(&template, 1, None, vec![]), timed(&template, 2, Some(20.0), vec![])],
     );
     cases.push(finish("partial-times", partial.clone(), None));
-    culprit_checks::present_progress_plan(&mut partial);
+    culprit_plans::view::present_progress_plan(&mut partial);
     cases.push(Case { name: "in-progress".into(), plan: partial, query: None });
     cases
 }

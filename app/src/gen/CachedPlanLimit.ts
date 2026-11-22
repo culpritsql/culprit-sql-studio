@@ -2,4 +2,4 @@
 import type { CachedPlanPayload } from "./CachedPlanPayload";
 import type { PayloadUnavailable } from "./PayloadUnavailable";
 
-export type CachedPlanLimit = { "kind": "unsupported-definition" } | { "kind": "native-parser-unavailable" } | { "kind": "payload-unavailable", payload: CachedPlanPayload, reason: PayloadUnavailable, } | { "kind": "unusable-plan" } | { "kind": "missing-actual-measurements" } | { "kind": "unknown-relational-input" } | { "kind": "missing-current-prerequisites" };
+export type CachedPlanLimit = { "kind": "unsupported-definition" } | { "kind": "payload-unavailable", payload: CachedPlanPayload, reason: PayloadUnavailable, } | { "kind": "unusable-plan" } | { "kind": "missing-actual-measurements" } | { "kind": "unknown-relational-input" } | { "kind": "missing-current-prerequisites" };

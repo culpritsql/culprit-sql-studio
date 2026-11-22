@@ -183,7 +183,7 @@ pub(crate) async fn capture_plans(
                 .execution
                 .explain_ysql(&text, culprit_core::ExplainMode::Estimated)
                 .await
-                .and_then(crate::plan::native)
+                .and_then(culprit_plans::yugabyte::native)
         };
         match timeout_at(deadline, capture).await {
             Ok(Ok(plan)) => {

@@ -8,7 +8,8 @@ use std::path::PathBuf;
 use clap::Subcommand;
 use culprit_core::{Error, Plan, Result};
 use culprit_engine::export::{ExportFormat, ExportOptions};
-use culprit_engine::{Workspace, export_diff, export_plan, plans};
+use culprit_engine::{Workspace, export_diff, export_plan};
+use culprit_plans as plans;
 
 use crate::output::Out;
 

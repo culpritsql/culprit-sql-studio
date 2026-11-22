@@ -32,7 +32,7 @@ fn prefix_row() -> Rec {
 
 #[test]
 fn a_plan_prefix_shorter_than_the_original_source_withholds_optional_proof_without_invalidating_the_row() {
-    let source = crate::plan_xml::test_source(SnapshotDataset::RetainedPlans);
+    let source = culprit_plans::mssql::test_support::test_source(SnapshotDataset::RetainedPlans);
     assert!(MssqlParameterContextProof::supports_source(&source));
     let definition = decode(&prefix_row(), &limits(), Some(&source)).unwrap();
     assert!(definition.is_valid());
@@ -49,7 +49,7 @@ fn a_plan_prefix_shorter_than_the_original_source_withholds_optional_proof_witho
 
 #[test]
 fn stage_diagnostics_are_bounded_native_shape_facts_without_raw_bodies_or_error_prose() {
-    let source = crate::plan_xml::test_source(SnapshotDataset::RetainedPlans);
+    let source = culprit_plans::mssql::test_support::test_source(SnapshotDataset::RetainedPlans);
     let row = prefix_row();
     let error = culprit_core::Error::new(culprit_core::ErrorCode::QueryFailed, "error-private-canary");
     let report = summary("native", &row, Some(&source), None, &error);

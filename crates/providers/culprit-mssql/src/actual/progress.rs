@@ -4,7 +4,6 @@ use super::{Availability, Layout, no_profiling, own_estimate};
 use crate::{
     activity::{established_login, participants::Check},
     conn::Pool,
-    plan_xml,
     read::{NativeRead, Parameter, ReadError, boolean, integer, invalid_data, optional_text, text},
     value::Rec,
 };
@@ -12,6 +11,7 @@ use culprit_core::{
     Engine, QueryProgress, Result, session_number, t,
     telemetry::{CollectionStop, NativeIdentity, ObservationBounds, canonical_time},
 };
+use culprit_plans::mssql;
 use std::sync::Arc;
 mod sql;
 #[cfg(test)]
@@ -88,7 +88,11 @@ async fn read<R: NativeRead>(reader: &mut R, id: u64) -> Result<Reading> {
     if generation != reader.connection_generation() {
         return Err(CollectionStop::SourceChanged.error());
     }
-    let row = if requests.len() == 1 { requests.remove(0) } else { return Err(invalid_data()) };
+    let row = if requests.len() == 1 {
+        requests.remove(0)
+    } else {
+        return Err(invalid_data());
+    };
     let count = integer(&row, "request_count")?;
     if count > 2 {
         return Err(invalid_data());
@@ -105,7 +109,9 @@ async fn read<R: NativeRead>(reader: &mut R, id: u64) -> Result<Reading> {
     if scope.request_page_server_read_capability != layout.request_page_server_read_capability {
         return Err(CollectionStop::SourceChanged.error());
     }
-    let Some((key, statement)) = check.selector() else { return Ok(Reading::Changed { at }) };
+    let Some((key, statement)) = check.selector() else {
+        return Ok(Reading::Changed { at });
+    };
     if !established_login(&key.session.generation) {
         return Ok(Reading::Changed { at });
     }
@@ -220,7 +226,7 @@ fn present(session: &str, reading: Reading) -> Result<QueryProgress> {
     }
     progress.page_server_reads = crate::activity::page_server_reads::count(row)?;
     let hash = point.check.query_hash().map(|hash| format!("0x{hash}"));
-    let parse = |field| row.str(field).and_then(|xml| plan_xml::parse_native_statement(&xml, hash.as_deref()).ok());
+    let parse = |field| row.str(field).and_then(|xml| mssql::parse_native_statement(&xml, hash.as_deref()).ok());
     progress.plan = parse("live_plan").or_else(|| parse("cached_plan")).map(|mut plan| {
         plan.raw = None;
         plan

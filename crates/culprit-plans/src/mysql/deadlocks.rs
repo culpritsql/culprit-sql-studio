@@ -1,0 +1,447 @@
+//! Parse already supplied InnoDB status; native reads, privileges and server timezone conversion remain caller-owned.
+use culprit_core::deadlock::classify;
+use culprit_core::{Deadlock, DeadlockProcess, DeadlockResource, Engine, LockHolder, t};
+
+/// The time on the LATEST DETECTED DEADLOCK section, as InnoDB printed it (`2026-10-11 13:48:08`, the server's local
+/// time).
+pub fn local_time(text: &str) -> Option<String> {
+    let start = text.find("LATEST DETECTED DEADLOCK")?;
+    let line = text[start..].lines().skip(1).map(str::trim).find(|l| !l.is_empty() && !l.starts_with('-'))?;
+    let mut p = line.split_whitespace();
+    let (date, time) = (p.next()?, p.next()?);
+    let looks_like_date = date.len() == 10 && date.chars().filter(|c| *c == '-').count() == 2;
+    let looks_like_time = time.len() == 8 && time.chars().filter(|c| *c == ':').count() == 2;
+    (looks_like_date && looks_like_time).then(|| format!("{date} {time}"))
+}
+
+#[derive(Default)]
+struct Txn {
+    id: String,
+    /// InnoDB's transaction id, which lock lines name (`trx id 76`).
+    trx: Option<String>,
+    thread: Option<String>,
+    host: Option<String>,
+    user: Option<String>,
+    statement: Vec<String>,
+}
+
+/// The LATEST DETECTED DEADLOCK section of `SHOW ENGINE INNODB STATUS` (or the whole output). `utc` says whether the
+/// server prints times in UTC; otherwise the time is left out rather than guessed.
+///
+/// MySQL lists, per transaction, the locks it HOLDS and the one it is WAITING FOR. MariaDB lists the lock each one is
+/// WAITING FOR and the locks it is CONFLICTING WITH, which belong to the other transaction: every lock line names its
+/// owner (`trx id 76`), so holders are attributed by that, whichever format it is.
+pub fn parse_innodb_status(text: &str, utc: bool) -> Vec<Deadlock> {
+    let at = local_time(text).filter(|_| utc).map(|t| format!("{}Z", t.replace(' ', "T")));
+    parse_at(text, at)
+}
+
+pub fn latest_section(text: &str) -> Option<&str> {
+    let start = text.find("LATEST DETECTED DEADLOCK")?;
+    let section = &text[start..];
+    Some(&section[..section.find("\nTRANSACTIONS\n").unwrap_or(section.len())])
+}
+/// Attribute a graph using native lock-resource identifiers, never SQL text or dotted display labels.
+pub fn native_databases(section: &str) -> culprit_core::Result<std::collections::BTreeSet<String>> {
+    let mut databases = std::collections::BTreeSet::new();
+    for line in section
+        .lines()
+        .map(str::trim)
+        .filter(|line| line.starts_with("RECORD LOCKS ") || line.starts_with("TABLE LOCK "))
+    {
+        let raw = line.split_once("table ").map(|(_, name)| name).ok_or_else(invalid)?;
+        if !raw.starts_with('`') {
+            return Err(invalid());
+        }
+        let end = culprit_core::sql::quoted_end(raw.as_bytes(), 0, b'`', false).map_err(|_| invalid())?;
+        if raw.as_bytes().get(end..end + 2) != Some(b".`") {
+            return Err(invalid());
+        }
+        let end = culprit_core::sql::quoted_end(raw.as_bytes(), end + 1, b'`', false).map_err(|_| invalid())?;
+        let name = culprit_core::sql::identifier_parts(&raw[..end]).ok_or_else(invalid)?;
+        if name.len() != 2 {
+            return Err(invalid());
+        }
+        databases.insert(name[0].clone());
+    }
+    if databases.is_empty() {
+        return Err(invalid());
+    }
+    Ok(databases)
+}
+
+/// [`parse_innodb_status`] with the deadlock's time (RFC 3339 UTC) already known.
+pub fn parse_at(text: &str, at: Option<String>) -> Vec<Deadlock> {
+    let Some(section) = latest_section(text) else { return Vec::new() };
+    let lines: Vec<&str> = section.lines().skip(1).collect();
+
+    let mut txns: Vec<Txn> = Vec::new();
+    let mut resources: Vec<DeadlockResource> = Vec::new();
+    let mut victim: Option<String> = None;
+    let mut current: Option<String> = None;
+    // Some(true): lock lines that follow are held; Some(false): waited for; None: transaction header.
+    let mut holding: Option<bool> = None;
+    let mut in_statement = false;
+    let mut pending_record: Option<Pending> = None;
+
+    let flush = |pending: &mut Option<Pending>,
+                 heap: Option<&str>,
+                 current: &Option<String>,
+                 holding: Option<bool>,
+                 txns: &[Txn],
+                 resources: &mut Vec<DeadlockResource>| {
+        let Some(Pending { object, index, page, mode, owner }) = pending.take() else { return };
+        // The owner may be a transaction listed further down (MariaDB's CONFLICTING WITH): name it by its InnoDB id
+        // until every transaction is known.
+        let by_owner = owner.as_ref().map(|trx| {
+            txns.iter()
+                .find(|t| t.trx.as_deref() == Some(trx.as_str()))
+                .map(|t| t.id.clone())
+                .unwrap_or(format!("trx:{trx}"))
+        });
+        let Some(process) = by_owner.or_else(|| current.clone()) else { return };
+        let id = format!("{object}/{index}/{page}/{}", heap.unwrap_or("?"));
+        let idx = match resources.iter().position(|r| r.id == id) {
+            Some(i) => i,
+            None => {
+                resources.push(DeadlockResource {
+                    id: id.clone(),
+                    kind: if index == "TABLE" { "TABLE".into() } else { "RECORD".into() },
+                    object: Some(object),
+                    index: (index != "TABLE").then_some(index),
+                    holders: vec![],
+                    waiters: vec![],
+                });
+                resources.len() - 1
+            }
+        };
+        let r = &mut resources[idx];
+        let entry = LockHolder { process, mode: Some(mode) };
+        if holding == Some(false) { r.waiters.push(entry) } else { r.holders.push(entry) }
+    };
+
+    for raw in lines {
+        let line = raw.trim_end();
+        let t = line.trim();
+        if t.starts_with("*** WAITING FOR THIS LOCK") || t.starts_with("*** CONFLICTING WITH") {
+            flush(&mut pending_record, None, &current, holding, &txns, &mut resources);
+            holding = Some(t.starts_with("*** CONFLICTING"));
+            continue;
+        }
+        if let Some(rest) = t.strip_prefix("*** (").and_then(|r| r.split_once(')')) {
+            flush(&mut pending_record, None, &current, holding, &txns, &mut resources);
+            let (n, tail) = rest;
+            let id = format!("({n})");
+            if tail.contains("TRANSACTION:") {
+                txns.push(Txn { id: id.clone(), ..Default::default() });
+                holding = None;
+                in_statement = false;
+            } else if tail.contains("HOLDS THE LOCK") {
+                holding = Some(true);
+            } else if tail.contains("WAITING FOR THIS LOCK") {
+                holding = Some(false);
+            }
+            current = Some(id);
+            continue;
+        }
+        if let Some(rest) = t.strip_prefix("*** WE ROLL BACK TRANSACTION (") {
+            flush(&mut pending_record, None, &current, holding, &txns, &mut resources);
+            victim = rest.split(')').next().map(|n| format!("({n})"));
+            continue;
+        }
+        if holding.is_none() {
+            let Some(txn) = txns.last_mut() else { continue };
+            if let Some(rest) = t.strip_prefix("TRANSACTION ")
+                && txn.trx.is_none()
+            {
+                txn.trx = rest.split(',').next().map(|s| s.trim().to_string());
+                continue;
+            }
+            if let Some(rest) = t.strip_prefix("MySQL thread id ").or_else(|| t.strip_prefix("MariaDB thread id ")) {
+                txn.thread = rest.split(',').next().map(|s| s.trim().to_string());
+                // "…, query id 40650 localhost root updating"
+                if let Some(after) = rest.split("query id ").nth(1) {
+                    let mut parts = after.split_whitespace().skip(1);
+                    txn.host = parts.next().map(str::to_string);
+                    txn.user = parts.next().map(str::to_string);
+                }
+                in_statement = true;
+                continue;
+            }
+            if in_statement {
+                if t.is_empty() {
+                    in_statement = false;
+                } else {
+                    txn.statement.push(t.to_string());
+                }
+            }
+            continue;
+        }
+        if t.starts_with("RECORD LOCKS ") || t.starts_with("TABLE LOCK ") {
+            flush(&mut pending_record, None, &current, holding, &txns, &mut resources);
+            let owner = t.split("trx id ").nth(1).and_then(|r| r.split_whitespace().next()).map(str::to_string);
+            let object = t
+                .split("table `")
+                .nth(1)
+                .map(|r| r.replace("`.`", ".").split('`').next().unwrap_or("").to_string())
+                .unwrap_or_default();
+            let mode = t
+                .split("lock_mode ")
+                .nth(1)
+                .or_else(|| t.split("lock mode ").nth(1))
+                .map(|m| mode_label(m.trim_end_matches(" waiting").trim()))
+                .unwrap_or_default();
+            if t.starts_with("TABLE LOCK ") {
+                pending_record = Some(Pending { object, index: "TABLE".into(), page: String::new(), mode, owner });
+                flush(&mut pending_record, None, &current, holding, &txns, &mut resources);
+            } else {
+                let index =
+                    t.split(" index ").nth(1).and_then(|r| r.split_whitespace().next()).unwrap_or("").to_string();
+                let page = t
+                    .split("space id ")
+                    .nth(1)
+                    .map(|r| r.split(" n bits").next().unwrap_or(r).replace(" page no ", ":"))
+                    .unwrap_or_default();
+                pending_record = Some(Pending { object, index, page, mode, owner });
+            }
+            continue;
+        }
+        if let Some(rest) = t.strip_prefix("Record lock, heap no ") {
+            let heap = rest.split_whitespace().next();
+            flush(&mut pending_record, heap, &current, holding, &txns, &mut resources);
+        }
+        // Everything else is the record's contents, which Culprit doesn't keep.
+    }
+    flush(&mut pending_record, None, &current, holding, &txns, &mut resources);
+    for entry in resources.iter_mut().flat_map(|r| r.holders.iter_mut().chain(r.waiters.iter_mut())) {
+        if let Some(trx) = entry.process.strip_prefix("trx:")
+            && let Some(t) = txns.iter().find(|t| t.trx.as_deref() == Some(trx))
+        {
+            entry.process = t.id.clone();
+        }
+    }
+
+    if txns.is_empty() {
+        return Vec::new();
+    }
+    let processes = txns
+        .into_iter()
+        .map(|t| DeadlockProcess {
+            victim: victim.as_deref() == Some(t.id.as_str()),
+            session: t.thread,
+            statement: (!t.statement.is_empty()).then(|| t.statement.join(" ")),
+            login: t.user,
+            host: t.host,
+            id: t.id,
+            ..Default::default()
+        })
+        .collect();
+    let mut d = Deadlock::new("InnoDB status", at, processes, resources);
+    classify(Engine::Mysql, &mut d);
+    vec![d]
+}
+
+/// A lock line waiting for the record line that says which row (heap number) it is.
+struct Pending {
+    object: String,
+    index: String,
+    page: String,
+    mode: String,
+    /// The transaction id the line names as the lock's owner.
+    owner: Option<String>,
+}
+
+/// `X locks rec but not gap` → `X (row)`; `X` → `X (row and gap)`; `IX` stays.
+fn mode_label(raw: &str) -> String {
+    let mut parts = raw.splitn(2, ' ');
+    let mode = parts.next().unwrap_or("");
+    let rest = parts.next().unwrap_or("");
+    // An intention lock (IX, IS) stays bare: the deadlock's classification reads it.
+    if rest.contains("rec but not gap") {
+        t!("provider.mysql.lock_mode.row", mode = mode)
+    } else if rest.contains("gap before rec") {
+        t!("provider.mysql.lock_mode.gap", mode = mode)
+    } else if rest.contains("insert intention") {
+        t!("provider.mysql.lock_mode.insert_intention", mode = mode)
+    } else if rest.is_empty() && !mode.starts_with('I') {
+        t!("provider.mysql.lock_mode.row_and_gap", mode = mode)
+    } else {
+        mode.to_string()
+    }
+}
+
+fn invalid() -> culprit_core::Error {
+    culprit_core::telemetry::CollectionStop::InvalidPage.error()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use culprit_core::DeadlockPattern;
+
+    pub(crate) const STATUS: &str = "=====================================
+------------------------
+LATEST DETECTED DEADLOCK
+------------------------
+2026-10-11 13:48:08 281472761716480
+*** (1) TRANSACTION:
+TRANSACTION 2321, ACTIVE 1 sec starting index read
+mysql tables in use 1, locked 1
+LOCK WAIT 4 lock struct(s), heap size 1128, 2 row lock(s)
+MySQL thread id 74, OS thread handle 281472902020864, query id 40650 web-1 app updating
+UPDATE customers SET id = id WHERE id = 1
+
+*** (1) HOLDS THE LOCK(S):
+RECORD LOCKS space id 6 page no 8 n bits 360 index PRIMARY of table `shop`.`orders` trx id 2321 lock_mode X locks rec but not gap
+Record lock, heap no 2 PHYSICAL RECORD: n_fields 10; compact format; info bits 0
+ 0: len 4; hex 80000001; asc     ;;
+ 4: len 7; hex 70656e64696e67; asc pending;;
+
+
+*** (1) WAITING FOR THIS LOCK TO BE GRANTED:
+RECORD LOCKS space id 4 page no 6 n bits 280 index PRIMARY of table `shop`.`customers` trx id 2321 lock_mode X locks rec but not gap waiting
+Record lock, heap no 2 PHYSICAL RECORD: n_fields 7; compact format; info bits 0
+ 3: len 21; hex 637573746f6d657230406578616d706c652e636f6d; asc customer0@example.com;;
+
+
+*** (2) TRANSACTION:
+TRANSACTION 2322, ACTIVE 1 sec starting index read
+mysql tables in use 1, locked 1
+LOCK WAIT 4 lock struct(s), heap size 1128, 2 row lock(s)
+MySQL thread id 75, OS thread handle 281472904257280, query id 40651 web-2 app updating
+UPDATE orders SET id = id WHERE id = 1
+
+*** (2) HOLDS THE LOCK(S):
+RECORD LOCKS space id 4 page no 6 n bits 280 index PRIMARY of table `shop`.`customers` trx id 2322 lock_mode X locks rec but not gap
+Record lock, heap no 2 PHYSICAL RECORD: n_fields 7; compact format; info bits 0
+ 3: len 21; hex 637573746f6d657230406578616d706c652e636f6d; asc customer0@example.com;;
+
+
+*** (2) WAITING FOR THIS LOCK TO BE GRANTED:
+RECORD LOCKS space id 6 page no 8 n bits 360 index PRIMARY of table `shop`.`orders` trx id 2322 lock_mode X locks rec but not gap waiting
+Record lock, heap no 2 PHYSICAL RECORD: n_fields 10; compact format; info bits 0
+ 0: len 4; hex 80000001; asc     ;;
+
+*** WE ROLL BACK TRANSACTION (2)
+------------
+TRANSACTIONS
+------------
+Trx id counter 2330
+";
+
+    /// MariaDB's layout: each transaction lists the lock it waits for and the locks of the other one it conflicts with.
+    const MARIADB_STATUS: &str = "------------------------
+LATEST DETECTED DEADLOCK
+------------------------
+2026-10-11 15:28:06 0xffff807aefe0
+*** (1) TRANSACTION:
+TRANSACTION 76, ACTIVE 2 sec starting index read
+mysql tables in use 1, locked 1
+LOCK WAIT 4 lock struct(s), heap size 1120, 2 row lock(s)
+MariaDB thread id 45, OS thread handle 281472837283808, query id 40423 localhost app Updating
+UPDATE customers SET name = name WHERE id = 1
+*** WAITING FOR THIS LOCK TO BE GRANTED:
+RECORD LOCKS space id 10 page no 5 n bits 320 index PRIMARY of table `shop`.`customers` trx id 76 lock_mode X locks rec but not gap waiting
+Record lock, heap no 2 PHYSICAL RECORD: n_fields 7; compact format; info bits 0
+ 3: len 21; hex 637573746f6d657230406578616d706c652e636f6d; asc customer0@example.com;;
+
+*** CONFLICTING WITH:
+RECORD LOCKS space id 10 page no 5 n bits 320 index PRIMARY of table `shop`.`customers` trx id 75 lock_mode X locks rec but not gap
+Record lock, heap no 2 PHYSICAL RECORD: n_fields 7; compact format; info bits 0
+ 3: len 21; hex 637573746f6d657230406578616d706c652e636f6d; asc customer0@example.com;;
+
+
+*** (2) TRANSACTION:
+TRANSACTION 75, ACTIVE 2 sec starting index read
+mysql tables in use 1, locked 1
+LOCK WAIT 4 lock struct(s), heap size 1120, 2 row lock(s)
+MariaDB thread id 44, OS thread handle 281472964333536, query id 40422 localhost app Updating
+UPDATE orders SET status = status WHERE id = 1
+*** WAITING FOR THIS LOCK TO BE GRANTED:
+RECORD LOCKS space id 12 page no 7 n bits 320 index PRIMARY of table `shop`.`orders` trx id 75 lock_mode X locks rec but not gap waiting
+Record lock, heap no 2 PHYSICAL RECORD: n_fields 10; compact format; info bits 0
+ 4: len 7; hex 70656e64696e67; asc pending;;
+
+*** CONFLICTING WITH:
+RECORD LOCKS space id 12 page no 7 n bits 320 index PRIMARY of table `shop`.`orders` trx id 76 lock_mode X locks rec but not gap
+Record lock, heap no 2 PHYSICAL RECORD: n_fields 10; compact format; info bits 0
+ 4: len 7; hex 70656e64696e67; asc pending;;
+
+*** WE ROLL BACK TRANSACTION (1)
+------------
+TRANSACTIONS
+------------
+";
+
+    #[test]
+    fn native_graph_scope_preserves_quoted_dots_and_escapes_without_reading_statement_labels() {
+        let section = "RECORD LOCKS index PRIMARY of table `db.with``quote`.`t.name` trx id 1\nTABLE LOCK table `second`.`tab` trx id 2";
+        assert_eq!(native_databases(section).unwrap(), ["db.with`quote".to_owned(), "second".into()].into());
+        assert!(native_databases("SELECT 'table `secret`.`data`'").is_err());
+        assert!(native_databases("RECORD LOCKS table `unterminated").is_err());
+    }
+
+    #[test]
+    fn mariadb_deadlocks_attribute_held_locks_by_transaction_id() {
+        let found = parse_innodb_status(MARIADB_STATUS, true);
+        assert_eq!(found.len(), 1);
+        let d = &found[0];
+        assert_eq!(d.pattern, DeadlockPattern::OppositeOrder);
+        assert_eq!(d.objects, vec!["shop.customers".to_string(), "shop.orders".to_string()]);
+        let customers = d.resources.iter().find(|r| r.object.as_deref() == Some("shop.customers")).unwrap();
+        // Transaction 75 is (2): it holds the customer row that (1) waits for.
+        assert_eq!(customers.holders[0].process, "(2)");
+        assert_eq!(customers.waiters[0].process, "(1)");
+        let victim = d.victim().unwrap();
+        assert_eq!(
+            (victim.session.as_deref(), victim.statement.as_deref()),
+            (Some("45"), Some("UPDATE customers SET name = name WHERE id = 1"))
+        );
+        assert!(!serde_json::to_string(d).unwrap().contains("customer0@example.com"));
+    }
+
+    #[test]
+    fn the_deadlock_time_is_read_as_local_and_dated_only_when_converted() {
+        assert_eq!(local_time(STATUS).as_deref(), Some("2026-10-11 13:48:08"));
+        assert_eq!(local_time(MARIADB_STATUS).as_deref(), Some("2026-10-11 15:28:06"));
+        assert_eq!(local_time("no deadlock here"), None);
+        assert_eq!(
+            parse_at(STATUS, Some("2026-10-11T11:48:08Z".into()))[0].at.as_deref(),
+            Some("2026-10-11T11:48:08Z")
+        );
+        assert!(parse_at(STATUS, None)[0].at.is_none());
+    }
+
+    #[test]
+    fn innodb_status_becomes_an_explained_deadlock_without_row_contents() {
+        let found = parse_innodb_status(STATUS, true);
+        assert_eq!(found.len(), 1);
+        let d = &found[0];
+        assert_eq!(d.at.as_deref(), Some("2026-10-11T13:48:08Z"));
+        assert_eq!(d.pattern, DeadlockPattern::OppositeOrder);
+        assert_eq!(d.objects, vec!["shop.customers".to_string(), "shop.orders".to_string()]);
+        assert_eq!(d.resources.len(), 2);
+        assert_eq!(d.resources[0].holders[0].mode.as_deref(), Some("X (row)"));
+        let victim = d.victim().unwrap();
+        assert_eq!(
+            (victim.session.as_deref(), victim.statement.as_deref()),
+            (Some("75"), Some("UPDATE orders SET id = id WHERE id = 1"))
+        );
+        assert_eq!((victim.host.as_deref(), victim.login.as_deref()), (Some("web-2"), Some("app")));
+        let json = serde_json::to_string(d).unwrap();
+        assert!(!json.contains("customer0@example.com"), "row contents must not be kept");
+        assert!(parse_innodb_status(STATUS, false)[0].at.is_none());
+        assert!(parse_innodb_status("no deadlock here", true).is_empty());
+    }
+
+    #[test]
+    fn lock_modes_say_what_they_are_in_english() {
+        assert_eq!(mode_label("X locks rec but not gap"), "X (row)");
+        assert_eq!(mode_label("X locks gap before rec"), "X (gap)");
+        assert_eq!(mode_label("X locks gap before rec insert intention"), "X (gap)");
+        assert_eq!(mode_label("X insert intention"), "X (insert intention)");
+        assert_eq!(mode_label("S"), "S (row and gap)");
+        assert_eq!(mode_label("IX"), "IX");
+        assert_eq!(mode_label("AUTO-INC"), "AUTO-INC (row and gap)");
+    }
+}

@@ -166,10 +166,10 @@ fn statement_and_plan_errors() {
     assert_eq!(changed_committed(12345), "12345 rows changed, committed.");
     assert_eq!(committed(), "Committed.");
 
-    let plan_error = |xml: &str| said(&crate::plan_xml::parse(xml).unwrap_err());
+    let plan_error = |xml: &str| said(&culprit_plans::mssql::parse(xml).unwrap_err());
     assert!(plan_error("not xml").starts_with("Could not read the SQL Server plan XML: "));
     assert!(
-        said(&crate::plan_xml::statement_types("not xml").unwrap_err())
+        said(&culprit_plans::mssql::statement_types("not xml").unwrap_err())
             .starts_with("Could not read the SQL Server plan XML: ")
     );
     assert_eq!(plan_error("<ShowPlanXML/>"), "The plan XML contains no statement with a query plan");
@@ -345,6 +345,7 @@ WaitStats: This login lacks VIEW DATABASE STATE / VIEW SERVER STATE. | GRANT VIE
 #[test]
 fn deadlock_sources() {
     use crate::deadlocks::*;
+    use culprit_plans::mssql::deadlocks::parse_deadlock_xml;
     assert_eq!(database_session(), "Database-scoped deadlock event session");
     assert_eq!(
         database_session_unreadable(&"Invalid object name"),

@@ -236,7 +236,7 @@ async fn counted_lookup(fixture: &OwnedSourceFixture, database: &str) {
     assert!(scan_run.plan.nodes().iter().all(|node| node.kind != culprit_core::NodeKind::Lookup));
     let scan_reads = scan_run.logical_reads("Clustered Index Scan");
     assert!(scan_reads < reads, "the same-input native intervention must actually reduce this access work");
-    let pair = crate::plan_xml::runtime_input_pair(&affected.plan, &scan_run.plan);
+    let pair = culprit_plans::mssql::runtime_input_pair(&affected.plan, &scan_run.plan);
     assert_eq!(pair.relation(), culprit_core::plan_compare::NativeRuntimeInputRelation::Same);
     let comparison = culprit_core::plan_compare::compare_native_pair(pair, "Reused", "Scan", &Default::default());
     let observed = comparison
@@ -279,7 +279,7 @@ async fn counted_lookup(fixture: &OwnedSourceFixture, database: &str) {
     assert_eq!(observed.b, Some(scan_run.operator("Clustered Index Scan").id));
     let withdrawn = culprit_core::redact::redact_plan(&affected.plan);
     assert_eq!(
-        crate::plan_xml::runtime_input_pair(&withdrawn, &scan_run.plan).relation(),
+        culprit_plans::mssql::runtime_input_pair(&withdrawn, &scan_run.plan).relation(),
         culprit_core::plan_compare::NativeRuntimeInputRelation::Unavailable,
         "retained/redacted evidence cannot borrow original runtime literals from the other plan"
     );

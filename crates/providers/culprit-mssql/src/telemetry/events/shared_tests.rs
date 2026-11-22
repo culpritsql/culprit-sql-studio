@@ -1,13 +1,11 @@
 use super::*;
 use crate::{
-    deadlocks::{
-        system_health::tests::configuration,
-        tests::{KEY_LOOKUP_XDL, event, file_row},
-    },
+    deadlocks::{system_health::tests::configuration, tests::file_row},
     instance::test_support::{epoch, metadata},
     resources::test_support::{FakeRead, replace},
     value::{Rec, Val},
 };
+use culprit_plans::mssql::test_support::deadlocks::{KEY_LOOKUP_XDL, event};
 
 fn request() -> CollectionRequest {
     CollectionRequest {

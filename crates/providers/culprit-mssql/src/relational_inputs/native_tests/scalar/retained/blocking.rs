@@ -117,15 +117,9 @@ fn require_original_blocking(
             assert_eq!(edge.owner.session().as_ref(), Some(blocker));
             assert!(edge.owner_observed);
             let graph = culprit_core::blocking::analyze_activity(frame)?.unwrap();
-            assert!(
-                graph.chains.iter().any(|chain| chain
-                    .tree
-                    .owner
-                    .as_ref()
-                    .and_then(ActivityWaitOwner::session)
-                    .as_ref()
-                    == Some(blocker))
-            );
+            assert!(graph.chains.iter().any(|chain| {
+                chain.tree.owner.as_ref().and_then(ActivityWaitOwner::session).as_ref() == Some(blocker)
+            }));
             Ok(())
         })
         .unwrap();
@@ -188,7 +182,7 @@ async fn competing_blocking(fixture: &OwnedSourceFixture, database: &str) {
     let counterpart = probe.record_native(1, CacheExpectation::New).await;
     eprintln!("owned scalar blocking phase=counterpart-execution-and-metadata-verified");
     assert_eq!(original.result, counterpart.result);
-    let pair = crate::plan_xml::runtime_input_pair(&original.plan, &counterpart.plan);
+    let pair = culprit_plans::mssql::runtime_input_pair(&original.plan, &counterpart.plan);
     assert_eq!(pair.relation(), NativeRuntimeInputRelation::Same);
     let lookup = original.operator("Key Lookup");
     let scan = counterpart.operator("Clustered Index Scan");
@@ -220,7 +214,7 @@ async fn competing_blocking(fixture: &OwnedSourceFixture, database: &str) {
     }
     require_original_blocking(&blocked, &actor, &blocker_actor, &original.context);
     assert_eq!(
-        crate::plan_xml::runtime_input_pair(&retained.explain(), &counterpart.plan).relation(),
+        culprit_plans::mssql::runtime_input_pair(&retained.explain(), &counterpart.plan).relation(),
         NativeRuntimeInputRelation::Unavailable
     );
     let captures = [&blocked, &retained.capture, &recovered];

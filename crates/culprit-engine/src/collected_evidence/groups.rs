@@ -510,7 +510,7 @@ fn plan(
 ) -> Result<Option<Plan>> {
     let Some(definition) = definition else { return Ok(None) };
     if let DefinitionPayload::Available { text, .. } = &definition.plan
-        && let Ok(mut plan) = crate::plans::parse_native_plan(text, engine)
+        && let Ok(mut plan) = culprit_plans::parse_native_plan(text, engine)
     {
         plan.facts_mut().constants_redacted = true;
         return Ok(Some(plan));

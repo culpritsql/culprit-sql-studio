@@ -157,7 +157,10 @@ fn decode(
             let graphs = node
                 .descendants()
                 .filter(|node| node.has_tag_name("deadlock"))
-                .map(|node| super::deadlock(node, &label, Some(at.clone())).ok_or_else(invalid_data))
+                .map(|node| {
+                    culprit_plans::mssql::deadlocks::parse_deadlock_node(node, &label, Some(at.clone()))
+                        .ok_or_else(invalid_data)
+                })
                 .collect::<Result<Vec<_>>>()?;
             if graphs.is_empty() {
                 return Err(invalid_data());

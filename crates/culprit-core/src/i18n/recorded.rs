@@ -183,7 +183,7 @@ mod tests {
         let en = super::super::scope("en", || read.render());
         let fr = super::super::scope("fr", || read.render());
         assert!(en.contains("1.2K"), "{en}");
-        assert!(fr.contains("1,2K"), "{fr}");
-        assert_ne!(en, fr);
+        assert!(fr.contains(if cfg!(feature = "locales") { "1,2K" } else { "1.2K" }), "{fr}");
+        assert_eq!(en != fr, cfg!(feature = "locales"));
     }
 }

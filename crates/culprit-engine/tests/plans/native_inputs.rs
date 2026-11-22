@@ -4,8 +4,8 @@ use culprit_core::{CompareContext, t};
 use culprit_engine::{
     Workspace,
     export::{ExportOptions, diff_html, diff_markdown},
-    plans::compare_plans,
 };
+use culprit_plans::compare_plans;
 
 fn pair() -> (Plan, Plan) {
     (

@@ -5,7 +5,7 @@
 use culprit_core::insights::{PlanInsight, coverage_note, insights};
 use culprit_core::plan_facts::{RelationalInput, RelationalInputKind, RelationalInputProvenance};
 use culprit_core::{Engine, Severity};
-use culprit_engine::plans::parse_plan;
+use culprit_plans::parse_plan;
 
 fn load(name: &str) -> culprit_core::Plan {
     load_from("tests/insights", name)

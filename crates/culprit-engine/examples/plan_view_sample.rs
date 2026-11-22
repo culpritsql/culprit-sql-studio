@@ -12,7 +12,7 @@ fn main() {
     for queries in actual["last_actual"].as_object_mut().unwrap().values_mut() {
         for value in queries.as_object_mut().unwrap().values_mut() {
             let plan: culprit_core::Plan = serde_json::from_value(value.clone()).unwrap();
-            value["view"] = serde_json::to_value(culprit_checks::plan_view(&plan, None)).unwrap();
+            value["view"] = serde_json::to_value(culprit_plans::view::plan_view(&plan, None)).unwrap();
         }
     }
     for frames in actual["progress"].as_object_mut().unwrap().values_mut() {
@@ -21,7 +21,7 @@ fn main() {
                 continue;
             }
             let mut plan: culprit_core::Plan = serde_json::from_value(frame["plan"].clone()).unwrap();
-            culprit_checks::present_progress_plan(&mut plan);
+            culprit_plans::view::present_progress_plan(&mut plan);
             frame["plan"]["view"] = serde_json::to_value(plan.view).unwrap();
         }
     }

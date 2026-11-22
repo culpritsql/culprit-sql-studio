@@ -119,11 +119,9 @@ impl NativeRead for AlterAfterPayload {
     async fn query(&mut self, query: &str, parameters: Vec<Parameter>, limit: usize) -> ReadResult<Vec<Rec>> {
         let rows = self.io.query(query, parameters, limit).await?;
         if query.contains("sys.dm_exec_text_query_plan") && !self.changed {
-            assert!(
-                rows.iter().any(|row| row
-                    .str("statement_text")
-                    .is_some_and(|text| text.contains("tvp_original_header_probe")))
-            );
+            assert!(rows.iter().any(|row| {
+                row.str("statement_text").is_some_and(|text| text.contains("tvp_original_header_probe"))
+            }));
             self.changed = true;
             batch(&mut self.application, &format!("ALTER PROCEDURE dbo.header_probe {LOCAL} {STATEMENT}")).await;
             execute(&mut self.application, false).await;
@@ -250,8 +248,8 @@ async fn original_module_headers_bind_tvp_kind_and_withhold_reused_handle_enrich
         assert_current_type_schema(original.current_type_schema.as_ref(),&original.context,metadata,&native_identity,&until);
         assert_current_type_schema(detail.current_type_schema.as_ref(),&detail.context,detail.module_parameters.as_ref().unwrap(),&native_identity,&until);
         let original_type=original.current_type_schema.as_ref().unwrap().types[0].clone();
-        let plan=crate::plan_xml::parse_cached_statement(detail.plan.text().unwrap(),crate::plan_xml::CachedInputContext{
-            statement:&detail.context,module_parameters:detail.module_parameters.as_ref(),text:detail.statement.text(),origin:crate::plan_xml::PlanInputOrigin::OriginalNative{read:None},
+        let plan=culprit_plans::mssql::parse_cached_statement(detail.plan.text().unwrap(),culprit_plans::mssql::CachedInputContext{
+            statement:&detail.context,module_parameters:detail.module_parameters.as_ref(),text:detail.statement.text(),origin:culprit_plans::mssql::PlanInputOrigin::OriginalNative{read:None},
         }).unwrap();
         assert!(qualified_input(&plan),"the actual selected native plan must carry the proven READONLY input kind");
         let mut bindings=Bindings::default();

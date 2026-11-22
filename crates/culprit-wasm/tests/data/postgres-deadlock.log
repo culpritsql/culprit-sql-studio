@@ -1,0 +1,8 @@
+2026-10-11 13:48:28.887 UTC [539] ERROR:  deadlock detected
+2026-10-11 13:48:28.887 UTC [539] DETAIL:  Process 539 waits for ShareLock on transaction 838; blocked by process 545.
+	Process 545 waits for ShareLock on transaction 837; blocked by process 539.
+	Process 539: UPDATE customers SET id = id WHERE id = 1
+	Process 545: UPDATE orders SET id = id WHERE id = 1
+2026-10-11 13:48:28.887 UTC [539] HINT:  See server log for query details.
+2026-10-11 13:48:28.887 UTC [539] CONTEXT:  while updating tuple (0,1) in relation "customers"
+2026-10-11 13:48:28.887 UTC [539] STATEMENT:  UPDATE customers SET id = id WHERE id = 1

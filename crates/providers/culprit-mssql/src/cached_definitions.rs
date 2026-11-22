@@ -65,13 +65,13 @@ pub(crate) fn decode(
     let (plan, plan_bytes) = cached_payload::read(row, "plan_bytes", "query_plan", limits.plan)?;
     let bindings = source.filter(|source| MssqlRelationalInputProof::supports_source(source)).and_then(|source| {
         plan.text().and_then(|xml| {
-            crate::plan_xml::original_statement_evidence(
+            culprit_plans::mssql::original_statement_evidence(
                 xml,
-                crate::plan_xml::CachedInputContext {
+                culprit_plans::mssql::CachedInputContext {
                     statement: &context,
                     module_parameters: module_parameters.as_ref(),
                     text: statement.text(),
-                    origin: crate::plan_xml::PlanInputOrigin::OriginalCapture { source },
+                    origin: culprit_plans::mssql::PlanInputOrigin::OriginalCapture { source },
                 },
             )
             .and_then(|evidence| evidence.relational_inputs)

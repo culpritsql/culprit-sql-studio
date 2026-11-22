@@ -1,5 +1,5 @@
 use culprit_core::{DatabaseProduct, PlanSample};
-use culprit_engine::plans::parse_plan;
+use culprit_plans::parse_plan;
 use serde::Deserialize;
 
 #[derive(Deserialize)]

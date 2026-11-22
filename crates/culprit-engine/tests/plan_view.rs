@@ -397,7 +397,7 @@ fn imported_plan_json_cannot_supply_a_stale_or_forged_projection() {
     case.plan.view.as_mut().unwrap().cost_note = Some("A stale explanation".into());
     case.plan.view.as_mut().unwrap().nodes[0].cost_share = Some(999.0);
     let text = serde_json::to_string(&case.plan).unwrap();
-    let parsed = culprit_engine::plans::parse_plan(&text).unwrap();
+    let parsed = culprit_plans::parse_plan(&text).unwrap();
     let view = parsed.view.unwrap();
     assert_ne!(view.cost_note.as_deref(), Some("A stale explanation"));
     assert_ne!(view.nodes[0].cost_share, Some(999.0));
@@ -406,7 +406,7 @@ fn imported_plan_json_cannot_supply_a_stale_or_forged_projection() {
     for cached in [serde_json::json!({"old_schema": true}), serde_json::json!("obsolete"), serde_json::Value::Null] {
         let mut value = serde_json::to_value(&case.plan).unwrap();
         value["view"] = cached;
-        let parsed = culprit_engine::plans::parse_plan(&value.to_string()).unwrap();
+        let parsed = culprit_plans::parse_plan(&value.to_string()).unwrap();
         assert!(parsed.view.is_some(), "the current projection must be recomputed");
         assert_eq!(parsed.root.id, case.plan.root.id);
     }
@@ -416,11 +416,11 @@ fn imported_plan_json_cannot_supply_a_stale_or_forged_projection() {
 fn projected_runs_keep_zero_and_parallel_execution_semantics() {
     let mut plan = inputs::cases().remove(0).plan;
     plan.root.act_executions = Some(0.0);
-    let view = culprit_checks::plan_view(&plan, None);
+    let view = culprit_plans::view::plan_view(&plan, None);
     assert_eq!((view.nodes[0].runs, view.nodes[0].estimated_rows_for_runs), (Some(0.0), Some(0.0)));
     plan.root.act_executions = Some(4.0);
     plan.root.facts_mut().parallel_threads = Some(4);
-    let view = culprit_checks::plan_view(&plan, None);
+    let view = culprit_plans::view::plan_view(&plan, None);
     assert_eq!((view.nodes[0].runs, view.nodes[0].estimated_rows_for_runs), (Some(1.0), Some(plan.root.est_rows)));
 }
 
@@ -440,7 +440,7 @@ fn browser_plan_view_contracts_match_current_rust_analysis() {
             let plan: Plan = serde_json::from_value(saved.clone()).unwrap();
             crate::invariants::assert_browser_json(
                 &saved["view"],
-                &serde_json::to_value(culprit_checks::plan_view(&plan, None)).unwrap(),
+                &serde_json::to_value(culprit_plans::view::plan_view(&plan, None)).unwrap(),
                 "refresh recorded actual plan projections",
             );
         }
@@ -448,7 +448,7 @@ fn browser_plan_view_contracts_match_current_rust_analysis() {
     for frames in actual["progress"].as_object().unwrap().values() {
         for frame in frames.as_array().unwrap().iter().filter(|f| !f["plan"].is_null()) {
             let mut plan: Plan = serde_json::from_value(frame["plan"].clone()).unwrap();
-            culprit_checks::present_progress_plan(&mut plan);
+            culprit_plans::view::present_progress_plan(&mut plan);
             crate::invariants::assert_browser_json(
                 &frame["plan"]["view"],
                 &serde_json::to_value(plan.view).unwrap(),

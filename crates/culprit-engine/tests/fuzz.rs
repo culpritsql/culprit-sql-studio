@@ -124,7 +124,7 @@ proptest! {
     fn a_damaged_plan_is_read_or_refused(sample in any::<usize>(), edits in prop::collection::vec(edit(), 1..6)) {
         let corpus = plan_corpus();
         let text = mutate(&corpus, sample, &edits);
-        if let Ok(plan) = culprit_engine::parse_plan(&text) {
+        if let Ok(plan) = culprit_plans::parse_plan(&text) {
             let json = serde_json::to_string(&plan).expect("a parsed plan serializes");
             let back: culprit_core::Plan = serde_json::from_str(&json).expect("a saved plan reads back");
             prop_assert_eq!(back.nodes().len(), plan.nodes().len());
@@ -134,7 +134,7 @@ proptest! {
     /// Arbitrary text pasted as a plan is refused, never a crash.
     #[test]
     fn arbitrary_text_is_not_a_plan_crash(text in "\\PC{0,400}") {
-        let _ = culprit_engine::parse_plan(&text);
+        let _ = culprit_plans::parse_plan(&text);
     }
 }
 
@@ -173,7 +173,7 @@ fn a_deeply_nested_plan_is_refused_not_a_stack_overflow() {
     ] {
         let outcome = std::thread::Builder::new()
             .stack_size(2 * 1024 * 1024)
-            .spawn(move || culprit_engine::parse_plan(&text).map(|p| p.nodes().len()))
+            .spawn(move || culprit_plans::parse_plan(&text).map(|p| p.nodes().len()))
             .unwrap()
             .join()
             .unwrap_or_else(|_| panic!("{format}: the parser panicked"));
@@ -334,7 +334,7 @@ fn a_number_past_a_double_is_refused_not_saved_unreadable() {
     ];
     let mut refused = 0;
     for text in plans {
-        match culprit_engine::parse_plan(text) {
+        match culprit_plans::parse_plan(text) {
             Ok(plan) => {
                 let json = serde_json::to_string(&plan).unwrap();
                 assert!(serde_json::from_str::<culprit_core::Plan>(&json).is_ok(), "{text}");

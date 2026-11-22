@@ -41,5 +41,5 @@ pub(crate) async fn deadlocks(ws: Ws<'_>, name: String, since_hours: f64) -> Res
 /// Deadlocks in pasted or dropped text: SQL Server .xdl XML, InnoDB status, Postgres log lines. No connection needed.
 #[tauri::command]
 pub(crate) async fn parse_deadlock(text: String) -> Result<Vec<culprit_core::Deadlock>> {
-    culprit_engine::run_blocking(move || culprit_engine::deadlocks::parse_deadlock(&text)).await
+    culprit_engine::run_blocking(move || culprit_plans::parse_deadlocks(&text)).await
 }

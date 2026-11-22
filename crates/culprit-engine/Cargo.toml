@@ -41,6 +41,7 @@ name = "all"
 path = "tests/all.rs"
 
 [dependencies]
+culprit-plans.workspace = true
 culprit-cloud.workspace = true
 culprit-read.workspace = true
 culprit-auth.workspace = true

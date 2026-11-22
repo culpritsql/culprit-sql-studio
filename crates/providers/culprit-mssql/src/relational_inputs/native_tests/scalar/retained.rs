@@ -48,8 +48,12 @@ impl Original {
             .iter()
             .enumerate()
             .filter_map(|(position, row)| {
-                let TelemetryRecord::ObjectDefinition(row) = &row.record else { return None };
-                let ObjectDefinitionFact::MssqlRetainedPlan(definition) = &row.fact else { return None };
+                let TelemetryRecord::ObjectDefinition(row) = &row.record else {
+                    return None;
+                };
+                let ObjectDefinitionFact::MssqlRetainedPlan(definition) = &row.fact else {
+                    return None;
+                };
                 (definition.context.identity.key().unwrap() == run.context.identity.key().unwrap()).then_some(position)
             })
             .collect::<Vec<_>>();
@@ -128,7 +132,7 @@ pub(super) fn explain(capture: &Captured, position: usize, statement: &CachedSta
         diagnostics::report(source, definition);
     }
     assert!(definition.parameter_context_proof.is_some());
-    let plan = crate::plan_xml::parse_retained_definition(definition, source).unwrap();
+    let plan = culprit_plans::mssql::parse_retained_definition(definition, source).unwrap();
     source_parameters::assert_own_metadata(definition, &plan);
     let encoded = serde_json::to_string(&plan.facts().parameter_context).unwrap();
     assert!(!encoded.contains("ParameterCompiledValue") && !encoded.contains("ParameterRuntimeValue"));
@@ -186,7 +190,9 @@ async fn verify_actor_count(
 /// Activity/grant rows expose the original request SQL token, not a native plan incarnation. The execution
 /// owner's before/final cache checks separately retain that incarnation; this one token join is shared.
 fn matches_native_statement(request: &ActivityObservation, statement: &CachedStatementContext) -> bool {
-    let Some(hash) = statement.query_hash.as_deref() else { return false };
+    let Some(hash) = statement.query_hash.as_deref() else {
+        return false;
+    };
     let expected = NativeIdentity::new(statement.identity.sql_handle.trim_start_matches("0x"))
         .qualified("native_object", "sys.dm_exec_requests.sql_handle")
         .qualified("database_id", statement.database_id.to_string())

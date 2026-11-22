@@ -44,18 +44,11 @@ async fn retained_tvp_loop_preview_stays_unavailable_until_the_exact_bounded_nat
     let [entry] = analysis.report.entries.as_slice() else { panic!("one native definition") };
     assert_eq!(entry.identity, Some(CachedPlanIdentity::Mssql(retained(&records).context.identity.clone())));
     assert_eq!(entry.definition_version, definition(&records[0]).version);
-    #[cfg(feature = "mssql")]
     assert!(
         entry.plan.as_ref().unwrap().insights.as_ref().unwrap().items.iter().any(|item| item.rule == "nested-loops")
     );
-    #[cfg(not(feature = "mssql"))]
-    {
-        assert!(entry.plan.is_none());
-        assert!(entry.limitations.iter().any(|limit| limit.reason == CachedPlanLimit::NativeParserUnavailable));
-    }
 }
 
-#[cfg(feature = "mssql")]
 #[tokio::test]
 async fn archived_tvp_loop_cases_share_the_selected_native_parser_and_never_promote_lifetime_counts_or_partial_reads() {
     for case in TvpLoopCase::ALL {
@@ -73,10 +66,10 @@ async fn archived_tvp_loop_cases_share_the_selected_native_parser_and_never_prom
         if case == TvpLoopCase::WrongBinding {
             let error = collected_resources::cached_plans(&capture).unwrap_err();
             assert_eq!(error.detail, Some(culprit_core::ErrorDetail::Delivery(DeliveryProblem::Integrity)));
-            assert!(culprit_mssql::plan_xml::parse_retained_definition(native, &source).is_err());
+            assert!(culprit_plans::mssql::parse_retained_definition(native, &source).is_err());
             continue;
         }
-        let direct = culprit_mssql::plan_xml::parse_retained_definition(native, &source)
+        let direct = culprit_plans::mssql::parse_retained_definition(native, &source)
             .unwrap_or_else(|error| panic!("direct retained parser failed for {case:?}: {error:?}"));
         let expected = culprit_core::insights::insights(&direct);
         let result = collected_resources::cached_plans(&capture).unwrap();
@@ -213,7 +206,6 @@ async fn archived_tvp_loop_cases_share_the_selected_native_parser_and_never_prom
     }
 }
 
-#[cfg(feature = "mssql")]
 #[tokio::test]
 async fn original_tvp_scope_and_module_proof_cannot_move_to_a_different_namespace_epoch_or_module() {
     let (source, records) = tvp_loop_evidence(TvpLoopCase::CountedJoin);
@@ -229,12 +221,12 @@ async fn original_tvp_scope_and_module_proof_cannot_move_to_a_different_namespac
     let SourcePartition::InstanceLocal { epoch, .. } = &mut other_epoch.partition else { panic!() };
     *epoch = Some("another-native-epoch".into());
     for shifted in [other_database, other_epoch] {
-        let error = culprit_mssql::plan_xml::parse_retained_definition(native, &shifted).unwrap_err();
+        let error = culprit_plans::mssql::parse_retained_definition(native, &shifted).unwrap_err();
         assert_eq!(error.detail, Some(culprit_core::ErrorDetail::Delivery(DeliveryProblem::Integrity)));
     }
     let mut other_module = native.clone();
     other_module.module_parameters.as_mut().unwrap().object_id += 1;
-    let error = culprit_mssql::plan_xml::parse_retained_definition(&other_module, &source).unwrap_err();
+    let error = culprit_plans::mssql::parse_retained_definition(&other_module, &source).unwrap_err();
     assert_eq!(error.detail, Some(culprit_core::ErrorDetail::Delivery(DeliveryProblem::Integrity)));
     assert_eq!(fixture.recovery_object_reads(), opens, "scope validation performs no source I/O");
 }

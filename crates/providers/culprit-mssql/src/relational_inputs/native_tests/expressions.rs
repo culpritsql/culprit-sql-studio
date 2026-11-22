@@ -279,13 +279,13 @@ async fn capture_probe(application: &mut MsClient, pool: &Arc<Pool>, case: Probe
     );
     let selected = plans.iter().filter(|xml| has_statement(xml, &hash)).collect::<Vec<_>>();
     let [xml] = selected.as_slice() else { panic!("one original statement actual plan for {case:?}") };
-    let plan = crate::plan_xml::parse_cached_statement(
+    let plan = culprit_plans::mssql::parse_cached_statement(
         xml,
-        crate::plan_xml::CachedInputContext {
+        culprit_plans::mssql::CachedInputContext {
             statement: &detail.context,
             module_parameters: detail.module_parameters.as_ref(),
             text: detail.statement.text(),
-            origin: crate::plan_xml::PlanInputOrigin::OriginalNative { read: None },
+            origin: culprit_plans::mssql::PlanInputOrigin::OriginalNative { read: None },
         },
     )
     .unwrap();

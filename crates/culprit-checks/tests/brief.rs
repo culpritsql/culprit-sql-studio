@@ -574,7 +574,7 @@ fn a_findings_whole_table_read_is_said_whatever_the_tables_size() {
     assert!(line.contains("but `Seq Scan` reads all 3.9K rows of public.events on every run."), "{line}");
     let q =
         postgres.snapshot.workload.as_ref().unwrap().queries.iter().find(|q| q.id == "2885972271926804069").unwrap();
-    let note = culprit_checks::plan_shares_note(q.plan.as_ref().unwrap(), Some(q)).unwrap();
+    let note = culprit_plans::export::shares_note(q.plan.as_ref().unwrap(), Some(q)).unwrap();
     assert_eq!(note, "The plan as a whole is cheap, so no share of its cost is put on one step.");
 }
 
@@ -933,7 +933,7 @@ fn a_plan_note_does_not_invent_a_row_misestimate_from_large_reads_or_hide_a_few_
     q.executions = 1.0;
     q.rows = Some(1.0);
     q.logical_reads = Some(72.0);
-    let note = culprit_checks::plan_shares_note(&plan, Some(&q)).unwrap();
+    let note = culprit_plans::export::shares_note(&plan, Some(&q)).unwrap();
     assert!(note.contains("72 pages a run"), "{note}");
     assert!(!note.contains("costs rest on an estimate of 1 row"), "{note}");
     q.executions = 4.0;
@@ -942,7 +942,7 @@ fn a_plan_note_does_not_invent_a_row_misestimate_from_large_reads_or_hide_a_few_
     q.total_time_ms = 2404.0;
     q.mean_time_ms = 601.0;
     q.max_time_ms = Some(2400.0);
-    let note = culprit_checks::plan_shares_note(&plan, Some(&q)).unwrap();
+    let note = culprit_plans::export::shares_note(&plan, Some(&q)).unwrap();
     assert!(note.contains("4 runs took 2.4 s in all, with the slowest taking 2.4 s"), "{note}");
     assert!(!note.contains("601 ms"), "{note}");
 }

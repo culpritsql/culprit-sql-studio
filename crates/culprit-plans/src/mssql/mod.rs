@@ -1,0 +1,1551 @@
+//! Pure SQL Server Showplan parsing and original-input consistency checks.
+//! Native acquisition, permissions, budgets and receipt authentication remain with callers.
+
+use culprit_core::insights::EXCHANGE_SPILL;
+use culprit_core::{
+    Engine, Error, NodeKind, NodeRuntime, PARALLEL_THREADS, Plan, PlanIndexHint, PlanKind, PlanNode, PlanWarning,
+    Properties, Result,
+};
+use roxmltree::{Document, Node};
+
+mod cached_definitions;
+pub mod deadlocks;
+mod hash_join;
+mod memory_feedback;
+#[cfg(test)]
+mod original_batch;
+#[cfg(test)]
+mod original_statement_diagnostics;
+mod page_server_io;
+mod parameters;
+mod relational_inputs;
+mod retained;
+mod scan_completion;
+mod statement;
+#[cfg(any(test, feature = "test-support"))]
+pub mod test_support;
+pub use cached_definitions::{parse_cached_definition, parse_retained_definition};
+pub use retained::clear_unrecorded_times;
+pub use statement::{native_statement_from_prefix, statement_from_prefix};
+#[cfg(test)]
+use test_support::{test_read_context, test_source};
+
+/// RelOp children that describe the operator rather than being the operator itself.
+const RELOP_METADATA: &[&str] =
+    &["OutputList", "Warnings", "MemoryFractions", "RunTimeInformation", "RunTimePartitionSummary", "InternalInfo"];
+
+/// RelOp attributes worth showing in the node detail panel.
+const RELOP_PROPS: &[&str] = &[
+    "PhysicalOp",
+    "LogicalOp",
+    "EstimateRows",
+    "EstimateRowsWithoutRowGoal",
+    "EstimatedRowsRead",
+    "TableCardinality",
+    "EstimateIO",
+    "EstimateCPU",
+    "AvgRowSize",
+    "EstimatedTotalSubtreeCost",
+    "EstimateRebinds",
+    "EstimateRewinds",
+    "EstimatedExecutionMode",
+    "Parallel",
+    "Partitioned",
+];
+
+const STATEMENT_PROPS: &[&str] = &[
+    "StatementOptmLevel",
+    "StatementOptmEarlyAbortReason",
+    "CardinalityEstimationModelVersion",
+    "QueryHash",
+    "QueryPlanHash",
+    "StatementEstRows",
+    "StatementSubTreeCost",
+];
+
+const QUERY_PLAN_PROPS: &[&str] =
+    &["DegreeOfParallelism", "NonParallelPlanReason", "CachedPlanSize", "CompileTime", "CompileCPU", "CompileMemory"];
+
+/// Rows read must exceed rows returned by this factor before a residual predicate is worth flagging.
+const RESIDUAL_READ_FACTOR: f64 = 10.0;
+const RESIDUAL_MIN_ROWS_READ: f64 = 1_000.0;
+const MAX_LIST_PROP_LEN: usize = 600;
+
+/// Every statement in a showplan document, by the type SQL Server gives it (`SELECT`, `COMMIT TRANSACTION`, `COND`…),
+/// nested ones included (the branches of an IF are statements of their own).
+pub fn statement_types(xml: &str) -> Result<Vec<String>> {
+    culprit_core::xml::read(xml, |doc| {
+        let doc = doc.map_err(unreadable)?;
+        Ok(doc
+            .descendants()
+            .filter(|n| n.is_element() && n.tag_name().name().starts_with("Stmt"))
+            .filter_map(|n| n.attribute("StatementType").map(str::to_string))
+            .collect())
+    })
+}
+
+pub fn parse(xml: &str) -> Result<Plan> {
+    parse_statement(xml, None)
+}
+
+/// Recompare original selected runtime attributes transiently; detached JSON flags never assert equal inputs.
+pub fn runtime_input_pair<'a>(a: &'a Plan, b: &'a Plan) -> culprit_core::plan_compare::NativeRuntimeInputPair<'a> {
+    parameters::comparison::compare(a, b)
+}
+
+/// Query Store also keeps valid empty showplans for maintenance such as UPDATE STATISTICS. They provide no
+/// operator tree; that is absent plan data, not a parser failure. Malformed or nonempty unsupported XML is not empty.
+pub fn is_empty(xml: &str) -> bool {
+    culprit_core::xml::read(xml, |doc| doc.is_ok_and(|doc| empty_showplan(&doc)))
+}
+
+fn empty_showplan(doc: &Document) -> bool {
+    doc.root_element().has_tag_name_local("ShowPlanXML")
+        && doc.descendants().any(|n| n.has_tag_name_local("Statements"))
+        && doc
+            .descendants()
+            .filter(|n| n.has_tag_name_local("Statements"))
+            .all(|n| !n.children().any(|c| c.is_element()))
+        && doc
+            .descendants()
+            .filter(|n| n.is_element())
+            .all(|n| matches!(n.tag_name().name(), "ShowPlanXML" | "BatchSequence" | "Batch" | "Statements"))
+}
+
+/// Parse the statement whose `QueryHash` matches (a batch or procedure plan holds every statement), or the most
+/// expensive statement when none matches.
+pub fn parse_statement(xml: &str, query_hash: Option<&str>) -> Result<Plan> {
+    culprit_core::xml::read(xml, |doc| {
+        let doc = doc.map_err(unreadable)?;
+        read_statement(&doc, xml, StatementSelection::Pasted(query_hash), None)
+    })
+}
+
+/// Native progress cannot substitute a different statement when its selected hash is absent or ambiguous.
+pub fn parse_native_statement(xml: &str, query_hash: Option<&str>) -> Result<Plan> {
+    culprit_core::xml::read(xml, |doc| {
+        let doc = doc.map_err(unreadable)?;
+        read_statement(&doc, xml, StatementSelection::Native(query_hash), None)
+    })
+}
+
+pub struct CachedInputContext<'a> {
+    pub statement: &'a culprit_core::telemetry::CachedStatementContext,
+    pub module_parameters: Option<&'a culprit_core::telemetry::MssqlModuleParameters>,
+    pub text: Option<&'a str>,
+    pub origin: PlanInputOrigin<'a>,
+}
+
+pub enum PlanInputOrigin<'a> {
+    /// Only the original acquisition can supply this namespace; a pooled probe or current connection cannot.
+    OriginalNative {
+        read: Option<&'a culprit_core::telemetry::NativeReadContext>,
+    },
+    OriginalCapture {
+        source: &'a culprit_core::telemetry::CollectionDescription,
+    },
+    StoredRedacted {
+        proof: Option<&'a culprit_core::telemetry::MssqlRelationalInputProof>,
+    },
+}
+
+impl PlanInputOrigin<'_> {
+    fn native_read(&self) -> Option<&culprit_core::telemetry::NativeReadContext> {
+        match self {
+            Self::OriginalNative { read } => *read,
+            _ => None,
+        }
+    }
+
+    fn original_target(&self) -> Option<&culprit_core::telemetry::CollectionTarget> {
+        match self {
+            Self::OriginalNative { read: Some(read) } if read.has_qualified_local_owner() => Some(&read.target),
+            Self::OriginalCapture { source }
+                if source.is_partition_qualified()
+                    && matches!(source.partition, culprit_core::telemetry::SourcePartition::InstanceLocal { .. }) =>
+            {
+                Some(&source.target)
+            }
+            _ => None,
+        }
+    }
+
+    fn retained_proof(&self) -> Option<&culprit_core::telemetry::MssqlRelationalInputProof> {
+        match self {
+            Self::StoredRedacted { proof } => *proof,
+            _ => None,
+        }
+    }
+}
+
+/// Parse once and qualify declarations while the exact native statement/scope still exists. A detached Plan tree
+/// or a variable-shaped display name cannot establish which module owns an input introduced by inlined code.
+pub fn parse_cached_statement(xml: &str, context: CachedInputContext<'_>) -> Result<Plan> {
+    if !context.is_valid() {
+        return Err(invalid_data());
+    }
+    culprit_core::xml::read(xml, |doc| {
+        let doc = doc.map_err(unreadable)?;
+        let hash = context.statement.query_hash.as_deref();
+        read_statement(&doc, xml, StatementSelection::Native(hash), Some(context))
+    })
+}
+
+impl CachedInputContext<'_> {
+    fn matches_original_statement(&self, statement: Node<'_, '_>) -> bool {
+        statement.has_tag_name_local("StmtSimple")
+            && children(statement, "QueryPlan").take(2).count() == 1
+            && statement.attribute("StatementText").is_some_and(|native| self.matches_original_text(native))
+            && statement
+                .attribute("QueryHash")
+                .zip(self.statement.query_hash.as_deref())
+                .is_some_and(|(native, observed)| native.eq_ignore_ascii_case(observed))
+    }
+
+    fn matches_original_text(&self, native: &str) -> bool {
+        let Some(original) = self.text else {
+            return false;
+        };
+        if native.trim() == original.trim() {
+            return true;
+        }
+        // Some native last-known plans put the complete batch/module in StatementText. Only the held original
+        // scope and complete native UTF-16 offsets may select its statement; stored redacted text cannot rebind.
+        if self.origin.original_target().is_none() || !self.is_valid() {
+            return false;
+        }
+        native_statement_from_prefix(self.statement, Some(native)).is_ok_and(|selected| selected == original)
+    }
+
+    fn is_valid(&self) -> bool {
+        self.statement.is_valid()
+            && self.statement.identity.has_plan_handle()
+            && self.statement.identity.has_sql_handle()
+            && self.origin.native_read().is_none_or(|read| {
+                read.is_valid() && read.target.database().is_some() && read.target.engine() == Engine::Mssql
+            })
+            && match &self.origin {
+                PlanInputOrigin::OriginalCapture { source } => {
+                    source.target.engine() == Engine::Mssql
+                        && source.target.database().is_some()
+                        && source.partition.is_valid_for(&source.target)
+                }
+                _ => true,
+            }
+    }
+}
+
+/// Optional classification of already-retained native bodies. No source I/O, counters or plan display tree are
+/// acquired here; unsupported/ambiguous native scope keeps the payload but supplies no positive proof.
+pub struct OriginalStatementEvidence {
+    pub relational_inputs: Option<Vec<culprit_core::telemetry::MssqlRelationalInputBinding>>,
+    pub parameter_context: Option<culprit_core::plan_facts::PlanParameterContext>,
+}
+
+pub fn original_statement_evidence(xml: &str, context: CachedInputContext<'_>) -> Option<OriginalStatementEvidence> {
+    if !context.is_valid() || matches!(context.origin, PlanInputOrigin::StoredRedacted { .. }) {
+        return None;
+    }
+    culprit_core::xml::read(xml, |doc| {
+        let doc = doc.ok()?;
+        let statement =
+            select_statement(&doc, StatementSelection::Native(context.statement.query_hash.as_deref())).ok()?;
+        let relational_inputs = relational_inputs::classify(statement, Some(&context))
+            .ok()
+            .filter(|bindings| !bindings.is_empty())
+            .map(|bindings| {
+                bindings
+                    .into_iter()
+                    .map(|(node_id, input)| culprit_core::telemetry::MssqlRelationalInputBinding { node_id, input })
+                    .collect()
+            });
+        let original_statement_matches = context.matches_original_statement(statement);
+        #[cfg(test)]
+        if !original_statement_matches {
+            original_statement_diagnostics::report(statement, &context);
+        }
+        let parameter_context =
+            original_statement_matches.then(|| query_plan_of(statement).and_then(parameters::read)).flatten();
+        Some(OriginalStatementEvidence { relational_inputs, parameter_context })
+    })
+}
+
+/// Plan XML that doesn't read as XML.
+fn unreadable(error: impl std::fmt::Display) -> Error {
+    Error::internal(culprit_core::t!("provider.mssql.plan.unreadable", error = error.to_string()))
+}
+
+enum StatementSelection<'a> {
+    Pasted(Option<&'a str>),
+    Native(Option<&'a str>),
+}
+
+pub fn query_plan_of<'a, 'input>(node: Node<'a, 'input>) -> Option<Node<'a, 'input>> {
+    if node.has_tag_name_local("StmtSimple") {
+        child(node, "QueryPlan")
+    } else if node.has_tag_name_local("StmtCond") {
+        child(node, "Condition").and_then(|condition| child(condition, "QueryPlan"))
+    } else {
+        None
+    }
+}
+
+/// Native selection never substitutes another statement when the requested hash is missing or ambiguous. An
+/// independently statement-scoped payload without a hash must contain exactly one candidate.
+pub fn select_native_statement<'a, 'input>(
+    doc: &'a Document<'input>,
+    query_hash: Option<&str>,
+) -> Result<Node<'a, 'input>> {
+    let mut matching = doc.descendants().filter(|node| {
+        query_plan_of(*node).is_some()
+            && query_hash.is_none_or(|hash| {
+                node.attribute("QueryHash").is_some_and(|native| native.eq_ignore_ascii_case(hash.trim()))
+            })
+    });
+    let statement = matching.next().ok_or_else(invalid_data)?;
+    if matching.next().is_some() {
+        return Err(invalid_data());
+    }
+    Ok(statement)
+}
+
+fn query_plan_has_runtime(query_plan: Node<'_, '_>) -> bool {
+    let number = |node: Node<'_, '_>, attribute: &str| {
+        node.attribute(attribute)?.parse::<f64>().ok().filter(|value| value.is_finite())
+    };
+    query_plan.descendants().any(|node| {
+        node.has_tag_name_local("RunTimeCountersPerThread")
+            && node.ancestors().find(|ancestor| ancestor.has_tag_name_local("QueryPlan")) == Some(query_plan)
+            && number(node, "ActualRows").is_some_and(|rows| rows >= 0.0)
+            && number(node, "ActualExecutions").is_some_and(|executions| executions >= 1.0 && executions.fract() == 0.0)
+    })
+}
+
+fn select_statement<'a, 'input>(
+    doc: &'a Document<'input>,
+    selection: StatementSelection<'_>,
+) -> Result<Node<'a, 'input>> {
+    let candidates = || doc.descendants().filter(|n| query_plan_of(*n).is_some());
+    Ok(match selection {
+        StatementSelection::Native(hash) => select_native_statement(doc, hash)?,
+        StatementSelection::Pasted(hash) => hash
+            .and_then(|hash| {
+                candidates().find(|node| {
+                    node.attribute("QueryHash").is_some_and(|native| native.eq_ignore_ascii_case(hash.trim()))
+                })
+            })
+            .or_else(|| {
+                candidates().max_by(|a, b| {
+                    attr_f64(*a, "StatementSubTreeCost").total_cmp(&attr_f64(*b, "StatementSubTreeCost"))
+                })
+            })
+            .ok_or_else(|| Error::internal(culprit_core::t!("provider.mssql.plan.no_statement")))?,
+    })
+}
+
+fn read_statement(
+    doc: &Document,
+    xml: &str,
+    selection: StatementSelection<'_>,
+    input: Option<CachedInputContext<'_>>,
+) -> Result<Plan> {
+    let statement = select_statement(doc, selection)?;
+    let query_plan = query_plan_of(statement).expect("selected on QueryPlan above");
+    let root_op = child(query_plan, "RelOp")
+        .ok_or_else(|| Error::internal(culprit_core::t!("provider.mssql.plan.no_operators")))?;
+
+    let mut root = parse_relop(root_op, 1)?;
+    relational_inputs::qualify(&mut root, statement, input.as_ref())?;
+    let total_cost =
+        statement.attribute("StatementSubTreeCost").and_then(|v| v.parse().ok()).unwrap_or(root.subtree_cost);
+    let is_actual = query_plan.descendants().any(|n| n.has_tag_name_local("RunTimeInformation"));
+
+    let mut props = Properties::new();
+    copy_attrs(statement, STATEMENT_PROPS, &mut props);
+    copy_attrs(query_plan, QUERY_PLAN_PROPS, &mut props);
+    if let Some(grant) = child(query_plan, "MemoryGrantInfo") {
+        for (attr, key) in [
+            ("SerialDesiredMemory", "MemoryDesiredKB"),
+            ("RequestedMemory", "MemoryRequestedKB"),
+            ("GrantedMemory", "MemoryGrantedKB"),
+            ("MaxUsedMemory", "MemoryMaxUsedKB"),
+        ] {
+            if let Some(v) = grant.attribute(attr) {
+                props.insert(key.into(), v.into());
+            }
+        }
+        if let Some(milliseconds) = memory_grant_wait_ms(grant) {
+            props.insert("MemoryGrantWaitMs".into(), milliseconds.to_string());
+        }
+    }
+    if let Some(time) = child(query_plan, "QueryTimeStats") {
+        // Time in scalar user-defined functions is counted apart (SQL Server 2016 SP2+): the plan's costs leave it out.
+        for (attr, key) in [
+            ("ElapsedTime", "ElapsedMs"),
+            ("CpuTime", "CpuMs"),
+            ("UdfElapsedTime", "UdfElapsedMs"),
+            ("UdfCpuTime", "UdfCpuMs"),
+        ] {
+            if let Some(v) = time.attribute(attr) {
+                props.insert(key.into(), v.into());
+            }
+        }
+    }
+    if let Some(threads) = child(query_plan, "ThreadStat").and_then(|t| t.attribute("UsedThreads")) {
+        props.insert("UsedThreads".into(), threads.into());
+    }
+    if let Some(params) = child(query_plan, "ParameterList") {
+        let list: Vec<String> = children(params, "ColumnReference")
+            .map(|p| {
+                let name = p.attribute("Column").unwrap_or("?");
+                match p.attribute("ParameterCompiledValue") {
+                    Some(v) => format!("{name} = {v}"),
+                    None => name.to_string(),
+                }
+            })
+            .collect();
+        if !list.is_empty() {
+            props.insert("Parameters".into(), truncate(list.join(", ")));
+        }
+    }
+
+    let warnings = child(query_plan, "Warnings").map(warnings_of).unwrap_or_default();
+    if let Some(converts) = child(query_plan, "Warnings").and_then(convert_issues) {
+        props.insert("PlanAffectingConvert".into(), converts);
+    }
+    if let Some(kind) = child(query_plan, "Warnings")
+        .and_then(|w| child(w, "MemoryGrantWarning"))
+        .and_then(|g| g.attribute("GrantWarningKind"))
+    {
+        props.insert("MemoryGrantWarning".into(), kind.into());
+    }
+    if is_actual {
+        root.flag_misestimates();
+    }
+
+    let mut facts = statement_facts(statement, query_plan);
+    if input.as_ref().is_some_and(|context| {
+        !matches!(context.origin, PlanInputOrigin::StoredRedacted { .. })
+            && !context.matches_original_statement(statement)
+    }) && let Some(context) = &mut facts.parameter_context
+    {
+        parameters::withhold_statement_binding(context);
+    }
+    let mut plan = Plan {
+        facts,
+        view: None,
+        engine: Engine::Mssql,
+        kind: if is_actual { PlanKind::Actual } else { PlanKind::Estimated },
+        statement: statement.attribute("StatementText").map(|s| s.trim().to_string()),
+        total_cost,
+        root,
+        warnings,
+        index_hints: index_hints(query_plan),
+        props,
+        raw: Some(xml.into()),
+        insights: None,
+    };
+    plan.compute_self_costs();
+    Ok(plan)
+}
+
+/// Native response-window controls establish milliseconds despite the seconds annotation in the published
+/// SQL Server 2022 XSD: https://schemas.microsoft.com/sqlserver/2004/07/showplan/sql2022/showplanxml.xsd
+fn memory_grant_wait_ms(grant: Node) -> Option<f64> {
+    grant.attribute("GrantWaitTime")?.parse::<f64>().ok().and_then(culprit_core::plan_facts::nonnegative)
+}
+
+fn statement_facts(statement: Node, plan: Node) -> culprit_core::PlanFacts {
+    use culprit_core::plan_facts::{count, nonnegative};
+    let number = |node: Node, key: &str| node.attribute(key).and_then(|v| v.parse::<f64>().ok()).and_then(nonnegative);
+    let grant = child(plan, "MemoryGrantInfo");
+    let memory = |key: &str| grant.and_then(|n| number(n, key));
+    let time = child(plan, "QueryTimeStats");
+    let timing = |key: &str| time.and_then(|n| number(n, key));
+    culprit_core::PlanFacts {
+        query_hash: statement.attribute("QueryHash").map(str::to_string),
+        parallelism_blocker: plan.attribute("NonParallelPlanReason").map(str::to_string),
+        optimization_early_abort: statement
+            .attribute("StatementOptmEarlyAbortReason")
+            .or_else(|| plan.attribute("StatementOptmEarlyAbortReason"))
+            .map(str::to_string),
+        compiled_parameters: child(plan, "ParameterList").and_then(|params| {
+            let list: Vec<String> = children(params, "ColumnReference")
+                .map(|p| {
+                    let name = p.attribute("Column").unwrap_or("?");
+                    p.attribute("ParameterCompiledValue").map_or_else(|| name.into(), |v| format!("{name} = {v}"))
+                })
+                .collect();
+            (!list.is_empty()).then(|| list.join(", "))
+        }),
+        parameter_context: parameters::read(plan),
+        conversions: child(plan, "Warnings")
+            .map(|w| {
+                children(w, "PlanAffectingConvert")
+                    .map(|w| culprit_core::PlanConversion {
+                        issue: culprit_core::PlanConversionIssue::from_source(
+                            w.attribute("ConvertIssue").unwrap_or("Convert"),
+                        ),
+                        expression: w.attribute("Expression").unwrap_or("").into(),
+                    })
+                    .collect()
+            })
+            .unwrap_or_default(),
+        memory_grant_warning: child(plan, "Warnings")
+            .and_then(|w| child(w, "MemoryGrantWarning"))
+            .and_then(|g| g.attribute("GrantWarningKind"))
+            .map(str::to_string),
+        elapsed_ms: timing("ElapsedTime"),
+        cpu_ms: timing("CpuTime"),
+        compile_ms: number(plan, "CompileTime"),
+        compile_cpu_ms: number(plan, "CompileCPU"),
+        compile_memory_kb: number(plan, "CompileMemory"),
+        degree_of_parallelism: number(plan, "DegreeOfParallelism").and_then(count),
+        used_threads: child(plan, "ThreadStat").and_then(|n| number(n, "UsedThreads")).and_then(count),
+        cardinality_estimator: number(statement, "CardinalityEstimationModelVersion").and_then(count),
+        memory_desired_kb: memory("SerialDesiredMemory"),
+        memory_requested_kb: memory("RequestedMemory"),
+        memory_granted_kb: memory("GrantedMemory"),
+        memory_max_used_kb: memory("MaxUsedMemory"),
+        memory_grant_wait_ms: grant.and_then(memory_grant_wait_ms),
+        memory_grant_feedback: memory_feedback::read(plan),
+        udf_elapsed_ms: timing("UdfElapsedTime"),
+        udf_cpu_ms: timing("UdfCpuTime"),
+        ..Default::default()
+    }
+}
+
+/// One operator and its inputs, `depth` steps from the root; deeper than [`culprit_core::plan::MAX_PLAN_DEPTH`] is
+/// refused before the recursion can exhaust the stack.
+fn parse_relop(relop: Node, depth: usize) -> Result<PlanNode> {
+    if depth > culprit_core::plan::MAX_PLAN_DEPTH {
+        return Err(culprit_core::plan::too_deep());
+    }
+    let physical = relop.attribute("PhysicalOp").unwrap_or("Unknown").to_string();
+    let logical = relop.attribute("LogicalOp").unwrap_or_default().to_string();
+    let operator = operator_element(relop);
+    let is_lookup =
+        operator.and_then(|o| o.attribute("Lookup")).is_some_and(|v| v == "1" || v.eq_ignore_ascii_case("true"));
+    let op =
+        if is_lookup && physical.contains("Clustered Index") { "Key Lookup".to_string() } else { physical.clone() };
+
+    let mut props = Properties::new();
+    copy_attrs(relop, RELOP_PROPS, &mut props);
+    if let Some(o) = operator {
+        for attr in [
+            "Ordered",
+            "ScanDirection",
+            "ForcedIndex",
+            "ForceSeek",
+            "ForceScan",
+            "NoExpandHint",
+            "Storage",
+            "ManyToMany",
+        ] {
+            if let Some(v) = o.attribute(attr) {
+                props.insert(attr.into(), v.into());
+            }
+        }
+    }
+    if let Some(output) = child(relop, "OutputList") {
+        let columns: Vec<&str> = children(output, "ColumnReference").filter_map(|c| c.attribute("Column")).collect();
+        if !columns.is_empty() {
+            props.insert("OutputList".into(), columns.join(", "));
+        }
+    }
+
+    // Scalar functions this operator calls (not those of operators below it): each one runs once per row, except in a
+    // seek's keys, which are worked out once per seek.
+    let calls: Vec<(String, bool)> = relop
+        .descendants()
+        .filter(|n| n.has_tag_name_local("UserDefinedFunction"))
+        .filter(|n| n.ancestors().skip(1).find(|a| a.has_tag_name_local("RelOp")) == Some(relop))
+        .filter_map(|n| {
+            let in_seek = n
+                .ancestors()
+                .skip(1)
+                .take_while(|a| *a != relop)
+                .any(|a| a.has_tag_name_local("SeekPredicates") || a.has_tag_name_local("SeekPredicateNew"));
+            Some((n.attribute("FunctionName")?, in_seek))
+        })
+        .map(|(name, in_seek)| {
+            // [db].[schema].[function] → schema.function
+            let parts: Vec<String> = name.split("].[").map(unbracket).collect();
+            (parts[parts.len().saturating_sub(2)..].join("."), in_seek)
+        })
+        .collect();
+    if !calls.is_empty() {
+        let functions: Vec<&str> = calls.iter().map(|(f, _)| f.as_str()).collect();
+        props.insert("UserDefinedFunctions".into(), truncate(functions.join(", ")));
+        if calls.iter().all(|(_, in_seek)| *in_seek) {
+            props.insert(culprit_core::plan::UDF_IN_SEEK_ONLY.into(), "true".into());
+        }
+    }
+    if let Some(w) = child(relop, "Warnings") {
+        // Pages a spill wrote to tempdb (8 KB each), summed over sort, hash and exchange spills.
+        let pages: f64 = w
+            .children()
+            .filter(|d| matches!(d.tag_name().name(), "SortSpillDetails" | "HashSpillDetails" | "ExchangeSpillDetails"))
+            .map(|d| attr_f64(d, "WritesToTempDb"))
+            .sum();
+        if pages > 0.0 {
+            props.insert("TempdbWritesPages".into(), pages.to_string());
+        }
+        // An exchange spills its buffers to resolve a deadlock between parallel threads, not for lack of memory.
+        if child(w, "ExchangeSpillDetails").is_some() {
+            props.insert(EXCHANGE_SPILL.into(), "true".into());
+        }
+    }
+    if let Some(columns) = child(relop, "Warnings").and_then(|w| child(w, "ColumnsWithNoStatistics")) {
+        let names: Vec<String> = children(columns, "ColumnReference").map(column_name).map(|c| unbracket(&c)).collect();
+        if !names.is_empty() {
+            props.insert("ColumnsWithNoStatistics".into(), names.join(", "));
+        }
+    }
+
+    let (object, index) = operator.and_then(object_of).unwrap_or((None, None));
+    let seek_predicate = operator.and_then(seek_predicate_of);
+    let predicate = operator.and_then(predicate_of);
+
+    let est_rows = attr_f64(relop, "EstimateRows");
+    let est_executions = 1.0 + attr_f64(relop, "EstimateRebinds") + attr_f64(relop, "EstimateRewinds");
+    let table_rows = relop.attribute("TableCardinality").and_then(|v| v.parse().ok());
+
+    let execution_population = scan_completion::read(relop);
+    let mut facts = culprit_core::PlanNodeFacts {
+        parallel_operator: relop.attribute("Parallel").and_then(native_boolean),
+        relational_input: operator.and_then(relational_inputs::from_operator),
+        hash_build_input: hash_join::build_input(relop),
+        serial_execution_count: execution_population
+            .as_ref()
+            .and_then(|population| scan_completion::serial_execution_count(relop, population)),
+        inner_join: match logical.as_str() {
+            "Inner Join" => Some(true),
+            "Left Outer Join"
+            | "Right Outer Join"
+            | "Full Outer Join"
+            | "Left Semi Join"
+            | "Right Semi Join"
+            | "Left Anti Semi Join"
+            | "Right Anti Semi Join"
+            | "Cross Join" => Some(false),
+            _ => None,
+        },
+        estimated_row_bytes: relop
+            .attribute("AvgRowSize")
+            .and_then(|v| v.parse::<f64>().ok())
+            .and_then(culprit_core::plan_facts::nonnegative),
+        output_columns: child(relop, "OutputList").map(|o| {
+            children(o, "ColumnReference").filter_map(|c| c.attribute("Column")).map(str::to_string).collect()
+        }),
+        storage: operator.and_then(|o| o.attribute("Storage")).map(str::to_string),
+        mssql_index_parent_kind: operator.and_then(original_index_parent_kind),
+        conversions: child(relop, "Warnings")
+            .map(|w| {
+                children(w, "PlanAffectingConvert")
+                    .map(|w| culprit_core::PlanConversion {
+                        issue: culprit_core::PlanConversionIssue::from_source(
+                            w.attribute("ConvertIssue").unwrap_or("Convert"),
+                        ),
+                        expression: w.attribute("Expression").unwrap_or("").into(),
+                    })
+                    .collect()
+            })
+            .unwrap_or_default(),
+        many_to_many: operator.and_then(|o| o.attribute("ManyToMany")).map(is_true),
+        table_alias: operator.and_then(|o| child(o, "Object")).and_then(|o| o.attribute("Alias")).map(unbracket),
+        user_functions: calls.iter().map(|(name, _)| name.clone()).collect(),
+        functions_in_seek_only: (!calls.is_empty()).then(|| calls.iter().all(|(_, seek)| *seek)),
+        columns_without_statistics: child(relop, "Warnings")
+            .and_then(|w| child(w, "ColumnsWithNoStatistics"))
+            .map(|cols| children(cols, "ColumnReference").map(column_name).map(|c| unbracket(&c)).collect())
+            .unwrap_or_default(),
+        estimated_execution_mode: relop
+            .attribute("EstimatedExecutionMode")
+            .map(culprit_core::PlanExecutionMode::from_source),
+        estimated_rows_without_goal: relop
+            .attribute("EstimateRowsWithoutRowGoal")
+            .and_then(|v| v.parse::<f64>().ok())
+            .and_then(culprit_core::plan_facts::nonnegative),
+        exchange_spill: child(relop, "Warnings").and_then(|w| child(w, "ExchangeSpillDetails")).map(|_| true),
+        ..Default::default()
+    };
+    let Counters {
+        rows: act_rows,
+        executions: act_executions,
+        elapsed_ms: act_time_ms,
+        rows_read,
+        actual_rows_read,
+        mut runtime,
+    } = child(relop, "RunTimeInformation").map(|rt| runtime_counters(rt, &mut props, &mut facts)).unwrap_or_default();
+    // Sort/hash/exchange spill details say how many pages went to tempdb.
+    let spilled: f64 = child(relop, "Warnings")
+        .map(|w| {
+            w.descendants().filter_map(|d| d.attribute("WritesToTempDb")).filter_map(|v| v.parse::<f64>().ok()).sum()
+        })
+        .unwrap_or(0.0);
+    if spilled > 0.0 {
+        runtime.get_or_insert_with(NodeRuntime::default).spill_pages = Some(spilled);
+    }
+
+    let warnings = child(relop, "Warnings").map(warnings_of).unwrap_or_default();
+    let mut child_ops = Vec::new();
+    if let Some(o) = operator {
+        collect_relops(o, &mut child_ops);
+    }
+    let estimated_read = relop.attribute("EstimatedRowsRead").and_then(|v| v.parse::<f64>().ok());
+    facts.access_rows = culprit_core::plan_facts::PlanAccessRows::new(estimated_read, actual_rows_read);
+    facts.scan_completion =
+        operator.filter(|operator| operator.has_tag_name_local("TableScan")).and(execution_population);
+
+    let mut node = PlanNode {
+        facts,
+        id: relop.attribute("NodeId").and_then(|v| v.parse().ok()).unwrap_or(0),
+        kind: node_kind(&op, &logical),
+        detail: (!logical.is_empty() && logical != physical && logical != op).then_some(logical),
+        op,
+        object,
+        index,
+        seek_predicate,
+        predicate,
+        est_rows,
+        est_executions,
+        act_rows,
+        act_executions,
+        rows_read: None,
+        table_rows,
+        subtree_cost: attr_f64(relop, "EstimatedTotalSubtreeCost"),
+        self_cost: 0.0,
+        act_time_ms,
+        runtime,
+        warnings,
+        props,
+        children: child_ops.into_iter().map(|c| parse_relop(c, depth + 1)).collect::<Result<_>>()?,
+    };
+    // Rows read across every execution, like `act_rows`: counted by SQL Server when it did (ActualRowsRead), else its
+    // estimate per execution times the executions (the measured ones in an actual plan).
+    node.rows_read = rows_read.or_else(|| estimated_read.map(|per_run| per_run * node.runs()));
+    let returned = node.act_rows.unwrap_or_else(|| node.est_rows_total());
+    if node.predicate.is_some()
+        && node
+            .rows_read
+            .is_some_and(|read| read >= RESIDUAL_MIN_ROWS_READ && read >= RESIDUAL_READ_FACTOR * returned.max(1.0))
+    {
+        push_unique(&mut node.warnings, PlanWarning::ResidualPredicate);
+    }
+    Ok(node)
+}
+
+pub fn operator_element<'a, 'i>(relop: Node<'a, 'i>) -> Option<Node<'a, 'i>> {
+    relop.children().rfind(|n| n.is_element() && !RELOP_METADATA.contains(&n.tag_name().name()))
+}
+
+/// Nearest RelOp descendants, in document order: the operator's inputs. Walked with a stack of its own, so elements
+/// nested however deep between two operators can't exhaust the thread's.
+fn collect_relops<'a, 'i>(node: Node<'a, 'i>, out: &mut Vec<Node<'a, 'i>>) {
+    let mut pending: Vec<Node<'a, 'i>> = node.children().filter(Node::is_element).collect();
+    pending.reverse();
+    while let Some(c) = pending.pop() {
+        if c.has_tag_name_local("RelOp") {
+            out.push(c);
+        } else {
+            pending.extend(c.children().filter(Node::is_element).collect::<Vec<_>>().into_iter().rev());
+        }
+    }
+}
+
+fn node_kind(op: &str, logical: &str) -> NodeKind {
+    let op_l = op.to_ascii_lowercase();
+    let logical_l = logical.to_ascii_lowercase();
+    if op_l.contains("lookup") {
+        return NodeKind::Lookup;
+    }
+    if op_l.contains("insert")
+        || op_l.contains("update")
+        || op_l.contains("delete")
+        || logical_l == "merge" && !op_l.contains("join")
+    {
+        return NodeKind::Modify;
+    }
+    if op_l.contains("seek") {
+        return NodeKind::Seek;
+    }
+    if op_l == "constant scan" {
+        return NodeKind::Other;
+    }
+    if op_l.contains("scan") {
+        return NodeKind::Scan;
+    }
+    if op_l.contains("spool") {
+        return NodeKind::Spool;
+    }
+    if op_l.contains("sort") {
+        return NodeKind::Sort;
+    }
+    if op_l.contains("aggregate") || logical_l.contains("aggregate") || logical_l == "distinct" {
+        return NodeKind::Aggregate;
+    }
+    if op_l.contains("nested loops") || op_l.contains("join") || op_l.contains("hash match") {
+        return NodeKind::Join;
+    }
+    if op_l == "parallelism" {
+        return NodeKind::Parallelism;
+    }
+    if op_l.contains("compute scalar") {
+        return NodeKind::Compute;
+    }
+    NodeKind::Other
+}
+
+/// Direct native ownership only. Missing/general/unknown kinds do not establish an ordinary table.
+fn original_index_parent_kind(operator: Node) -> Option<culprit_core::telemetry::MssqlIndexParentKind> {
+    let mut objects = children(operator, "Object");
+    let object = objects.next()?;
+    if objects.next().is_some()
+        || object.attribute("Table").is_none_or(|name| unbracket(name).is_empty())
+        || object.attribute("Index").is_none_or(|name| unbracket(name).is_empty())
+    {
+        return None;
+    }
+    match object.attribute("IndexKind")? {
+        "ViewClustered" | "ViewNonClustered" => Some(culprit_core::telemetry::MssqlIndexParentKind::IndexedView),
+        _ => None,
+    }
+}
+
+fn object_of(operator: Node) -> Option<(Option<String>, Option<String>)> {
+    let object = child(operator, "Object")?;
+    let schema = object.attribute("Schema").map(unbracket);
+    let table = object.attribute("Table").map(unbracket);
+    let qualified = match (schema, table) {
+        (Some(s), Some(t)) => Some(format!("{s}.{t}")),
+        (None, Some(t)) => Some(t),
+        _ => None,
+    };
+    Some((qualified, object.attribute("Index").map(unbracket)))
+}
+
+fn seek_predicate_of(operator: Node) -> Option<String> {
+    // Index Spools keep their keys in SeekPredicateNew directly, without the SeekPredicates wrapper.
+    let seeks = child(operator, "SeekPredicates").or_else(|| child(operator, "SeekPredicateNew"))?;
+    let mut parts = Vec::new();
+    for keys in seeks.descendants().filter(|n| n.has_tag_name_local("SeekKeys")) {
+        for range in keys.children().filter(Node::is_element) {
+            let scan_type = range.attribute("ScanType").unwrap_or("EQ");
+            let columns: Vec<String> = child(range, "RangeColumns")
+                .map(|rc| children(rc, "ColumnReference").map(column_name).collect())
+                .unwrap_or_default();
+            let values: Vec<String> = child(range, "RangeExpressions")
+                .map(|re| {
+                    children(re, "ScalarOperator")
+                        .map(|s| s.attribute("ScalarString").unwrap_or("?").to_string())
+                        .collect()
+                })
+                .unwrap_or_default();
+            for (i, column) in columns.iter().enumerate() {
+                let value = values.get(i).map(String::as_str).unwrap_or("?");
+                parts.push(format!("{column} {} {value}", comparison(scan_type)));
+            }
+        }
+    }
+    if parts.is_empty() {
+        let fallback: Vec<&str> = seeks
+            .descendants()
+            .filter(|n| n.has_tag_name_local("ScalarOperator"))
+            .filter_map(|n| n.attribute("ScalarString"))
+            .collect();
+        if fallback.is_empty() {
+            return None;
+        }
+        return Some(fallback.join(" AND "));
+    }
+    Some(parts.join(" AND "))
+}
+
+fn predicate_of(operator: Node) -> Option<String> {
+    let element = child(operator, "Predicate")
+        .or_else(|| child(operator, "ProbeResidual"))
+        .or_else(|| child(operator, "Residual"))?;
+    let scalar = element.descendants().find(|n| n.has_tag_name_local("ScalarOperator"))?;
+    // Predicates feed semantic analysis; only display properties may be shortened.
+    scalar.attribute("ScalarString").map(str::to_string)
+}
+
+fn comparison(scan_type: &str) -> &'static str {
+    match scan_type {
+        "GT" => ">",
+        "GE" => ">=",
+        "LT" => "<",
+        "LE" => "<=",
+        "NE" => "<>",
+        "IS" => "IS",
+        "IS NOT" => "IS NOT",
+        _ => "=",
+    }
+}
+
+fn column_name(column_ref: Node) -> String {
+    let column = column_ref.attribute("Column").unwrap_or("?");
+    format!("[{}]", unbracket(column))
+}
+
+#[derive(Default)]
+struct Counters {
+    rows: Option<f64>,
+    executions: Option<f64>,
+    elapsed_ms: Option<f64>,
+    rows_read: Option<f64>,
+    actual_rows_read: Option<f64>,
+    runtime: Option<NodeRuntime>,
+}
+
+/// Totals across threads: rows, executions, reads and CPU add up; elapsed is the slowest thread.
+fn runtime_counters(rt: Node, props: &mut Properties, facts: &mut culprit_core::PlanNodeFacts) -> Counters {
+    let mut rows = 0.0;
+    let mut executions = 0.0;
+    // Where SQL Server counted it: a measured 0 (an empty table, a seek that found nothing) is a count, not a gap.
+    let mut rows_read: Option<f64> = None;
+    let mut access_complete = true;
+    let mut native_threads = std::collections::BTreeSet::new();
+    let (mut rebinds, mut rewinds): (Option<f64>, Option<f64>) = (None, None);
+    let mut threads_run = 0.0;
+    let mut elapsed: Option<f64> = None;
+    let mut seen = false;
+    let mut runtime = NodeRuntime::default();
+    let mut page_server = culprit_core::actual::page_server_io::PlanPageServerIoBuilder::default();
+    let add = |total: &mut Option<f64>, value: Option<f64>| {
+        if let Some(v) = value {
+            *total = Some(total.unwrap_or(0.0) + v);
+        }
+    };
+    let opt = |node: Node, name: &str| node.attribute(name).and_then(|v| v.parse::<f64>().ok());
+    // Worker threads (thread 0 coordinates a parallel zone): how evenly the rows were spread.
+    let mut workers = 0.0;
+    let mut busiest: f64 = 0.0;
+    for thread in children(rt, "RunTimeCountersPerThread") {
+        page_server_io::observe(&mut page_server, thread);
+        seen = true;
+        let thread_rows = attr_f64(thread, "ActualRows");
+        rows += thread_rows;
+        if thread.attribute("Thread").is_some_and(|t| t != "0") {
+            workers += 1.0;
+            busiest = busiest.max(thread_rows);
+        }
+        let thread_executions = attr_f64(thread, "ActualExecutions");
+        executions += thread_executions;
+        if thread_executions > 0.0 && thread.attribute("Thread").is_some_and(|t| t != "0") {
+            threads_run += 1.0;
+        }
+        let read = opt(thread, "ActualRowsRead");
+        let valid_count = |value: f64| value.is_finite() && value >= 0.0;
+        let native_executions = opt(thread, "ActualExecutions").filter(|value| valid_count(*value));
+        let native_rows = opt(thread, "ActualRows").filter(|value| valid_count(*value));
+        access_complete &= thread
+            .attribute("Thread")
+            .and_then(|value| value.parse::<u32>().ok())
+            .is_some_and(|id| native_threads.insert(id))
+            && native_executions.is_some()
+            && native_rows.is_some()
+            && read.is_none_or(valid_count)
+            && (native_executions == Some(0.0) || read.is_some())
+            && (native_executions != Some(0.0) || native_rows == Some(0.0) && read.is_none_or(|value| value == 0.0));
+        add(&mut rows_read, read);
+        // Spools: a rebind runs the input again, a rewind replays the rows the spool already holds.
+        add(&mut rebinds, opt(thread, "ActualRebinds"));
+        add(&mut rewinds, opt(thread, "ActualRewinds"));
+        if let Some(ms) = opt(thread, "ActualElapsedms") {
+            elapsed = Some(elapsed.map_or(ms, |e: f64| e.max(ms)));
+        }
+        add(&mut runtime.cpu_ms, opt(thread, "ActualCPUms"));
+        add(&mut runtime.logical_reads, opt(thread, "ActualLogicalReads"));
+        add(&mut runtime.physical_reads, opt(thread, "ActualPhysicalReads"));
+        add(&mut runtime.physical_reads, opt(thread, "ActualReadAheads"));
+        // Thread 0 coordinates a parallel plan; the workers are 1..n.
+        if attr_f64(thread, "Thread") > 0.0 {
+            runtime.thread_rows.push(thread_rows);
+        }
+        if let Some(mode) = thread.attribute("ActualExecutionMode") {
+            facts.actual_execution_mode = Some(culprit_core::PlanExecutionMode::from_source(mode));
+            props.insert("ActualExecutionMode".into(), mode.into());
+        }
+    }
+    if !seen {
+        return Counters::default();
+    }
+    runtime.page_server_io = page_server_io::finish(page_server, rt);
+    if runtime.thread_rows.len() < 2 {
+        runtime.thread_rows.clear();
+    }
+    props.insert("ActualRows".into(), rows.to_string());
+    props.insert("ActualExecutions".into(), executions.to_string());
+    if workers >= 2.0 {
+        props.insert("ThreadCount".into(), workers.to_string());
+        props.insert("ThreadRowsMax".into(), busiest.to_string());
+    }
+    if let Some(read) = rows_read {
+        props.insert("ActualRowsRead".into(), read.to_string());
+    }
+    facts.parallel_threads = culprit_core::plan_facts::thread_count(threads_run);
+    if threads_run >= 2.0 {
+        props.insert(PARALLEL_THREADS.into(), threads_run.to_string());
+    }
+    for (key, value) in [("ActualRebinds", rebinds), ("ActualRewinds", rewinds)] {
+        if let Some(v) = value {
+            props.insert(key.into(), v.to_string());
+        }
+    }
+    Counters {
+        rows: Some(rows),
+        executions: Some(executions),
+        elapsed_ms: elapsed,
+        rows_read,
+        actual_rows_read: rows_read.filter(|value| access_complete && value.is_finite() && *value >= 0.0),
+        runtime: (!runtime.is_empty()).then_some(runtime),
+    }
+}
+
+/// `Seek Plan: CONVERT_IMPLICIT(nvarchar(255),[db].[dbo].[orders].[status],0)=[@P1]`, one per line.
+fn convert_issues(warnings: Node) -> Option<String> {
+    let lines: Vec<String> = children(warnings, "PlanAffectingConvert")
+        .map(|w| {
+            format!("{}: {}", w.attribute("ConvertIssue").unwrap_or("Convert"), w.attribute("Expression").unwrap_or(""))
+        })
+        .collect();
+    (!lines.is_empty()).then(|| lines.join("\n"))
+}
+
+fn warnings_of(warnings: Node) -> Vec<PlanWarning> {
+    let mut out = Vec::new();
+    if warnings.attribute("NoJoinPredicate").is_some_and(is_true) {
+        push_unique(&mut out, PlanWarning::NoJoinPredicate);
+    }
+    for w in warnings.children().filter(Node::is_element) {
+        let warning = match w.tag_name().name() {
+            // SQL Server warns about every conversion that may sway the plan, including ones the query writes itself.
+            "PlanAffectingConvert" => w
+                .attribute("Expression")
+                .is_some_and(culprit_core::insights::converts_column)
+                .then_some(PlanWarning::ImplicitConversion),
+            // A sort or hash that ran out of memory. An exchange spill is told apart (`EXCHANGE_SPILL`): it resolves a
+            // deadlock between parallel threads, and memory advice doesn't apply to it.
+            "SpillToTempDb" | "SortSpillDetails" | "HashSpillDetails" | "SpillOccurred" => Some(PlanWarning::Spill),
+            "ColumnsWithNoStatistics" => Some(PlanWarning::MissingStatistics),
+            "MemoryGrantWarning" => Some(PlanWarning::MemoryGrant),
+            "NoJoinPredicate" => Some(PlanWarning::NoJoinPredicate),
+            _ => None,
+        };
+        if let Some(warning) = warning {
+            push_unique(&mut out, warning);
+        }
+    }
+    out
+}
+
+fn index_hints(query_plan: Node) -> Vec<PlanIndexHint> {
+    let Some(missing) = child(query_plan, "MissingIndexes") else {
+        return Vec::new();
+    };
+    let mut hints = Vec::new();
+    for group in children(missing, "MissingIndexGroup") {
+        let impact = attr_f64(group, "Impact");
+        for index in children(group, "MissingIndex") {
+            let schema = index.attribute("Schema").map(unbracket).unwrap_or_default();
+            let table = index.attribute("Table").map(unbracket).unwrap_or_default();
+            let mut hint = PlanIndexHint {
+                table: if schema.is_empty() { table } else { format!("{schema}.{table}") },
+                equality: Vec::new(),
+                inequality: Vec::new(),
+                include: Vec::new(),
+                impact_pct: impact,
+            };
+            for group in children(index, "ColumnGroup") {
+                let columns: Vec<String> =
+                    children(group, "Column").filter_map(|c| c.attribute("Name")).map(unbracket).collect();
+                match group.attribute("Usage") {
+                    Some("EQUALITY") => hint.equality = columns,
+                    Some("INEQUALITY") => hint.inequality = columns,
+                    Some("INCLUDE") => hint.include = columns,
+                    _ => {}
+                }
+            }
+            hints.push(hint);
+        }
+    }
+    hints
+}
+
+trait LocalName {
+    fn has_tag_name_local(&self, name: &str) -> bool;
+}
+
+impl LocalName for Node<'_, '_> {
+    fn has_tag_name_local(&self, name: &str) -> bool {
+        self.is_element() && self.tag_name().name() == name
+    }
+}
+
+fn child<'a, 'i>(node: Node<'a, 'i>, name: &str) -> Option<Node<'a, 'i>> {
+    node.children().find(|n| n.has_tag_name_local(name))
+}
+
+fn children<'a, 'i: 'a>(node: Node<'a, 'i>, name: &'a str) -> impl Iterator<Item = Node<'a, 'i>> + 'a {
+    node.children().filter(move |n| n.has_tag_name_local(name))
+}
+
+fn attr_f64(node: Node, name: &str) -> f64 {
+    node.attribute(name).and_then(|v| v.parse().ok()).unwrap_or(0.0)
+}
+
+fn copy_attrs(node: Node, names: &[&str], props: &mut Properties) {
+    for name in names {
+        if let Some(v) = node.attribute(*name) {
+            props.insert((*name).to_string(), v.to_string());
+        }
+    }
+}
+
+fn is_true(v: &str) -> bool {
+    v == "1" || v.eq_ignore_ascii_case("true")
+}
+
+fn native_boolean(value: &str) -> Option<bool> {
+    match value {
+        "0" | "false" => Some(false),
+        "1" | "true" => Some(true),
+        _ => None,
+    }
+}
+
+fn unbracket(s: &str) -> String {
+    s.trim().trim_start_matches('[').trim_end_matches(']').to_string()
+}
+
+fn truncate(s: String) -> String {
+    if s.chars().count() <= MAX_LIST_PROP_LEN {
+        return s;
+    }
+    let mut out: String = s.chars().take(MAX_LIST_PROP_LEN).collect();
+    out.push('…');
+    out
+}
+
+fn push_unique(list: &mut Vec<PlanWarning>, warning: PlanWarning) {
+    if !list.contains(&warning) {
+        list.push(warning);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+
+    #[test]
+    fn semantic_predicates_keep_conversions_after_long_prefixes() {
+        let prefix = (0..35).map(|i| format!("[m].[field_{i}]=[@p{i}] AND ")).collect::<String>();
+        let predicate = format!("{prefix}CONVERT_IMPLICIT(nvarchar(36),[m].[CustomerId],0)=[@p1]");
+        assert!(prefix.len() > 600);
+        let xml = ESTIMATED.replace(
+            "CONVERT_IMPLICIT(nvarchar(36),[shop].[dbo].[Orders].[CustomerId] as [m].[CustomerId],0)=[@p1]",
+            &predicate,
+        );
+        let p = super::parse(&xml).expect("plan");
+        let saved = p.nodes().into_iter().find_map(|n| n.predicate.as_deref()).expect("predicate");
+        assert_eq!(saved, predicate);
+        assert!(!saved.ends_with('…'));
+    }
+
+    #[test]
+    fn empty_maintenance_showplans_are_absent_data_not_parse_failures() {
+        let xml = r#"<ShowPlanXML xmlns="http://schemas.microsoft.com/sqlserver/2004/07/showplan"><BatchSequence><Batch><Statements /></Batch></BatchSequence></ShowPlanXML>"#;
+        assert!(super::is_empty(xml));
+        assert!(!super::is_empty("<ShowPlanXML>"), "malformed XML remains a parser failure");
+        assert!(!super::is_empty("<something><Statements /></something>"));
+        assert!(!super::is_empty("<ShowPlanXML><Statements><StmtSimple /></Statements></ShowPlanXML>"));
+        assert!(!super::is_empty("<ShowPlanXML><Statements><Unknown /></Statements></ShowPlanXML>"));
+        assert!(!super::is_empty("<ShowPlanXML><Statements /><Unknown /></ShowPlanXML>"));
+        assert!(!super::is_empty("<ShowPlanXML><Statements /><RelOp /></ShowPlanXML>"));
+        assert!(!super::is_empty("<ShowPlanXML />"), "a missing expected structure is not a known empty plan");
+    }
+
+    #[test]
+    fn statement_types_list_every_statement_the_server_sees() {
+        let xml = r#"<ShowPlanXML xmlns="http://schemas.microsoft.com/sqlserver/2004/07/showplan"><BatchSequence><Batch><Statements>
+            <StmtSimple StatementText="SELECT 1" StatementType="SELECT WITHOUT QUERY"/>
+            <StmtSimple StatementText="COMMIT" StatementType="COMMIT TRANSACTION"/>
+            <StmtCond StatementText="IF 1 = 1" StatementType="COND"><Condition/><Then><Statements>
+              <StmtSimple StatementText="CREATE TABLE t (a int)" StatementType="CREATE TABLE"/>
+            </Statements></Then></StmtCond>
+        </Statements></Batch></BatchSequence></ShowPlanXML>"#;
+        assert_eq!(
+            statement_types(xml).unwrap(),
+            vec!["SELECT WITHOUT QUERY", "COMMIT TRANSACTION", "COND", "CREATE TABLE"]
+        );
+    }
+
+    use super::*;
+
+    #[test]
+    fn a_conditional_plan_keeps_its_own_operators_hash_and_measurements() {
+        let xml = r#"<ShowPlanXML><BatchSequence><Batch><Statements>
+          <StmtCond StatementText="IF NOT EXISTS (SELECT 1 FROM dbo.orders)" QueryHash="0x01" StatementSubTreeCost="1">
+            <Condition><QueryPlan CompileTime="2"><RelOp NodeId="0" PhysicalOp="Index Seek" EstimateRows="1" EstimatedTotalSubtreeCost="1"><IndexScan><Object Schema="[dbo]" Table="[orders]" Index="[pk_orders]" /></IndexScan></RelOp></QueryPlan></Condition>
+            <Then><Statements><StmtSimple StatementText="SELECT payload FROM dbo.orders" QueryHash="0x02" StatementSubTreeCost="9">
+              <QueryPlan><RelOp NodeId="1" PhysicalOp="Table Scan" EstimateRows="10" EstimatedTotalSubtreeCost="9"><RunTimeInformation><RunTimeCountersPerThread Thread="0" ActualRows="10" ActualExecutions="1" /></RunTimeInformation><TableScan><Object Schema="[dbo]" Table="[orders]" /></TableScan></RelOp></QueryPlan>
+            </StmtSimple></Statements></Then>
+          </StmtCond>
+        </Statements></Batch></BatchSequence></ShowPlanXML>"#;
+        let condition = parse_statement(xml, Some("0X01")).unwrap();
+        assert_eq!(condition.root.op, "Index Seek");
+        assert_eq!(condition.root.object.as_deref(), Some("dbo.orders"));
+        assert_eq!(condition.kind, PlanKind::Estimated, "a branch's measurements do not belong to the condition");
+        assert_eq!(condition.total_cost, 1.0);
+        assert_eq!(condition.props.get("CompileTime").map(String::as_str), Some("2"));
+        assert!(condition.statement.as_deref().unwrap().starts_with("IF NOT EXISTS"));
+        assert_eq!(parse(xml).unwrap().root.op, "Table Scan", "the default still picks the most costly statement");
+        assert_eq!(parse_statement(xml, Some("0x02")).unwrap().kind, PlanKind::Actual);
+    }
+
+    const ESTIMATED: &str = r#"<?xml version="1.0" encoding="utf-16"?>
+<ShowPlanXML xmlns="http://schemas.microsoft.com/sqlserver/2004/07/showplan" Version="1.564" Build="16.0.4135.4">
+  <BatchSequence><Batch><Statements>
+    <StmtSimple StatementText="SELECT m.Id, m.Body FROM dbo.Orders m WHERE m.CustomerId = @p1 AND m.Kind = N'x'" StatementId="1" StatementCompId="1" StatementType="SELECT" StatementSubTreeCost="12.5" StatementEstRows="40" StatementOptmLevel="FULL" QueryHash="0xAB" QueryPlanHash="0xCD" CardinalityEstimationModelVersion="160">
+      <QueryPlan DegreeOfParallelism="1" CachedPlanSize="40" CompileTime="3" CompileCPU="3" CompileMemory="400">
+        <Warnings><PlanAffectingConvert ConvertIssue="Seek Plan" Expression="CONVERT_IMPLICIT(nvarchar(36),[m].[CustomerId],0)=[@p1]" /></Warnings>
+        <MissingIndexes>
+          <MissingIndexGroup Impact="97.5">
+            <MissingIndex Database="[shop]" Schema="[dbo]" Table="[Orders]">
+              <ColumnGroup Usage="EQUALITY"><Column Name="[CustomerId]" ColumnId="2" /></ColumnGroup>
+              <ColumnGroup Usage="INCLUDE"><Column Name="[Body]" ColumnId="3" /></ColumnGroup>
+            </MissingIndex>
+          </MissingIndexGroup>
+        </MissingIndexes>
+        <ParameterList><ColumnReference Column="@p1" ParameterCompiledValue="N'abc'" /></ParameterList>
+        <RelOp NodeId="0" PhysicalOp="Nested Loops" LogicalOp="Inner Join" EstimateRows="40" EstimateIO="0" EstimateCPU="0.0002" AvgRowSize="100" EstimatedTotalSubtreeCost="12.5" Parallel="0" EstimateRebinds="0" EstimateRewinds="0" EstimatedExecutionMode="Row">
+          <OutputList><ColumnReference Database="[shop]" Schema="[dbo]" Table="[Orders]" Alias="[m]" Column="Id" /></OutputList>
+          <NestedLoops Optimized="0">
+            <OuterReferences><ColumnReference Column="Id" /></OuterReferences>
+            <RelOp NodeId="1" PhysicalOp="Clustered Index Scan" LogicalOp="Clustered Index Scan" EstimateRows="40" EstimatedRowsRead="1800000" TableCardinality="1800000" EstimateIO="8" EstimateCPU="2" AvgRowSize="50" EstimatedTotalSubtreeCost="10" Parallel="0" EstimateRebinds="0" EstimateRewinds="0" EstimatedExecutionMode="Row">
+              <OutputList />
+              <IndexScan Ordered="0" ForcedIndex="0" ForceScan="0" NoExpandHint="0" Storage="RowStore">
+                <DefinedValues />
+                <Object Database="[shop]" Schema="[dbo]" Table="[Orders]" Index="[PK_Orders]" Alias="[m]" IndexKind="Clustered" Storage="RowStore" />
+                <Predicate><ScalarOperator ScalarString="CONVERT_IMPLICIT(nvarchar(36),[shop].[dbo].[Orders].[CustomerId] as [m].[CustomerId],0)=[@p1]" /></Predicate>
+              </IndexScan>
+            </RelOp>
+            <RelOp NodeId="2" PhysicalOp="Clustered Index Seek" LogicalOp="Clustered Index Seek" EstimateRows="1" EstimateIO="0.003" EstimateCPU="0.0001" AvgRowSize="4000" EstimatedTotalSubtreeCost="2.4" Parallel="0" EstimateRebinds="39" EstimateRewinds="0" EstimatedExecutionMode="Row">
+              <OutputList><ColumnReference Column="Body" /></OutputList>
+              <IndexScan Lookup="1" Ordered="1" ScanDirection="FORWARD" ForcedIndex="0" ForceSeek="0" ForceScan="0" NoExpandHint="0" Storage="RowStore">
+                <DefinedValues />
+                <Object Database="[shop]" Schema="[dbo]" Table="[Orders]" Index="[PK_Orders]" Alias="[m]" TableReferenceId="-1" IndexKind="Clustered" Storage="RowStore" />
+                <SeekPredicates>
+                  <SeekPredicateNew>
+                    <SeekKeys>
+                      <Prefix ScanType="EQ">
+                        <RangeColumns><ColumnReference Database="[shop]" Schema="[dbo]" Table="[Orders]" Alias="[m]" Column="Id" /></RangeColumns>
+                        <RangeExpressions><ScalarOperator ScalarString="[shop].[dbo].[Orders].[Id] as [m].[Id]" /></RangeExpressions>
+                      </Prefix>
+                    </SeekKeys>
+                  </SeekPredicateNew>
+                </SeekPredicates>
+              </IndexScan>
+            </RelOp>
+          </NestedLoops>
+        </RelOp>
+      </QueryPlan>
+    </StmtSimple>
+  </Statements></Batch></BatchSequence>
+</ShowPlanXML>"#;
+
+    #[test]
+    fn conversions_the_query_writes_are_not_a_type_mismatch() {
+        // SQL Server warns about each CONVERT in a select list; the plan keeps the text, but nothing is mismatched.
+        let written = ESTIMATED.replace(
+            r#"<PlanAffectingConvert ConvertIssue="Seek Plan" Expression="CONVERT_IMPLICIT(nvarchar(36),[m].[CustomerId],0)=[@p1]" />"#,
+            r#"<PlanAffectingConvert ConvertIssue="Cardinality Estimate" Expression="CONVERT(varchar(36),[m].[Id],0)" />"#,
+        );
+        let plan = parse(&written).unwrap();
+        assert!(!plan.warnings.contains(&PlanWarning::ImplicitConversion));
+        assert_eq!(
+            plan.props.get("PlanAffectingConvert").map(String::as_str),
+            Some("Cardinality Estimate: CONVERT(varchar(36),[m].[Id],0)")
+        );
+    }
+
+    #[test]
+    fn parses_an_estimated_plan() {
+        let plan = parse(ESTIMATED).unwrap();
+        assert_eq!(plan.kind, PlanKind::Estimated);
+        assert_eq!(plan.total_cost, 12.5);
+        assert!(plan.statement.as_deref().unwrap().starts_with("SELECT m.Id"));
+        assert_eq!(plan.warnings, vec![PlanWarning::ImplicitConversion]);
+        assert_eq!(plan.props.get("Parameters").map(String::as_str), Some("@p1 = N'abc'"));
+
+        let root = &plan.root;
+        assert_eq!(root.op, "Nested Loops");
+        assert_eq!(root.detail.as_deref(), Some("Inner Join"));
+        assert_eq!(root.kind, NodeKind::Join);
+        assert_eq!(root.children.len(), 2);
+        assert!((root.self_cost - 0.1).abs() < 1e-9);
+
+        let scan = &root.children[0];
+        assert_eq!(scan.kind, NodeKind::Scan);
+        assert_eq!(scan.object.as_deref(), Some("dbo.Orders"));
+        assert_eq!(scan.index.as_deref(), Some("PK_Orders"));
+        assert_eq!(scan.rows_read, Some(1_800_000.0));
+        assert!(scan.predicate.as_deref().unwrap().contains("CONVERT_IMPLICIT"));
+        assert!(scan.warnings.contains(&PlanWarning::ResidualPredicate));
+        assert_eq!(plan.hottest().unwrap().id, 1);
+
+        let lookup = &root.children[1];
+        assert_eq!(lookup.op, "Key Lookup");
+        assert_eq!(lookup.kind, NodeKind::Lookup);
+        assert_eq!(lookup.est_executions, 40.0);
+        assert_eq!(lookup.seek_predicate.as_deref(), Some("[Id] = [shop].[dbo].[Orders].[Id] as [m].[Id]"));
+        assert_eq!(lookup.props.get("OutputList").map(String::as_str), Some("Body"));
+
+        assert_eq!(plan.index_hints.len(), 1);
+        let hint = &plan.index_hints[0];
+        assert_eq!(hint.table, "dbo.Orders");
+        assert_eq!(hint.equality, vec!["CustomerId"]);
+        assert_eq!(hint.include, vec!["Body"]);
+        assert_eq!(hint.impact_pct, 97.5);
+    }
+
+    #[test]
+    fn statement_compiler_and_output_facts_survive_removing_display_properties() {
+        let mut plan = parse(ESTIMATED).unwrap();
+        assert_eq!(plan.facts().compiled_parameters.as_deref(), Some("@p1 = N'abc'"));
+        assert_eq!(plan.facts().query_hash.as_deref(), Some("0xAB"));
+        assert_eq!(plan.root.children[1].facts().output_columns, Some(vec!["Body".into()]));
+        assert_eq!(plan.root.children[0].facts().output_columns, Some(vec![]));
+        assert_eq!(culprit_core::signals::plan_row_bytes(&plan), Some(100.0));
+        let expected = serde_json::to_value(culprit_core::insights::insights(&plan)).unwrap();
+        fn clear(n: &mut PlanNode) {
+            n.props.clear();
+            for c in &mut n.children {
+                clear(c);
+            }
+        }
+        clear(&mut plan.root);
+        plan.props.clear();
+        assert_eq!(serde_json::to_value(culprit_core::insights::insights(&plan)).unwrap(), expected);
+        assert_eq!(culprit_core::signals::plan_row_bytes(&plan), Some(100.0));
+    }
+
+    #[test]
+    fn reads_runtime_counters_from_actual_plans() {
+        let xml = r#"<ShowPlanXML xmlns="http://schemas.microsoft.com/sqlserver/2004/07/showplan"><BatchSequence><Batch><Statements>
+          <StmtSimple StatementText="SELECT 1" StatementSubTreeCost="1" QueryHash="0xAB12">
+            <QueryPlan>
+              <ThreadStat Branches="1" UsedThreads="2" />
+              <MemoryGrantInfo SerialDesiredMemory="1024" GrantedMemory="1024" MaxUsedMemory="1024" />
+              <QueryTimeStats CpuTime="80" ElapsedTime="61" />
+              <RelOp NodeId="0" PhysicalOp="Sort" LogicalOp="Sort" EstimateRows="10" EstimatedTotalSubtreeCost="1">
+                <OutputList />
+                <Warnings>
+                  <SpillToTempDb SpillLevel="1" SpilledThreadCount="1" />
+                  <SortSpillDetails GrantedMemoryKb="1024" UsedMemoryKb="1024" WritesToTempDb="96" ReadsFromTempDb="96" />
+                </Warnings>
+                <RunTimeInformation>
+                  <RunTimeCountersPerThread Thread="1" ActualRows="6000" ActualExecutions="1" ActualElapsedms="40" ActualCPUms="38" ActualLogicalReads="10" ActualPhysicalReads="1" ActualReadAheads="2" />
+                  <RunTimeCountersPerThread Thread="2" ActualRows="4000" ActualExecutions="1" ActualElapsedms="55" ActualCPUms="41" ActualLogicalReads="12" ActualPhysicalReads="0" ActualReadAheads="0" />
+                </RunTimeInformation>
+                <Sort Distinct="0" />
+              </RelOp>
+            </QueryPlan>
+          </StmtSimple>
+        </Statements></Batch></BatchSequence></ShowPlanXML>"#;
+        let mut plan = parse(xml).unwrap();
+        assert_eq!(plan.kind, PlanKind::Actual);
+        let sort = &plan.root;
+        assert_eq!(sort.kind, NodeKind::Sort);
+        assert_eq!(sort.act_rows, Some(10_000.0));
+        assert_eq!(sort.act_executions, Some(2.0));
+        assert_eq!(sort.act_time_ms, Some(55.0));
+        assert!(sort.warnings.contains(&PlanWarning::Spill));
+        assert!(sort.warnings.contains(&PlanWarning::Misestimate));
+        let runtime = sort.runtime.as_ref().unwrap();
+        assert_eq!(runtime.cpu_ms, Some(79.0));
+        assert_eq!(runtime.logical_reads, Some(22.0));
+        assert_eq!(runtime.physical_reads, Some(3.0));
+        assert_eq!(runtime.thread_rows, vec![6000.0, 4000.0]);
+        assert_eq!(runtime.spill_pages, Some(96.0));
+        assert_eq!(plan.props.get("ElapsedMs").map(String::as_str), Some("61"));
+        assert_eq!(plan.props.get("CpuMs").map(String::as_str), Some("80"));
+        assert_eq!(plan.props.get("UsedThreads").map(String::as_str), Some("2"));
+        let summary = culprit_core::actual_summary(&plan).unwrap();
+        assert_eq!((summary.elapsed_ms, summary.cpu_ms, summary.spilled), (Some(61.0), Some(80.0), true));
+        assert_eq!(plan.root.facts().parallel_threads, Some(2));
+        plan.root.props.remove(PARALLEL_THREADS);
+        assert_eq!(plan.root.runs(), 1.0, "native thread facts normalize executions without the display property");
+        plan.props.clear();
+        let summary = culprit_core::actual_summary(&plan).unwrap();
+        assert_eq!((summary.elapsed_ms, summary.cpu_ms, summary.workers), (Some(61.0), Some(80.0), Some(2.0)));
+        assert_eq!((summary.memory_granted_kb, summary.memory_used_kb), (Some(1024.0), Some(1024.0)));
+    }
+
+    #[test]
+    fn actual_counts_are_totals_and_native_time_units_are_preserved() {
+        let xml = r#"<ShowPlanXML xmlns="http://schemas.microsoft.com/sqlserver/2004/07/showplan"><BatchSequence><Batch><Statements>
+          <StmtSimple StatementText="SELECT 1" StatementSubTreeCost="20">
+            <QueryPlan>
+              <MemoryGrantInfo GrantedMemory="1024" MaxUsedMemory="1024" GrantWaitTime="2" />
+              <QueryTimeStats CpuTime="900" ElapsedTime="700" UdfCpuTime="500" UdfElapsedTime="450" />
+              <RelOp NodeId="0" PhysicalOp="Nested Loops" LogicalOp="Inner Join" EstimateRows="1000" EstimatedTotalSubtreeCost="20">
+                <OutputList />
+                <RunTimeInformation><RunTimeCountersPerThread Thread="0" ActualRows="1000" ActualExecutions="1" /></RunTimeInformation>
+                <NestedLoops Optimized="0">
+                  <RelOp NodeId="1" PhysicalOp="Parallelism" LogicalOp="Gather Streams" EstimateRows="1000" EstimatedTotalSubtreeCost="5">
+                    <OutputList />
+                    <Warnings><ExchangeSpillDetails WritesToTempDb="640" /></Warnings>
+                    <RunTimeInformation><RunTimeCountersPerThread Thread="0" ActualRows="1000" ActualExecutions="1" /></RunTimeInformation>
+                    <Parallelism>
+                      <RelOp NodeId="2" PhysicalOp="Clustered Index Scan" LogicalOp="Clustered Index Scan" EstimateRows="1000" EstimatedRowsRead="500000" TableCardinality="500000" Parallel="1" EstimatedTotalSubtreeCost="4">
+                        <OutputList />
+                        <RunTimeInformation>
+                          <RunTimeCountersPerThread Thread="1" ActualRows="400" ActualRowsRead="250000" ActualExecutions="1" />
+                          <RunTimeCountersPerThread Thread="2" ActualRows="600" ActualRowsRead="250000" ActualExecutions="1" />
+                        </RunTimeInformation>
+                        <IndexScan><Object Database="[db]" Schema="[dbo]" Table="[t]" Index="[pk]" />
+                          <Predicate><ScalarOperator ScalarString="[db].[dbo].[t].[a]=(1)" /></Predicate></IndexScan>
+                      </RelOp>
+                    </Parallelism>
+                  </RelOp>
+                  <RelOp NodeId="3" PhysicalOp="Table Spool" LogicalOp="Lazy Spool" EstimateRows="50" EstimateRebinds="0" EstimateRewinds="999" EstimatedTotalSubtreeCost="10">
+                    <OutputList />
+                    <RunTimeInformation><RunTimeCountersPerThread Thread="0" ActualRows="50000" ActualExecutions="1000" ActualRebinds="1" ActualRewinds="999" /></RunTimeInformation>
+                    <Spool>
+                      <RelOp NodeId="4" PhysicalOp="Index Seek" LogicalOp="Index Seek" EstimateRows="50" EstimatedRowsRead="80" EstimatedTotalSubtreeCost="1">
+                        <OutputList />
+                        <RunTimeInformation><RunTimeCountersPerThread Thread="0" ActualRows="0" ActualExecutions="0" /></RunTimeInformation>
+                        <IndexScan><Object Database="[db]" Schema="[dbo]" Table="[u]" Index="[ix]" /></IndexScan>
+                      </RelOp>
+                    </Spool>
+                  </RelOp>
+                </NestedLoops>
+              </RelOp>
+            </QueryPlan>
+          </StmtSimple>
+        </Statements></Batch></BatchSequence></ShowPlanXML>"#;
+        let plan = parse(xml).unwrap();
+        assert_eq!(plan.props.get("MemoryGrantWaitMs").map(String::as_str), Some("2"));
+        assert_eq!(plan.facts().memory_grant_wait_ms, Some(2.0));
+        assert_eq!(plan.props.get("UdfElapsedMs").map(String::as_str), Some("450"));
+        let gather = &plan.root.children[0];
+        // An exchange spill isn't a sort or hash short of memory.
+        assert!(!gather.warnings.contains(&PlanWarning::Spill));
+        assert_eq!(gather.props.get(EXCHANGE_SPILL).map(String::as_str), Some("true"));
+        let scan = &gather.children[0];
+        // Rows read is the measured total across threads, like actual rows; the scan ran once on each of two threads,
+        // one execution as the estimate counts it, and returned the 1,000 rows it expected.
+        assert_eq!(scan.rows_read, Some(500_000.0));
+        assert_eq!(scan.props.get(PARALLEL_THREADS).map(String::as_str), Some("2"));
+        assert_eq!(scan.runs(), 1.0);
+        assert!(!scan.warnings.contains(&PlanWarning::Misestimate));
+        assert!(scan.warnings.contains(&PlanWarning::ResidualPredicate));
+        let spool = &plan.root.children[1];
+        assert_eq!(spool.props.get("ActualRebinds").map(String::as_str), Some("1"));
+        assert_eq!(spool.props.get("ActualRewinds").map(String::as_str), Some("999"));
+        // Never ran: nothing to compare, and nothing read.
+        let never = &spool.children[0];
+        assert_eq!(never.runs(), 0.0);
+        assert_eq!(never.rows_read, Some(0.0));
+        assert!(!never.warnings.contains(&PlanWarning::Misestimate));
+
+        // An estimated plan: EstimatedRowsRead is per execution, so the total multiplies by the executions.
+        let estimated = parse(ESTIMATED).unwrap();
+        let lookup = &estimated.root.children[1];
+        assert_eq!(lookup.est_executions, 40.0);
+        assert_eq!(estimated.root.children[0].rows_read, Some(1_800_000.0));
+    }
+
+    #[test]
+    fn native_grant_wait_milliseconds_are_shared_by_typed_facts_and_display() {
+        for milliseconds in [0, 2, 320] {
+            let grant = format!(r#"<MemoryGrantInfo GrantWaitTime="{milliseconds}" />"#);
+            let plan = grant_wait_plan(&grant);
+            assert_eq!(plan.kind, PlanKind::Actual);
+            assert_eq!(plan.facts().memory_grant_wait_ms, Some(f64::from(milliseconds)));
+            assert_eq!(plan.props.get("MemoryGrantWaitMs"), Some(&milliseconds.to_string()));
+            // QueryTimeStats measures its own execution interval, not an upper bound on admission delay.
+            assert_eq!(plan.facts().elapsed_ms, Some(95.0));
+        }
+    }
+
+    #[test]
+    fn native_grant_wait_missing_or_invalid_is_unknown_in_facts_and_display() {
+        let mut grants = vec![String::new(), "<MemoryGrantInfo />".into()];
+        for value in ["", "-1", "NaN", "inf", "-inf", "1e309", "invalid"] {
+            grants.push(format!(r#"<MemoryGrantInfo GrantWaitTime="{value}" />"#));
+        }
+        for grant in grants {
+            let plan = grant_wait_plan(&grant);
+            assert_eq!(plan.facts().memory_grant_wait_ms, None, "{grant}");
+            assert!(!plan.props.contains_key("MemoryGrantWaitMs"), "{grant}");
+        }
+    }
+
+    fn grant_wait_plan(grant: &str) -> Plan {
+        let xml = format!(
+            r#"<ShowPlanXML><BatchSequence><Batch><Statements>
+              <StmtSimple StatementText="SELECT 1" QueryHash="0x01" StatementSubTreeCost="1">
+                <QueryPlan>{grant}<QueryTimeStats ElapsedTime="95" CpuTime="95" />
+                  <RelOp NodeId="0" PhysicalOp="Constant Scan" LogicalOp="Constant Scan" EstimateRows="1" EstimatedTotalSubtreeCost="1">
+                    <RunTimeInformation><RunTimeCountersPerThread Thread="0" ActualRows="1" ActualExecutions="1" /></RunTimeInformation>
+                    <ConstantScan />
+                  </RelOp>
+                </QueryPlan>
+              </StmtSimple>
+            </Statements></Batch></BatchSequence></ShowPlanXML>"#,
+        );
+        parse_native_statement(&xml, Some("0x01")).unwrap()
+    }
+
+    #[test]
+    fn a_measured_zero_rows_read_is_kept() {
+        // The scan ran and read nothing (the table is empty now); its estimate of 500,000 rows read is no count.
+        let xml = r#"<ShowPlanXML xmlns="http://schemas.microsoft.com/sqlserver/2004/07/showplan"><BatchSequence><Batch><Statements>
+          <StmtSimple StatementText="SELECT 1" StatementSubTreeCost="4">
+            <QueryPlan>
+              <RelOp NodeId="0" PhysicalOp="Clustered Index Scan" LogicalOp="Clustered Index Scan" EstimateRows="1000" EstimatedRowsRead="500000" TableCardinality="500000" EstimatedTotalSubtreeCost="4">
+                <OutputList />
+                <RunTimeInformation><RunTimeCountersPerThread Thread="0" ActualRows="0" ActualRowsRead="0" ActualExecutions="1" /></RunTimeInformation>
+                <IndexScan><Object Database="[db]" Schema="[dbo]" Table="[t]" Index="[pk]" />
+                  <Predicate><ScalarOperator ScalarString="[db].[dbo].[t].[a]=(1)" /></Predicate></IndexScan>
+              </RelOp>
+            </QueryPlan>
+          </StmtSimple>
+        </Statements></Batch></BatchSequence></ShowPlanXML>"#;
+        let scan = parse(xml).unwrap().root;
+        assert_eq!(scan.rows_read, Some(0.0));
+        assert!(!scan.warnings.contains(&PlanWarning::ResidualPredicate), "nothing read, nothing thrown away");
+    }
+
+    #[test]
+    fn picks_the_statement_a_query_hash_names() {
+        let batch = r#"<ShowPlanXML><BatchSequence><Batch><Statements>
+          <StmtSimple StatementText="SELECT big" StatementSubTreeCost="9" QueryHash="0x01">
+            <QueryPlan><RelOp NodeId="0" PhysicalOp="Table Scan" LogicalOp="Table Scan" EstimateRows="1" EstimatedTotalSubtreeCost="9"><TableScan /></RelOp></QueryPlan>
+          </StmtSimple>
+          <StmtSimple StatementText="SELECT small" StatementSubTreeCost="1" QueryHash="0x02">
+            <QueryPlan><RelOp NodeId="0" PhysicalOp="Index Seek" LogicalOp="Index Seek" EstimateRows="1" EstimatedTotalSubtreeCost="1"><IndexScan /></RelOp></QueryPlan>
+          </StmtSimple>
+        </Statements></Batch></BatchSequence></ShowPlanXML>"#;
+        assert_eq!(parse(batch).unwrap().statement.as_deref(), Some("SELECT big"));
+        assert_eq!(parse_statement(batch, Some("0X02")).unwrap().statement.as_deref(), Some("SELECT small"));
+        assert_eq!(parse_statement(batch, Some("0x99")).unwrap().statement.as_deref(), Some("SELECT big"));
+    }
+
+    #[test]
+    fn rejects_documents_without_plans() {
+        assert!(parse("<ShowPlanXML/>").is_err());
+        assert!(parse("not xml").is_err());
+    }
+}
+
+#[cfg(test)]
+mod index_parent_tests;
+
+fn invalid_data() -> Error {
+    Error::new(culprit_core::ErrorCode::QueryFailed, culprit_core::t!("collection.invalid_source"))
+        .with_detail(culprit_core::ErrorDetail::CollectionStopped(culprit_core::telemetry::CollectionStop::InvalidPage))
+}

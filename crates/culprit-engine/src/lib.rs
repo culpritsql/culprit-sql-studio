@@ -56,7 +56,6 @@ pub mod marks;
 #[cfg(feature = "postgres")]
 pub mod native_logs;
 mod operation;
-pub mod plans;
 mod private_fs;
 mod process;
 mod program;
@@ -88,15 +87,13 @@ use culprit_core::{
 pub use agent::{AgentAccess, ApprovalOutcome, ApprovalRequest, AuditEntry, AuditOutcome};
 /// The extensions a SQLite database file usually has (the app's file picker filters on them).
 pub use connection::DATABASE_FILE_EXTENSIONS;
-pub use culprit_checks::{
-    agent_brief, index_advice, plan_type_schema, query_runtime_fragments, query_wait_fragments, source_overhead,
-};
+pub use culprit_checks::{agent_brief, index_advice, query_runtime_fragments, query_wait_fragments, source_overhead};
 pub use culprit_core::SshConfig;
+pub use culprit_plans::view::plan_type_schema;
 pub use discover::{Cloud, DiscoveredDatabase, DiscoveryResult};
 pub use import::{ImportCandidate, ImportSource};
 pub use marks::Mark;
 pub use operation::run_blocking;
-pub use plans::{PlanFormat, parse_plan};
 #[cfg(feature = "collector")]
 pub use provider_registration::{ProfileSourceFactory, RecipeQualificationFactory, RecipeQualificationIssuer};
 pub use provider_registration::{ProviderConstructionPolicy, ProviderRegistration, RecipeCostVerifier};

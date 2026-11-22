@@ -34,7 +34,6 @@ pub mod page_server_reads;
 pub mod page_waits;
 pub mod performance_counters;
 pub(crate) mod plan_advice;
-pub mod plan_view;
 pub mod query_runtime_fragments;
 pub mod query_wait_fragments;
 pub mod replication;

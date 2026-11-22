@@ -6,7 +6,7 @@ use std::fmt::Write;
 use std::path::Path;
 
 use culprit_core::insights::{coverage_note, insights};
-use culprit_engine::plans::parse_plan;
+use culprit_plans::parse_plan;
 
 /// Every plan in `dir` (a directory of this crate), in name order, as its insights read.
 fn words(dir: &str) -> String {

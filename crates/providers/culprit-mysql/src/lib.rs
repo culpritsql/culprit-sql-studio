@@ -5,16 +5,12 @@ mod cancellation;
 mod catalog;
 mod collect;
 mod connect;
-pub mod deadlocks;
+mod deadlocks;
 pub mod fingerprint;
 mod jobs;
-mod json_members;
 mod native;
 mod native_failures;
 mod operations;
-pub mod plan_json;
-pub mod plan_maria;
-pub mod plan_tree;
 mod pressure;
 mod preview;
 mod probe;
@@ -134,7 +130,8 @@ impl MysqlProvider {
                     result => result?.ok_or_else(|| no_plan(PlanCommand::Explain))?,
                 };
                 let json = row.text("explain").ok_or_else(|| no_plan(PlanCommand::Explain))?;
-                plan_json::parse(&json, PlanKind::Estimated, Some(statement), schema).map(|plan| self.versioned(plan))
+                culprit_plans::mysql::parse(&json, PlanKind::Estimated, Some(statement), schema)
+                    .map(|plan| self.versioned(plan))
             }
             ExplainMode::Analyze => {
                 if !self.connector.measures_runs() {
@@ -156,11 +153,11 @@ impl MysqlProvider {
                 match flavor {
                     Flavor::Mysql => {
                         let tree = row.text("explain").ok_or_else(|| no_plan(PlanCommand::ExplainAnalyze))?;
-                        plan_tree::parse(&tree, Some(statement), schema)
+                        culprit_plans::mysql::tree::parse(&tree, Some(statement), schema)
                     }
                     Flavor::Mariadb => {
                         let json = row.first_text().ok_or_else(|| no_plan(PlanCommand::Analyze))?;
-                        plan_json::parse(&json, PlanKind::Actual, Some(statement), schema)
+                        culprit_plans::mysql::parse(&json, PlanKind::Actual, Some(statement), schema)
                     }
                 }
                 .map(|mut plan| {

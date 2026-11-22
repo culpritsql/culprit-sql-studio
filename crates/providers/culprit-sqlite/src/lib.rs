@@ -5,7 +5,7 @@
 mod collect;
 mod file;
 mod native;
-pub mod plan;
+mod plan;
 mod read;
 pub mod sources;
 mod telemetry;
@@ -22,8 +22,6 @@ use culprit_core::{
 };
 #[cfg(test)]
 use rusqlite::Connection;
-
-pub use plan::plan_from_rows;
 
 /// Static declarations from the same registrations used for bounded native file capture. No file is opened.
 pub fn telemetry_recipes() -> Vec<culprit_core::telemetry::RecipeDescriptor> {

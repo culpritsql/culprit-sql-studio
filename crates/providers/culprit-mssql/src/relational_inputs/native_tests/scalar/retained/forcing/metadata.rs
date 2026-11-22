@@ -12,7 +12,8 @@ pub(super) async fn read(
     executed: &RecordedRun,
     expected: Option<&NativePlanIdentity>,
 ) -> NativePlanIdentity {
-    let plan_hash = crate::plan_xml::original_plan_hash(&executed.plan).expect("original native selected plan hash");
+    let plan_hash = culprit_plans::mssql::test_support::original_plan_hash(&executed.plan)
+        .expect("original native selected plan hash");
     assert!(crate::cached_statements::valid_hash(&plan_hash));
     let query_hash = executed.context.query_hash.as_ref().unwrap();
     let sql = executed.plan.statement.as_ref().unwrap();

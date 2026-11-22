@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""The third-party notices Culprit ships with: the Rust crates in the CLI, the MCP server and the desktop app on the
-platforms Culprit is released for, and the packages in the desktop app's interface, each with its license text.
+"""The third-party notices Culprit ships with: Rust crates in the CLI, MCP server, desktop app and portable WebAssembly
+package on their supported targets, and the packages in the desktop app's interface, each with its license text.
 
 Writes target/licenses/THIRD-PARTY-LICENSES.txt. The release puts it in the desktop app, in each CLI archive and among
-the release's files (for the bare CLI binaries `culprit update` downloads). CI writes it on every push, so a dependency
+the release's files (for the bare CLI binaries `culprit update` downloads) and in the standalone browser package.
+CI writes it on every push, so a dependency
 whose license can't be read fails there rather than on release day.
 
 The licenses accepted are deny.toml's, so one file says what may ship: a crate or UI package under any other license
@@ -22,8 +23,9 @@ import tomllib
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 APP = os.path.join(ROOT, "app")
 OUT = os.path.join(ROOT, "target", "licenses")
-# The platforms the release builds for (.github/workflows/release.yml): a crate only another platform uses isn't shipped.
-TARGETS = ["aarch64-apple-darwin", "x86_64-apple-darwin", "x86_64-pc-windows-msvc", "x86_64-unknown-linux-gnu"]
+# Native release platforms and the standalone browser package: include target-specific dependencies in one notice.
+TARGETS = ["aarch64-apple-darwin", "x86_64-apple-darwin", "x86_64-pc-windows-msvc", "x86_64-unknown-linux-gnu",
+           "wasm32-unknown-unknown"]
 RULE = "-" * 100
 
 
@@ -175,10 +177,10 @@ def main():
     lines = [
         "Third-party software in Culprit",
         "",
-        "Culprit is MIT licensed (see LICENSE). The desktop app, the CLI and the MCP server include the open-source",
-        "software below, used under the licenses that follow.",
+        "Culprit is MIT licensed (see LICENSE). Its desktop app, CLI, MCP server and portable WebAssembly package include",
+        "the open-source software below, used under the licenses that follow.",
         "",
-        f"- {n_crates} Rust crates, used to build Culprit for macOS, Windows and Linux",
+        f"- {n_crates} Rust crates, used to build Culprit for macOS, Windows, Linux and WebAssembly browsers",
         f"- {n_packages} packages in the desktop app's interface",
         "",
         *section("Rust crates", rust),

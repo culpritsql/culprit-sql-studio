@@ -1,8 +1,8 @@
 //! The controlled originals reproduce the real 98/314/316 native byte offsets. They establish parser and
 //! content-proof behavior; only the separately owned native case establishes server compatibility.
 use super::*;
-use crate::plan_xml::{CachedInputContext, PlanInputOrigin};
 use culprit_core::plan_facts::{PlanParameterComparison, PlanParameterContext};
+use culprit_plans::mssql::{CachedInputContext, PlanInputOrigin};
 
 const PREFIX: &str = "CREATE PROCEDURE dbo.scalar_probe @bucket int AS ";
 const FRAGMENT: &str =
@@ -29,7 +29,7 @@ impl Original {
             full,
             fragment: fragment.into(),
             row,
-            source: crate::plan_xml::test_source(SnapshotDataset::RetainedPlans),
+            source: culprit_plans::mssql::test_support::test_source(SnapshotDataset::RetainedPlans),
         }
     }
     fn native_context(&self) -> CachedStatementContext {
@@ -41,7 +41,7 @@ impl Original {
         context: &CachedStatementContext,
         origin: PlanInputOrigin<'_>,
     ) -> Option<PlanParameterContext> {
-        crate::plan_xml::original_statement_evidence(
+        culprit_plans::mssql::original_statement_evidence(
             &xml(full, false),
             CachedInputContext { statement: context, module_parameters: None, text: Some(&self.fragment), origin },
         )
@@ -172,7 +172,7 @@ fn same_length_changed_statement_values_identifiers_hints_and_parameters_are_not
         assert_eq!(changed.encode_utf16().count(), original.full.encode_utf16().count());
         assert!(original.captured_evidence(&changed, &context).is_none(), "no normalized or hash-only binding");
     }
-    let empty = crate::plan_xml::original_statement_evidence(
+    let empty = culprit_plans::mssql::original_statement_evidence(
         &xml(&original.full, false),
         CachedInputContext {
             statement: &context,
@@ -222,7 +222,7 @@ fn full_batch_scalar_proof_survives_redaction_and_original_payload_restore_witho
     assert_eq!(proof.context.parameters[0].integer_values_equal, Some(false));
     assert!(proof.context.issues.contains(&Issue::UnsupportedUse));
     assert!(proof.context.uses.is_empty());
-    let native = crate::plan_xml::original_statement_evidence(
+    let native = culprit_plans::mssql::original_statement_evidence(
         &native_xml,
         CachedInputContext {
             statement: &definition.context,
@@ -234,7 +234,7 @@ fn full_batch_scalar_proof_survives_redaction_and_original_payload_restore_witho
     .unwrap()
     .parameter_context
     .unwrap();
-    let restored = crate::plan_xml::parse_retained_definition(&definition, &original.source).unwrap();
+    let restored = culprit_plans::mssql::parse_retained_definition(&definition, &original.source).unwrap();
     assert_eq!(restored.facts().parameter_context.as_ref(), Some(&native));
     assert!(restored.facts().parameter_context.as_ref().unwrap().issues.contains(&Issue::UnsupportedUse));
     let encoded = serde_json::to_string(&definition).unwrap();
@@ -246,7 +246,7 @@ fn full_batch_scalar_proof_survives_redaction_and_original_payload_restore_witho
     let mut changed = definition.clone();
     changed.context.identity.plan_generation = "9".into();
     assert!(!changed.parameter_context_proof.as_ref().unwrap().matches_retained(&original.source, &changed));
-    assert!(crate::plan_xml::parse_retained_definition(&changed, &original.source).is_err());
+    assert!(culprit_plans::mssql::parse_retained_definition(&changed, &original.source).is_err());
 }
 
 #[test]
@@ -258,7 +258,7 @@ fn duplicate_native_statement_or_query_plan_never_selects_a_parameter_representa
     let duplicate = format!(
         "<ShowPlanXML><BatchSequence><Batch><Statements>{statement}{statement}</Statements></Batch></BatchSequence></ShowPlanXML>"
     );
-    let evidence = crate::plan_xml::original_statement_evidence(
+    let evidence = culprit_plans::mssql::original_statement_evidence(
         &duplicate,
         CachedInputContext {
             statement: &context,
@@ -269,7 +269,7 @@ fn duplicate_native_statement_or_query_plan_never_selects_a_parameter_representa
     );
     assert!(evidence.is_none());
     let two = one.replace("</QueryPlan>", "</QueryPlan><QueryPlan/>");
-    let evidence = crate::plan_xml::original_statement_evidence(
+    let evidence = culprit_plans::mssql::original_statement_evidence(
         &two,
         CachedInputContext {
             statement: &context,

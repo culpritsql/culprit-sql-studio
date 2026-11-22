@@ -1,5 +1,5 @@
-//! Compiles every language catalog (`locales/<code>.json` at the repository root) into the library: a language is one
-//! file, picked up by the next build, and nothing is read from disk when Culprit runs.
+//! Compiles English and, with the default `locales` feature, every translation catalog into the library.
+//! A language is one file, picked up by the next build; nothing is read from disk when Culprit runs.
 
 use std::fmt::Write as _;
 use std::path::PathBuf;
@@ -10,6 +10,7 @@ mod language_code;
 fn main() {
     let manifest = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").expect("cargo sets CARGO_MANIFEST_DIR"));
     let dir = manifest.join("../../locales").canonicalize().expect("the locales directory");
+    let translations = std::env::var_os("CARGO_FEATURE_LOCALES").is_some();
     // A file added, removed or edited there rebuilds the catalogs.
     println!("cargo:rerun-if-changed={}", dir.display());
     let mut catalogs: Vec<(String, PathBuf)> = std::fs::read_dir(&dir)
@@ -17,7 +18,7 @@ fn main() {
         .filter_map(|entry| {
             let path = entry.ok()?.path();
             let code = path.file_name()?.to_str()?.strip_suffix(".json")?.to_string();
-            language_code::is_language_code(&code).then_some((code, path))
+            (language_code::is_language_code(&code) && (translations || code == "en")).then_some((code, path))
         })
         .collect();
     catalogs.sort();

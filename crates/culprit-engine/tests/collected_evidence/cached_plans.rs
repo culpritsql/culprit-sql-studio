@@ -1,5 +1,4 @@
 use super::fixture::Fixture;
-#[cfg(feature = "mssql")]
 use culprit_core::plan_facts::RelationalInputKind;
 use culprit_core::{
     CachedPlanIdentity, CachedPlanLimit, CachedPlanPayload, Engine, MeasurementScope, PlanKind, SourceState,
@@ -36,7 +35,6 @@ fn replace_fact(record: &mut TelemetryRecord, change: impl FnOnce(&mut ObjectDef
     *definition = ObjectDefinitionRecord::new(definition.source.clone(), fact).unwrap();
 }
 
-#[cfg(feature = "mssql")]
 fn payload(raw: &str) -> MssqlCachedPayload {
     MssqlCachedPayload {
         source_utf16_bytes: Some((raw.encode_utf16().count() * 2).to_string()),
@@ -45,7 +43,6 @@ fn payload(raw: &str) -> MssqlCachedPayload {
     }
 }
 
-#[cfg(feature = "mssql")]
 #[tokio::test]
 async fn archived_cached_plan_uses_original_module_kind_without_manufacturing_runtime_evidence() {
     let (source, records) = case(0);
@@ -106,9 +103,7 @@ async fn explicit_hydration_restores_large_native_plans_and_original_tvp_context
     assert_eq!(analysis.report.sources[0].state, SourceState::Collected);
     assert_eq!(records.len(), 2);
 
-    #[cfg(feature = "mssql")]
     let mut expected_cartesian = [false, true].into_iter();
-    #[cfg(feature = "mssql")]
     let mut expected_inputs = [RelationalInputKind::TableValuedParameter, RelationalInputKind::Unknown].into_iter();
     for record in records {
         let native_definition = definition(&record);
@@ -122,9 +117,8 @@ async fn explicit_hydration_restores_large_native_plans_and_original_tvp_context
         assert!(text.len() > 1024);
         assert!(native.module_parameters.is_some());
 
-        #[cfg(feature = "mssql")]
         {
-            let direct = culprit_mssql::plan_xml::parse_cached_definition(native, capture.source()).unwrap();
+            let direct = culprit_plans::mssql::parse_cached_definition(native, capture.source()).unwrap();
             let direct_insights = culprit_core::insights::insights(&direct);
             let plan = entry.plan.as_ref().unwrap();
             assert_eq!(plan.kind, PlanKind::Estimated);
@@ -167,11 +161,6 @@ async fn explicit_hydration_restores_large_native_plans_and_original_tvp_context
             assert!(entry.limitations.iter().any(|limit| limit.reason == CachedPlanLimit::MissingActualMeasurements));
             assert!(entry.limitations.iter().any(|limit| limit.reason == CachedPlanLimit::MissingCurrentPrerequisites));
         }
-        #[cfg(not(feature = "mssql"))]
-        {
-            assert!(entry.plan.is_none());
-            assert!(entry.limitations.iter().any(|limit| limit.reason == CachedPlanLimit::NativeParserUnavailable));
-        }
     }
     let report = serde_json::to_string(&analysis.report).unwrap();
     assert!(
@@ -180,7 +169,6 @@ async fn explicit_hydration_restores_large_native_plans_and_original_tvp_context
     assert!(!report.contains("9264"));
 }
 
-#[cfg(feature = "mssql")]
 #[tokio::test]
 async fn redacted_join_namespaces_cannot_be_reconstructed_from_an_authenticated_capture_target() {
     let (original_source, original_records) = object_definition_hydration_evidence();
@@ -253,7 +241,6 @@ async fn redacted_join_namespaces_cannot_be_reconstructed_from_an_authenticated_
     }
 }
 
-#[cfg(feature = "mssql")]
 #[tokio::test]
 async fn retained_native_input_proofs_restore_exact_archived_join_kinds_and_independent_warnings() {
     let mut originals = std::collections::BTreeSet::new();
@@ -319,7 +306,6 @@ async fn retained_native_input_proofs_restore_exact_archived_join_kinds_and_inde
     assert_eq!(chained_originals, 2, "both archived chain populations must reach the fresh native parser");
 }
 
-#[cfg(feature = "mssql")]
 fn assert_join_proof_explanation(plan: &culprit_core::Plan, entry: &culprit_core::CachedPlanEntry) {
     assert_eq!(plan.root.children[0].facts().table_alias.as_deref(), Some("r"));
     assert_eq!(
@@ -339,7 +325,6 @@ fn assert_join_proof_explanation(plan: &culprit_core::Plan, entry: &culprit_core
     assert!(!report.contains("private-cache-machine-canary") && !report.contains("private-cache-instance-canary"));
 }
 
-#[cfg(feature = "mssql")]
 #[tokio::test]
 async fn omitted_proof_stays_unknown_while_a_false_self_consistent_node_proof_is_an_integrity_error() {
     for (source, original) in object_definition_bound_join_evidence() {
@@ -392,7 +377,6 @@ async fn omitted_proof_stays_unknown_while_a_false_self_consistent_node_proof_is
     }
 }
 
-#[cfg(feature = "mssql")]
 #[tokio::test]
 async fn retained_actual_rows_never_borrow_the_cached_modules_kind_or_execution_population() {
     // Read the positive cached module first; a later retained capture must not consult it.
@@ -420,7 +404,6 @@ async fn retained_actual_rows_never_borrow_the_cached_modules_kind_or_execution_
     assert!(!serde_json::to_string(&result.report).unwrap().contains("9007199254740993"));
 }
 
-#[cfg(feature = "mssql")]
 #[tokio::test]
 async fn retained_input_completion_survives_authenticated_hydration_and_requires_its_own_native_proof() {
     for evidence in ["complete", "unfinished", "unknown-module", "unavailable-statement"] {
@@ -441,7 +424,7 @@ async fn retained_input_completion_survives_authenticated_hydration_and_requires
             }
         });
         let ObjectDefinitionFact::MssqlRetainedPlan(native) = &definition(&records[0]).fact else { panic!() };
-        let direct = culprit_mssql::plan_xml::parse_retained_definition(native, &source).unwrap();
+        let direct = culprit_plans::mssql::parse_retained_definition(native, &source).unwrap();
         let fixture = Fixture::new(source.clone(), records.clone()).await;
         let preview = fixture.read_families(&[EvidenceFamily::ObjectDefinitions]).await;
         assert!(!preview.is_read_complete());
@@ -505,7 +488,7 @@ async fn generic_definitions_preserve_unsupported_rows_and_native_counters_witho
             match &native.fact {
                 ObjectDefinitionFact::RetainedPlan(plan) => {
                     assert_eq!(entry.identity, Some(CachedPlanIdentity::Native(plan.definition.identity.clone())));
-                    if source.target.engine() == Engine::Postgres && cfg!(feature = "postgres") {
+                    if source.target.engine() == Engine::Postgres {
                         let derived = entry.plan.as_ref().unwrap();
                         assert_eq!(derived.kind, PlanKind::Estimated);
                         assert!(derived.raw.is_none() && derived.statement.is_none());
@@ -591,16 +574,13 @@ async fn authenticated_yugabyte_node_cache_uses_the_native_parser_and_keeps_inde
     let result = collected_resources::cached_plans(&capture).unwrap();
     let [entry] = result.report.entries.as_slice() else { panic!("one native node-cache definition") };
     assert_eq!(entry.identity, Some(CachedPlanIdentity::Native(expected.definition.identity.clone())));
-    if cfg!(feature = "yugabyte") {
+    {
         let plan = entry.plan.as_ref().unwrap();
         assert_eq!(plan.engine, Engine::Yugabyte);
         assert_eq!(plan.kind, PlanKind::Estimated);
         assert!(plan.facts().estimated_cost_unavailable);
         assert!(plan.nodes().iter().all(|node| node.facts().estimated_rows_unavailable));
         assert!(plan.root.act_rows.is_none() && plan.facts().elapsed_ms.is_none());
-    } else {
-        assert!(entry.plan.is_none());
-        assert!(entry.limitations.iter().any(|limit| limit.reason == CachedPlanLimit::NativeParserUnavailable));
     }
     let [record] = result.context.records.as_slice() else { panic!() };
     let ObjectDefinitionFact::RetainedPlan(raw) = &definition(&record.row.record).fact else { panic!() };
@@ -645,7 +625,6 @@ async fn native_payload_availability_coverage_and_exact_empty_reads_remain_disti
     }
 }
 
-#[cfg(feature = "mssql")]
 #[tokio::test]
 async fn malformed_mismatched_and_ambiguous_xml_remain_native_rows_with_typed_limitations() {
     let (source, rows) = case(0);
@@ -735,7 +714,6 @@ async fn wrong_dataset_subject_and_foreign_generic_definition_scope_are_rejected
     assert!(collected_resources::cached_plans(&capture).is_err());
 }
 
-#[cfg(feature = "mssql")]
 #[tokio::test]
 async fn missing_current_metadata_withholds_optimizer_requested_index_sql_without_erasing_advice() {
     let (source, mut rows) = case(0);
@@ -747,7 +725,7 @@ async fn missing_current_metadata_withholds_optimizer_requested_index_sql_withou
     });
     let ObjectDefinitionFact::MssqlCachedDefinition(native) = &definition(&rows[0]).fact else { panic!() };
     let key = definition(&rows[0]).key.clone();
-    let direct = culprit_mssql::plan_xml::parse_cached_definition(native, &source).unwrap();
+    let direct = culprit_plans::mssql::parse_cached_definition(native, &source).unwrap();
     assert!(culprit_core::insights::insights(&direct).iter().any(|insight| insight.fix_sql.is_some()));
     let fixture = Fixture::new(source, rows).await;
     let capture = fixture.read_families(&[EvidenceFamily::ObjectDefinitions]).await;
@@ -760,16 +738,18 @@ async fn missing_current_metadata_withholds_optimizer_requested_index_sql_withou
     assert!(entry.limitations.iter().any(|limit| limit.reason == CachedPlanLimit::MissingCurrentPrerequisites));
 }
 
-#[cfg(not(feature = "mssql"))]
 #[tokio::test]
-async fn a_build_without_the_native_parser_keeps_exact_rows_and_explicit_unavailability() {
+async fn retained_native_parsing_does_not_require_a_database_provider() {
     let (source, rows) = case(0);
     let key = definition(&rows[0]).key.clone();
     let fixture = Fixture::new(source, rows).await;
     let capture = fixture.read_families(&[EvidenceFamily::ObjectDefinitions]).await;
     let result = collected_resources::cached_plans(&capture).unwrap();
     let entry = result.report.entries.iter().find(|entry| entry.definition_key == key).unwrap();
-    assert!(entry.plan.is_none());
-    assert!(entry.limitations.iter().any(|limit| limit.reason == CachedPlanLimit::NativeParserUnavailable));
+    let plan = entry.plan.as_ref().expect("the authenticated original uses the always-available pure parser");
+    assert_eq!(plan.engine, Engine::Mssql);
+    assert_eq!(plan.kind, PlanKind::Estimated);
+    assert!(!plan.nodes().is_empty());
+    assert!(!entry.limitations.iter().any(|limit| limit.reason == CachedPlanLimit::UnusablePlan));
     assert_eq!(result.context.records.len(), 3);
 }

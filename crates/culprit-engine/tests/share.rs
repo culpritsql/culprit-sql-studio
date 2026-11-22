@@ -5,7 +5,8 @@ use std::collections::HashSet;
 
 use culprit_core::{ChangeKind, Engine, Plan, Report, ScenarioKind, VerifyStatus, compare_reports, plan_diff_named};
 use culprit_engine::export::{self, ExportFormat, ExportNote, ExportOptions};
-use culprit_engine::{export_diff, export_plan, plans};
+use culprit_engine::{export_diff, export_plan};
+use culprit_plans as plans;
 
 fn fixture(name: &str) -> String {
     std::fs::read_to_string(format!("{}/tests/plans/{name}", env!("CARGO_MANIFEST_DIR"))).unwrap()

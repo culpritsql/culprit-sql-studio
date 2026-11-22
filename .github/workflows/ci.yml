@@ -37,6 +37,7 @@ jobs:
           python3 -B -m unittest discover -s dev -p test_catalog.py
           python3 -B -m unittest discover -s dev -p test_smoke_providers.py
           python3 -B -m unittest discover -s dev -p test_mysql_replication_fixture.py
+          python3 -B -m unittest discover -s dev -p test_check_boundaries.py
           python3 -B -m unittest discover -s .github/scripts -p 'test_*.py'
           python3 dev/catalog.py stale --check
 
@@ -87,6 +88,72 @@ jobs:
           bun run typecheck
           bun run test
           bun run lint
+
+  wasm:
+    name: Standalone parsers (WASM and browser)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249 # stable
+        with:
+          toolchain: stable
+      - run: rustup target add wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        with:
+          key: standalone-wasm-english
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+      - name: Install the exact verified wasm-bindgen CLI
+        shell: bash
+        run: |
+          archive="$RUNNER_TEMP/wasm-bindgen-0.2.129-x86_64-unknown-linux-musl.tar.gz"
+          # Official immutable release and its published asset digest; no installer or unpinned action.
+          curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' --retry 3 \
+            https://github.com/wasm-bindgen/wasm-bindgen/releases/download/0.2.129/wasm-bindgen-0.2.129-x86_64-unknown-linux-musl.tar.gz \
+            --output "$archive"
+          printf '82d12bb940e2d4e72e0d5605387fc1b8ca179044e012b620f0ce4e7440e8320e  %s\n' "$archive" | sha256sum --check
+          tool="$RUNNER_TEMP/wasm-bindgen-0.2.129"
+          mkdir -p "$tool"
+          tar -xzf "$archive" --strip-components=1 -C "$tool"
+          test "$("$tool/wasm-bindgen" --version)" = 'wasm-bindgen 0.2.129'
+          echo "WASM_BINDGEN=$tool/wasm-bindgen" >> "$GITHUB_ENV"
+      - name: Pure normal/build graphs and selected English-only wrapper
+        run: python3 -B dev/check-boundaries.py --portable
+      - name: Configure the Ubuntu package mirror
+        run: sudo python3 .github/scripts/configure_ubuntu_mirror.py
+      - name: Existing frozen UI tools and Chromium
+        timeout-minutes: 15
+        working-directory: app
+        run: |
+          bun install --frozen-lockfile
+          bunx playwright install --with-deps --only-shell chromium
+      - name: Install the shared license tooling
+        # Reuse the same generator and pinned local tooling as native release notices.
+        # The generator needs the already-frozen app packages above.
+        uses: ./.github/actions/install-cargo-about
+      - name: Generate the shared native and WebAssembly third-party notices
+        run: python3 -B dev/licenses.py
+      - name: Build the standalone package with the final-crate stack policy
+        run: python3 -B dev/build-wasm.py --bindgen "$WASM_BINDGEN"
+      - name: Closed browser distribution and exact generated model digests
+        run: python3 -B dev/check-boundaries.py --wasm-artifacts
+      - name: Actual packaged browser parse, compare, deadlock, export and refusal controls
+        run: node dev/smoke-wasm.mjs > target/wasm-browser-smoke.json
+      - name: Keep measured artifacts and browser receipt
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: standalone-wasm-prerequisite
+          path: |
+            packages/culprit-wasm/pkg/
+            packages/culprit-wasm/package.json
+            packages/culprit-wasm/LICENSE
+            packages/culprit-wasm/README.md
+            target/wasm-browser-smoke.json
+          if-no-files-found: warn
+          retention-days: 7
 
   providers:
     name: Live provider (${{ matrix.fixture }})

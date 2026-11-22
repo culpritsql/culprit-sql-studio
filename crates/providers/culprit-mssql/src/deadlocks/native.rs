@@ -82,7 +82,7 @@ fn decode(row: &Rec) -> Result<Event> {
     let file = text(row, "file_name")?;
     let position =
         digest(&serde_json::to_vec(&("xml_deadlock_report", &file, offset, &at, &xml)).map_err(|_| invalid_data())?);
-    let mut graphs = super::parse_with_time(&xml, "system_health", Some(&at))?;
+    let mut graphs = culprit_plans::mssql::deadlocks::parse_with_time(&xml, "system_health", Some(&at))?;
     // Content/time/participants can repeat even within one native clock tick. Only this file decoder has
     // the original event position; imported XML retains its independent content identity.
     for (ordinal, graph) in graphs.iter_mut().enumerate() {
@@ -99,8 +99,9 @@ fn decode(row: &Rec) -> Result<Event> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::deadlocks::tests::{KEY_LOOKUP_XDL, event, file_row};
+    use crate::deadlocks::tests::file_row;
     use crate::{resources::test_support::FakeRead, value::Val};
+    use culprit_plans::mssql::test_support::deadlocks::{KEY_LOOKUP_XDL, event};
 
     #[test]
     fn native_file_occurrence_identity_preserves_full_clocks_and_original_positions() {
@@ -170,9 +171,12 @@ mod tests {
             assert_eq!(distinct.graphs, decode(row).unwrap().graphs, "an exact native row replays its original ID");
         }
         assert_eq!(first.graphs, decode(&original).unwrap().graphs);
-        let imported = super::super::parse_deadlock_xml(&xml, "pasted").unwrap();
-        assert_eq!(imported, super::super::parse_deadlock_xml(&xml, "pasted").unwrap());
-        assert_eq!(imported[0].id, super::super::parse_deadlock_xml(&xml, "system_health").unwrap()[0].id);
+        let imported = culprit_plans::mssql::deadlocks::parse_deadlock_xml(&xml, "pasted").unwrap();
+        assert_eq!(imported, culprit_plans::mssql::deadlocks::parse_deadlock_xml(&xml, "pasted").unwrap());
+        assert_eq!(
+            imported[0].id,
+            culprit_plans::mssql::deadlocks::parse_deadlock_xml(&xml, "system_health").unwrap()[0].id
+        );
         assert_ne!(first.graphs[0].id, imported[0].id, "a source label cannot supply native position authority");
         assert_eq!(first.graphs[0].processes, imported[0].processes);
     }
@@ -193,7 +197,7 @@ mod tests {
         let mut second = found.graphs[1].clone();
         second.id = found.graphs[0].id.clone();
         assert_eq!(found.graphs[0], second, "only the native occurrence ordinal separates identical graphs");
-        let imported = super::super::parse_deadlock_xml(&xml, "pasted").unwrap();
+        let imported = culprit_plans::mssql::deadlocks::parse_deadlock_xml(&xml, "pasted").unwrap();
         assert_eq!(imported[0].id, imported[1].id, "imports keep their original content-ID contract");
     }
 

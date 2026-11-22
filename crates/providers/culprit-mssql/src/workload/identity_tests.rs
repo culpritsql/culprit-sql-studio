@@ -165,7 +165,7 @@ fn cache_aggregates_cannot_acquire_a_query_store_identity_from_a_shape_or_repres
             ..Default::default()
         }],
     };
-    let stat = to_query_stat(&query, None, Some(crate::plan_xml::parse(PLAN).unwrap()), Vec::new());
+    let stat = to_query_stat(&query, None, Some(culprit_plans::mssql::parse(PLAN).unwrap()), Vec::new());
     assert!(stat.native_identity.is_none());
     assert!(stat.native_plan_identity.is_none());
     assert!(stat.plans[0].native_identity.is_none());

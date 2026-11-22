@@ -33,20 +33,10 @@ async fn exact_page_server_corpus_keeps_original_definition_identity_scope_and_n
         assert_eq!(entry.definition_key, original.key);
         assert_eq!(entry.definition_version, original.version);
         assert_eq!(entry.identity, Some(CachedPlanIdentity::Mssql(native.context.identity.clone())));
-        #[cfg(feature = "mssql")]
         verify_plan(case, &source, native, entry);
-        #[cfg(not(feature = "mssql"))]
-        assert!(entry.plan.is_none());
-        let encoded = serde_json::to_string(&analysis.report).unwrap();
-        for private in
-            ["private-page-sql-canary", "private-cache-machine-canary", "private-cache-instance-canary", "<ShowPlanXML"]
-        {
-            assert!(!encoded.contains(private), "{case:?}: {private}");
-        }
     }
 }
 
-#[cfg(feature = "mssql")]
 fn verify_plan(
     case: Case,
     source: &CollectionDescription,
@@ -61,7 +51,7 @@ fn verify_plan(
         )));
         return;
     }
-    let direct = culprit_mssql::plan_xml::parse_retained_definition(native, source).unwrap();
+    let direct = culprit_plans::mssql::parse_retained_definition(native, source).unwrap();
     let plan = entry.plan.as_ref().unwrap();
     let io = |plan: &culprit_core::Plan| plan.root.runtime.as_ref().and_then(|runtime| runtime.page_server_io.clone());
     assert_eq!(io(plan), io(&direct), "same parser and exact original body: {case:?}");

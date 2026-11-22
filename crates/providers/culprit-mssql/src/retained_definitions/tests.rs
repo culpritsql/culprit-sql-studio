@@ -16,7 +16,7 @@ pub(crate) fn feature(visible: i64, present: i64) -> Rec {
 
 #[test]
 fn oversized_optional_native_binding_rosters_keep_retained_sql_plan_and_statement_counters() {
-    let source = crate::plan_xml::test_source(SnapshotDataset::RetainedPlans);
+    let source = culprit_plans::mssql::test_support::test_source(SnapshotDataset::RetainedPlans);
     let layout = Layout {
         maximum_bytes: 128 * 1024,
         maximum_statement_bytes: retained::MAX_STATEMENT_BYTES,
@@ -113,9 +113,9 @@ fn same_read_original_module_and_selected_statement_reach_actual_tvp_analysis_wi
     let definition = decode(&tvp_row(), &layout, None).unwrap();
     assert!(definition.statement.payload.is_available());
     assert!(definition.module_parameters.is_some());
-    let plan = crate::plan_xml::parse_retained_definition(
+    let plan = culprit_plans::mssql::parse_retained_definition(
         &definition,
-        &crate::plan_xml::test_source(culprit_core::telemetry::SnapshotDataset::RetainedPlans),
+        &culprit_plans::mssql::test_support::test_source(culprit_core::telemetry::SnapshotDataset::RetainedPlans),
     )
     .unwrap();
     assert_eq!(
@@ -146,16 +146,20 @@ fn same_read_original_module_and_selected_statement_reach_actual_tvp_analysis_wi
         }
         if field == "scope" {
             assert!(
-                crate::plan_xml::parse_retained_definition(
+                culprit_plans::mssql::parse_retained_definition(
                     &missing,
-                    &crate::plan_xml::test_source(culprit_core::telemetry::SnapshotDataset::RetainedPlans)
+                    &culprit_plans::mssql::test_support::test_source(
+                        culprit_core::telemetry::SnapshotDataset::RetainedPlans
+                    )
                 )
                 .is_err()
             );
         } else {
-            let unknown = crate::plan_xml::parse_retained_definition(
+            let unknown = culprit_plans::mssql::parse_retained_definition(
                 &missing,
-                &crate::plan_xml::test_source(culprit_core::telemetry::SnapshotDataset::RetainedPlans),
+                &culprit_plans::mssql::test_support::test_source(
+                    culprit_core::telemetry::SnapshotDataset::RetainedPlans,
+                ),
             )
             .unwrap();
             assert_eq!(
@@ -184,9 +188,9 @@ async fn statement_retention_intersects_the_existing_budget_and_never_adds_a_nat
         DefinitionPayload::Unavailable { reason: PayloadUnavailable::Oversized }
     ));
     assert!(record.batch_plan.payload.is_available());
-    let plan = crate::plan_xml::parse_retained_definition(
+    let plan = culprit_plans::mssql::parse_retained_definition(
         &record,
-        &crate::plan_xml::test_source(culprit_core::telemetry::SnapshotDataset::RetainedPlans),
+        &culprit_plans::mssql::test_support::test_source(culprit_core::telemetry::SnapshotDataset::RetainedPlans),
     )
     .unwrap();
     assert_eq!(

@@ -16,8 +16,8 @@ pub(super) fn assert_own_metadata(definition: &MssqlRetainedPlanDefinition, plan
     culprit_core::xml::read(xml, |document| {
         let document = document.unwrap();
         let statement =
-            crate::plan_xml::select_native_statement(&document, definition.context.query_hash.as_deref()).unwrap();
-        let query_plan = crate::plan_xml::query_plan_of(statement).unwrap();
+            culprit_plans::mssql::select_native_statement(&document, definition.context.query_hash.as_deref()).unwrap();
+        let query_plan = culprit_plans::mssql::query_plan_of(statement).unwrap();
         let lists = query_plan
             .children()
             .filter(|node| node.is_element() && node.tag_name().name() == "ParameterList")
@@ -96,7 +96,7 @@ mod tests {
             ],
         );
         assert_eq!(text(&row, "text_prefix").unwrap(), sql);
-        let source = crate::plan_xml::test_source(SnapshotDataset::RetainedPlans);
+        let source = culprit_plans::mssql::test_support::test_source(SnapshotDataset::RetainedPlans);
         let limits = crate::retained_definitions::Layout {
             maximum_bytes: 128 * 1024,
             maximum_statement_bytes: crate::actual::retained::MAX_STATEMENT_BYTES,
@@ -109,20 +109,20 @@ mod tests {
     #[test]
     fn absent_retained_runtime_stays_unavailable_through_canonical_payload_and_safe_proof_restore() {
         let (source, definition) = original(NativeValues::CompiledOnly);
-        let plan = crate::plan_xml::parse_retained_definition(&definition, &source).unwrap();
+        let plan = culprit_plans::mssql::parse_retained_definition(&definition, &source).unwrap();
         assert_own_metadata(&definition, &plan);
         let parameter = &plan.facts().parameter_context.as_ref().unwrap().parameters[0];
         assert_eq!(parameter.compiled, PlanParameterValueState::Recorded);
         assert_eq!(parameter.runtime, PlanParameterValueState::NotRecorded);
         assert_eq!(parameter.comparison, PlanParameterComparison::Unavailable);
         assert_eq!(parameter.integer_values_equal, None);
-        let again = crate::plan_xml::parse_retained_definition(&definition, &source).unwrap();
+        let again = culprit_plans::mssql::parse_retained_definition(&definition, &source).unwrap();
         assert_eq!(plan.facts().parameter_context, again.facts().parameter_context);
     }
     #[test]
     fn retained_runtime_present_preserves_its_own_comparison_without_an_executed_companion() {
         let (source, definition) = original(NativeValues::Both);
-        let plan = crate::plan_xml::parse_retained_definition(&definition, &source).unwrap();
+        let plan = culprit_plans::mssql::parse_retained_definition(&definition, &source).unwrap();
         assert_own_metadata(&definition, &plan);
         let parameter = &plan.facts().parameter_context.as_ref().unwrap().parameters[0];
         assert_eq!(parameter.runtime, PlanParameterValueState::Recorded);
@@ -139,7 +139,7 @@ mod tests {
         definition.parameter_context_proof =
             Some(MssqlParameterContextProof::for_retained(&source, &definition, context).unwrap());
         assert!(definition.is_valid(), "a content digest alone is not native attribute evidence");
-        let error = crate::plan_xml::parse_retained_definition(&definition, &source).unwrap_err();
+        let error = culprit_plans::mssql::parse_retained_definition(&definition, &source).unwrap_err();
         assert_eq!(error.detail, Some(culprit_core::ErrorDetail::Delivery(DeliveryProblem::Integrity)));
     }
 
@@ -154,7 +154,7 @@ mod tests {
         definition.parameter_context_proof =
             Some(MssqlParameterContextProof::for_retained(&source, &definition, context).unwrap());
         assert!(definition.is_valid());
-        let error = crate::plan_xml::parse_retained_definition(&definition, &source).unwrap_err();
+        let error = culprit_plans::mssql::parse_retained_definition(&definition, &source).unwrap_err();
         assert_eq!(error.detail, Some(culprit_core::ErrorDetail::Delivery(DeliveryProblem::Integrity)));
     }
 
@@ -173,7 +173,7 @@ mod tests {
             definition.parameter_context_proof =
                 Some(MssqlParameterContextProof::for_retained(&source, &definition, context).unwrap());
             assert!(definition.is_valid());
-            let error = crate::plan_xml::parse_retained_definition(&definition, &source).unwrap_err();
+            let error = culprit_plans::mssql::parse_retained_definition(&definition, &source).unwrap_err();
             assert_eq!(error.detail, Some(culprit_core::ErrorDetail::Delivery(DeliveryProblem::Integrity)));
         }
     }

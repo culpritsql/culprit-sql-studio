@@ -987,7 +987,7 @@ async fn retained_input_binding_uses_the_original_stream_descriptor_and_still_re
                 proof.matches_cached(&completed, definition),
                 "final clocks and row counts do not replace the original native scope"
             );
-            let plan = crate::plan_xml::parse_cached_definition(definition, &completed).unwrap();
+            let plan = culprit_plans::mssql::parse_cached_definition(definition, &completed).unwrap();
             assert_eq!(
                 plan.root.children[0].facts().relational_input.unwrap().qualified_kind(),
                 culprit_core::plan_facts::RelationalInputKind::TableValuedParameter
@@ -1180,7 +1180,7 @@ async fn unqualified_retained_plan_tokens_keep_raw_counters_with_partial_scope_a
             .native
             .calls
             .iter()
-            .any(|call| call.sql.contains("sys.dm_exec_plan_attributes(selected.plan_handle)"))
+            .any(|call| { call.sql.contains("sys.dm_exec_plan_attributes(selected.plan_handle)") })
     );
     assert_eq!(source.close().await, SourceShutdown::Quiescent);
 }

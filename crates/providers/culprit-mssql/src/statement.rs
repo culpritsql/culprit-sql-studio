@@ -5,9 +5,9 @@ use futures_util::TryStreamExt;
 use tiberius::QueryItem;
 
 use crate::conn::{MsClient, execute, map_error};
-use crate::plan_xml;
 use crate::statement_origin::OWN_QUERY_MARKER;
 use crate::value::to_json;
+use culprit_plans::mssql;
 
 /// Column name SQL Server gives the XML plan returned by SET SHOWPLAN_XML / SET STATISTICS XML.
 const SHOWPLAN_COLUMN_MARKER: &str = "Showplan";
@@ -62,7 +62,7 @@ pub(crate) async fn statement_types(client: &mut MsClient, sql: &str) -> Result<
     reset.map_err(map_error)?;
     let mut types = Vec::new();
     for xml in &documents {
-        types.extend(plan_xml::statement_types(xml)?);
+        types.extend(mssql::statement_types(xml)?);
     }
     Ok(types)
 }
@@ -128,7 +128,7 @@ async fn collect_plans(client: &mut MsClient, sql: &str) -> Result<Vec<String>> 
 pub(crate) fn best_plan(documents: &[String]) -> Result<Plan> {
     documents
         .iter()
-        .filter_map(|xml| plan_xml::parse(xml).ok())
+        .filter_map(|xml| mssql::parse(xml).ok())
         .max_by(|a, b| a.total_cost.total_cmp(&b.total_cost))
         .ok_or_else(|| {
             Error::new(ErrorCode::Unsupported, t!("provider.mssql.statement.no_plan"))

@@ -1,16 +1,18 @@
 //! Reading XML: showplans, deadlock graphs, an IDE's data sources. roxmltree reads nested elements by recursion, and
 //! so do the walks over what it returns, so a document nested deep enough exhausts the stack of whichever thread reads
 //! it (an unoptimized build overflows 2 MiB at under 200 levels; a pasted file can nest thousands). Every reader goes
-//! through [`read`], which refuses a document nested deeper than [`MAX_DEPTH`] before parsing it, and parses and walks
-//! the rest on a thread whose stack fits that depth, whatever thread asked.
+//! through [`read`], which refuses a document nested deeper than [`MAX_DEPTH`] before parsing it. Native builds
+//! parse and walk on a thread sized for that depth. WebAssembly runs the same bounded operation synchronously; its
+//! package supplies the matching stack budget without requiring operating-system threads.
 
 /// The deepest element nesting read. A showplan's long predicates nest a few hundred levels at most.
 pub const MAX_DEPTH: usize = 1024;
 
 /// A stack that fits [`MAX_DEPTH`] levels of parsing and walking in an unoptimized build, with room to spare.
+#[cfg(not(target_arch = "wasm32"))]
 const STACK: usize = 32 * 1024 * 1024;
 
-/// Parse `text` (no DTD) and hand the outcome to `walk`, on a thread sized for it. A document nested deeper than
+/// Parse `text` (no DTD) and hand the outcome to `walk`. Native builds use a thread sized for it. A document deeper than
 /// [`MAX_DEPTH`] reaches `walk` as an error, found by a scan that doesn't recurse.
 pub fn read<T: Send>(text: &str, walk: impl FnOnce(Result<roxmltree::Document<'_>, String>) -> T + Send) -> T {
     let parse_and_walk = || {
@@ -22,6 +24,11 @@ pub fn read<T: Send>(text: &str, walk: impl FnOnce(Result<roxmltree::Document<'_
         };
         walk(doc)
     };
+    #[cfg(target_arch = "wasm32")]
+    {
+        parse_and_walk()
+    }
+    #[cfg(not(target_arch = "wasm32"))]
     std::thread::scope(|scope| {
         // Starting a thread fails only when the system is out of threads or memory.
         let worker = std::thread::Builder::new()

@@ -35,6 +35,7 @@ culprit-blob-s3 = { path = "crates/recovery/culprit-blob-s3", default-features =
 culprit-store-clickhouse = { path = "crates/telemetry/culprit-store-clickhouse", default-features = false }
 zeroize = "1.9.1"
 culprit-core = { path = "crates/culprit-core" }
+culprit-plans = { path = "crates/culprit-plans" }
 culprit-read = { path = "crates/culprit-read" }
 culprit-collector = { path = "crates/culprit-collector" }
 culprit-evidence = { path = "crates/culprit-evidence" }

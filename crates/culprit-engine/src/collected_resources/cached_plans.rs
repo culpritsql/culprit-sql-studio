@@ -78,7 +78,7 @@ pub(crate) fn explain_cached_plan_original(
             entry.identity = Some(CachedPlanIdentity::Mssql(native.context.identity.clone()));
             payload_available(&native.statement.payload, CachedPlanPayload::Statement, &mut entry);
             if payload_available(&native.estimated_plan.payload, CachedPlanPayload::EstimatedPlan, &mut entry) {
-                attach_mssql(&mut entry, || parse_cached(native, source))?;
+                attach_mssql(&mut entry, || culprit_plans::mssql::parse_cached_definition(native, source))?;
             }
         }
         (ObjectDefinitionFact::MssqlRetainedPlan(native), SnapshotDataset::RetainedPlans) => {
@@ -86,7 +86,7 @@ pub(crate) fn explain_cached_plan_original(
             entry.identity = Some(CachedPlanIdentity::Mssql(native.context.identity.clone()));
             payload_available(&native.statement.payload, CachedPlanPayload::Statement, &mut entry);
             if payload_available(&native.batch_plan.payload, CachedPlanPayload::RetainedPlan, &mut entry) {
-                attach_mssql(&mut entry, || parse_retained(native, source))?;
+                attach_mssql(&mut entry, || culprit_plans::mssql::parse_retained_definition(native, source))?;
             }
         }
         (
@@ -109,7 +109,7 @@ pub(crate) fn explain_cached_plan_original(
         // A captured definition has no current schema, indexes or settings. Keep explanatory advice, without
         // making an old optimizer request into an executable change against an unobserved current database.
         crate::archived_advice::withhold_plan_sql(plan);
-        culprit_checks::present_plan(plan, None);
+        culprit_plans::view::present_plan(plan, None);
         plan.raw = None;
         plan.statement = None;
         if plan.kind != PlanKind::Actual {
@@ -141,61 +141,29 @@ fn payload_available(payload: &DefinitionPayload, field: CachedPlanPayload, entr
 }
 
 fn attach_mssql(entry: &mut CachedPlanEntry, parse: impl FnOnce() -> Result<Plan>) -> Result<()> {
-    if !crate::plans::PlanFormat::ShowplanXml.is_available() {
-        add_limit(entry, CachedPlanLimit::NativeParserUnavailable);
-    } else {
-        match parse() {
-            Ok(plan) => entry.plan = Some(plan),
-            Err(error) if error.detail == Some(culprit_core::ErrorDetail::Delivery(DeliveryProblem::Integrity)) => {
-                return Err(error);
-            }
-            Err(_) => add_limit(entry, CachedPlanLimit::UnusablePlan),
+    match parse() {
+        Ok(plan) => entry.plan = Some(plan),
+        Err(error) if error.detail == Some(culprit_core::ErrorDetail::Delivery(DeliveryProblem::Integrity)) => {
+            return Err(error);
         }
+        Err(_) => add_limit(entry, CachedPlanLimit::UnusablePlan),
     }
     Ok(())
 }
 
-fn parse_cached(native: &MssqlCachedDefinition, source: &CollectionDescription) -> Result<Plan> {
-    #[cfg(feature = "mssql")]
-    {
-        culprit_mssql::plan_xml::parse_cached_definition(native, source)
-    }
-    #[cfg(not(feature = "mssql"))]
-    {
-        let _ = (native, source);
-        Err(DeliveryProblem::UnsupportedSchema.error())
-    }
-}
-
-fn parse_retained(native: &MssqlRetainedPlanDefinition, source: &CollectionDescription) -> Result<Plan> {
-    #[cfg(feature = "mssql")]
-    {
-        culprit_mssql::plan_xml::parse_retained_definition(native, source)
-    }
-    #[cfg(not(feature = "mssql"))]
-    {
-        let _ = (native, source);
-        Err(DeliveryProblem::UnsupportedSchema.error())
-    }
-}
-
 fn attach_native(entry: &mut CachedPlanEntry, native: &NativeRetainedPlan, engine: Engine) {
     let DefinitionPayload::Available { text, .. } = &native.definition.plan else { return };
-    let Some(format) = crate::plans::detect_native(text, engine) else {
+    let Some(format) = culprit_plans::detect_native(text, engine) else {
         add_limit(entry, CachedPlanLimit::UnusablePlan);
         return;
     };
-    if !format.is_available() {
-        add_limit(entry, CachedPlanLimit::NativeParserUnavailable);
-        return;
-    }
     // A generic batch XML has no SQL Server statement-offset context. Its heaviest statement cannot stand in for
     // this native definition; the source-owned SQL Server definition above supplies strict selection instead.
-    if format == crate::plans::PlanFormat::ShowplanXml {
+    if format == culprit_plans::PlanFormat::ShowplanXml {
         add_limit(entry, CachedPlanLimit::UnusablePlan);
         return;
     }
-    match crate::plans::parse_native_plan(text, engine) {
+    match culprit_plans::parse_native_plan(text, engine) {
         Ok(plan) => entry.plan = Some(plan),
         _ => add_limit(entry, CachedPlanLimit::UnusablePlan),
     }
@@ -213,7 +181,6 @@ fn add_limit(entry: &mut CachedPlanEntry, reason: CachedPlanLimit) {
     }
     let explanation = match reason {
         CachedPlanLimit::UnsupportedDefinition => culprit_core::t!("engine.cached_plans.limit.unsupported"),
-        CachedPlanLimit::NativeParserUnavailable => culprit_core::t!("engine.cached_plans.limit.parser"),
         CachedPlanLimit::PayloadUnavailable { payload, reason } => {
             let payload = match payload {
                 CachedPlanPayload::Statement => culprit_core::t!("engine.cached_plans.payload.statement"),

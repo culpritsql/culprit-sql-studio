@@ -9,7 +9,8 @@ use culprit_core::{AuthKind, Environment, Error, ExplainMode, SessionAction};
 use culprit_engine::export::{ExportFormat, ExportOptions};
 use culprit_engine::import::{self, ImportSource};
 use culprit_engine::saved::SaveQuery;
-use culprit_engine::{NewConnection, Workspace, plans};
+use culprit_engine::{NewConnection, Workspace};
+use culprit_plans as plans;
 
 use crate::export_words::pin;
 

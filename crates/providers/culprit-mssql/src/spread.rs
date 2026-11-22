@@ -1,10 +1,10 @@
 //! Parameter compilation context and native variant relationships retain their original query/plan lifetimes.
+use culprit_plans::mssql;
 use std::collections::HashMap;
 
 use culprit_core::{Coverage, QueryStat, Result, telemetry::NativePlanIdentity};
 
 use crate::{
-    plan_xml,
     query_store::{Reader, definitions::Definition},
     read::NativeRead,
 };
@@ -69,7 +69,7 @@ async fn attach_other_parameters<R: NativeRead>(
     let compiled = definitions
         .into_iter()
         .filter_map(|definition| {
-            let plan = plan_xml::parse(definition.payload.text()?).ok()?;
+            let plan = mssql::parse(definition.payload.text()?).ok()?;
             Some((definition.id, plan.facts().compiled_parameters.clone()?))
         })
         .collect::<HashMap<_, _>>();

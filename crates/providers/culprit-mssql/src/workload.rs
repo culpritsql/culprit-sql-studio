@@ -2,10 +2,10 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 
 use culprit_core::{Coverage, PlanVariant, QueryStat, SnapshotOptions, StatementTemporaryWork, WaitStat, Workload};
 
-use crate::plan_xml;
 use crate::query_store::waits;
 use crate::read::NativeRead;
 use culprit_core::telemetry::{NativePlanIdentity, NativeQueryIdentity, WaitCaptureState};
+use culprit_plans::mssql;
 
 #[cfg(test)]
 #[path = "workload/identity_tests.rs"]
@@ -160,7 +160,9 @@ impl QueryAgg {
     /// heaviest of them leads, as before. Without run times, the heaviest.
     fn current_plan(&self) -> Option<&PlanAgg> {
         let replaced = |p: &PlanAgg| {
-            let Some(last) = p.last_seen.as_deref() else { return false };
+            let Some(last) = p.last_seen.as_deref() else {
+                return false;
+            };
             self.plans
                 .iter()
                 .any(|q| q.plan_id != p.plan_id && q.first_seen.as_deref().is_some_and(|first| first > last))
@@ -389,12 +391,12 @@ pub(crate) async fn read_query_store<R: crate::read::NativeRead>(
         .filter(|query| texts.get(&query.query_id).is_none_or(|definition| !definition.origin.is_culprit()))
         .map(|q| {
             let current = q.current_plan();
-            let plan = current.and_then(|p| plans_xml.get(&p.plan_id)).and_then(|xml| match plan_xml::parse(xml) {
+            let plan = current.and_then(|p| plans_xml.get(&p.plan_id)).and_then(|xml| match mssql::parse(xml) {
                 Ok(plan) => {
                     plans_parsed += 1;
                     Some(plan)
                 }
-                Err(_) if plan_xml::is_empty(xml) => None,
+                Err(_) if mssql::is_empty(xml) => None,
                 Err(_) => {
                     plan_errors += 1;
                     None
@@ -780,13 +782,13 @@ pub(crate) async fn from_plan_cache(
             let detail = details.get(&q.query_id);
             let plan = if rank < options.plans as usize {
                 detail.and_then(|d| d.plan.text().map(|xml| (d, xml))).and_then(|(detail, xml)| {
-                    match plan_xml::parse_cached_statement(
+                    match mssql::parse_cached_statement(
                         xml,
-                        plan_xml::CachedInputContext {
+                        mssql::CachedInputContext {
                             statement: &detail.context,
                             module_parameters: detail.module_parameters.as_ref(),
                             text: detail.statement.text(),
-                            origin: plan_xml::PlanInputOrigin::OriginalNative { read: None },
+                            origin: mssql::PlanInputOrigin::OriginalNative { read: None },
                         },
                     ) {
                         Ok(mut p) => {
@@ -794,7 +796,7 @@ pub(crate) async fn from_plan_cache(
                             plans_parsed += 1;
                             Some(p)
                         }
-                        Err(_) if plan_xml::is_empty(xml) => None,
+                        Err(_) if mssql::is_empty(xml) => None,
                         Err(_) => {
                             plan_errors += 1;
                             None

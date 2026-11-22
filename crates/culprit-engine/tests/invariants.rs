@@ -224,7 +224,7 @@ fn a_plan_note_never_uses_pages_alone_as_proof_of_a_row_misestimate() {
                 culprit_core::insights::cheap_plan_runs(plan, Some(q)),
                 culprit_core::insights::CheapPlanRuns::MoreReads { .. }
             ) {
-                let note = culprit_checks::plan_shares_note(plan, Some(q)).unwrap();
+                let note = culprit_plans::export::shares_note(plan, Some(q)).unwrap();
                 assert!(!note.contains("costs rest on an estimate of"), "{name} {}: {note}", q.id);
             }
         }
@@ -1345,7 +1345,7 @@ fn plan_rule_holds(name: &str, report: &Report) -> usize {
             assert!(!says || may, "{name} {}: insight {} states a share it can't: {}", q.id, i.rule, i.detail);
             assert!(culprit_core::insights::stated_share(plan, i).is_none() || may, "{name} {} {}", q.id, i.rule);
         }
-        if let Some(note) = culprit_checks::plan_shares_note(plan, Some(q))
+        if let Some(note) = culprit_plans::export::shares_note(plan, Some(q))
             && note.contains("is cheap")
         {
             assert!(!plan.has_guess() && cheap_as_measured(plan, q), "{name} {}: {note}", q.id);
@@ -1418,8 +1418,10 @@ fn a_whole_table_read_is_said_only_where_it_can_matter() {
                 trivial += plan.nodes().iter().any(|n| n.reads_table_whole()) as usize;
             }
             let mut said: Vec<String> =
-                [Some(q), None].into_iter().filter_map(|with| culprit_checks::plan_shares_note(plan, with)).collect();
-            said.extend(plan.nodes().into_iter().filter_map(|n| culprit_checks::no_share_reason(plan, n, Some(q))));
+                [Some(q), None].into_iter().filter_map(|with| culprit_plans::export::shares_note(plan, with)).collect();
+            said.extend(
+                plan.nodes().into_iter().filter_map(|n| culprit_plans::export::no_share_reason(plan, n, Some(q))),
+            );
             said.push(culprit_engine::export::plan_markdown(plan, "plan", &Default::default()));
             for text in said.iter().filter(|t| t.contains(" on every run") && t.contains(" reads all ")) {
                 notes += 1;

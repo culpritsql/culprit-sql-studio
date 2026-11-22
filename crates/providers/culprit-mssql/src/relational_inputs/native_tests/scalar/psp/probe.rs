@@ -110,13 +110,13 @@ impl<'a> Probe<'a> {
                 };
                 let selected = identity::bind(&captured.plans, &current, original, routing);
                 let definition = &current[selected.definition];
-                let plan = crate::plan_xml::parse_cached_statement(
+                let plan = culprit_plans::mssql::parse_cached_statement(
                     &captured.plans[selected.xml],
-                    crate::plan_xml::CachedInputContext {
+                    culprit_plans::mssql::CachedInputContext {
                         statement: &definition.fact.context,
                         module_parameters: definition.fact.module_parameters.as_ref(),
                         text: Some(&definition.original_statement),
-                        origin: crate::plan_xml::PlanInputOrigin::OriginalNative { read: None },
+                        origin: culprit_plans::mssql::PlanInputOrigin::OriginalNative { read: None },
                     },
                 )
                 .unwrap();

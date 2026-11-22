@@ -44,7 +44,7 @@ pub(super) fn present(mut progress: QueryProgress) -> Result<QueryProgress> {
         progress.nodes.clear();
     }
     if let Some(plan) = &mut progress.plan {
-        culprit_checks::present_progress_plan(plan);
+        culprit_plans::view::present_progress_plan(plan);
     }
     Ok(progress)
 }

@@ -14,9 +14,9 @@ pub(crate) use progress::query_progress;
 mod native_tests;
 pub(crate) mod retained;
 use crate::conn::{Pool, permission_hint};
-use crate::plan_xml;
 use crate::read::NativeRead;
 use crate::value::Rec;
+use culprit_plans::mssql;
 pub(crate) use layout::{Availability, Layout};
 use std::sync::Arc;
 
@@ -125,13 +125,13 @@ fn plan_from_retained(read: retained::Read, context: &culprit_core::telemetry::N
         ) => return Err(no_matching_plan()),
         crate::query_store::payload::Payload::Unavailable(_) => return Err(not_kept()),
     };
-    let mut plan = plan_xml::parse_cached_statement(
+    let mut plan = mssql::parse_cached_statement(
         &xml,
-        plan_xml::CachedInputContext {
+        mssql::CachedInputContext {
             statement: &row.context,
             module_parameters: row.module_parameters.as_ref(),
             text: row.statement.text(),
-            origin: plan_xml::PlanInputOrigin::OriginalNative { read: Some(context) },
+            origin: mssql::PlanInputOrigin::OriginalNative { read: Some(context) },
         },
     )?;
     if plan.kind != PlanKind::Actual {
@@ -145,24 +145,8 @@ fn plan_from_retained(read: retained::Read, context: &culprit_core::telemetry::N
     }
     plan.facts_mut().current_type_schema = row.current_type_schema.map(Box::new);
     plan.raw = None;
-    clear_unrecorded_times(&mut plan);
+    mssql::clear_unrecorded_times(&mut plan);
     Ok(plan)
-}
-
-// Lightweight profiling keeps row counts for past runs, not time. Withdraw its placeholder zeros in both models.
-pub(crate) fn clear_unrecorded_times(plan: &mut Plan) {
-    let facts = plan.facts_mut();
-    if facts.elapsed_ms == Some(0.0) {
-        facts.elapsed_ms = None;
-    }
-    if facts.cpu_ms == Some(0.0) {
-        facts.cpu_ms = None;
-    }
-    for key in ["ElapsedMs", "CpuMs"] {
-        if plan.props.get(key).is_some_and(|v| v == "0") {
-            plan.props.remove(key);
-        }
-    }
 }
 
 /// Why a running statement shows no per-operator progress.
@@ -309,7 +293,7 @@ mod tests {
         assert!(row.last_start_without_offset.is_some());
         let plan = plan_from_retained(
             retained::Read { setting_on: Some(false), plan: Some(row) },
-            &crate::plan_xml::test_read_context("app"),
+            &culprit_plans::mssql::test_support::test_read_context("app"),
         )
         .unwrap();
         assert_eq!(plan.kind, PlanKind::Actual);
@@ -328,7 +312,7 @@ mod tests {
         );
         let error = plan_from_retained(
             retained::Read { setting_on: Some(true), plan: Some(row) },
-            &crate::plan_xml::test_read_context("app"),
+            &culprit_plans::mssql::test_support::test_read_context("app"),
         )
         .unwrap_err();
         assert_eq!(error.code, ErrorCode::NotFound);
@@ -338,7 +322,7 @@ mod tests {
     #[test]
     fn retained_type_metadata_keeps_its_point_inside_the_original_native_read() {
         use culprit_core::telemetry::{CollectionStop, MssqlCurrentTypeSchema, MssqlCurrentTypeSchemaStatus};
-        let context = crate::plan_xml::test_read_context("app");
+        let context = culprit_plans::mssql::test_support::test_read_context("app");
         for (clock, accepted) in
             [("2026-11-14T11:59:59Z", false), ("2026-11-14T12:00:00.5Z", true), ("2026-11-14T12:00:02Z", false)]
         {
@@ -367,12 +351,12 @@ mod tests {
         plan.facts_mut().cpu_ms = Some(0.0);
         plan.props.insert("ElapsedMs".into(), "0".into());
         plan.props.insert("CpuMs".into(), "0".into());
-        clear_unrecorded_times(&mut plan);
+        mssql::clear_unrecorded_times(&mut plan);
         let actual = culprit_core::actual_summary(&plan).unwrap();
         assert_eq!((actual.elapsed_ms, actual.cpu_ms), (Some(10.0), Some(2.0)));
         plan.facts_mut().elapsed_ms = Some(8.0);
         plan.facts_mut().cpu_ms = Some(3.0);
-        clear_unrecorded_times(&mut plan);
+        mssql::clear_unrecorded_times(&mut plan);
         assert_eq!((plan.facts().elapsed_ms, plan.facts().cpu_ms), (Some(8.0), Some(3.0)));
     }
 

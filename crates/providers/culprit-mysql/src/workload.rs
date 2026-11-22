@@ -2,7 +2,6 @@
 use crate::{
     connect::{Connector, Flavor, Scope, TAG},
     fingerprint::{fingerprint, matches_digest},
-    plan_json,
     probe::Probe,
     rows::{Rec, explain_one, query, query_one, query_with},
     slowlog,
@@ -469,7 +468,7 @@ async fn attach_plans(
 /// the sample's LIMIT where the digest writes `LIMIT ?` ([`culprit_core::insights::LIMIT_ROWS`]), the statement's
 /// shape rather than its data, so rows returned can be weighed against it.
 fn sample_plan(json: &str, sample: &str, database: &str, digest_text: &str) -> Result<Plan> {
-    let plan = plan_json::parse(json, PlanKind::Estimated, Some(sample), Some(database))?;
+    let plan = culprit_plans::mysql::parse(json, PlanKind::Estimated, Some(sample), Some(database))?;
     let mut clean = culprit_core::redact::redact_plan(&plan);
     clean.raw = plan.raw.as_deref().map(|raw| culprit_core::redact::redact_native(raw, Engine::Mysql).into());
     clean.statement = Some(digest_text.to_string());

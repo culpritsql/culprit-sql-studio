@@ -66,13 +66,13 @@ pub(crate) fn decode(
     })?;
     let evidence = source.filter(|source| MssqlRelationalInputProof::supports_source(source)).and_then(|source| {
         native.payload.text().and_then(|xml| {
-            crate::plan_xml::original_statement_evidence(
+            culprit_plans::mssql::original_statement_evidence(
                 xml,
-                crate::plan_xml::CachedInputContext {
+                culprit_plans::mssql::CachedInputContext {
                     statement: &native.context,
                     module_parameters: native.module_parameters.as_ref(),
                     text: native.statement.text(),
-                    origin: crate::plan_xml::PlanInputOrigin::OriginalCapture { source },
+                    origin: culprit_plans::mssql::PlanInputOrigin::OriginalCapture { source },
                 },
             )
         })

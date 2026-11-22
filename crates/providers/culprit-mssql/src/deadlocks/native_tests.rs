@@ -4,6 +4,7 @@ use crate::{
     conn::{execute, map_error},
     read::ReadSession,
 };
+use culprit_core::Engine;
 use culprit_core::telemetry::{CollectionBudget, DeadlockEvent, SourceShutdown};
 use system_health::tests::owned_fixture;
 

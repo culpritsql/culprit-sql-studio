@@ -1,10 +1,8 @@
 //! Plan import and comparison on plans captured from the demo databases (dev/mssql, dev/postgres, dev/mysql).
 
 use culprit_core::{ChangeKind, Engine, ErrorCode, NodeKind, Plan, PlanKind, PlanNode, plan_diff, plan_diff_named};
-use culprit_engine::plans::{PlanFormat, decode, detect, parse_plan};
-#[cfg(feature = "mssql")]
+use culprit_plans::{PlanFormat, decode, detect, parse_plan};
 mod hash_build;
-#[cfg(feature = "mssql")]
 mod native_inputs;
 
 #[test]

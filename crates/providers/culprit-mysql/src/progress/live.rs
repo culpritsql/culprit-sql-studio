@@ -1,6 +1,5 @@
 //! Existing interactive display and optional native plan inspection; no application statement is executed.
 use super::*;
-use crate::{plan_json, plan_maria};
 use culprit_core::format;
 use culprit_core::{Plan, PlanKind, t};
 
@@ -80,10 +79,13 @@ pub(super) async fn plan<R: QueryRead>(
         return Err(CollectionStop::ByteLimit.error());
     }
     let kind = if flavor == Flavor::Mariadb { PlanKind::Actual } else { PlanKind::Estimated };
-    let mut plan = match plan_json::parse(&json, kind, point.sql.as_deref(), Some(&point.observation.database)) {
-        Ok(plan) => plan,
-        Err(error) => return Ok(PlanEvidence { note: Some(plan_unavailable(&error.message)), ..Default::default() }),
-    };
+    let mut plan =
+        match culprit_plans::mysql::parse(&json, kind, point.sql.as_deref(), Some(&point.observation.database)) {
+            Ok(plan) => plan,
+            Err(error) => {
+                return Ok(PlanEvidence { note: Some(plan_unavailable(&error.message)), ..Default::default() });
+            }
+        };
     plan.raw = None;
     Ok(PlanEvidence { plan: Some(Box::new(plan)), note: None })
 }
@@ -134,7 +136,7 @@ pub(super) fn project(session: &str, captured: Captured, with_plan: bool) -> Que
     progress.note = plan.note;
     if let Some(plan) = plan.plan {
         if flavor == Flavor::Mariadb {
-            progress.nodes = plan_maria::progress(&plan);
+            progress.nodes = culprit_plans::mysql::plan_maria::progress(&plan);
         }
         if with_plan {
             progress.plan = Some(*plan);

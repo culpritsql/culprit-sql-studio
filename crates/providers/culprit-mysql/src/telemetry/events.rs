@@ -31,7 +31,7 @@ impl ObservationReader for Reader {
         }
         let status = native::text(&rows[0], "status")?;
         let mut records = vec![];
-        if let Some(buffer) = crate::deadlocks::latest_section(&status) {
+        if let Some(buffer) = culprit_plans::mysql::deadlocks::latest_section(&status) {
             let zones = self.io.read("SELECT @@system_time_zone AS system_zone", vec![], 1).await?;
             let utc = zones
                 .first()
@@ -42,9 +42,11 @@ impl ObservationReader for Reader {
             if !utc {
                 return Err(CollectionStop::SourceUnavailable.error());
             }
-            let databases = crate::deadlocks::native_databases(buffer)?;
+            let databases = culprit_plans::mysql::deadlocks::native_databases(buffer)?;
             if databases.contains(&meta.connection.database_name) {
-                for (ordinal, graph) in crate::deadlocks::parse_innodb_status(buffer, true).into_iter().enumerate() {
+                for (ordinal, graph) in
+                    culprit_plans::mysql::deadlocks::parse_innodb_status(buffer, true).into_iter().enumerate()
+                {
                     let at = graph.at.ok_or_else(native::invalid)?;
                     let instant = culprit_core::format::epoch_seconds(&at).ok_or_else(native::invalid)?;
                     let start = culprit_core::format::epoch_seconds(from).ok_or_else(native::invalid)?;

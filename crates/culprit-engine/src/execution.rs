@@ -126,7 +126,7 @@ impl Execution<'_> {
                 }
                 let mut plan = self.connections.forget_rejected(name, provider.explain(sql, mode).await)?;
                 culprit_core::insights::annotate(&mut plan);
-                culprit_checks::present_plan(&mut plan, None);
+                culprit_plans::view::present_plan(&mut plan, None);
                 Ok(plan)
             },
         )
@@ -147,7 +147,7 @@ impl Execution<'_> {
         crate::operation::within(culprit_core::limits::OBSERVE_TIMEOUT, async {
             let mut plan = self.connections.forget_rejected(name, provider.explain_hypothetical(sql, indexes).await)?;
             culprit_core::insights::annotate(&mut plan);
-            culprit_checks::present_plan(&mut plan, None);
+            culprit_plans::view::present_plan(&mut plan, None);
             Ok(plan)
         })
         .await
@@ -342,7 +342,7 @@ impl Execution<'_> {
                         measured.plan_id = Some(id.into());
                     }
                     plan.insights = Some(culprit_checks::query_plan_insights(snapshot, &measured, &plan));
-                    culprit_checks::present_plan(&mut plan, Some(&measured));
+                    culprit_plans::view::present_plan(&mut plan, Some(&measured));
                     return plan;
                 }
             }
@@ -364,7 +364,7 @@ impl Execution<'_> {
         };
         plan.insights =
             Some(culprit_core::insights::PlanInsights { scan_context: Some(true), items, note: Some(note) });
-        culprit_checks::present_plan(&mut plan, None);
+        culprit_plans::view::present_plan(&mut plan, None);
         plan
     }
 

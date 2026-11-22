@@ -141,3 +141,7 @@ Branches that each add keys to `locales/en.json` merge key by key with the `cata
 ```sh
 git config merge.catalog.driver "python3 dev/merge-catalog.py %O %A %B"
 ```
+
+## Portable Rust builds
+
+Core enables its `locales` feature by default, so native applications continue to embed every catalog in `locales/`. A standalone consumer can disable default features to embed English only; requesting an unavailable language uses the existing English fallback. `culprit-plans` forwards the same feature. The browser WASM package disables those defaults and offers `locales` as an explicit opt-in. Message rules, keys and generated TypeScript definitions stay shared.

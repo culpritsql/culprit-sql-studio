@@ -3,6 +3,22 @@ use crate::{ActualSummary, PlanKind, plan::Guess};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
+/// Built-in plan-view focus classification. These IDs describe which findings may use a plan's working step;
+/// they are presentation facts, not an executable check registry or evidence of a cause.
+pub const PLAN_FOCUS_CHECKS: &[&str] = &[
+    "heavy-query",
+    "regression",
+    "plan-regression",
+    "parameter-sensitive",
+    "plan-warnings",
+    "memory-grant",
+    "missing-index",
+    "filtered-scan",
+    "scan-heavy",
+    "missing-histogram",
+    "tuning-advice",
+];
+
 #[derive(Serialize, Deserialize, TS, Clone, Debug)]
 #[ts(export)]
 pub struct PlanView {

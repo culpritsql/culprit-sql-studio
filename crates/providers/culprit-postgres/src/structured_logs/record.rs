@@ -238,9 +238,9 @@ pub(super) fn decode(fields: Fields) -> std::result::Result<Option<PostgresLogRe
     let statement = optional_text(&fields, "statement")?;
     let deadlock = if kind == PostgresFailureKind::Deadlock {
         detail.as_deref().and_then(|detail| {
-            crate::deadlocks::parse_deadlock_details(
+            culprit_plans::postgres::deadlocks::parse_deadlock_details(
                 detail,
-                crate::deadlocks::DeadlockLogContext {
+                culprit_plans::postgres::deadlocks::DeadlockLogContext {
                     context: context.as_deref(),
                     reporter: process_id.as_deref(),
                     statement: statement.as_deref(),

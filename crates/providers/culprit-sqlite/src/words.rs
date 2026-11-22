@@ -135,7 +135,8 @@ Sessions: SQLite has no server, so no sessions to list. | -"
 
 #[test]
 fn plans() {
-    use crate::plan::{explain, parse_text, plan_from_rows};
+    use crate::plan::explain;
+    use culprit_plans::sqlite::{parse_text, plan_from_rows};
     let conn = Connection::open_in_memory().unwrap();
     conn.execute_batch("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)").unwrap();
     let plan = explain(&conn, "SELECT name FROM t WHERE id = ?").unwrap();

@@ -19,7 +19,7 @@ impl Workspace {
     /// Compare two plans; with `connection`, scenarios can name stale statistics from its latest scan.
     pub fn diff_plans(&self, a: &Plan, name_a: &str, b: &Plan, name_b: &str, connection: Option<&str>) -> PlanDiff {
         let context = connection.map(|c| self.compare_context(c)).unwrap_or_default();
-        crate::plans::compare_plans(a, name_a, b, name_b, &context)
+        culprit_plans::compare_plans(a, name_a, b, name_b, &context)
     }
 
     /// A finding from the latest scan as Markdown (for a PR) or a self-contained HTML page.
@@ -172,21 +172,7 @@ fn not_scanned(name: &str) -> Error {
 
 /// A plan as Markdown, HTML, or its own text (.sqlplan, EXPLAIN JSON or text) when it kept it.
 pub fn export_plan(plan: &Plan, title: &str, format: ExportFormat, options: &ExportOptions) -> Result<ExportFile> {
-    let stem = export::file_stem(title);
-    Ok(match format {
-        ExportFormat::Html => {
-            ExportFile { name: format!("{stem}.html"), contents: export::plan_html(plan, title, options), format }
-        }
-        ExportFormat::Markdown => {
-            ExportFile { name: format!("{stem}.md"), contents: export::plan_markdown(plan, title, options), format }
-        }
-        ExportFormat::Native => {
-            let contents = export::plan_native(plan, options).ok_or_else(|| {
-                Error::invalid(t!("engine.share.no_native")).with_hint(t!("engine.share.no_native_hint"))
-            })?;
-            ExportFile { name: format!("{stem}.{}", export::native_extension(plan)), contents, format }
-        }
-    })
+    culprit_plans::export::export_plan(plan, title, format, options, &export::exported_at())
 }
 
 /// Two plans compared, as Markdown or HTML.
@@ -199,19 +185,14 @@ pub fn export_diff(
     format: ExportFormat,
     options: &ExportOptions,
 ) -> Result<ExportFile> {
-    let stem = export::file_stem(&format!("compare {name_a} {name_b}"));
-    Ok(match format {
-        ExportFormat::Html => ExportFile {
-            name: format!("{stem}.html"),
-            contents: export::diff_html(a, b, diff, name_a, name_b, options),
-            format,
-        },
-        _ => ExportFile {
-            name: format!("{stem}.md"),
-            contents: export::diff_markdown(a, b, diff, name_a, name_b, options),
-            format: ExportFormat::Markdown,
-        },
-    })
+    let comparison = culprit_plans::export::DiffExport {
+        before: a,
+        after: b,
+        difference: diff,
+        before_name: name_a,
+        after_name: name_b,
+    };
+    culprit_plans::export::export_diff(&comparison, format, options, &export::exported_at())
 }
 
 #[cfg(test)]

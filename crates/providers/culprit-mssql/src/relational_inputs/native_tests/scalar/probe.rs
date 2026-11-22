@@ -316,13 +316,13 @@ impl Probe {
                     .filter(|xml| super::super::expressions::has_statement(xml, hash))
                     .collect::<Vec<_>>();
                 let [xml] = selected.as_slice() else { panic!("one selected native scalar statement") };
-                let plan = crate::plan_xml::parse_cached_statement(
+                let plan = culprit_plans::mssql::parse_cached_statement(
                     xml,
-                    crate::plan_xml::CachedInputContext {
+                    culprit_plans::mssql::CachedInputContext {
                         statement: &current.context,
                         module_parameters: Some(&current.module_parameters),
                         text: Some(&current.statement),
-                        origin: crate::plan_xml::PlanInputOrigin::OriginalNative { read: None },
+                        origin: culprit_plans::mssql::PlanInputOrigin::OriginalNative { read: None },
                     },
                 )
                 .unwrap();

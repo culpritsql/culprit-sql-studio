@@ -93,7 +93,7 @@ async fn changed_statistics(fixture: &OwnedSourceFixture, database: &str) {
         native_instant(after.last_updated_without_offset.as_ref().unwrap())
     );
     assert_eq!(original.result, counterpart.result);
-    let pair = crate::plan_xml::runtime_input_pair(&original.plan, &counterpart.plan);
+    let pair = culprit_plans::mssql::runtime_input_pair(&original.plan, &counterpart.plan);
     assert_eq!(pair.relation(), NativeRuntimeInputRelation::Same);
     let used_before = used_statistic(&original.plan);
     let used_after = used_statistic(&counterpart.plan);
@@ -148,7 +148,7 @@ async fn changed_statistics(fixture: &OwnedSourceFixture, database: &str) {
     retained.verify_after_actor_disappears(fixture, database, actor).await;
     let replayed = retained.explain();
     assert_eq!(
-        crate::plan_xml::runtime_input_pair(&replayed, &counterpart.plan).relation(),
+        culprit_plans::mssql::runtime_input_pair(&replayed, &counterpart.plan).relation(),
         NativeRuntimeInputRelation::Unavailable,
         "recovered/redacted facts cannot reconstruct the original runtime tuple"
     );

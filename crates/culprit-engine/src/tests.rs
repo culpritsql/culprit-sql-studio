@@ -471,7 +471,7 @@ fn periods_and_pasted_deadlocks_that_cannot_be_read_say_why_in_english() {
     };
     assert_eq!(backwards.range().unwrap_err().message, "The period is empty: its start must come before its end");
 
-    let e = deadlocks::parse_deadlock("nothing to see").unwrap_err();
+    let e = culprit_plans::parse_deadlocks("nothing to see").unwrap_err();
     assert_eq!(e.message, "No deadlock found in that text");
     assert_eq!(
         e.hint.as_deref(),
@@ -481,7 +481,7 @@ fn periods_and_pasted_deadlocks_that_cannot_be_read_say_why_in_english() {
         )
     );
     assert_eq!(
-        deadlocks::parse_deadlock(&"x".repeat(8 * 1024 * 1024 + 1)).unwrap_err().message,
+        culprit_plans::parse_deadlocks(&"x".repeat(8 * 1024 * 1024 + 1)).unwrap_err().message,
         "That text is larger than 8 MB; paste one deadlock at a time"
     );
 }

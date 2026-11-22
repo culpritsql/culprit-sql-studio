@@ -12,8 +12,8 @@ mod codebase;
 mod plan_share;
 
 pub use codebase::gone_after_rescan;
-pub(crate) use plan_share::ABOUT_THE_PLAN;
-pub use plan_share::{finding_no_share_reason, finding_step, finding_step_share, no_share_reason, plan_shares_note};
+use culprit_plans::export::finding_no_share_reason;
+pub use plan_share::{finding_step, finding_step_share};
 
 use codebase::codebase;
 

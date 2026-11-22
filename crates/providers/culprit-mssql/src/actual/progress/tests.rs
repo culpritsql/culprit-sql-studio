@@ -381,13 +381,13 @@ async fn a_replaced_native_reader_is_not_a_request_or_compute_generation() {
 
 #[test]
 fn strict_native_plan_entry_keeps_unique_unhashed_payloads_but_refuses_missing_or_duplicate_hashes() {
-    assert!(plan_xml::parse_native_statement(XML, Some("0x0123456789ABCDEF")).is_ok());
-    assert!(plan_xml::parse_native_statement(XML, Some("0x9999999999999999")).is_err());
+    assert!(mssql::parse_native_statement(XML, Some("0x0123456789ABCDEF")).is_ok());
+    assert!(mssql::parse_native_statement(XML, Some("0x9999999999999999")).is_err());
     let without_hash = XML.replace(" QueryHash=\"0x0123456789ABCDEF\"", "");
-    assert!(plan_xml::parse_native_statement(&without_hash, None).is_ok());
-    assert!(plan_xml::parse_native_statement(&without_hash, Some("0x0123456789ABCDEF")).is_err());
+    assert!(mssql::parse_native_statement(&without_hash, None).is_ok());
+    assert!(mssql::parse_native_statement(&without_hash, Some("0x0123456789ABCDEF")).is_err());
     let statement = XML.split("<Statements>").nth(1).unwrap().split("</Statements>").next().unwrap();
     let multiple = XML.replace("</Statements>", &format!("{statement}</Statements>"));
-    assert!(plan_xml::parse_native_statement(&multiple, Some("0x0123456789ABCDEF")).is_err());
-    assert!(plan_xml::parse_native_statement(&multiple, None).is_err());
+    assert!(mssql::parse_native_statement(&multiple, Some("0x0123456789ABCDEF")).is_err());
+    assert!(mssql::parse_native_statement(&multiple, None).is_err());
 }

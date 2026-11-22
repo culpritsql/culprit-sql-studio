@@ -10,6 +10,10 @@ publish.workspace = true
 # Its doc comments hold no Rust examples: rustdoc would have nothing to test.
 doctest = false
 
+[features]
+default = ["locales"]
+locales = []
+
 [dependencies]
 async-trait.workspace = true
 chrono.workspace = true

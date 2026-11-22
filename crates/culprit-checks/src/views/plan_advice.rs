@@ -13,7 +13,7 @@ pub fn annotate_plans(snapshot: &mut Snapshot) {
         .map(|q| {
             q.plan.as_ref().map(|p| {
                 let insights = query_plan_insights(snapshot, q, p);
-                let view = super::plan_view::with_insights(p, Some(q), Some(&insights));
+                let view = culprit_plans::view::with_insights(p, Some(q), Some(&insights));
                 (insights, view)
             })
         })
@@ -41,7 +41,7 @@ pub fn present_retained_plan(plan: &mut Plan, note: &str) {
         item.fix_sql = None;
     }
     plan.insights = Some(PlanInsights { scan_context: Some(true), items, note: Some(note.into()) });
-    super::plan_view::present_plan(plan, None);
+    culprit_plans::view::present_plan(plan, None);
 }
 
 /// Read a captured or fetched plan in the context of the selected scan. Structural concerns remain useful for
@@ -750,7 +750,7 @@ verify: Compare a newly compiled plan, lookup counts, reads and time under equiv
             plan.root.children.push(child);
         }
         same(
-            crate::plan_view(&plan, None).time_note.as_deref().unwrap_or("-"),
+            culprit_plans::view::plan_view(&plan, None).time_note.as_deref().unwrap_or("-"),
             r#"Only recorded operator times contribute; untimed steps have no measured share."#,
         );
     }

@@ -35,19 +35,23 @@ mod tests {
         future.poll(&mut Context::from_waker(Waker::noop()))
     }
 
+    fn expected_language(code: &str) -> String {
+        if cfg!(feature = "locales") { code.into() } else { "en".into() }
+    }
+
     #[test]
     fn interleaved_pending_futures_do_not_change_the_callers_language() {
         let mut french = Box::pin(scope_async("fr", language_before_and_after_yield()));
         let mut english = Box::pin(scope_async("en", language_before_and_after_yield()));
         scope("de", || {
             assert!(poll_once(french.as_mut()).is_pending());
-            assert_eq!(current().code, "de");
+            assert_eq!(current().code, expected_language("de"));
             assert!(poll_once(english.as_mut()).is_pending());
-            assert_eq!(current().code, "de");
-            assert_eq!(poll_once(french.as_mut()), Poll::Ready(("fr".into(), "fr".into())));
-            assert_eq!(current().code, "de");
+            assert_eq!(current().code, expected_language("de"));
+            assert_eq!(poll_once(french.as_mut()), Poll::Ready((expected_language("fr"), expected_language("fr"))));
+            assert_eq!(current().code, expected_language("de"));
             assert_eq!(poll_once(english.as_mut()), Poll::Ready(("en".into(), "en".into())));
-            assert_eq!(current().code, "de");
+            assert_eq!(current().code, expected_language("de"));
         });
         assert_eq!(current().code, "en");
     }
@@ -59,7 +63,7 @@ mod tests {
             let mut future = future;
             scope("de", || {
                 assert!(poll_once(future.as_mut()).is_pending());
-                assert_eq!(current().code, "de");
+                assert_eq!(current().code, expected_language("de"));
             });
             future
         })
@@ -68,12 +72,12 @@ mod tests {
         let result = std::thread::spawn(move || {
             scope("es", || {
                 let result = poll_once(future.as_mut());
-                assert_eq!(current().code, "es");
+                assert_eq!(current().code, expected_language("es"));
                 result
             })
         })
         .join()
         .unwrap();
-        assert_eq!(result, Poll::Ready(("fr".into(), "fr".into())));
+        assert_eq!(result, Poll::Ready((expected_language("fr"), expected_language("fr"))));
     }
 }

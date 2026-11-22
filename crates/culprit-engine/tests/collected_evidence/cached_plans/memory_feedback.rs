@@ -1,5 +1,4 @@
 use super::*;
-#[cfg(feature = "mssql")]
 use culprit_core::plan_facts::{
     PlanMemoryGrantFeedback, PlanMemoryGrantFeedbackIssue as Issue, PlanMemoryGrantFeedbackState as State,
 };
@@ -38,12 +37,7 @@ async fn retained_feedback_preview_is_an_explicit_gap_until_exact_native_payload
     );
     let [entry] = result.report.entries.as_slice() else { panic!("one original retained plan") };
     assert_eq!(entry.definition_version, definition(&records[0]).version);
-    #[cfg(not(feature = "mssql"))]
-    {
-        assert!(entry.plan.is_none());
-        assert!(entry.limitations.iter().any(|limit| limit.reason == CachedPlanLimit::NativeParserUnavailable));
-    }
-    #[cfg(feature = "mssql")]
+
     {
         let plan = entry.plan.as_ref().unwrap();
         assert_eq!(plan.kind, PlanKind::Actual);
@@ -51,7 +45,6 @@ async fn retained_feedback_preview_is_an_explicit_gap_until_exact_native_payload
     }
 }
 
-#[cfg(feature = "mssql")]
 #[tokio::test]
 async fn native_feedback_states_and_exact_prior_grant_replay_through_the_same_selected_plan_parser_and_insights() {
     for case in MemoryFeedbackCase::ALL {
@@ -62,7 +55,7 @@ async fn native_feedback_states_and_exact_prior_grant_replay_through_the_same_se
         let native_record = definition(&records[0]);
         let ObjectDefinitionFact::MssqlRetainedPlan(native) = &native_record.fact else { panic!() };
         assert!(native.module_parameters.is_none());
-        let direct = culprit_mssql::plan_xml::parse_retained_definition(native, &source).unwrap();
+        let direct = culprit_plans::mssql::parse_retained_definition(native, &source).unwrap();
         let direct_insights = culprit_core::insights::insights(&direct);
         let fixture = Fixture::new(source.clone(), records.clone()).await;
         let capture = fixture.read_families_with_recovery(FAMILY, RecoveryPayloadBudget::default()).await;
@@ -166,7 +159,6 @@ async fn missing_warehouse_feedback_and_native_unavailable_payloads_never_become
     assert_eq!(result.context.read_gaps[0].reason, EvidenceGapReason::MissingRows);
 }
 
-#[cfg(feature = "mssql")]
 fn expected_feedback(case: MemoryFeedbackCase) -> Option<PlanMemoryGrantFeedback> {
     use MemoryFeedbackCase::*;
     let (state, previous, issues) = match case {

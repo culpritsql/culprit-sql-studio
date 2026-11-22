@@ -1,0 +1,23 @@
+[package]
+name = "culprit-wasm"
+description = "Portable WebAssembly bridge for Culprit's pure plan and deadlock operations"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+doctest = false
+
+[features]
+default = []
+locales = ["culprit-core/locales", "culprit-plans/locales"]
+
+[dependencies]
+# Direct local paths keep workspace-default locale features out of the portable build.
+culprit-core = { path = "../culprit-core", default-features = false }
+culprit-plans = { path = "../culprit-plans", default-features = false }
+serde.workspace = true
+serde_json.workspace = true
+wasm-bindgen = "=0.2.129"

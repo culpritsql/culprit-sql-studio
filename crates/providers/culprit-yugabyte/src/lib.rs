@@ -8,7 +8,6 @@ mod global;
 mod history;
 mod index_usage;
 mod native;
-pub mod plan;
 mod probe;
 mod progress;
 mod read;
@@ -122,12 +121,15 @@ impl Provider for YugabyteProvider {
                 ExplainMode::Estimated => OBSERVE_TIMEOUT,
                 ExplainMode::Analyze => QUERY_TIMEOUT,
             },
-            async { plan::native(self.execution.explain_ysql(sql, mode).await?) },
+            async { culprit_plans::yugabyte::native(self.execution.explain_ysql(sql, mode).await?) },
         )
         .await
     }
     async fn explain_hypothetical(&self, sql: &str, indexes: &[String]) -> Result<Plan> {
-        deadline(OBSERVE_TIMEOUT, async { plan::native(self.execution.hypothetical_ysql(sql, indexes).await?) }).await
+        deadline(OBSERVE_TIMEOUT, async {
+            culprit_plans::yugabyte::native(self.execution.hypothetical_ysql(sql, indexes).await?)
+        })
+        .await
     }
     async fn explain_recorded(&self, sql: &str, id: Option<&str>) -> Result<Plan> {
         deadline(OBSERVE_TIMEOUT, async {

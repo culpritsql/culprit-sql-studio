@@ -193,7 +193,7 @@ pub trait Provider: Send + Sync {
 
     /// The plan of `sql`. A plan carries its facts (`Plan::facts`, each step's `PlanNode::facts`): the inputs every
     /// check and insight reads. A provider for an engine Culprit parses hands the engine's native plan text to
-    /// `culprit_engine::plans::parse_plan`; one for another engine fills the facts in, leaving unknown what it doesn't
+    /// `culprit_plans::parse_plan`; one for another engine fills the facts in, leaving unknown what it doesn't
     /// know. The plan's display properties are for reading and stand in for no fact.
     async fn explain(&self, sql: &str, mode: ExplainMode) -> Result<Plan>;
 

@@ -1,0 +1,482 @@
+//! Plans from outside a connection: pasted text or files saved by other tools. Reads SQL Server showplan XML
+//! (.sqlplan), Postgres EXPLAIN as JSON or text, MySQL EXPLAIN FORMAT=JSON (versions 1 and 2) and MySQL's tree output
+//! (EXPLAIN ANALYZE, FORMAT=TREE), SQLite's EXPLAIN QUERY PLAN as the sqlite3 shell prints it, plus Culprit's own plan
+//! JSON. psql and mysql client decorations are stripped first.
+
+use culprit_core::PlanKind;
+use culprit_core::{Engine, Error, Plan, PlanNode, Result, t};
+use serde_json::{Map, Value};
+use std::collections::BTreeMap;
+
+#[cfg(test)]
+mod availability_tests;
+mod compare;
+pub(crate) use compare::compare_redacted;
+mod deadlocks;
+pub use culprit_core::PlanFormat;
+pub use deadlocks::parse_deadlocks;
+pub mod export;
+pub mod mssql;
+pub mod mysql;
+pub mod postgres;
+pub mod sqlite;
+pub mod view;
+pub mod yugabyte;
+
+/// Compare already supplied plans. Native runtime inputs are re-read only from their existing native payloads.
+pub fn compare_plans(
+    a: &Plan,
+    name_a: &str,
+    b: &Plan,
+    name_b: &str,
+    context: &culprit_core::CompareContext,
+) -> culprit_core::PlanDiff {
+    compare::compare(a, name_a, b, name_b, context)
+}
+
+/// The largest SQL Server plans run to a few megabytes; anything far beyond that is not a plan.
+pub const MAX_PLAN_BYTES: usize = 32 * 1024 * 1024;
+
+/// Decode a plan file: UTF-8 (with or without a byte-order mark) or UTF-16 with a byte-order mark, which is how SSMS
+/// saves .sqlplan files. A UTF-16 file's XML declaration is rewritten to say UTF-8, which the text now is.
+pub fn decode(bytes: &[u8]) -> Result<String> {
+    if bytes.len() > MAX_PLAN_BYTES * 2 {
+        return Err(too_large(bytes.len()));
+    }
+    let utf16 = |units: Vec<u16>| {
+        String::from_utf16(&units)
+            .map(|s| {
+                s.replacen("encoding=\"utf-16\"", "encoding=\"utf-8\"", 1).replacen(
+                    "encoding='utf-16'",
+                    "encoding='utf-8'",
+                    1,
+                )
+            })
+            .map_err(|_| Error::invalid(t!("engine.plans.bad_utf16")))
+    };
+    match bytes {
+        [0xFF, 0xFE, rest @ ..] => utf16(rest.as_chunks::<2>().0.iter().map(|c| u16::from_le_bytes(*c)).collect()),
+        [0xFE, 0xFF, rest @ ..] => utf16(rest.as_chunks::<2>().0.iter().map(|c| u16::from_be_bytes(*c)).collect()),
+        [0xEF, 0xBB, 0xBF, rest @ ..] => text(rest),
+        _ => text(bytes),
+    }
+}
+
+fn text(bytes: &[u8]) -> Result<String> {
+    String::from_utf8(bytes.to_vec())
+        .map_err(|_| Error::invalid(t!("engine.plans.not_text")).with_hint(t!("engine.plans.not_text_hint")))
+}
+
+/// Which plan format the text is in, if Culprit reads it.
+pub fn detect(text: &str) -> Option<PlanFormat> {
+    let text = clean(text);
+    detect_clean(text.trim())
+}
+
+/// A verified native source selects its engine's parser when multiple engines share a serialization format.
+pub fn detect_native(text: &str, engine: Engine) -> Option<PlanFormat> {
+    detect(text).map(|format| native_format(format, engine))
+}
+
+fn native_format(format: PlanFormat, engine: Engine) -> PlanFormat {
+    match (format, engine) {
+        (PlanFormat::PostgresJson, Engine::Yugabyte) => PlanFormat::YugabyteJson,
+        _ => format,
+    }
+}
+
+/// Read a plan from text in any supported format. The plan keeps the text it came from in `raw` so it can be saved again.
+pub fn parse_plan(input: &str) -> Result<Plan> {
+    read_plan(input, None)
+}
+
+/// Parse retained native evidence using its authenticated engine, without relabeling another engine's tree.
+pub fn parse_native_plan(input: &str, engine: Engine) -> Result<Plan> {
+    read_plan(input, Some(engine))
+}
+
+fn read_plan(input: &str, source_engine: Option<Engine>) -> Result<Plan> {
+    if input.len() > MAX_PLAN_BYTES {
+        return Err(too_large(input.len()));
+    }
+    let cleaned = clean(input);
+    // Keep the first line's indentation: text plans are read by column, and psql indents every line by one space.
+    let block = cleaned.trim_end().trim_start_matches(['\n', '\r']);
+    let block = match block.find(|c: char| !c.is_whitespace()) {
+        Some(first) => &block[block[..first].rfind('\n').map_or(0, |n| n + 1)..],
+        None => "",
+    };
+    let text = block.trim_start();
+    if text.is_empty() {
+        return Err(Error::invalid(t!("engine.plans.empty")));
+    }
+    let detected = detect_clean(text).ok_or_else(|| unrecognized(text))?;
+    let format = source_engine.map_or(detected, |engine| native_format(detected, engine));
+    let unreadable = |e: Error| Error::invalid(t!("engine.plans.unreadable", format = format.label(), why = e.message));
+    let mut plan = match format {
+        PlanFormat::ShowplanXml => showplan(text),
+        PlanFormat::PostgresJson => postgres_json(text),
+        PlanFormat::YugabyteJson => yugabyte_json(text),
+        PlanFormat::PostgresText => postgres_text(block),
+        PlanFormat::MysqlJson => mysql_json(text),
+        PlanFormat::MysqlTree => mysql_tree(text),
+        PlanFormat::SqliteText => sqlite_text(text),
+        PlanFormat::Culprit => culprit_json(text),
+    }
+    .map_err(unreadable)?;
+    if source_engine.is_some_and(|engine| engine != plan.engine) {
+        return Err(Error::invalid(t!("engine.plans.source_engine_mismatch")));
+    }
+    // Before anything walks the tree: a deeper one would make the scan or file it's saved in unreadable.
+    if plan.depth() > culprit_core::plan::MAX_PLAN_DEPTH {
+        return Err(unreadable(culprit_core::plan::too_deep()));
+    }
+    if format != PlanFormat::Culprit {
+        plan.raw = Some(block.into());
+    }
+    culprit_core::insights::annotate(&mut plan);
+    crate::view::present_plan(&mut plan, None);
+    // A number past what a double holds (1e309) reads as infinity, which a saved plan writes as nothing: the scan or
+    // file it's saved in would never read back.
+    let kept = serde_json::to_value(&plan).ok().is_some_and(|saved| serde_json::from_value::<Plan>(saved).is_ok());
+    if !kept {
+        return Err(unreadable(Error::invalid(t!("engine.plans.number_too_large"))));
+    }
+    Ok(plan)
+}
+
+fn detect_clean(text: &str) -> Option<PlanFormat> {
+    if text.starts_with('<') {
+        return text.contains("ShowPlanXML").then_some(PlanFormat::ShowplanXml);
+    }
+    if text.starts_with('{') || text.starts_with('[') {
+        let value: Value = serde_json::from_str(text).ok()?;
+        return json_format(unwrap_json(value)?.0.as_ref()?);
+    }
+    let first = text.lines().next()?.trim();
+    if is_sqlite_text(text) {
+        return Some(PlanFormat::SqliteText);
+    }
+    if first.starts_with("-> ") {
+        return Some(PlanFormat::MysqlTree);
+    }
+    let pg_marks =
+        |line: &str| line.contains("(cost=") || line.contains("(actual ") || line.contains("(never executed)");
+    if pg_marks(first) || text.lines().any(|l| l.trim_start().starts_with("->  ")) {
+        return Some(PlanFormat::PostgresText);
+    }
+    None
+}
+
+/// The plan object inside tool-specific wrappers: `[{"QUERY PLAN": [...]}]` (pgAdmin, psql -A), `{"EXPLAIN": "…"}`.
+/// Returns the value and the statement text when a wrapper carried it.
+fn unwrap_json(value: Value) -> Option<(Option<Value>, Option<String>)> {
+    let mut value = value;
+    let mut statement = None;
+    for _ in 0..3 {
+        let inner = match &value {
+            Value::Array(items) if items.len() == 1 => items[0].as_object().and_then(wrapper_value),
+            Value::Object(o) => wrapper_value(o),
+            _ => None,
+        };
+        let Some(inner) = inner else { break };
+        value = match inner {
+            Value::String(s) => serde_json::from_str(&s).ok()?,
+            other => other,
+        };
+    }
+    let top = match &value {
+        Value::Array(items) => items.first().and_then(Value::as_object),
+        Value::Object(o) => Some(o),
+        _ => None,
+    };
+    if let Some(top) = top {
+        statement =
+            ["Query Text", "query"].iter().find_map(|k| top.get(*k).and_then(Value::as_str)).map(str::to_string);
+    }
+    Some((Some(value), statement))
+}
+
+fn wrapper_value(o: &Map<String, Value>) -> Option<Value> {
+    if o.len() != 1 {
+        return None;
+    }
+    ["QUERY PLAN", "EXPLAIN", "explain"].iter().find_map(|k| o.get(*k).cloned())
+}
+
+fn json_format(value: &Value) -> Option<PlanFormat> {
+    let top = match value {
+        Value::Array(items) => items.first()?,
+        other => other,
+    };
+    let o = top.as_object()?;
+    if o.contains_key("Plan") {
+        Some(
+            if ["Storage Read Requests", "Storage Table Read Requests", "Storage Filter", "Storage Index Filter"]
+                .iter()
+                .any(|key| contains_key(value, key))
+            {
+                PlanFormat::YugabyteJson
+            } else {
+                PlanFormat::PostgresJson
+            },
+        )
+    } else if o.contains_key("query_block") || (o.contains_key("operation") && o.contains_key("access_type")) {
+        Some(PlanFormat::MysqlJson)
+    } else if o.contains_key("root") && o.contains_key("engine") && o.contains_key("total_cost") {
+        Some(PlanFormat::Culprit)
+    } else {
+        None
+    }
+}
+
+fn unrecognized(text: &str) -> Error {
+    let first = text.lines().next().unwrap_or("").trim();
+    let message = if text.contains("<explain xmlns=\"http://www.postgresql.org") || first.starts_with("- Plan:") {
+        t!("engine.plans.unrecognized.postgres_xml_yaml")
+    } else if text.starts_with('<') {
+        t!("engine.plans.unrecognized.xml")
+    } else if text.contains("|--") {
+        t!("engine.plans.unrecognized.showplan_text")
+    } else if text.starts_with('{') || text.starts_with('[') {
+        t!("engine.plans.unrecognized.json")
+    } else {
+        t!("engine.plans.unrecognized.other")
+    };
+    Error::invalid(message).with_hint(t!("engine.plans.unrecognized.hint"))
+}
+
+fn too_large(len: usize) -> Error {
+    Error::invalid(t!("engine.plans.too_large", size = (len / (1024 * 1024)).to_string()))
+}
+
+/// Strip what database clients wrap around a plan: psql's `QUERY PLAN` header, dashes, `+` continuations and
+/// `(26 rows)` footer; the mysql client's table borders and `*** 1. row ***` / `EXPLAIN:` labels; quoted grid copies.
+fn clean(text: &str) -> String {
+    let text = text.trim_start_matches('\u{feff}');
+    // The sqlite3 shell heads its tree with the `QUERY PLAN` line psql prints above a plan, dropped below: keep it.
+    if is_sqlite_text(text) {
+        return text.trim_end().to_string();
+    }
+    let is_border = |t: &str| !t.is_empty() && t.chars().all(|c| matches!(c, '-' | '+'));
+    let is_header = |t: &str| matches!(t.trim_matches('|').trim(), "QUERY PLAN" | "EXPLAIN");
+    let is_footer = |t: &str| {
+        t.strip_prefix('(')
+            .and_then(|r| r.strip_suffix(" rows)").or_else(|| r.strip_suffix(" row)")))
+            .is_some_and(|n| !n.is_empty() && n.chars().all(|c| c.is_ascii_digit()))
+    };
+    let is_banner = |t: &str| t.starts_with("***") && t.ends_with("***") && t.contains(". row");
+    let decorated = text.lines().any(|l| is_header(l.trim())) && text.lines().any(|l| is_border(l.trim()));
+    let mut lines: Vec<String> = Vec::new();
+    for line in text.lines() {
+        let t = line.trim();
+        if is_border(t) || is_header(t) || is_footer(t) || is_banner(t) {
+            continue;
+        }
+        let mut line = line.trim_end().to_string();
+        if decorated && line.ends_with('+') {
+            line = line.trim_end_matches('+').trim_end().to_string();
+        }
+        if let Some(rest) = line.trim_start().strip_prefix("EXPLAIN: ") {
+            line = rest.to_string();
+        }
+        if let Some(rest) = line.strip_prefix("| ") {
+            line = rest.to_string();
+        }
+        if line.ends_with(" |") || line.ends_with("\t|") {
+            line = line[..line.len() - 1].trim_end().to_string();
+        }
+        lines.push(line);
+    }
+    let non_empty: Vec<&String> = lines.iter().filter(|l| !l.trim().is_empty()).collect();
+    if !non_empty.is_empty()
+        && non_empty.iter().all(|l| l.trim().len() >= 2 && l.trim().starts_with('"') && l.trim().ends_with('"'))
+    {
+        lines = lines
+            .iter()
+            .map(|l| {
+                let t = l.trim();
+                if t.len() >= 2 { t[1..t.len() - 1].replace("\"\"", "\"") } else { t.to_string() }
+            })
+            .collect();
+    }
+    lines.join("\n")
+}
+
+fn showplan(text: &str) -> Result<Plan> {
+    // Text pasted from a UTF-16 file keeps its declaration; the string is UTF-8 by now.
+    let head = text.floor_char_boundary(120);
+    let fixed;
+    let text = if text[..head].contains("encoding=\"utf-16\"") {
+        fixed = text.replacen("encoding=\"utf-16\"", "encoding=\"utf-8\"", 1);
+        fixed.as_str()
+    } else if text[..head].contains("encoding='utf-16'") {
+        fixed = text.replacen("encoding='utf-16'", "encoding='utf-8'", 1);
+        fixed.as_str()
+    } else {
+        text
+    };
+    mssql::parse(text)
+}
+
+fn postgres_json(text: &str) -> Result<Plan> {
+    let value: Value = serde_json::from_str(text).map_err(|e| Error::invalid(e.to_string()))?;
+    let (value, statement) = unwrap_json(value).ok_or_else(|| Error::invalid("No plan inside the JSON"))?;
+    postgres_value(&value.unwrap_or(Value::Null), statement.as_deref())
+}
+
+fn postgres_value(value: &Value, statement: Option<&str>) -> Result<Plan> {
+    let kind = if contains_key(value, "Actual Loops") { PlanKind::Actual } else { PlanKind::Estimated };
+    postgres::from_value(value, kind, statement)
+}
+
+fn yugabyte_json(text: &str) -> Result<Plan> {
+    let value: Value = serde_json::from_str(text).map_err(|e| Error::invalid(e.to_string()))?;
+    let (value, statement) = unwrap_json(value).ok_or_else(|| Error::invalid("No plan inside the JSON"))?;
+    let value = value.unwrap_or(Value::Null);
+    let kind = if contains_key(&value, "Actual Loops") { PlanKind::Actual } else { PlanKind::Estimated };
+    yugabyte::from_value(&value, kind, statement.as_deref())
+}
+
+fn postgres_text(text: &str) -> Result<Plan> {
+    postgres_value(&postgres::text::to_json(text)?, None)
+}
+
+fn mysql_json(text: &str) -> Result<Plan> {
+    let value: Value = serde_json::from_str(text).map_err(|e| Error::invalid(e.to_string()))?;
+    let (value, statement) = unwrap_json(value).ok_or_else(|| Error::invalid("No plan inside the JSON"))?;
+    let value = value.unwrap_or(Value::Null);
+    let value = match value {
+        Value::Array(mut items) if !items.is_empty() => items.swap_remove(0),
+        other => other,
+    };
+    if value.get("query_block").is_some() {
+        let json = serde_json::to_string(&value).map_err(|e| Error::internal(e.to_string()))?;
+        return mysql::parse(&json, PlanKind::Estimated, statement.as_deref(), None);
+    }
+    // Version 2 nodes carry the same operation text as the tree format; draw them through the tree reader.
+    let mut tree = String::new();
+    mysql_v2::tree(&value, 0, &mut tree);
+    let mut plan = mysql::tree::parse(&tree, statement.as_deref(), None)?;
+    plan.kind = if contains_key(&value, "actual_rows") { PlanKind::Actual } else { PlanKind::Estimated };
+    mysql_v2::fill_objects(&value, &mut plan.root);
+    Ok(plan)
+}
+
+fn is_sqlite_text(text: &str) -> bool {
+    sqlite::is_text_plan(text)
+}
+
+fn sqlite_text(text: &str) -> Result<Plan> {
+    sqlite::parse_text(text)
+}
+
+fn mysql_tree(text: &str) -> Result<Plan> {
+    let mut plan = mysql::tree::parse(text, None, None)?;
+    if !text.contains("(actual ") && !text.contains("(never executed)") {
+        plan.kind = PlanKind::Estimated;
+    }
+    Ok(plan)
+}
+
+fn culprit_json(text: &str) -> Result<Plan> {
+    let mut plan: Plan = serde_json::from_str(text).map_err(|e| {
+        // A plan Culprit saved lacks a field this version writes (its facts, say): another version saved it, and this
+        // one doesn't read what others save. The engine's own plan text always reads.
+        if e.to_string().starts_with("missing field") {
+            Error::invalid(t!("engine.plans.other_version", why = e.to_string()))
+        } else {
+            Error::invalid(e.to_string())
+        }
+    })?;
+    let original_ids = unique_node_ids(&plan);
+    renumber(&mut plan.root, &mut 0, original_ids.as_ref());
+    Ok(plan)
+}
+
+fn unique_node_ids(plan: &Plan) -> Option<BTreeMap<u32, u32>> {
+    let mut ids = BTreeMap::new();
+    for (next, node) in plan.nodes().into_iter().enumerate() {
+        if ids.insert(node.id, u32::try_from(next).ok()?).is_some() {
+            return None;
+        }
+    }
+    Some(ids)
+}
+
+fn renumber(node: &mut PlanNode, next: &mut u32, original_ids: Option<&BTreeMap<u32, u32>>) {
+    // Resolve the supplied role against original unique direct children before any child IDs change. Missing,
+    // dangling or ambiguous references remain unknown; renumbering cannot create or choose native ownership.
+    let build = node.facts().hash_build_input.and_then(|original| {
+        if node.children.iter().filter(|child| child.id == original).count() != 1 {
+            return None;
+        }
+        original_ids?.get(&original).copied()
+    });
+    node.facts_mut().hash_build_input = build;
+    node.id = *next;
+    *next += 1;
+    node.children.iter_mut().for_each(|child| renumber(child, next, original_ids));
+}
+
+fn contains_key(value: &Value, key: &str) -> bool {
+    match value {
+        Value::Object(o) => o.contains_key(key) || o.values().any(|v| contains_key(v, key)),
+        Value::Array(items) => items.iter().any(|v| contains_key(v, key)),
+        _ => false,
+    }
+}
+
+mod mysql_v2 {
+    use culprit_core::PlanNode;
+    use serde_json::Value;
+
+    /// Render a version 2 node as an EXPLAIN tree line, then its inputs four spaces deeper.
+    pub fn tree(node: &Value, depth: usize, out: &mut String) {
+        let op = node.get("operation").and_then(Value::as_str).unwrap_or("Operation");
+        out.push_str(&"    ".repeat(depth));
+        out.push_str("-> ");
+        out.push_str(op.lines().next().unwrap_or(op));
+        let num = |k: &str| node.get(k).and_then(Value::as_f64);
+        let mut stats = Vec::new();
+        if let Some(cost) = num("estimated_total_cost") {
+            stats.push(format!("cost={cost}"));
+        }
+        if let Some(rows) = num("estimated_rows") {
+            stats.push(format!("rows={rows}"));
+        }
+        if !stats.is_empty() {
+            out.push_str(&format!("  ({})", stats.join(" ")));
+        }
+        if let Some(rows) = num("actual_rows") {
+            let first = num("actual_first_row_ms").unwrap_or(0.0);
+            let last = num("actual_last_row_ms").unwrap_or(first);
+            let loops = num("actual_loops").unwrap_or(1.0);
+            out.push_str(&format!(" (actual time={first}..{last} rows={rows} loops={loops})"));
+        }
+        out.push('\n');
+        for input in node.get("inputs").and_then(Value::as_array).into_iter().flatten() {
+            tree(input, depth + 1, out);
+        }
+    }
+
+    /// Version 2 names each table and its schema, which the tree text only gives as an alias. Walks both trees
+    /// together and stops wherever their shapes differ.
+    pub fn fill_objects(json: &Value, node: &mut PlanNode) {
+        if let Some(table) = json.get("table_name").and_then(Value::as_str) {
+            node.object = Some(match json.get("schema_name").and_then(Value::as_str) {
+                Some(schema) => format!("{schema}.{table}"),
+                None => table.to_string(),
+            });
+        }
+        if let Some(index) = json.get("index_name").and_then(Value::as_str) {
+            node.index = Some(index.to_string());
+        }
+        let inputs: &[Value] = json.get("inputs").and_then(Value::as_array).map(Vec::as_slice).unwrap_or(&[]);
+        if inputs.len() == node.children.len() {
+            for (input, child) in inputs.iter().zip(node.children.iter_mut()) {
+                fill_objects(input, child);
+            }
+        }
+    }
+}

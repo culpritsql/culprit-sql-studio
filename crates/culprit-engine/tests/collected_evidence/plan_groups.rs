@@ -392,7 +392,7 @@ async fn real_native_heap_fetch_advice_keeps_its_evidence_but_no_executable_sql_
         .unwrap()
         .clone();
     current.text = "SELECT customer_id FROM public.events WHERE customer_id < 2000".into();
-    current.plan = Some(culprit_engine::plans::parse_native_plan(native_plan, culprit_core::Engine::Postgres).unwrap());
+    current.plan = Some(culprit_plans::parse_native_plan(native_plan, culprit_core::Engine::Postgres).unwrap());
     current.plan_history = None;
     current.plans.clear();
     current.last_seen = Some(scan.taken_at.clone());

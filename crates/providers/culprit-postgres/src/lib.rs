@@ -5,13 +5,12 @@ pub use builtin_safety::verify as verify_builtin_safety;
 mod catalog;
 mod collect;
 mod connect;
-pub mod deadlocks;
+mod deadlocks;
 mod generic;
 mod jobs;
 mod memory;
 mod native;
 mod operations;
-pub mod plan_json;
 mod pressure;
 mod probe;
 mod progress;
@@ -176,7 +175,7 @@ impl PostgresProvider {
             } else {
                 let json =
                     generic::plan_json(&mut &client, statement, server_version(&client).await?, elevated).await?;
-                plan_json::parse(&json, PlanKind::Generic, Some(statement))?
+                culprit_plans::postgres::parse(&json, PlanKind::Generic, Some(statement))?
             };
             if fill_table_sizes {
                 tables::fill(&mut &client, &mut plan).await;
@@ -227,7 +226,7 @@ impl PostgresProvider {
                     // Placeholders ($1, $2… as pg_stat_statements records statements): the generic plan, never run.
                     let json =
                         generic::plan_json(&mut &client, statement, server_version(&client).await?, elevated).await?;
-                    plan_json::parse(&json, PlanKind::Generic, Some(statement))?
+                    culprit_plans::postgres::parse(&json, PlanKind::Generic, Some(statement))?
                 };
                 if fill_table_sizes {
                     tables::fill(&mut &client, &mut plan).await;
@@ -576,7 +575,7 @@ async fn explain_text(client: &Client, sql: &str, kind: PlanKind, statement: &st
         .first()
         .and_then(|r| r.text("QUERY PLAN"))
         .ok_or_else(|| Error::internal(t!("provider.postgres.error.no_plan")))?;
-    plan_json::parse(&json, kind, Some(statement))
+    culprit_plans::postgres::parse(&json, kind, Some(statement))
 }
 
 /// Run one statement and collect up to `limit` rows; `cursor` fetches reads through a cursor (needs a transaction block).

@@ -47,7 +47,7 @@ pub(crate) async fn prove(fixture: &mut Fixture) -> culprit_core::Result<()> {
     let report = grant_report(&episode.waiting)?;
     require_waiting_episode(&episode.waiting, &actor, &episode.original.context, &episode.holder)?;
     assert_eq!(
-        crate::plan_xml::runtime_input_pair(&episode.retained.explain(), &episode.counterpart.plan).relation(),
+        culprit_plans::mssql::runtime_input_pair(&episode.retained.explain(), &episode.counterpart.plan).relation(),
         NativeRuntimeInputRelation::Unavailable,
         "retained payloads cannot borrow ephemeral runtime values from the executed comparison"
     );
@@ -180,7 +180,7 @@ fn capture_episode<'a>(
                 (original, started.elapsed())
             })
             .catch_unwind()
-            .inspect(|outcome| crate::test_support::owned_case::cancel_after_panic(outcome, &cancellation)),
+            .inspect(|outcome| { crate::test_support::owned_case::cancel_after_panic(outcome, &cancellation) }),
             capture_waiter_and_release(
                 fixture,
                 &mut owner,
@@ -422,7 +422,9 @@ fn original_holder<'a>(
         .copied()
         .filter(|row| row.request.as_ref().is_some_and(|request| &request.key.session == session))
         .collect::<Vec<_>>();
-    let [holder] = candidates.as_slice() else { return Err(crate::read::invalid_data()) };
+    let [holder] = candidates.as_slice() else {
+        return Err(crate::read::invalid_data());
+    };
     assert!(report.entries.iter().any(|entry| entry.observation_identity == holder.identity
         && entry.mechanism == Some(MemoryParticipantMechanism::ReservationDuringClientOutputWait)));
     Ok(*holder)
@@ -442,7 +444,9 @@ fn require_waiting_episode<'a>(
         .copied()
         .filter(|grant| grant.request.as_ref().is_some_and(|request| request.key.session == actor))
         .collect::<Vec<_>>();
-    let [waiter] = waiting.as_slice() else { return Err(crate::read::invalid_data()) };
+    let [waiter] = waiting.as_slice() else {
+        return Err(crate::read::invalid_data());
+    };
     let request = waiter.request.as_ref().unwrap();
     assert!(request.key.request.is_some());
     assert_eq!(waiter.request_association, RequestGrantAssociation::GenerationChecked);
@@ -452,7 +456,9 @@ fn require_waiting_episode<'a>(
     assert!(matches!(waiter.granted_kibibytes.as_deref(), None | Some("0")));
     assert!(matches_native_statement(request, statement));
     let held = rows.iter().copied().filter(|row| row.identity == original_holder.identity).collect::<Vec<_>>();
-    let [held] = held.as_slice() else { return Err(crate::read::invalid_data()) };
+    let [held] = held.as_slice() else {
+        return Err(crate::read::invalid_data());
+    };
     assert_eq!(held.request.as_ref().unwrap().key, original_holder.request.as_ref().unwrap().key);
     assert_eq!(held.resource, original_holder.resource);
     assert!(held.shares_admission_resource(waiter, &capture.source()?.target.database().unwrap().database));
@@ -504,7 +510,7 @@ fn native_grant_wait_milliseconds_fit_only_the_same_request_observed_window() {
 fn require_unchanged_execution(original: &RecordedRun, counterpart: &RecordedRun) {
     assert_eq!(original.context.identity.key().unwrap(), counterpart.context.identity.key().unwrap());
     assert_eq!(original.result, counterpart.result);
-    let pair = crate::plan_xml::runtime_input_pair(&original.plan, &counterpart.plan);
+    let pair = culprit_plans::mssql::runtime_input_pair(&original.plan, &counterpart.plan);
     assert_eq!(pair.relation(), NativeRuntimeInputRelation::Same);
     for physical in ["Index Seek", "Key Lookup"] {
         let before = original.operator(physical);
