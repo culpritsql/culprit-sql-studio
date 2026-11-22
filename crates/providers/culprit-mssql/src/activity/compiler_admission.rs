@@ -35,7 +35,7 @@ impl<R: NativeRead> ActivityReader<R> {
                 culprit_core::t!("provider.mssql.compiler_gateways.unavailable_version"),
             ));
         }
-        super::memory::focus::matches_owner(focus, &owner)?;
+        super::participants::matches_owner(focus, &owner)?;
         let target = shared_target(&owner, shared)?;
         let mut observations = Vec::new();
         let membership;
@@ -102,7 +102,7 @@ impl<R: NativeRead> ActivityReader<R> {
         if !owner.same_source(&after) {
             return Err(CollectionStop::SourceChanged.error());
         }
-        super::memory::focus::matches_owner(focus, &after)?;
+        super::participants::matches_owner(focus, &after)?;
         let mut context = owner.completed(&after)?;
         context.target = target;
         if let Some((_, partition)) = shared {

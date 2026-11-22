@@ -5,14 +5,14 @@ use std::time::Instant;
 pub(super) const WRITERS_PER_PATTERN: usize = 8;
 pub(super) const ABBA_INSERTS_PER_WORKER: usize = 2048;
 pub(super) const HOLDER_INSERTS_PER_WORKER: usize = ABBA_INSERTS_PER_WORKER;
-pub(super) const WRITER_APPLICATIONS: [&str; 2] = ["page-fixture-write-a", "page-fixture-write-b"];
+pub(crate) const WRITER_APPLICATIONS: [&str; 2] = ["page-fixture-write-a", "page-fixture-write-b"];
 const HOLDER_LOCK_TIMEOUT_MS: u32 = 5000;
 const MAX_INSERTS: usize = 16_384;
 const _: () = assert!(ABBA_INSERTS_PER_WORKER <= MAX_INSERTS);
 const RUN_MS: u32 = 4000;
 
 #[derive(Debug)]
-pub(super) struct CompletedWorker {
+pub(crate) struct CompletedWorker {
     pub pattern: u8,
     pub inserts: u64,
 }

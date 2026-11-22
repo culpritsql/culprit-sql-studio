@@ -80,6 +80,10 @@ impl PendingActivityFrame {
         };
         Ok(Self { baseline, before, authority, profile })
     }
+    /// The original paid bound remains owned by this pending frame through its existing final recheck.
+    pub(crate) fn native_authority(&self) -> Result<&Context> {
+        self.before.context.as_ref().ok_or_else(|| CollectionStop::SourceUnavailable.error())
+    }
     pub(crate) fn require_complete(&self) -> Result<()> {
         if let Some(error) = &self.baseline.restriction {
             return Err(error.clone());

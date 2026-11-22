@@ -1,3 +1,5 @@
+#[cfg(test)]
+mod admission_prerequisites;
 pub(crate) mod connection_work;
 #[cfg(test)]
 mod fixture_dispatch_tests;

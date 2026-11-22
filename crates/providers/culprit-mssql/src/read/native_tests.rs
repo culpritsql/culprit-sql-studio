@@ -4,7 +4,7 @@ use crate::{conn::SessionKind, test_support::config};
 use culprit_core::telemetry::SourceShutdown;
 mod protocol;
 
-struct ObservedSession {
+pub(super) struct ObservedSession {
     id: i64,
     generation: String,
 }
@@ -14,7 +14,7 @@ struct RequestState {
     wait_type: Option<String>,
 }
 
-async fn fixture() -> (ReadSession, MsClient, ObservedSession) {
+pub(super) async fn fixture() -> (ReadSession, MsClient, ObservedSession) {
     let port = std::env::var("CULPRIT_MSSQL_SOURCE_TEST_PORT").unwrap().parse::<u16>().unwrap();
     let password = std::env::var("CULPRIT_MSSQL_SOURCE_TEST_PASSWORD").unwrap();
     let pool = Arc::new(Pool::new(config(port, "master", &password, "culprit"), None));
@@ -84,12 +84,39 @@ async fn a_schema_lock_bounds_metadata_waiting_and_does_not_leave_a_request_runn
     crate::test_support::batch(&mut observer, &format!("DROP TABLE dbo.[{table}]")).await;
 }
 
-async fn assert_quiet(observer: &mut MsClient, session: &ObservedSession) {
+pub(super) const MAX_QUIET_OBSERVER_QUERIES: u32 = 152;
+pub(super) async fn assert_quiet(observer: &mut MsClient, session: &ObservedSession) -> u32 {
     let deadline = Instant::now() + Duration::from_secs(3);
-    while state(observer, session).await.is_some_and(|state| state.active) {
+    for count in 1..=MAX_QUIET_OBSERVER_QUERIES {
+        if !state(observer, session).await.is_some_and(|state| state.active) {
+            return count;
+        }
         assert!(Instant::now() < deadline, "the original server request survived cancellation");
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
+    panic!("the original request exceeded its finite native quiescence observation cap")
+}
+
+pub(super) const CPU_CANCELLATION_SQL: &str = "SELECT SUM(CONVERT(bigint,CHECKSUM(NEWID()))) AS n FROM sys.all_objects a CROSS JOIN sys.all_objects b CROSS JOIN sys.all_objects c OPTION(MAXDOP 1)";
+pub(super) const MAX_CPU_OBSERVER_QUERIES: u32 = 64;
+
+/// One bounded readiness observer around the same original CPU request; no replacement SQL is submitted.
+pub(super) async fn observe_cpu_start<F: std::future::Future<Output = ReadResult<Vec<Rec>>>>(
+    mut work: std::pin::Pin<&mut F>,
+    observer: &mut MsClient,
+    session: &ObservedSession,
+) -> u32 {
+    for count in 1..=MAX_CPU_OBSERVER_QUERIES {
+        tokio::select! {
+            biased;
+            result = &mut work => panic!("CPU fixture ended before independent observation: {result:?}"),
+            observed = state(observer, session) => {
+                if observed.is_some_and(|state| state.active && state.cpu_ms > 0) { return count; }
+            }
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    panic!("the bounded original CPU request did not establish independent native readiness")
 }
 
 #[tokio::test]
@@ -149,17 +176,9 @@ async fn an_error_token_before_unfinished_work_is_not_a_quiescence_acknowledgeme
 async fn cpu_timeout_stops_the_original_request_on_the_server() {
     let (mut reader, mut observer, session) = fixture().await;
     let result = {
-        let work = reader.query("SELECT SUM(CONVERT(bigint,CHECKSUM(NEWID()))) AS n FROM sys.all_objects a CROSS JOIN sys.all_objects b CROSS JOIN sys.all_objects c OPTION(MAXDOP 1)",vec![],1);
+        let work = reader.query(CPU_CANCELLATION_SQL, vec![], 1);
         tokio::pin!(work);
-        loop {
-            tokio::select! {
-                result=&mut work=>panic!("CPU fixture ended before independent observation: {result:?}"),
-                observed=state(&mut observer,&session)=>{
-                    if observed.is_some_and(|state|state.active && state.cpu_ms>0) {break;}
-                }
-            }
-            tokio::time::sleep(Duration::from_millis(20)).await;
-        }
+        observe_cpu_start(work.as_mut(), &mut observer, &session).await;
         work.await
     };
     let shutdown = reader.close().await;

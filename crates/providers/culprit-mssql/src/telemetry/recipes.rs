@@ -170,6 +170,9 @@ const REGISTRATIONS: &[Registration] = &[
     .bounded(activity::bounded_budget)
     .baseline()
     .version(7),
+    Registration::database("mssql.blocking", RecipeSelector::FocusedBlocking, blocking::source)
+        .on_editions(&[3])
+        .bounded(blocking::bounded_budget),
     Registration::database(
         "mssql.page-wait-targets",
         RecipeSelector::Collection(TelemetryCollection::Snapshot(SnapshotDataset::PageWaitTargets)),

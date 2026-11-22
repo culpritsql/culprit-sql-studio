@@ -101,7 +101,7 @@ impl<R: NativeRead> ActivityReader<R> {
             crate::read::require_primary(initial.activity.writable)?;
         }
         if let Some(focus) = focus {
-            focus::matches_owner(focus, &initial)?;
+            super::participants::matches_owner(focus, &initial)?;
         }
         let layout = fields::Layout::read(&mut self.io, &initial).await?;
         let limit = (self.options.budget.max_snapshot_rows as usize).min(MAX_REQUEST_MEMORY_OBSERVATIONS);

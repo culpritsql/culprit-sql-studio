@@ -41,8 +41,8 @@ fn registered_source_versions_include_native_acquisition_policy_revisions() {
             ("mssql.current-request-memory", 6),
             ("mssql.focused-request-memory", 6),
             ("mssql.cache-entry-memory", 3),
-            ("mssql.task-space", 5),
-            ("mssql.cleanup", 3),
+            ("mssql.task-space", 6),
+            ("mssql.cleanup", 4),
             ("mssql.columnstore-rowgroups", 3),
             ("mssql.cdc", 3),
             ("mssql.backup-history", 3),
@@ -144,7 +144,7 @@ async fn selection(selector: RecipeSelector) -> CollectionSelection {
             panic!("the SQL Server catalog does not declare current request work")
         }
         RecipeSelector::FocusedBlocking => {
-            panic!("the SQL Server catalog does not declare focused blocking")
+            CollectionSelection::FocusedBlocking { focus: Box::new(crate::activity::blocking::tests::focus().await) }
         }
         RecipeSelector::TableMemory => {
             CollectionSelection::TableMemory { target: Box::new(crate::table_memory::tests::selection()) }
@@ -455,7 +455,7 @@ fn hyperscale_component_source_is_independent_and_does_not_grant_automatic_produ
 fn cleanup_recipe_keeps_its_local_three_family_envelope_separate_from_azure_operational() {
     let recipes = declarations();
     let cleanup = recipes.iter().find(|recipe| recipe.id == "mssql.cleanup").unwrap();
-    assert_eq!(cleanup.version, 3);
+    assert_eq!(cleanup.version, 4);
     assert_eq!(cleanup.purpose, RecipePurpose::Investigation);
     assert_eq!(cleanup.admission, RecipeAdmission::Unqualified);
     assert_eq!(cleanup.subjects, vec![RecipeSubject::Database]);

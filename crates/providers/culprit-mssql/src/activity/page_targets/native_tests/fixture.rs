@@ -30,11 +30,11 @@ enum GateConnectionOwner {
     FixtureAdmin,
 }
 
-pub(super) struct Fixture {
+pub(crate) struct Fixture {
     name: String,
-    pub(super) port: u16,
+    pub(crate) port: u16,
     password: String,
-    pub(super) pool: Option<Arc<Pool>>,
+    pub(crate) pool: Option<Arc<Pool>>,
     pub(super) workers: Vec<Option<tokio::task::JoinHandle<Result<super::workload::CompletedWorker>>>>,
     pub(super) writer_workers: Vec<Option<tokio::task::JoinHandle<Result<super::writers::workload::CompletedWriter>>>>,
     pub(super) setup_elapsed_ms: f64,
@@ -286,7 +286,7 @@ impl Fixture {
         ));
         self.index_measurement.as_mut().ok_or_else(|| invalid("owned index measurement was retired"))?.begin().await
     }
-    pub async fn finish_index_measurement(&mut self) -> Result<IndexWindow> {
+    pub(super) async fn finish_index_measurement(&mut self) -> Result<IndexWindow> {
         let result = self
             .index_measurement
             .as_mut()
@@ -451,15 +451,15 @@ async fn bounded_database_cleanup(cleanup: impl Future<Output = Result<()>>) -> 
         .map_err(|_| invalid("owned database cleanup timed out; its admin was retired and cleanup is unconfirmed"))?
 }
 
-pub(super) async fn run(test: impl for<'a> FnOnce(&'a mut Fixture) -> BoxFuture<'a, Result<()>>) {
-    let mut fixture = Fixture::open().await.expect("owned loopback fixture connection");
+pub(crate) async fn run(test: impl for<'a> FnOnce(&'a mut Fixture) -> BoxFuture<'a, Result<()>>) {
+    let mut fixture = Box::pin(Fixture::open()).await.expect("owned loopback fixture connection");
     let outcome = AssertUnwindSafe(async {
-        fixture.initialize().await?;
+        Box::pin(fixture.initialize()).await?;
         test(&mut fixture).await
     })
     .catch_unwind()
     .await;
-    let cleanup = fixture.close().await;
+    let cleanup = Box::pin(fixture.close()).await;
     if let Err(error) = &cleanup {
         eprintln!("owned page fixture cleanup failed: {error}");
     }

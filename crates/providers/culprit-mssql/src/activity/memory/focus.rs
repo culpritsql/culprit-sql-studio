@@ -45,22 +45,6 @@ impl<R: NativeRead> ActivityReader<R> {
     }
 }
 
-pub(crate) fn matches_owner(focus: &ActivityRequestFocus, owner: &crate::local_source::Context) -> Result<()> {
-    if focus.database_writable.is_none() || !owner.is_qualified() {
-        return Err(CollectionStop::SourceUnavailable.error());
-    }
-    let context = owner.capture_context()?;
-    if focus.target.database() != Some(&context.database)
-        || focus.partition != owner.source_partition()?
-        || context.epoch.as_deref() != Some(focus.epoch.as_str())
-        || owner.activity.writable != focus.database_writable
-        || ObservationBounds::new(&focus.original_observed_at, &owner.activity.at).is_none()
-    {
-        return Err(CollectionStop::SourceChanged.error());
-    }
-    Ok(())
-}
-
 struct Selection {
     membership: RequestMemoryMembership,
     subject: Option<NativeIdentity>,

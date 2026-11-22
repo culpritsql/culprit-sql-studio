@@ -1,4 +1,5 @@
 //! One selected-database activity reader. Consumers choose enrichment and presentation over the same facts.
+pub(crate) mod blocking;
 pub(crate) mod capture;
 pub(crate) mod compiler_admission;
 pub(crate) mod database_context;

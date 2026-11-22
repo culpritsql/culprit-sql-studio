@@ -1,6 +1,7 @@
 //! Provider-neutral activity facts and bounded selection of persistent issues and their blocker context.
 use super::*;
-use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::collections::{BTreeMap, BTreeSet};
+mod context;
 mod session_context;
 pub use session_context::*;
 
@@ -501,13 +502,26 @@ impl ActivityEvidence {
     /// Follow previously observed blockers when current native lock details cannot establish their status.
     pub fn context_for(rows: &[ActivityObservation], roots: &BTreeSet<ActivityKey>) -> Result<BTreeSet<ActivityKey>> {
         let index = ActivityIndex::new(rows)?;
-        Ok(context(&roots.iter().cloned().collect::<Vec<_>>(), &index))
+        Ok(context::all_observed(&roots.iter().cloned().collect::<Vec<_>>(), &index))
+    }
+    /// Select the same generation-qualified owner context under the shared focused-reader bounds.
+    /// This bounds a retained frame traversal, not native server work or a complete lock population.
+    pub fn bounded_context_for(
+        rows: &[ActivityObservation],
+        roots: &BTreeSet<ActivityKey>,
+        max_participants: u32,
+    ) -> Result<BlockingContextSelection> {
+        if !(1..=MAX_BLOCKING_PARTICIPANTS).contains(&max_participants) {
+            return Err(CollectionStop::InvalidPage.error());
+        }
+        let index = ActivityIndex::new(rows)?;
+        Ok(context::bounded(&roots.iter().cloned().collect::<Vec<_>>(), &index, max_participants))
     }
     pub fn context_for_frame(
         frame: &ActivityFrameEvidence<'_>,
         roots: &BTreeSet<ActivityKey>,
     ) -> BTreeSet<ActivityKey> {
-        context(&roots.iter().cloned().collect::<Vec<_>>(), frame.index())
+        context::all_observed(&roots.iter().cloned().collect::<Vec<_>>(), frame.index())
     }
     pub fn select(rows: &[ActivityObservation], policy: &ActivityPolicy) -> Result<Self> {
         Self::select_index(&ActivityIndex::new(rows)?, policy)
@@ -531,7 +545,7 @@ impl ActivityEvidence {
             .filter(|(_, conditions)| conditions.contains(&ActivityCondition::Blocked))
             .map(|(key, _)| key.clone())
             .collect();
-        let blocked_context = context(&blocked_roots, index);
+        let blocked_context = context::all_observed(&blocked_roots, index);
         for key in &blocked_context {
             let row = index.by_key[key];
             if index.has_session_generation_authority(&row.key.session)
@@ -547,7 +561,7 @@ impl ActivityEvidence {
         let uncertain: BTreeSet<_> =
             index.by_key.values().filter(|row| row.blocking_uncertain(policy)).map(|row| row.key.clone()).collect();
         let roots = conditions.keys().chain(uncertain.iter()).cloned().collect::<Vec<_>>();
-        let selected = context(&roots, index);
+        let selected = context::all_observed(&roots, index);
         let observations: Vec<_> = selected.iter().map(|key| (*index.by_key[key]).clone()).collect();
         let blocking = blocking_observations(index, &observations);
         Ok(Self { observations, blocking, conditions, uncertain })
@@ -570,6 +584,13 @@ fn blocking_observations(index: &ActivityIndex<'_>, rows: &[ActivityObservation]
 }
 fn recorded_generation_refusal(row: &ActivityObservation) -> Option<&NativeActivityIdentity> {
     (!row.has_session_generation_authority()).then_some(&row.key.session)
+}
+
+/// Acquisition selection only; the retained native frame and its coverage remain independent.
+#[derive(Debug, PartialEq, Eq)]
+pub struct BlockingContextSelection {
+    pub keys: BTreeSet<ActivityKey>,
+    pub closure: BlockingClosureDescription,
 }
 
 pub(super) struct ActivityIndex<'a> {
@@ -604,28 +625,6 @@ impl<'a> ActivityIndex<'a> {
     pub(super) fn session_generation_is_disqualified(&self, identity: &NativeActivityIdentity) -> bool {
         self.disqualified_sessions.contains(identity)
     }
-}
-
-fn context(roots: &[ActivityKey], index: &ActivityIndex<'_>) -> BTreeSet<ActivityKey> {
-    let mut pending: VecDeque<_> = roots.iter().filter(|key| index.by_key.contains_key(*key)).cloned().collect();
-    let mut selected = BTreeSet::new();
-    while let Some(key) = pending.pop_front() {
-        if !selected.insert(key.clone()) {
-            continue;
-        }
-        let row = index.by_key[&key];
-        if !index.has_session_generation_authority(&row.key.session) {
-            continue;
-        }
-        for owner in row.wait.iter().flat_map(|wait| &wait.owners) {
-            if let Some(session) = owner.session() {
-                for row in index.by_session.get(&session).into_iter().flatten() {
-                    pending.push_back(row.key.clone());
-                }
-            }
-        }
-    }
-    selected
 }
 
 pub(super) fn identifier(value: &str) -> bool {
