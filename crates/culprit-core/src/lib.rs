@@ -319,3 +319,6 @@ pub use incident_read::*;
 
 mod diagnostic_ancestry;
 pub use diagnostic_ancestry::*;
+
+mod warehouse_connection;
+pub use warehouse_connection::*;

@@ -292,6 +292,11 @@ export async function demoApi(): Promise<Api> {
   };
   return {
     kind: "demo",
+    warehouseConnections: async () => [],
+    addWarehouseConnection: () => desktopOnly(t("ui.archives.desktop_only")),
+    removeWarehouseConnection: () => desktopOnly(t("ui.archives.desktop_only")),
+    warehouseResources: () => desktopOnly(t("ui.archives.desktop_only")),
+    warehouseIncident: () => desktopOnly(t("ui.archives.desktop_only")),
     connections: async () => connections,
     parseConnection: unsupported,
     testConnection: unsupported,

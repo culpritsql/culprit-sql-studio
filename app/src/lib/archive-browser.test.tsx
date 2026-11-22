@@ -1,0 +1,40 @@
+import { expect, test } from "bun:test";
+import { renderToStaticMarkup } from "react-dom/server";
+import Archives from "../views/Archives";
+import { ArchiveConnectionForm } from "../views/archives/ArchiveConnectionForm";
+import { ArchiveIncident } from "../views/archives/ArchiveIncident";
+import { archiveTimeInput, archiveUtcInput } from "./archive-time";
+import { warehouseIncidentCase } from "../test/warehouse-incidents";
+import { t } from "./i18n";
+test("archive navigation/form are independent of a native database connection and never ask for configuration JSON", () => {
+  const html = renderToStaticMarkup(<Archives />); expect(html).toContain(t("ui.archives.title")); expect(html).toContain(t("ui.archives.intro"));
+  const form = renderToStaticMarkup(<ArchiveConnectionForm client={async () => { throw new Error("not invoked during render"); }} onSaved={() => {}} onCancel={() => {}} />);
+  expect(form).toContain(t("ui.archives.warehouse_profile")); expect(form).toContain(t("ui.archives.recovery_profile"));
+  expect(form).toContain(t("ui.archives.pipeline")); expect(form).not.toContain("<textarea"); expect(form).not.toContain("NewConnection");
+});
+test("UTC around input rejects offset-free native labels, invalid dates and accidental local-time interpretation", () => {
+  expect(archiveUtcInput("2026-11-22T10:23")).toBe("2026-11-22T10:23:00.000Z");
+  for (const value of ["2026-02-30T10:23", "2026-11-22 10:23", "2026-11-22T10:23+02:00", "native-last-request"]) expect(archiveUtcInput(value)).toBeNull();
+  expect(archiveTimeInput("2026-11-22T12:23:17+02:00")).toBe("2026-11-22T10:23");
+});
+test("the same incident fields preserve affected/culprit/candidate roles, caller qualification, context gaps and resolved history", () => {
+  const value = warehouseIncidentCase();
+  const incident = value.report.incidents[0]!;
+  expect(incident.entry.original).toBeNull();
+  expect(incident.revision_reference.stream).toBe("operational-samples");
+  expect(incident.revision_reference.native_key).toEqual({ kind: "operational", data: { source: "culprit-diagnostics", key: incident.entry.revision_id } });
+  expect(incident.culprit_queries[0]!.sql).toEqual({ state: "unavailable", reason: "not-collected" });
+  expect(incident.culprit_queries[0]!.identity?.kind).toBe("native-wait-owner");
+  expect(incident.affected_queries[0]!.causal_role).toBeNull();
+  expect(incident.candidate_queries[0]!.causal_role).toBeNull();
+  const html = renderToStaticMarkup(<ArchiveIncident value={value} />);
+  for (const key of ["ui.archives.affected", "ui.archives.culprits", "ui.archives.candidates", "ui.archives.mechanism", "ui.archives.action", "ui.archives.verification", "ui.archives.caller_limit", "ui.archives.partial"]) expect(html).toContain(t(key));
+  expect(html).toContain("SELECT affected"); expect(html).toContain("SELECT candidate"); expect(html).toContain("Presentation-only blocking-owner role; acquiring SQL is unavailable");
+  expect(html).toContain(t("ui.archives.sql_unknown"));
+  expect(html).toContain("Original schema context unavailable"); expect(html).toContain(value.report.incidents[0]!.entry.phase);
+  expect(html).toContain("database-user"); expect(html).not.toContain("<img"); expect(html).not.toContain("<script>"); expect(html).toContain("&lt;script&gt;"); expect(html).toContain("&lt;img");
+  expect(html).not.toContain("interrupt_session"); expect(html).not.toContain("Kill session");
+  expect(html).not.toMatch(/<details[^>]*\bopen(?:=|\s|>)/);
+  value.report.incidents[0]!.culprit_queries = []; value.report.incidents[0]!.mechanism = null;
+  const unknown = renderToStaticMarkup(<ArchiveIncident value={value} />); expect(unknown).toContain(t("ui.archives.culprit_unknown")); expect(unknown).toContain(t("ui.archives.mechanism_unknown"));
+});

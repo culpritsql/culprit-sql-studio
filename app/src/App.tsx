@@ -32,6 +32,7 @@ const Editor = lazy(() => import("./views/Editor"));
 const Dashboard = lazy(() => import("./views/Dashboard"));
 // Statements coding agents want to run; loaded after first paint, polls only in the desktop app.
 const ApprovalDialog = lazy(() => import("./components/ApprovalDialog"));
+const Archives = lazy(() => import("./views/Archives"));
 const Plans = lazy(() => import("./views/Plans").then((m) => ({ default: m.Plans })));
 
 function viewTitle(view: View): string {
@@ -52,6 +53,8 @@ function viewTitle(view: View): string {
       return t("ui.common.view.plans");
     case "connections":
       return t("ui.common.view.connections");
+    case "archives":
+      return t("ui.archives.title");
   }
 }
 
@@ -75,7 +78,7 @@ export function App() {
   useEffect(() => {
     let cancelled = false;
     loadConnections().then((connections) => {
-      if (cancelled || getState().active !== null) return;
+      if (cancelled || getState().active !== null || getState().view !== "connections") return;
       const last = lastConnection();
       if (last && connections.some((c) => c.name === last)) {
         // The dashboard is where it opens: fetch its code alongside the cached report, not after it.
@@ -89,8 +92,8 @@ export function App() {
   useHotkeys({
     "mod+k": () => setState((s) => ({ palette: !s.palette })),
     "mod+r": () => {
-      const name = getState().active;
-      if (name) scan(name);
+      const state = getState();
+      if (state.view !== "archives" && state.active) scan(state.active);
     },
     ...Object.fromEntries(
       VIEW_KEYS.map((v, i) => [
@@ -108,10 +111,12 @@ export function App() {
   return (
     <div className="shell">
       <Sidebar />
-      <main className={`main ${view !== "connections" && environment === "production" ? "is-production" : ""}`}>
-        {view !== "connections" && <TopBar />}
+      <main className={`main ${view !== "connections" && view !== "archives" && environment === "production" ? "is-production" : ""}`}>
+        {view !== "connections" && view !== "archives" && <TopBar />}
         <div className="view">
-          {view === "plans" ? (
+          {view === "archives" ? (
+            <Suspense fallback={<div className="empty"><div className="spinner" /></div>}><Archives /></Suspense>
+          ) : view === "plans" ? (
             <Suspense fallback={<div className="empty"><div className="spinner" /></div>}>
               <Plans />
             </Suspense>

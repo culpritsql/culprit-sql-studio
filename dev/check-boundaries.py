@@ -13,7 +13,7 @@ FLEET = STORES | RECOVERY | {"culprit-collector"}
 LOCAL_DATABASE_FILES = {"tempfile", "rusqlite"}
 
 
-def dependencies(package, features=None):
+def tree_output(package, features, output_format):
     # None proves the shipped default package. An explicit empty selection proves the adapter's read-only build.
     selection = []
     if features is not None:
@@ -22,12 +22,27 @@ def dependencies(package, features=None):
             selection += ["--features", features]
     result = subprocess.run(
         ["cargo", "tree", "--locked", "--package", package, "--edges", "normal,build",
-         "--prefix", "none", "--format", "{p}", *selection], cwd=ROOT, check=True, text=True, capture_output=True)
-    return {line.split()[0] for line in result.stdout.splitlines() if line.strip()} - {package}
+         "--prefix", "none", "--format", output_format, *selection], cwd=ROOT, check=True, text=True, capture_output=True)
+    return result.stdout.splitlines()
+
+
+def dependencies(package, features=None):
+    return {line.split()[0] for line in tree_output(package, features, "{p}") if line.strip()} - {package}
+
+
+def verify_read_features(package, features=None):
+    for line in tree_output(package, features, "{p}|{f}"):
+        identity, _, enabled = line.partition("|")
+        if not identity.strip():
+            continue
+        adapter = identity.split()[0]
+        if adapter in STORES | RECOVERY and {"default", "write"} & set(enabled.split(",")):
+            raise RuntimeError(f"{package} enables ingestion features on {adapter}: {enabled}")
+    print(f"{package}: warehouse and recovery adapters have read-only features")
 
 
 def default_rules():
-    rules = {package: FLEET for package in ["culprit-mcp", "culprit-app"]}
+    rules = {"culprit-mcp": FLEET, "culprit-app": {"culprit-collector"}}
     rules.update({package: FLEET | CLOUD | AUTHENTICATION | {"culprit-engine"} for package in SOURCES})
     rules.update({package: SOURCES | CLOUD | AUTHENTICATION | {"culprit-engine"} for package in STORES | RECOVERY})
     rules.update({package: FLEET | CLOUD | SOURCES | {"culprit-engine"} for package in AUTHENTICATION})
@@ -67,8 +82,12 @@ def main():
         verify(package, None, forbidden)
     for features, forbidden in engine_compositions():
         verify("culprit-engine", features, forbidden)
+        if features.startswith("warehouse-"):
+            verify_read_features("culprit-engine", features)
     for package, forbidden in sorted(read_adapter_rules().items()):
         verify(package, "", forbidden)
+        verify_read_features(package, "")
+    verify_read_features("culprit-app")
 
 
 if __name__ == "__main__":

@@ -18,7 +18,8 @@ tauri-build = { version = "2.7.2", features = [] }
 [dependencies]
 culprit-auth.workspace = true
 culprit-core.workspace = true
-culprit-engine.workspace = true
+culprit-engine = { workspace = true, features = ["warehouse-adx", "warehouse-clickhouse", "evidence-azure", "evidence-s3"] }
+culprit-read.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tauri = { version = "2.12.3", features = [] }

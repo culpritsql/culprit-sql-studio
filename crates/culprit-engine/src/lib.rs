@@ -118,6 +118,8 @@ pub type ProviderFactory =
     Arc<dyn Fn(&ConnectionSpec, culprit_core::ProviderReadContext) -> Result<Box<dyn Provider>> + Send + Sync>;
 
 pub struct Workspace {
+    #[cfg(feature = "evidence")]
+    warehouse: warehouse_connections::WarehouseConnections,
     paths: Paths,
     store: Store,
     saved: saved::SavedQueries,
@@ -162,7 +164,11 @@ impl Workspace {
     fn with_paths(paths: Paths, secrets: Arc<dyn SecretStore>) -> Workspace {
         let store = Store::new(&paths);
         let saved = saved::SavedQueries::new(&paths.config);
+        #[cfg(feature = "evidence")]
+        let warehouse = warehouse_connections::WarehouseConnections::new(paths.config.clone());
         Workspace {
+            #[cfg(feature = "evidence")]
+            warehouse,
             paths,
             store,
             saved,
@@ -265,6 +271,8 @@ impl Workspace {
     /// Keep passwords and sign-in tokens somewhere else (a vault, a test double).
     pub fn with_secrets(mut self, secrets: Arc<dyn SecretStore>) -> Workspace {
         self.secrets = secrets;
+        #[cfg(feature = "evidence")]
+        self.warehouse.clear_handles();
         self
     }
     /// Unattended database token authentication uses this explicit provider without interactive fallback.
@@ -985,6 +993,8 @@ pub use provider_reads::{explain_provider_acquisition, project_probe_attempt, pr
 #[cfg(feature = "evidence")]
 pub mod evidence;
 pub mod recovery_config;
+#[cfg(feature = "evidence")]
+mod warehouse_connections;
 
 mod warehouse_incidents;
 pub use warehouse_incidents::{WarehouseIncidentReader, WarehouseIncidentTask, WarehouseResourcesTask};

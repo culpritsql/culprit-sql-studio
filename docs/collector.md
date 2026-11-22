@@ -62,6 +62,19 @@ ten-minute window and resolves published incident revisions and their exact orig
 limits remain explicit; incomplete discovery returns exit code 2. The lower-level per-capture commands below
 remain available for inspecting individual evidence families.
 
+### Desktop archive connections
+
+Open **Telemetry archives** in the sidebar without opening a database connection. Add an ADX or ClickHouse
+endpoint and database, then select the corresponding Blob or S3 original-evidence location. Warehouse and recovery
+credentials have independent names; Azure CLI roles can select different tenants. ClickHouse passwords go into
+the operating-system keychain. Archive metadata is saved separately in `warehouse-connections.toml`.
+
+Choose a published database observation and a UTC time to inspect its retained incidents and revision history.
+Optional acquisition bounds narrow resource discovery; they do not replace independently recorded native clocks.
+The view keeps affected queries, evidenced culprits, candidates, database-reported callers, actions and verification
+separate. Coverage details start folded. Missing or incomplete evidence remains explicit. Reads use the same
+bounded evidence service as CLI and MCP and never fall back to a production connection.
+
 ## Components and ownership
 
 | Component | Responsibility |
@@ -82,7 +95,7 @@ remain available for inspecting individual evidence families.
 Additional sources implement the existing provider/telemetry contracts. Additional recovery or analytical adapters
 implement their respective interfaces; they do not acquire database connections. Interactive analysis still consumes
 `Snapshot` through the existing pure analysis pipeline. Reading archived telemetry back into a Culprit report is a
-separate consumer; this service does not add an ADX-backed desktop connection.
+separate consumer; Desktop archive connections use that read-only service rather than the collector runtime.
 
 Embedders can read a specifically selected committed capture through
 `culprit_evidence::analytical::evidence::EvidenceReader`; the store crates expose `evidence::AdxReadStore` and

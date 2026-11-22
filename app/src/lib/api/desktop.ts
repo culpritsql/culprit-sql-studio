@@ -1,3 +1,4 @@
+import { desktopWarehouses } from "./warehouses";
 import type { Api } from "../api";
 import { language } from "../i18n";
 import { desktopConnections } from "./connections";
@@ -23,6 +24,7 @@ export async function desktopApi(): Promise<Api> {
   await invoke("set_language", { code: language() });
   return {
     kind: "desktop",
+    ...desktopWarehouses(invoke),
     ...connections,
     ...discovery,
     ...desktopAuthentication(invoke),

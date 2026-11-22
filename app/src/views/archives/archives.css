@@ -1,0 +1,33 @@
+.archives .archive-form fieldset {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.archives .field {
+  display: grid;
+  gap: 5px;
+  margin-block: 10px;
+  color: var(--text-2);
+}
+.archives .field input,
+.archives .field select {
+  min-width: 0;
+  width: 100%;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--raised);
+  color: var(--text);
+  padding: 7px 9px;
+}
+.archives .field input:focus-visible,
+.archives .field select:focus-visible { outline: 2px solid var(--focus); }
+.archives .btn { max-inline-size: 100%; min-block-size: 26px; height: auto; padding: 4px 10px; white-space: normal; overflow-wrap: anywhere; }
+.archives .conn-grid { margin-block: 16px; }
+.archives .conn-grid > button { display: block; padding: 8px 10px; line-height: 1.5; text-align: start; }
+.archives pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+@container (max-width: 560px) {
+  .archives .archive-form fieldset { grid-template-columns: minmax(0, 1fr); }
+}

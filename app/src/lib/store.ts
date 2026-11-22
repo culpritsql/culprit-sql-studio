@@ -14,7 +14,7 @@ import { populationKey, samePopulation, type ReportSelection } from "./report-se
 export type { ReportState } from "./report-requests";
 
 /** `dashboard` is where a connection opens; `overview` is the ranked findings list (titled "Findings"). */
-export type View = "dashboard" | "overview" | "queries" | "live" | "schema" | "editor" | "plans" | "connections";
+export type View = "dashboard" | "overview" | "queries" | "live" | "schema" | "editor" | "plans" | "connections" | "archives";
 
 export type State = {
   connections: ConnectionInfo[];

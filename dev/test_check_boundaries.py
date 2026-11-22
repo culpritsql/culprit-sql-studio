@@ -37,6 +37,29 @@ class DependencyBoundaryTests(unittest.TestCase):
         self.assertTrue((BOUNDARIES.FLEET | BOUNDARIES.SOURCES | BOUNDARIES.AUTHENTICATION |
                          BOUNDARIES.CLOUD | {"culprit-auth", "culprit-engine", "tempfile", "rusqlite"}) <= forbidden)
 
+    def test_desktop_can_read_archives_while_ingestion_and_mcp_dependencies_stay_separate(self):
+        rules = BOUNDARIES.default_rules()
+        self.assertIn("culprit-collector", rules["culprit-app"])
+        self.assertFalse((BOUNDARIES.STORES | BOUNDARIES.RECOVERY) & rules["culprit-app"])
+        self.assertTrue(BOUNDARIES.FLEET <= rules["culprit-mcp"])
+
+    def test_read_graph_refuses_write_features_even_without_a_collector_package(self):
+        for package in BOUNDARIES.STORES | BOUNDARIES.RECOVERY:
+            for feature in ["write", "default", "read,write"]:
+                reply = subprocess.CompletedProcess([], 0, stdout=f"culprit-app v0.5.6|\n{package} v0.5.6|{feature}\n")
+                with self.subTest(package=package, feature=feature), patch.object(BOUNDARIES.subprocess, "run", return_value=reply):
+                    with self.assertRaisesRegex(RuntimeError, package):
+                        BOUNDARIES.verify_read_features("culprit-app")
+
+    def test_read_feature_query_uses_the_actual_normal_and_build_graph(self):
+        reply = subprocess.CompletedProcess([], 0, stdout="culprit-app v0.5.6|\nculprit-store-adx v0.5.6|\n")
+        with patch.object(BOUNDARIES.subprocess, "run", return_value=reply) as run, redirect_stdout(StringIO()):
+            BOUNDARIES.verify_read_features("culprit-app")
+            arguments = run.call_args.args[0]
+            self.assertEqual(arguments[arguments.index("--edges") + 1], "normal,build")
+            self.assertEqual(arguments[arguments.index("--format") + 1], "{p}|{f}")
+            self.assertNotIn("--no-default-features", arguments)
+
     def test_existing_writer_selections_are_distinct_from_the_two_reader_compositions(self):
         selections = dict(BOUNDARIES.engine_compositions())
         self.assertNotIn("culprit-collector", selections["store-adx,recovery-azure"])
@@ -74,8 +97,10 @@ class DependencyBoundaryTests(unittest.TestCase):
         def graph(package, features=None):
             calls.append((package, features))
             return {"culprit-collector"} if package in BOUNDARIES.STORES | BOUNDARIES.RECOVERY and features is None else set()
-        with patch.object(BOUNDARIES, "dependencies", side_effect=graph), redirect_stdout(StringIO()):
+        with patch.object(BOUNDARIES, "dependencies", side_effect=graph), \
+                patch.object(BOUNDARIES, "verify_read_features") as read_features, redirect_stdout(StringIO()):
             BOUNDARIES.main()
+        read_features.assert_any_call("culprit-app")
         for package in BOUNDARIES.STORES | BOUNDARIES.RECOVERY:
             self.assertIn((package, None), calls)
             self.assertIn((package, ""), calls)

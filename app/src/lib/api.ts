@@ -1,3 +1,4 @@
+import type { WarehousesApi } from "./api/warehouses";
 import type { ConnectionsApi } from "./api/connections";
 import type { DiscoveryApi } from "./api/discovery";
 import type { AuthenticationApi } from "./api/authentication";
@@ -17,7 +18,7 @@ import type { ErrorDetail } from "../gen/ErrorDetail";
 
 export type ApiError = { code: string; message: string; hint: string | null; detail?: ErrorDetail | null };
 
-export interface Api extends ConnectionsApi, DiscoveryApi, AuthenticationApi, ReportsApi, PlansApi, ActivityApi, TimelineApi, EditorApi, FilesApi, ApprovalsApi, UpdatesApi, LocalizationApi {
+export interface Api extends WarehousesApi, ConnectionsApi, DiscoveryApi, AuthenticationApi, ReportsApi, PlansApi, ActivityApi, TimelineApi, EditorApi, FilesApi, ApprovalsApi, UpdatesApi, LocalizationApi {
   readonly kind: "desktop" | "demo";
 }
 

@@ -47,6 +47,7 @@ function UpdateItem() {
 function ConnectionList() {
   const connections = useStore((s) => s.connections);
   const active = useStore((s) => s.active);
+  const view = useStore((s) => s.view);
   if (connections.length === 0) return null;
   return (
     <div className="side-connections">
@@ -60,7 +61,7 @@ function ConnectionList() {
         g.items.map((c) => (
           <button type="button"
             key={c.name}
-            className={`nav-item conn-item ${c.name === active ? "active" : ""}`}
+            className={`nav-item conn-item ${c.name === active && view !== "archives" ? "active" : ""}`}
             title={`${c.display} · ${t("ui.common.environment", { environment: c.environment })}`}
             onClick={() => (c.name === active ? setState({ view: "dashboard" }) : openConnection(c.name))}
           >
@@ -99,8 +100,9 @@ export function Sidebar() {
       <button type="button"
         className="conn-switch"
         onClick={() => setState({ view: "connections" })}
-        title={report ? `${active} · ${report.snapshot.server.product} · ${report.snapshot.server.database}` : undefined}
+        title={view === "archives" ? t("ui.archives.read_only") : report ? `${active} · ${report.snapshot.server.product} · ${report.snapshot.server.database}` : undefined}
       >
+        {view === "archives" ? <span><div className="name">{t("ui.archives.title")}</div><div className="sub">{t("ui.archives.read_only")}</div></span> : <>
         {connection ? (
           <EngineBadge engine={connection.engine} environment={connection.environment} product={report?.snapshot.server.product ?? connection.last_report?.product} size="md" />
         ) : (
@@ -118,6 +120,7 @@ export function Sidebar() {
             <div className="sub">{connection ? connection.display : t("ui.sidebar.choose_database")}</div>
           )}
         </span>
+        </>}
         <ChevronsUpDown size={14} className="chev" />
       </button>
       <button type="button" className="side-search" onClick={() => setState({ palette: true })} aria-label={keys(t("ui.sidebar.search_label"))}>
@@ -135,10 +138,11 @@ export function Sidebar() {
           ))}
         </nav>
       )}
+      <button type="button" className={`nav-item ${view === "archives" ? "active" : ""}`} onClick={() => setState({ view: "archives" })}>{t("ui.archives.title")}</button>
       <ConnectionList />
       <div className="sidebar-foot">
         <UpdateItem />
-        {active && (
+        {active && view !== "archives" && (
           <button type="button" className="scan-status" onClick={() => scan(active)} title={keys(t("ui.sidebar.rescan_title"))}>
             {scanning ? <span className="spinner" style={{ width: 12, height: 12 }} /> : <RefreshCw size={13} />}
             {scanning ? t("ui.sidebar.scanning") : report ? t("ui.sidebar.scanned", { ago: ago(report.snapshot.taken_at) }) : t("ui.sidebar.scan")}

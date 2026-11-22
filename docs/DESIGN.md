@@ -41,6 +41,17 @@ Connections (start)
 
 ## Screens
 
+### Telemetry archives
+
+The sidebar reaches saved ADX and ClickHouse archives without opening a database connection. A typed form selects
+the warehouse, original-evidence location and independent credentials. Select a published database observation,
+then a UTC time to inspect retained incident evidence and history. Acquisition bounds and native clocks stay
+distinct. Coverage and query details start folded; affected queries, culprits and candidates remain separate.
+
+Archive navigation preserves the last native workspace without displaying its scan controls, report results or
+unqualified command-palette actions. Leaving the view or changing the archive, time or language cancels its owned
+read; late results cannot replace a newer selection. Archive errors offer no live-database fallback.
+
 ### Connections
 
 - Recent connections use cards with a clear identity, product/database and endpoint, then the saved report summary. Scan age and connection settings occupy a separate footer. The main card button opens the connection; settings do not trigger it. Cards use two columns when space permits and one on narrower panes. Environment colour remains explicit (production red, staging amber, development blue, local green).

@@ -26,6 +26,7 @@ function views(): { view: View; title: string; icon: ReactNode }[] {
     { view: "schema", title: t("ui.palette.view.schema"), icon: <Table2 size={13} /> },
     { view: "editor", title: t("ui.palette.view.editor"), icon: <SquareTerminal size={13} /> },
     { view: "plans", title: t("ui.palette.view.plans"), icon: <GitCompareArrows size={13} /> },
+    { view: "archives", title: t("ui.archives.title"), icon: <Database size={13} /> },
     { view: "connections", title: t("ui.palette.view.connections"), icon: <Database size={13} /> },
   ];
 }
@@ -64,14 +65,15 @@ function matchTier(text: string, query: string): number {
 
 export function CommandPalette() {
   const connections = useStore((s) => s.connections);
-  const report = useStore(currentReport);
-  const active = useStore((s) => s.active);
+  const archives = useStore((s) => s.view === "archives");
+  const report = useStore((s) => s.view === "archives" ? null : currentReport(s));
+  const active = useStore((s) => s.view === "archives" ? null : s.active);
   const saved = useStore((s) => s.saved);
   const [query, setQuery] = useState("");
 
   useEffect(() => {
-    if (saved === null) void loadSaved();
-  }, [saved]);
+    if (!archives && saved === null) void loadSaved();
+  }, [archives, saved]);
   const [index, setIndex] = useState(0);
   const [theme, , setTheme] = useTheme();
   const language = useLanguage();
@@ -121,13 +123,13 @@ export function CommandPalette() {
     });
     const engine = connections.find((c) => c.name === active)?.engine;
     const sessions = !engine || can(engine, "sessions");
-    views().filter((v) => (active || v.view === "plans" || v.view === "connections") && (v.view !== "live" || sessions)).forEach((v) =>
+    views().filter((v) => (active || v.view === "plans" || v.view === "connections" || v.view === "archives") && (v.view !== "live" || sessions)).forEach((v) =>
       list.push({ id: `view:${v.view}`, section: goTo, title: v.title, icon: icon(v.icon), run: () => setState({ view: v.view, palette: false }) }),
     );
     if (active && engine && can(engine, "deadlocks")) {
       list.push({ id: "view:deadlocks", section: goTo, title: t("ui.palette.deadlocks"), hint: t("ui.palette.deadlocks_hint"), icon: icon(<Skull size={13} />), run: () => (close(), openLive("deadlocks")) });
     }
-    saved?.forEach((q) => {
+    if (!archives) saved?.forEach((q) => {
       const hint = q.connection ? t("ui.palette.saved_query_on", { connection: q.connection }) : t("ui.palette.saved_query");
       list.push({ id: `s:${q.name}`, section: t("ui.palette.section.saved"), title: t("ui.palette.run_saved", { name: q.name }), hint, icon: icon(<Bookmark size={13} />), run: () => setState({ view: "editor", editorSaved: { name: q.name, run: true }, palette: false }) });
     });
@@ -152,7 +154,7 @@ export function CommandPalette() {
     );
     list.push({ id: "new", section: actions, title: t("ui.palette.add_connection"), icon: icon(<Plus size={13} />), run: () => setState({ view: "connections", palette: false }) });
     return list;
-  }, [connections, report, active, saved, theme, setTheme, update, autoCheck, language]);
+  }, [connections, report, active, saved, theme, setTheme, update, autoCheck, language, archives]);
 
   const results = useMemo(() => {
     const scored = items

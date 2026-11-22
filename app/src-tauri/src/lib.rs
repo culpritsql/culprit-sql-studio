@@ -25,12 +25,14 @@ pub fn run_app() -> std::result::Result<(), Box<dyn std::error::Error>> {
         .manage(incident_history::HistoryImports::default())
         .manage(commands::editor::PreviewRequests::default())
         .manage(commands::connections::ConnectionTests::default())
+        .manage(commands::warehouses::WarehouseRequests::default())
         .on_window_event(|window, event| {
             if matches!(event, tauri::WindowEvent::Destroyed) {
                 window.state::<commands::discovery::DiscoveryRequests>().close(window.label());
                 window.state::<incident_history::HistoryImports>().0.close(window.label());
                 window.state::<commands::editor::PreviewRequests>().close(window.label());
                 window.state::<commands::connections::ConnectionTests>().close(window.label());
+                window.state::<commands::warehouses::WarehouseRequests>().close(window.label());
             }
         })
         .setup(move |app| {
@@ -47,6 +49,7 @@ pub fn run_app() -> std::result::Result<(), Box<dyn std::error::Error>> {
                 webview.state::<incident_history::HistoryImports>().0.close(webview.label());
                 webview.state::<commands::editor::PreviewRequests>().close(webview.label());
                 webview.state::<commands::connections::ConnectionTests>().close(webview.label());
+                webview.state::<commands::warehouses::WarehouseRequests>().close(webview.label());
                 return;
             }
             // The window starts hidden so it never flashes white; show it once the page (and its CSS) is in.
@@ -59,6 +62,13 @@ pub fn run_app() -> std::result::Result<(), Box<dyn std::error::Error>> {
         })
         .invoke_handler(tauri::generate_handler![
             commands::localization::set_language,
+            commands::warehouses::begin_warehouse_read,
+            commands::warehouses::cancel_warehouse_read,
+            commands::warehouses::warehouse_connections,
+            commands::warehouses::add_warehouse_connection,
+            commands::warehouses::remove_warehouse_connection,
+            commands::warehouses::warehouse_resources,
+            commands::warehouses::warehouse_incident,
             commands::connections::connections,
             commands::connections::parse_connection,
             commands::connections::test_connection,

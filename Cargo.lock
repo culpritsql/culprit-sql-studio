@@ -946,6 +946,7 @@ dependencies = [
  "culprit-auth",
  "culprit-core",
  "culprit-engine",
+ "culprit-read",
  "objc2",
  "objc2-app-kit",
  "objc2-core-foundation",

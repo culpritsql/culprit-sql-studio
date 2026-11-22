@@ -89,6 +89,13 @@ impl EvidenceRuntime {
             Some(credentials) => credentials.clone(),
             None => Arc::new(config.credentials()?),
         };
+        self.evidence_with_credentials(config, credentials)
+    }
+    pub(crate) fn evidence_with_credentials(
+        &self,
+        config: &EvidenceConfig,
+        credentials: Arc<dyn culprit_auth::CredentialResolver>,
+    ) -> Result<EvidenceService> {
         let recovery = self.recovery.configure(&config.recovery, credentials.as_ref())?;
         let store = self.evidence_stores.configure(&config.warehouse, credentials.as_ref())?;
         let contract = Contract::new(

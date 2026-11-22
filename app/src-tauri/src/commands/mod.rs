@@ -12,3 +12,5 @@ pub(crate) mod reports;
 pub(crate) mod timeline;
 pub(crate) mod updates;
 pub(crate) mod workspace;
+
+pub(crate) mod warehouses;
