@@ -538,6 +538,9 @@ async fn run(command: Command, out: &Out) -> culprit_core::Result<u8> {
     if let Command::Resources(args) = command {
         return resources_cmd::run(args, out).await;
     }
+    if let Command::Incident(args) = command {
+        return incident_cmd::run(args, out).await;
+    }
     let mut ws = Workspace::open()?;
     // A device-code sign-in needs a person to read the code; scripts and agents get an error with a hint instead.
     if std::io::stderr().is_terminal() && !matches!(&command, Command::Collect(_)) {
@@ -573,7 +576,9 @@ fn dispatch<'a>(command: Command, ws: Workspace, out: &'a Out) -> CommandTask<'a
         }),
         Command::Dashboard(args) => Box::pin(async move { dashboard_cmd::run(&ws, args, out).await }),
         Command::Doctor { connection } => Box::pin(async move { commands::doctor(&ws, &connection, out).await }),
-        Command::Incident(args) => Box::pin(async move { incident_cmd::run(&ws, args, out).await }),
+        Command::Incident(_) => {
+            Box::pin(async move { unreachable!("archive incident dispatch precedes workspace creation") })
+        }
         Command::Resources(_) => {
             Box::pin(async move { unreachable!("archive resources dispatch precedes workspace creation") })
         }

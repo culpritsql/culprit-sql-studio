@@ -158,17 +158,17 @@ impl Archive {
     /// All originals are canonical fixture captures. Only committed root/index ownership is assembled here,
     /// using the existing exact object reader and publication projector; no substitute decoder or authority.
     async fn new(cases: Vec<(CollectionDescription, Vec<TelemetryRecord>)>) -> Self {
+        Self::new_at(cases, "2026-11-22T10:00:00.123456789Z", "2026-11-22T10:00:01.123456789Z").await
+    }
+    async fn new_at(
+        cases: Vec<(CollectionDescription, Vec<TelemetryRecord>)>,
+        collected_from: &str,
+        collected_until: &str,
+    ) -> Self {
         let mut fixtures = Vec::new();
         for (i, (source, rows)) in cases.into_iter().enumerate() {
             fixtures.push(
-                ReadOnlyFixture::capture_at(
-                    source,
-                    rows,
-                    800_001 + i as u64,
-                    "2026-11-22T10:00:00.123456789Z",
-                    "2026-11-22T10:00:01.123456789Z",
-                )
-                .await,
+                ReadOnlyFixture::capture_at(source, rows, 800_001 + i as u64, collected_from, collected_until).await,
             );
         }
         let contract = fixtures[0].contract.clone();
@@ -554,4 +554,157 @@ async fn namespace_changed_between_candidate_discovery_and_reopening_original_is
         1,
         "raced namespace cannot reach public source projection"
     );
+}
+
+async fn named_archive(cases: Vec<(CollectionDescription, Vec<TelemetryRecord>)>) -> Archive {
+    Archive::new_at(cases, "2020-01-01T12:00:00Z", "2020-01-01T12:00:01Z").await
+}
+#[tokio::test]
+async fn friendly_name_pages_all_same_selector_originals_and_keeps_one_budget_through_incident_assembly() {
+    let original = test_support::informational_query_evidence();
+    let name = original.0.target.database().unwrap().database.clone();
+    // More than one real 32-row page. These are independent originals of the same exact route, not 34 databases.
+    let cases = vec![original; 34];
+    let archive = named_archive(cases.clone()).await;
+    let report = archive
+        .service
+        .incident_named(
+            &name,
+            "2020-01-01T12:00:00Z",
+            super::super::IncidentRequest::default_budget(),
+            &archive.store.cancellation,
+        )
+        .await
+        .unwrap();
+    let queries = archive.store.requests.load(Ordering::SeqCst) as u32;
+    assert!(queries > 34, "resource pages, publication verification and incident discovery all dispatch");
+    assert_eq!(report.archive_work.queries, queries);
+    assert!(report.archive_work.proof_bytes > 0);
+    assert_eq!(report.archive_work.recovery_objects, 0);
+    assert!(
+        report.incidents.is_empty(),
+        "this fixture publishes originals but no Gold incidents; no native-health claim"
+    );
+    let limited = named_archive(cases).await;
+    let result = limited
+        .service
+        .incident_named(
+            &name,
+            "2020-01-01T12:00:00Z",
+            EvidenceReadBudget { max_queries: queries - 1, ..super::super::IncidentRequest::default_budget() },
+            &limited.store.cancellation,
+        )
+        .await;
+    assert_eq!(result.unwrap_err().detail, Some(ErrorDetail::Delivery(DeliveryProblem::Capacity)));
+    assert!(
+        (limited.store.requests.load(Ordering::SeqCst) as u32) < queries,
+        "name resolution cannot renew its consumed allowance before incident discovery"
+    );
+}
+#[tokio::test]
+async fn friendly_name_refuses_distinct_routes_incomplete_originals_and_complete_missing_names() {
+    let (source, _) = test_support::informational_query_evidence();
+    let name = source.target.database().unwrap().database.clone();
+    let mut foreign = source.clone();
+    let CollectionTarget::Database(database) = &mut foreign.target else { panic!() };
+    let culprit_core::DatabaseLocation::Server { host, .. } = &mut database.location else { panic!() };
+    *host = "different-original-endpoint.invalid".into();
+    let ambiguous = named_archive(vec![(source.clone(), vec![]), (foreign, vec![])]).await;
+    let result = ambiguous
+        .service
+        .incident_named(
+            &name,
+            "2020-01-01T12:00:00Z",
+            super::super::IncidentRequest::default_budget(),
+            &ambiguous.store.cancellation,
+        )
+        .await;
+    assert_eq!(result.unwrap_err().message, t!("incident.cli.resource_ambiguous"));
+    let missing = named_archive(vec![(source, vec![])]).await;
+    let result = missing
+        .service
+        .incident_named(
+            "not-an-observed-name",
+            "2020-01-01T12:00:00Z",
+            super::super::IncidentRequest::default_budget(),
+            &missing.store.cancellation,
+        )
+        .await;
+    assert_eq!(result.unwrap_err().message, t!("incident.cli.resource_missing"));
+    *missing.store.fault.lock().unwrap() = Fault::NoPublication;
+    let result = missing
+        .service
+        .incident_named(
+            &name,
+            "2020-01-01T12:00:00Z",
+            super::super::IncidentRequest::default_budget(),
+            &missing.store.cancellation,
+        )
+        .await;
+    assert_eq!(result.unwrap_err().message, t!("incident.cli.resource_incomplete"));
+}
+#[tokio::test]
+async fn friendly_name_invalid_time_cancelled_admission_and_proof_limit_never_fall_back_to_a_source() {
+    let (source, rows) = test_support::informational_query_evidence();
+    let name = source.target.database().unwrap().database.clone();
+    let archive = named_archive(vec![(source, rows)]).await;
+    assert!(
+        archive
+            .service
+            .incident_named(
+                &name,
+                "invalid-clock",
+                super::super::IncidentRequest::default_budget(),
+                &archive.store.cancellation
+            )
+            .await
+            .is_err()
+    );
+    assert_eq!(archive.store.requests.load(Ordering::SeqCst), 0);
+    archive.store.cancellation.cancel();
+    let result = archive
+        .service
+        .incident_named(
+            &name,
+            "2020-01-01T12:00:00Z",
+            super::super::IncidentRequest::default_budget(),
+            &archive.store.cancellation,
+        )
+        .await;
+    assert_eq!(result.unwrap_err().detail, Some(ErrorDetail::CollectionStopped(CollectionStop::Cancelled)));
+    assert_eq!(archive.store.requests.load(Ordering::SeqCst), 0);
+    let fresh = CollectionCancellation::default();
+    let result = archive
+        .service
+        .incident_named(
+            &name,
+            "2020-01-01T12:00:00Z",
+            EvidenceReadBudget { max_proof_bytes: 1, ..super::super::IncidentRequest::default_budget() },
+            &fresh,
+        )
+        .await;
+    assert_eq!(result.unwrap_err().detail, Some(ErrorDetail::Delivery(DeliveryProblem::Capacity)));
+    assert_eq!(archive.store.requests.load(Ordering::SeqCst), 0);
+}
+
+#[test]
+fn concrete_named_lookup_future_and_report_fit_the_existing_read_action_storage_ceiling() {
+    use std::{future::Future, mem::size_of};
+    fn future_bytes<A, F, T>(_: F) -> usize
+    where
+        F: FnOnce(A) -> T,
+        T: Future,
+    {
+        size_of::<T>()
+    }
+    let bytes = future_bytes(
+        |(service, name, around, cancellation): (
+            &'static EvidenceService,
+            &'static str,
+            &'static str,
+            &'static CollectionCancellation,
+        )| service.incident_named(name, around, super::super::IncidentRequest::default_budget(), cancellation),
+    );
+    assert!(bytes <= 64 * 1024, "actual named lookup future: {bytes} bytes");
+    assert!(size_of::<Result<IncidentReadReport>>() <= 16 * 1024);
 }

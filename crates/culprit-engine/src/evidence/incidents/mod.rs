@@ -12,6 +12,7 @@ use std::{
     sync::Arc,
 };
 mod ancestry;
+mod named;
 use ancestry::Ancestry;
 
 const INCIDENT_AROUND_SECONDS: i64 = 5 * 60;
@@ -38,10 +39,7 @@ impl IncidentRequest {
         Self::around_selector(IncidentDatabaseSelector::from_route(database)?, at, budget)
     }
     fn around_selector(database: IncidentDatabaseSelector, at: &str, budget: EvidenceReadBudget) -> Result<Self> {
-        if ObservationBounds::new(at, at).is_none() {
-            return Err(invalid());
-        }
-        let at = chrono::DateTime::parse_from_rfc3339(at).map_err(|_| invalid())?.with_timezone(&chrono::Utc);
+        let at = around_clock(at)?;
         let radius = chrono::Duration::seconds(INCIDENT_AROUND_SECONDS);
         let request = Self {
             database,
@@ -90,9 +88,7 @@ impl EvidenceService {
     ) -> Result<IncidentReadReport> {
         selector.validate()?;
         let request = IncidentRequest::around_selector(selector.database.clone(), around, budget)?;
-        let mut session = self.session(budget, cancellation)?;
-        session.validate_resource_selector(selector).await?;
-        Assembly::new(session, &self.contract).read(&request).await
+        complete_resource(self.session(budget, cancellation)?, &self.contract, selector, request).await
     }
 
     pub async fn incident(
@@ -103,6 +99,23 @@ impl EvidenceService {
         request.discovery(None, None).within_budget(request.budget)?;
         Assembly::new(self.session(request.budget, cancellation)?, &self.contract).read(request).await
     }
+}
+
+fn around_clock(at: &str) -> Result<chrono::DateTime<chrono::Utc>> {
+    if at.len() > 64 || ObservationBounds::new(at, at).is_none() {
+        return Err(invalid());
+    }
+    chrono::DateTime::parse_from_rfc3339(at).map(|at| at.with_timezone(&chrono::Utc)).map_err(|_| invalid())
+}
+
+async fn complete_resource<'a>(
+    mut session: EvidenceSession<'a>,
+    contract: &'a Contract,
+    selector: &PublishedResourceSelector,
+    request: IncidentRequest,
+) -> Result<IncidentReadReport> {
+    session.validate_resource_selector(selector).await?;
+    Box::pin(Assembly::new(session, contract).read(&request)).await
 }
 
 struct SelectedRevision {
@@ -119,7 +132,6 @@ struct Assembly<'a> {
     input_captures: BTreeMap<String, (DiagnosticEvidenceRef, DerivedInputReference)>,
     analyses: BTreeMap<String, IncidentAnalysisContext>,
     gaps: Vec<IncidentReadGap>,
-    work: EvidenceReadMetrics,
     candidate_rows: u32,
 }
 impl<'a> Assembly<'a> {
@@ -134,7 +146,6 @@ impl<'a> Assembly<'a> {
             input_captures: BTreeMap::new(),
             analyses: BTreeMap::new(),
             gaps: vec![],
-            work: EvidenceReadMetrics::default(),
             candidate_rows: 0,
         }
     }
@@ -200,7 +211,7 @@ impl<'a> Assembly<'a> {
             history,
             relationships,
             gaps: self.gaps,
-            archive_work: crate::collected_context::read_metrics(&self.work),
+            archive_work: crate::collected_context::read_metrics(self.session.completed_metrics()),
             candidate_rows: self.candidate_rows,
         })
     }
@@ -210,7 +221,6 @@ impl<'a> Assembly<'a> {
         if self.candidate_rows as usize > MAX_INCIDENT_CANDIDATES {
             return Err(capacity());
         }
-        add_work(&mut self.work, &page.metrics)?;
         Ok(page)
     }
     async fn capture(&mut self, range: &str, families: &[EvidenceFamily]) -> Result<Option<Arc<EvidenceCapture>>> {
@@ -236,7 +246,6 @@ impl<'a> Assembly<'a> {
         {
             return Err(invalid());
         }
-        add_work(&mut self.work, capture.metrics())?;
         let capture = Arc::new(capture);
         self.captures.insert(range.into(), capture.clone());
         Ok(Some(capture))
@@ -397,11 +406,6 @@ fn same_revision(left: &IncidentHistoryEntry, right: &IncidentHistoryEntry) -> b
         && left.recorded_at == right.recorded_at
         && left.original == right.original
 }
-fn add_work(total: &mut EvidenceReadMetrics, used: &EvidenceReadMetrics) -> Result<()> {
-    macro_rules! add { ($($field:ident),+) => { $(total.$field = total.$field.checked_add(used.$field).ok_or_else(capacity)?;)+ }; }
-    add!(selected_rows, queries, pages, returned_rows, response_bytes, proof_bytes, recovery_objects, recovery_bytes);
-    Ok(())
-}
 fn invalid() -> Error {
     DeliveryProblem::Integrity.error()
 }
@@ -410,15 +414,19 @@ fn capacity() -> Error {
 }
 
 impl crate::WarehouseIncidentReader for EvidenceService {
+    fn resources<'a>(
+        &'a self,
+        request: &'a PublishedResourceRequest,
+        cancellation: &'a CollectionCancellation,
+    ) -> crate::WarehouseResourcesTask<'a> {
+        Box::pin(self.resources(request, EvidenceReadBudget::default(), cancellation))
+    }
     fn incident<'a>(
         &'a self,
-        database: &'a DatabaseIdentity,
+        resource: &'a PublishedResourceSelector,
         around: &'a str,
         cancellation: &'a CollectionCancellation,
     ) -> crate::WarehouseIncidentTask<'a> {
-        Box::pin(async move {
-            let request = IncidentRequest::around(database, around, IncidentRequest::default_budget())?;
-            self.incident(&request, cancellation).await
-        })
+        Box::pin(self.resource_incident(resource, around, IncidentRequest::default_budget(), cancellation))
     }
 }

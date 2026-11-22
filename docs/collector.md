@@ -51,11 +51,14 @@ explicit; this is an archive view, not a configured inventory or a current-healt
 To investigate a database around a time:
 
 ```sh
-culprit incident orders-prod --around 2026-11-21T02:15:00Z --config evidence.json --json
+culprit resources --config evidence.json --json
+culprit incident orders --around 2026-11-21T02:15:00Z --config evidence.json --json
 ```
 
-This selects a ten-minute window and resolves published incident revisions and their exact original evidence
-across captures. It does not resolve source credentials or open a database provider. Read gaps and selection
+Name lookup completes a bounded authenticated resource traversal, accepting repeated identical selectors but
+refusing missing, ambiguous or incomplete selection. It keeps the same action deadline and read allowance for
+namespace validation and incident ancestry; it does not restart a budget per page or phase. This selects a
+ten-minute window and resolves published incident revisions and their exact original evidence across captures. It does not resolve source credentials or open a database provider. Read gaps and selection
 limits remain explicit; incomplete discovery returns exit code 2. The lower-level per-capture commands below
 remain available for inspecting individual evidence families.
 

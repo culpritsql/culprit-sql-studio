@@ -332,11 +332,25 @@ async fn cancellation_during_archive_ancestry_releases_the_existing_pending_owne
 async fn injected_incident_capability_uses_the_same_canonical_assembler_and_default_request_policy() {
     let scenario = scenario().await;
     let database = scenario.gold.manifest().source.target.database().unwrap();
+    let recovery = culprit_evidence::delivery::object_store::ObjectRecoveryReader::open(
+        scenario.fixture.service.recovery.clone(),
+        scenario.fixture.service.contract.clone(),
+    )
+    .await
+    .unwrap();
+    let resource = PublishedResourceSelector {
+        namespace_id: resource_namespace_id(
+            &scenario.fixture.service.contract,
+            culprit_evidence::delivery::recovery::RecoveryRead::id(&recovery),
+        )
+        .unwrap(),
+        database: IncidentDatabaseSelector::from_route(database).unwrap(),
+    };
     let cancellation = CollectionCancellation::default();
     let before_queries = scenario.fixture.store.requests.load(Ordering::SeqCst);
     let report = crate::WarehouseIncidentReader::incident(
         &scenario.fixture.service,
-        database,
+        &resource,
         "2020-01-01T12:00:00Z",
         &cancellation,
     )

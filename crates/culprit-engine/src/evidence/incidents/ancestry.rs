@@ -161,7 +161,6 @@ impl Assembly<'_> {
                 return Ok(IncidentEvidenceAvailability::LimitReached);
             }
             let metadata = self.session.read_metadata_reference(expected).await?;
-            add_work(&mut self.work, metadata.metrics())?;
             self.metadata.insert(range.into(), metadata);
         }
         let metadata = &self.metadata[range];

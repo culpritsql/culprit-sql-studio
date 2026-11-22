@@ -27,6 +27,7 @@ pub struct EvidenceSession<'a> {
     cancellation: &'a CollectionCancellation,
     deadline: Instant,
     remaining: Option<EvidenceReadBudget>,
+    metrics: EvidenceReadMetrics,
 }
 
 impl<'a> EvidenceSession<'a> {
@@ -41,7 +42,12 @@ impl<'a> EvidenceSession<'a> {
             cancellation,
             deadline: Instant::now() + Duration::from_millis(u64::from(budget.timeout_ms)),
             remaining: Some(budget),
+            metrics: EvidenceReadMetrics::default(),
         })
+    }
+
+    pub(super) fn completed_metrics(&self) -> &EvidenceReadMetrics {
+        &self.metrics
     }
 
     pub async fn read(&mut self, range_id: &str, families: &[EvidenceFamily]) -> Result<EvidenceCapture> {
@@ -214,6 +220,7 @@ impl<'a> EvidenceSession<'a> {
         }
         let mut remaining = deduct(budget, &used.metrics)?;
         remaining.max_rows = remaining.max_rows.checked_sub(used.candidate_rows).ok_or_else(capacity)?;
+        add_metrics(&mut self.metrics, &used.metrics)?;
         self.remaining = Some(remaining);
         Ok(result)
     }
@@ -251,6 +258,12 @@ pub(super) fn deduct(mut budget: EvidenceReadBudget, used: &EvidenceReadMetrics)
         recovery.max_bytes = recovery.max_bytes.checked_sub(used.recovery_bytes).ok_or_else(capacity)?;
     }
     Ok(budget)
+}
+
+pub(super) fn add_metrics(total: &mut EvidenceReadMetrics, used: &EvidenceReadMetrics) -> Result<()> {
+    macro_rules! add { ($($field:ident),+) => { $(total.$field = total.$field.checked_add(used.$field).ok_or_else(capacity)?;)+ }; }
+    add!(selected_rows, queries, pages, returned_rows, response_bytes, proof_bytes, recovery_objects, recovery_bytes);
+    Ok(())
 }
 
 fn capacity() -> culprit_core::Error {

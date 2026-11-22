@@ -18,12 +18,12 @@ mod local_capture_tests;
 
 #[derive(Args)]
 pub struct McpArgs {
-    /// Expose only this connection (repeatable). Defaults to every connection whose agent access isn't `off`.
-    #[arg(long = "connection", value_name = "NAME")]
+    /// Expose only this native connection (repeatable); unavailable with --warehouse-evidence.
+    #[arg(long = "connection", value_name = "NAME", help=culprit_core::t!("mcp.warehouse.native_connections"))]
     pub connections: Vec<String>,
     #[arg(long, value_name = "DIRECTORY", help=culprit_core::t!("mcp.local_capture.outbox"))]
     pub evidence_outbox: Option<PathBuf>,
-    #[arg(long, value_name = "FILE", help=culprit_core::t!("mcp.incident.warehouse_config"))]
+    #[arg(long, value_name = "FILE", conflicts_with = "connections", help=culprit_core::t!("mcp.incident.warehouse_config"))]
     pub warehouse_evidence: Option<PathBuf>,
 }
 
@@ -124,10 +124,18 @@ pub async fn mcp(ws: Workspace, args: McpArgs) -> Result<u8> {
 }
 
 pub(crate) fn mcp_server(ws: Workspace, args: McpArgs) -> Result<culprit_mcp::CulpritMcp> {
+    let tool_mode = if args.warehouse_evidence.is_some() {
+        if !args.connections.is_empty() {
+            return Err(Error::invalid(culprit_core::t!("mcp.warehouse.native_selection")));
+        }
+        culprit_mcp::ToolMode::EvidenceOnly
+    } else {
+        culprit_mcp::ToolMode::Standard
+    };
     for name in &args.connections {
         ws.connection(name)?;
     }
-    let options = culprit_mcp::Options { connections: args.connections, ..Default::default() };
+    let options = culprit_mcp::Options { tool_mode, connections: args.connections, ..Default::default() };
     let mut server = culprit_mcp::CulpritMcp::new(Arc::new(ws), options);
     if let Some(directory) = args.evidence_outbox {
         let reader = culprit_engine::OutboxCaptureReader::directory(
@@ -139,7 +147,7 @@ pub(crate) fn mcp_server(ws: Workspace, args: McpArgs) -> Result<culprit_mcp::Cu
     if let Some(path) = args.warehouse_evidence {
         let config = culprit_engine::evidence::EvidenceConfig::from_file(&path)?;
         let reader = culprit_engine::evidence::EvidenceRuntime::default().evidence(&config)?;
-        server = server.with_incident_reader(Arc::new(reader));
+        server = server.with_warehouse(Arc::new(culprit_mcp::WarehouseDelegation::read_only(Arc::new(reader))));
     }
     Ok(server)
 }

@@ -987,4 +987,4 @@ pub mod evidence;
 pub mod recovery_config;
 
 mod warehouse_incidents;
-pub use warehouse_incidents::{WarehouseIncidentReader, WarehouseIncidentTask, saved_incident_database};
+pub use warehouse_incidents::{WarehouseIncidentReader, WarehouseIncidentTask, WarehouseResourcesTask};

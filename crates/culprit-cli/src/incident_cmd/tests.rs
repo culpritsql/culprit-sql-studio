@@ -15,7 +15,7 @@ fn ordinary_incident_request_requires_database_time_and_archive_config_but_no_ma
     ])
     .unwrap();
     let Command::Incident(args) = cli.command else { panic!() };
-    assert_eq!(args.connection, "orders");
+    assert_eq!(args.resource, "orders");
     assert_eq!(args.around, "2020-01-01T12:00:00Z");
     assert!(Cli::try_parse_from(["culprit", "incident", "orders", "--config", "archive.json"]).is_err());
     assert!(Cli::try_parse_from(["culprit", "incident", "orders", "--around", "2020-01-01T12:00:00Z"]).is_err());
@@ -174,7 +174,7 @@ fn human_incidents_preserve_context_and_evaluation_limitations_even_without_outp
 }
 
 fn native_owner(report: &culprit_core::IncidentReadReport) -> culprit_core::DerivedIncidentQuery {
-    use culprit_core::{telemetry::*, *};
+    use culprit_core::telemetry::*;
     let mut query = report.incidents[0].candidate_queries[0].clone();
     query.sql = DefinitionPayload::Unavailable { reason: PayloadUnavailable::NotCollected };
     query.identity = Some(DerivedQueryIdentity::NativeWaitOwner(ActivityWaitOwner::Session {

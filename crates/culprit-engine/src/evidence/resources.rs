@@ -1,7 +1,7 @@
 //! List authenticated published observations without a source database, native factory or current identity.
 use super::{
     EvidenceService, EvidenceSession,
-    session::{MetadataAccounting, ReadFence, SessionUsage, deduct},
+    session::{MetadataAccounting, ReadFence, SessionUsage, add_metrics, deduct},
 };
 use culprit_core::{telemetry::*, *};
 use culprit_evidence::{
@@ -121,7 +121,7 @@ async fn discover(
         discovery_complete: gaps.is_empty(),
         gaps,
         candidate_rows: page.charged_candidate_rows,
-        archive_work: work(&metrics),
+        archive_work: crate::collected_context::read_metrics(&metrics),
         recovery_metadata_reads: metadata_work.reads,
     };
     Ok((report, SessionUsage { metrics, candidate_rows: page.charged_candidate_rows }))
@@ -182,23 +182,6 @@ fn utc_bounds(from: &str, until: &str) -> bool {
         && [from, until]
             .into_iter()
             .all(|value| chrono::DateTime::parse_from_rfc3339(value).is_ok_and(|at| at.offset().local_minus_utc() == 0))
-}
-fn add_metrics(total: &mut EvidenceReadMetrics, used: &EvidenceReadMetrics) -> Result<()> {
-    macro_rules! add { ($($field:ident),+) => { $(total.$field = total.$field.checked_add(used.$field).ok_or_else(capacity)?;)+ }; }
-    add!(selected_rows, queries, pages, returned_rows, response_bytes, proof_bytes, recovery_objects, recovery_bytes);
-    Ok(())
-}
-fn work(metrics: &EvidenceReadMetrics) -> collected_analysis::CollectedEvidenceMetrics {
-    collected_analysis::CollectedEvidenceMetrics {
-        selected_rows: metrics.selected_rows,
-        queries: metrics.queries,
-        pages: metrics.pages,
-        returned_rows: metrics.returned_rows,
-        response_bytes: metrics.response_bytes,
-        proof_bytes: metrics.proof_bytes,
-        recovery_objects: metrics.recovery_objects,
-        recovery_bytes: metrics.recovery_bytes,
-    }
 }
 fn capacity() -> Error {
     DeliveryProblem::Capacity.error()

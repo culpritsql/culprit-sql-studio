@@ -89,9 +89,12 @@ async fn distinct_selected_families_can_complete_in_one_action_without_charging_
 #[tokio::test]
 async fn warehouse_queries_complete_responses_and_projection_proofs_share_one_action_allowance() {
     let fixture = Fixture::new().await;
-    let calibration = fixture.service.read(&fixture.request, &CollectionCancellation::default()).await.unwrap();
-    let used = calibration.metrics();
+    let cancellation = CollectionCancellation::default();
+    let mut calibration = fixture.service.session(fixture.request.budget, &cancellation).unwrap();
+    let captured = calibration.read(&fixture.request.range_id, &fixture.request.families).await.unwrap();
+    let used = calibration.completed_metrics().clone();
     assert!(used.queries > 1 && used.response_bytes >= 1024 && used.proof_bytes > 0);
+    assert!(used.proof_bytes > captured.metrics().proof_bytes, "the action also pays authenticated metadata reads");
     let largest_row = u64::from(fixture.largest_row_response_bytes);
     assert!(largest_row > 0);
     let original_history = fixture.objects.snapshot();
@@ -121,9 +124,10 @@ async fn warehouse_queries_complete_responses_and_projection_proofs_share_one_ac
         assert_eq!(first.metrics().response_bytes, used.response_bytes);
         assert_eq!(
             first.metrics().proof_bytes,
-            used.proof_bytes,
-            "cached proofs still consume the declared verification allowance"
+            captured.metrics().proof_bytes,
+            "capture metrics retain their documented projection scope"
         );
+        assert_eq!(session.completed_metrics().proof_bytes, used.proof_bytes);
         if limit == "responses" {
             assert_eq!(budget.max_bytes - first.metrics().response_bytes, largest_row - 1);
         }

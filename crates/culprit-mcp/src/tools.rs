@@ -14,8 +14,14 @@ use crate::CulpritMcp;
 use crate::view;
 mod incidents;
 mod local_captures;
+mod resources;
 mod response;
+mod warehouse;
 pub(crate) use incidents::INCIDENT_TOOL;
+pub(crate) use resources::RESOURCES_TOOL;
+pub(crate) fn is_warehouse_tool(tool: &str) -> bool {
+    matches!(tool, INCIDENT_TOOL | RESOURCES_TOOL)
+}
 pub(crate) use local_captures::{LOCAL_CAPTURE_TOOL, check_operation as check_local_operation};
 
 /// Tools whose `sql` argument is sent to the database; the audit log records it.
@@ -278,8 +284,18 @@ fn tool<T: JsonSchema + 'static>(name: &'static str, title: &'static str, descri
         .with_annotations(ToolAnnotations::new().read_only(true).destructive(false).open_world(false))
 }
 
-pub fn definitions(local_captures: bool, incident_reader: bool) -> Vec<Tool> {
-    let mut tools = vec![
+pub fn definitions(mode: crate::ToolMode, local_captures: bool, warehouse: bool) -> Vec<Tool> {
+    let mut tools = if mode == crate::ToolMode::Standard { native_definitions() } else { vec![] };
+    if local_captures {
+        tools.push(local_captures::definition());
+    }
+    if warehouse {
+        tools.extend([resources::definition(), incidents::definition()]);
+    }
+    tools
+}
+fn native_definitions() -> Vec<Tool> {
+    vec![
         Tool::new(
             "list_connections",
             "List the databases Culprit can investigate for you: name, engine, environment, what agents may do with \
@@ -541,14 +557,7 @@ pub fn definitions(local_captures: bool, incident_reader: bool) -> Vec<Tool> {
         )
         .with_title("Run a read-only query")
         .with_annotations(ToolAnnotations::new().read_only(true).destructive(false).open_world(false)),
-    ];
-    if local_captures {
-        tools.push(local_captures::definition());
-    }
-    if incident_reader {
-        tools.push(incidents::definition());
-    }
-    tools
+    ]
 }
 
 fn args<T: for<'de> Deserialize<'de>>(value: Value) -> Result<T> {
@@ -583,10 +592,11 @@ impl CulpritMcp {
         value: Value,
         operation: Option<culprit_core::limits::OperationHandle>,
         provider_observation: Option<culprit_core::ProviderOperationObservation>,
-        incident_cancellation: Option<culprit_read::cancellation::CollectionCancellation>,
+        warehouse_cancellation: Option<culprit_read::cancellation::CollectionCancellation>,
     ) -> ToolTask<'a> {
         match tool {
-            INCIDENT_TOOL => tool_task(move || self.incident(value, incident_cancellation)),
+            INCIDENT_TOOL => tool_task(move || self.incident(value, warehouse_cancellation)),
+            RESOURCES_TOOL => tool_task(move || self.resources(value, warehouse_cancellation)),
             LOCAL_CAPTURE_TOOL => tool_task(move || self.analyze_capture(value, operation)),
             "scan" => provider_task(move || async move {
                 let a: ScanArgs = args(value)?;
@@ -944,7 +954,7 @@ mod tests {
 
     #[test]
     fn every_tool_has_an_object_schema_and_a_read_only_hint() {
-        let tools = definitions(false, false);
+        let tools = definitions(crate::ToolMode::Standard, false, false);
         let names: Vec<&str> = tools.iter().map(|t| t.name.as_ref()).collect();
         assert_eq!(
             names,

@@ -1,10 +1,10 @@
-//! One explicitly installed archive capability serves database/time lookup; no native provider is consulted.
+//! An explicitly delegated archive selector serves incident lookup; no saved native connection is consulted.
+use super::warehouse::{arguments, check};
 use super::*;
 use culprit_core::{
-    IncidentDatabaseSelector,
-    telemetry::{CollectionStop, DeliveryProblem, ObservationBounds},
+    PublishedResourceSelector,
+    telemetry::{DeliveryProblem, ObservationBounds},
 };
-use culprit_engine::saved_incident_database;
 use culprit_read::cancellation::CollectionCancellation;
 mod presentation;
 
@@ -13,9 +13,10 @@ const MAX_AROUND_BYTES: usize = 64;
 #[derive(Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 struct IncidentArgs {
-    /// A saved connection exposed by list_connections.
-    connection: String,
-    /// An RFC3339 time around which the archive reader selects candidate original incidents.
+    // Copy the selector of an observed resource returned by resources. Do not construct native connection data.
+    #[schemars(schema_with = "super::warehouse::resource_schema")]
+    resource: PublishedResourceSelector,
+    // An RFC3339 time around which the archive reader selects candidate original incidents.
     around: String,
 }
 pub(super) fn definition() -> Tool {
@@ -31,28 +32,25 @@ pub(super) fn definition() -> Tool {
 }
 impl CulpritMcp {
     pub(super) async fn incident(&self, value: Value, cancellation: Option<CollectionCancellation>) -> Result<Value> {
-        let reader = self.incident_reader.as_ref().ok_or_else(|| unknown_tool(INCIDENT_TOOL))?;
-        let args: IncidentArgs = args(value)?;
-        let database = saved_incident_database(&self.allowed(&args.connection)?)?;
+        let delegation = self.warehouse_delegation(INCIDENT_TOOL)?;
+        let args: IncidentArgs = arguments(value)?;
+        args.resource.validate()?;
         if args.around.len() > MAX_AROUND_BYTES || ObservationBounds::new(&args.around, &args.around).is_none() {
             return Err(Error::invalid(culprit_core::t!("mcp.incident.around_invalid")));
         }
         let cancellation = cancellation.ok_or_else(|| DeliveryProblem::InvalidContract.error())?;
         check(&cancellation)?;
-        let report = reader.incident(&database, &args.around, &cancellation).await?;
+        let report = delegation.reader()?.incident(&args.resource, &args.around, &cancellation).await?;
         check(&cancellation)?;
-        // A revoked delegation or changed saved route cannot label a prior read as the current route's result.
-        let current = saved_incident_database(&self.allowed(&args.connection)?)?;
-        if current != database || report.database != IncidentDatabaseSelector::from_route(&database)? {
+        delegation.check()?;
+        if report.database != args.resource.database {
             return Err(DeliveryProblem::DestinationChanged.error());
         }
         let value = presentation::value(&report)?;
         check(&cancellation)?;
+        delegation.check()?;
         Ok(value)
     }
-}
-fn check(cancellation: &CollectionCancellation) -> Result<()> {
-    if cancellation.is_cancelled() { Err(CollectionStop::Cancelled.error()) } else { Ok(()) }
 }
 #[cfg(test)]
 mod tests;
