@@ -41,11 +41,11 @@ async fn cdc_originals_keep_all_native_outcomes_and_one_canonical_explanation_wi
             assert_eq!(analysis.report.enabled, None);
         }
         for row in &analysis.context.records {
-            if let TelemetryRecord::Operational(row) = &row.row.record {
-                if let OperationalFact::MssqlCdc(point) = &row.fact {
-                    assert_eq!(point.reset, culprit_core::ResetMarker::Unknown);
-                    assert!(point.fits_source(&source));
-                }
+            if let TelemetryRecord::Operational(row) = &row.row.record
+                && let OperationalFact::MssqlCdc(point) = &row.fact
+            {
+                assert_eq!(point.reset, culprit_core::ResetMarker::Unknown);
+                assert!(point.fits_source(&source));
             }
         }
     }

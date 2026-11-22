@@ -21,14 +21,12 @@ async fn export_vendor_field_conformance_from_canonical_original_evidence() {
     assert!(output.is_absolute(), "the output must name an absolute private artifact");
     let catalog = LogicalCatalog::new().unwrap();
     let mut cases = Vec::new();
-    let mut sequence = 10;
-    for (family, name, source, rows) in inputs() {
+    for (sequence, (family, name, source, rows)) in (10..).zip(inputs()) {
         // Shared corpora also contain other providers. Preserve them as negative controls; they cannot
         // establish coverage for a Microsoft field, whose verifier also checks the original engine.
         let family = if source.target.engine() == Engine::Mssql { family } else { "foreign-source-controls" };
         let original = rows.clone();
         let recovery = corpus::Recovery::capture("field-conformance", catalog.digest(), source, rows, sequence);
-        sequence += 1;
         cases.push(export_case(Case { family, name, recovery }, Some(&original), &catalog).await);
     }
     // Existing interval fixtures already own their original query source, counter meanings and receipts.
@@ -327,8 +325,8 @@ fn field_context_contracts() -> Vec<Value> {
         json!({"path":"crates/providers/culprit-mssql/src/performance/database.rs","sha256":digest(include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"),"/../providers/culprit-mssql/src/performance/database.rs")))}),
         json!({"path":"crates/culprit-core/src/telemetry/performance_counters/database.rs","sha256":digest(include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"),"/../culprit-core/src/telemetry/performance_counters/database.rs")))}),
         json!({"path":"crates/culprit-checks/src/views/performance_counters.rs","sha256":digest(include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"),"/../culprit-checks/src/views/performance_counters.rs")))}),
-        json!({"path":"crates/culprit-collector/src/analytical/database_counter_contexts.rs","sha256":digest(include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"),"/../culprit-collector/src/analytical/database_counter_contexts.rs")))}),
-        json!({"path":"crates/culprit-collector/src/analytical/publication/context.rs","sha256":digest(include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"),"/../culprit-collector/src/analytical/publication/context.rs")))}),
+        json!({"path":"crates/culprit-collector/src/analytical/database_counter_contexts.rs","sha256":digest(include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"),"/../culprit-evidence/src/analytical/database_counter_contexts.rs")))}),
+        json!({"path":"crates/culprit-collector/src/analytical/publication/context.rs","sha256":digest(include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"),"/../culprit-evidence/src/analytical/publication/context.rs")))}),
     ].into_iter().collect()
 }
 
@@ -338,9 +336,9 @@ fn database_property_contracts() -> Vec<Value> {
         json!({"path":"crates/providers/culprit-mssql/src/database_properties.rs","sha256":digest(include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"),"/../providers/culprit-mssql/src/database_properties.rs")))}),
         json!({"path":"crates/culprit-core/src/telemetry/database_properties.rs","sha256":digest(include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"),"/../culprit-core/src/telemetry/database_properties.rs")))}),
         json!({"path":"crates/culprit-checks/src/views/database_properties.rs","sha256":digest(include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"),"/../culprit-checks/src/views/database_properties.rs")))}),
-        json!({"path":"crates/culprit-collector/src/analytical/test_support/database_properties.rs","sha256":digest(include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"),"/../culprit-collector/src/analytical/test_support/database_properties.rs")))}),
+        json!({"path":"crates/culprit-collector/src/analytical/test_support/database_properties.rs","sha256":digest(include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"),"/../culprit-evidence/src/analytical/test_support/database_properties.rs")))}),
         json!({"path":"fixtures/database-properties.native.json","sha256":digest(include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"),"/../../fixtures/database-properties.native.json")))}),
-        json!({"path":"crates/culprit-collector/src/analytical/prepared.rs","sha256":digest(include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"),"/../culprit-collector/src/analytical/prepared.rs")))}),
+        json!({"path":"crates/culprit-collector/src/analytical/prepared.rs","sha256":digest(include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"),"/../culprit-evidence/src/analytical/prepared.rs")))}),
     ].into_iter().collect()
 }
 
@@ -355,7 +353,7 @@ fn suspect_page_contracts() -> Vec<Value> {
         json!({"path":"crates/providers/culprit-mssql/src/telemetry/state.rs","sha256":digest(include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"),"/../providers/culprit-mssql/src/telemetry/state.rs")))}),
         json!({"path":"crates/culprit-core/src/telemetry/suspect_pages.rs","sha256":digest(include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"),"/../culprit-core/src/telemetry/suspect_pages.rs")))}),
         json!({"path":"crates/culprit-checks/src/views/suspect_pages.rs","sha256":digest(include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"),"/../culprit-checks/src/views/suspect_pages.rs")))}),
-        json!({"path":"crates/culprit-collector/src/analytical/test_support/suspect_pages.rs","sha256":digest(include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"),"/../culprit-collector/src/analytical/test_support/suspect_pages.rs")))}),
+        json!({"path":"crates/culprit-collector/src/analytical/test_support/suspect_pages.rs","sha256":digest(include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"),"/../culprit-evidence/src/analytical/test_support/suspect_pages.rs")))}),
     ]
 }
 
@@ -366,6 +364,6 @@ fn scheduler_contracts() -> Vec<Value> {
         json!({"path":"crates/providers/culprit-mssql/src/schedulers/fields.rs","sha256":digest(include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"),"/../providers/culprit-mssql/src/schedulers/fields.rs")))}),
         json!({"path":"crates/culprit-checks/src/views/instance_resources/schedulers.rs","sha256":digest(include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"),"/../culprit-checks/src/views/instance_resources/schedulers.rs")))}),
         json!({"path":"crates/culprit-engine/src/collected_resources/instance_resources.rs","sha256":digest(include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"),"/src/collected_resources/instance_resources.rs")))}),
-        json!({"path":"crates/culprit-collector/src/analytical/test_support/instance_resources/schedulers.rs","sha256":digest(include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"),"/../culprit-collector/src/analytical/test_support/instance_resources/schedulers.rs")))}),
+        json!({"path":"crates/culprit-collector/src/analytical/test_support/instance_resources/schedulers.rs","sha256":digest(include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"),"/../culprit-evidence/src/analytical/test_support/instance_resources/schedulers.rs")))}),
     ]
 }

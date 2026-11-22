@@ -188,7 +188,7 @@ async fn prove_task_space(pool: Arc<Pool>, session: &str, port: u16) {
     assert!(metrics.templates.iter().all(|row| row.timeouts == 0 && row.unconfirmed_cancellations == 0));
     eprintln!("owned task metadata acquisition: {}", serde_json::to_string(&metrics).unwrap());
 
-    prove_factory(pool.clone(), &session, port, task).await;
+    prove_factory(pool.clone(), session, port, task).await;
 
     let mut qualification = pool.connect(SessionKind::User).await.unwrap();
     for (query, call) in reader.io.calls.iter().enumerate() {

@@ -1,5 +1,7 @@
 use super::*;
 use crate::{Engine, SourceOverheadEvidence};
+// Preserve the exact adversarial value rather than rounding its decimal spelling.
+const ROUNDTRIP_ELAPSED_MS: f64 = f64::from_bits(0x4020_3271_bcdb_be01);
 fn original() -> CapturedSourceAcquisition {
     let evidence = SourceOverheadEvidence {
         capture: CaptureIdentity {
@@ -32,7 +34,7 @@ fn original() -> CapturedSourceAcquisition {
                 stop_causes: vec![],
                 rows_decoded: "9007199254740993".into(),
                 charged_value_bytes: "18446744073709551615".into(),
-                client_elapsed_ms: 8.098523999999999,
+                client_elapsed_ms: ROUNDTRIP_ELAPSED_MS,
             }],
         }),
     };
@@ -63,7 +65,7 @@ fn adversarial_floating_elapsed_values_roundtrip_with_their_consistency_fingerpr
         51.248178375505404,
         52.314008204106244,
         97.45365320034685,
-        8.098523999999999,
+        ROUNDTRIP_ELAPSED_MS,
         0.4998322631578947,
         222.05013899999997,
         f64::from_bits(0x3ff0_0000_0000_0001),

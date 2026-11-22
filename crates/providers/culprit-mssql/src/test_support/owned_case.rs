@@ -268,7 +268,7 @@ mod tests {
         let error = peer.await.unwrap_err();
         assert_eq!(CollectionStop::from_error(&error), CollectionStop::Cancelled);
         assert!(!followup_polled.load(Ordering::Relaxed));
-        assert_eq!(original.unwrap_err().downcast_ref::<&str>(), Some(&"original capture panic"));
+        assert!(matches!(original, Err(panic) if panic.downcast_ref::<&str>() == Some(&"original capture panic")));
         let submitted = submitting.notified();
         tokio::pin!(submitted);
         std::future::poll_fn(|context| {

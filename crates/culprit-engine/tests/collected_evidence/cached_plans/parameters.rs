@@ -7,7 +7,7 @@ const FAMILY: &[EvidenceFamily] = &[EvidenceFamily::ObjectDefinitions];
 #[tokio::test]
 async fn original_scalar_access_and_independent_native_blocking_survive_recovery_without_exclusive_elapsed_attribution()
 {
-    use culprit_collector::analytical::{
+    use culprit_evidence::analytical::{
         evidence::EvidenceCapture,
         test_support::{assert_activity_capture, scalar_blocking_activity_evidence},
     };
@@ -18,7 +18,7 @@ async fn original_scalar_access_and_independent_native_blocking_survive_recovery
             .iter()
             .map(|record| {
                 let TelemetryRecord::Activity(observation) = &record.row().record else { panic!("original Activity") };
-                ActivityFrameRow { observation, reference: None }
+                ActivityFrameRow { observation: observation.as_ref(), reference: None }
             })
             .collect::<Vec<_>>();
         let frame = ActivityFrameEvidence::new(capture.source(), &rows, capture.is_read_complete()).unwrap();

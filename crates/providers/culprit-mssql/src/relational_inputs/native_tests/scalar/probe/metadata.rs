@@ -174,13 +174,12 @@ pub(super) async fn find(
         }
     }
     let context = cached_statements::context(row)?;
-    if let Some(original) = original {
-        if original.database_id != context.database_id
+    if let Some(original) = original
+        && (original.database_id != context.database_id
             || original.identity.key()? != context.identity.key()?
-            || original.query_hash != context.query_hash
-        {
-            return Err(CollectionStop::SourceChanged.error());
-        }
+            || original.query_hash != context.query_hash)
+    {
+        return Err(CollectionStop::SourceChanged.error());
     }
     let selected = decode_statement(row, object, context, reader, original.is_some())?;
     // The original creation clock remains part of the full canonical key above. Do not round that native

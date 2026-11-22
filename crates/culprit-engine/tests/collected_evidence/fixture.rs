@@ -82,7 +82,7 @@ impl Fixture {
         collected_from: &str,
         collected_until: &str,
     ) -> Result<Self> {
-        Self::from_original(source, records, 100_000, Some((collected_from, collected_until))).await
+        Self::with_collector_bounds_and_sequence(source, records, 100_000, collected_from, collected_until).await
     }
     /// Independent originals get distinct real capture revisions before any manifest/projection digest is sealed.
     pub async fn with_collector_bounds_and_sequence(

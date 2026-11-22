@@ -40,23 +40,24 @@ async fn published_resource_search_uses_existing_table_parameterized_namespace_w
     assert!(page.candidates.is_empty() && page.next.is_none());
     assert_eq!(page.metrics.queries, 1);
     assert_eq!(page.metrics.selected_rows, 0);
-    let requests = query.requests.lock().unwrap();
-    assert_eq!(requests.len(), 1);
-    assert_eq!(requests[0].row_limit, 3);
-    assert_eq!(requests[0].byte_limit, budget().page_bytes as usize);
-    assert!(
-        requests[0].text.contains("CulpritPublishedRangesV1")
-            && requests[0].text.contains("RecoveryStoreId")
-            && requests[0].text.contains("ResourceKind")
-    );
-    assert!(!requests[0].text.contains(&request.recovery_store_id) && !requests[0].text.contains("2026-11-22"));
-    assert!(
-        requests[0].parameters.contains_key("pContract")
-            && requests[0].parameters.contains_key("pRecovery")
-            && requests[0].parameters.contains_key("pAsOf")
-    );
-    assert!(requests[0].text.contains("CollectedFrom") && requests[0].text.contains("CollectedUntil"));
-    drop(requests);
+    {
+        let requests = query.requests.lock().unwrap();
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0].row_limit, 3);
+        assert_eq!(requests[0].byte_limit, budget().page_bytes as usize);
+        assert!(
+            requests[0].text.contains("CulpritPublishedRangesV1")
+                && requests[0].text.contains("RecoveryStoreId")
+                && requests[0].text.contains("ResourceKind")
+        );
+        assert!(!requests[0].text.contains(&request.recovery_store_id) && !requests[0].text.contains("2026-11-22"));
+        assert!(
+            requests[0].parameters.contains_key("pContract")
+                && requests[0].parameters.contains_key("pRecovery")
+                && requests[0].parameters.contains_key("pAsOf")
+        );
+        assert!(requests[0].text.contains("CollectedFrom") && requests[0].text.contains("CollectedUntil"));
+    }
     request.recovery_store_id = digest(b"different namespace");
     assert!(reader.resource_candidates(&contract, &request, budget()).await.is_err());
     assert_eq!(query.requests.lock().unwrap().len(), 1, "foreign cursor refuses before store dispatch");

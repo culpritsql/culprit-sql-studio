@@ -256,7 +256,7 @@ async fn standard_configuration_enrolls_a_trusted_baseline_and_uses_the_actual_f
     assert_eq!(original.source(), &fixture.source);
     assert!(fixture.closed());
     assert!(outbox.next_diagnostic_input(DIAGNOSTIC_CONTROLLER_VERSION).await.unwrap().is_none());
-    assert_eq!(workspace.collection_admission_status().await.unwrap().source_quiescence_required, false);
+    assert!(!workspace.collection_admission_status().await.unwrap().source_quiescence_required);
 }
 
 #[tokio::test]

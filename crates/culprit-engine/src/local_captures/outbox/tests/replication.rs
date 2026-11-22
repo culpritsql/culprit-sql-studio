@@ -60,8 +60,7 @@ async fn local_replication_refuses_wrong_saved_connection_exhausted_budget_and_c
     let id = &fixture.manifest.capture.observation_id;
     assert!(analyze(&reader, "another-connection", id).await.is_err());
     assert!(analyze(&reader, "local-evidence", id).await.is_ok());
-    let mut budget = CompletedCaptureBudget::default();
-    budget.max_bytes = 1;
+    let budget = CompletedCaptureBudget { max_bytes: 1, ..Default::default() };
     let bounded = OutboxCaptureReader::delivery(fixture.outbox.as_ref().unwrap().delivery(), budget).unwrap();
     assert!(analyze(&bounded, "local-evidence", id).await.is_err());
     let operation = OperationGuard::new(reader.timeout()).unwrap();

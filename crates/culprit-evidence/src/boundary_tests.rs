@@ -55,12 +55,13 @@ async fn root_store_identity_and_immutable_manifest_corruption_are_not_read_capa
         stored.get_mut(&key).unwrap().push(b' ');
     }
     assert!(reopen(&recovery, &fixture.manifest.range_id).await.is_err());
-    let mut stored = fixture.objects.objects.lock().unwrap();
-    let root = stored.get_mut("recovery.json").unwrap();
-    let mut value: serde_json::Value = serde_json::from_slice(root).unwrap();
-    value["store_id"] = serde_json::json!(culprit_core::telemetry::digest(b"foreign store"));
-    *root = serde_json::to_vec(&value).unwrap();
-    drop(stored);
+    {
+        let mut stored = fixture.objects.objects.lock().unwrap();
+        let root = stored.get_mut("recovery.json").unwrap();
+        let mut value: serde_json::Value = serde_json::from_slice(root).unwrap();
+        value["store_id"] = serde_json::json!(culprit_core::telemetry::digest(b"foreign store"));
+        *root = serde_json::to_vec(&value).unwrap();
+    }
     assert!(reopen(&recovery, &fixture.manifest.range_id).await.is_err());
 }
 

@@ -115,7 +115,7 @@ pub fn query_compilation_followup_original() -> QueryCompilationOriginal {
         }),
     };
     let original =
-        records.iter().cloned().find(|row| DiagnosticOriginalCondition::from_record(&source, row).is_some()).unwrap();
+        records.iter().find(|row| DiagnosticOriginalCondition::from_record(&source, row).is_some()).cloned().unwrap();
     let original = ExportedRecord::new(&source, &capture, original).unwrap();
     let basis = DiagnosticEvidenceRef::from_export(&source, &digest(b"original-query-history"), &original, 0).unwrap();
     let update = observe_diagnostic_original(
@@ -162,7 +162,7 @@ pub fn query_compilation_followup_evidence(
     )
     .unwrap();
     let (result_source, result_rows) =
-        query_compilation_followup_result(&source, &[original.record.clone()], &focus, &execution, case);
+        query_compilation_followup_result(&source, std::slice::from_ref(&original.record), &focus, &execution, case);
     let result_capture =
         CaptureIdentity { observation_id: "query-history-compilation-result".into(), revision: capture.revision };
     let parent = DiagnosticCaptureRef {

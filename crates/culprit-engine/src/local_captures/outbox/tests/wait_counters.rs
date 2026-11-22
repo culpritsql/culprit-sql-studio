@@ -48,8 +48,7 @@ async fn pool_wait_originals_refuse_foreign_connection_cancellation_limits_and_e
     let id = &fixture.manifest.capture.observation_id;
     assert!(analyze(&reader, "foreign", id).await.is_err());
     assert!(analyze(&reader, "local-evidence", id).await.is_ok());
-    let mut budget = CompletedCaptureBudget::default();
-    budget.max_bytes = 1;
+    let budget = CompletedCaptureBudget { max_bytes: 1, ..Default::default() };
     let small = OutboxCaptureReader::directory(fixture.directory.clone(), budget).unwrap();
     assert!(analyze(&small, "local-evidence", id).await.is_err());
     let guard = OperationGuard::new(reader.timeout()).unwrap();

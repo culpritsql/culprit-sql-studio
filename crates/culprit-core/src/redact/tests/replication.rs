@@ -142,8 +142,6 @@ fn availability() -> AvailabilityReplicaSample {
             last_commit_without_offset: Some("2026-11-16T09:00:00.1234567".into()),
             ..Default::default()
         },
-
-        ..Default::default()
     }
 }
 

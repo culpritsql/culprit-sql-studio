@@ -689,8 +689,6 @@ fn availability_group() -> Vec<ReplicationObservation> {
             last_commit_without_offset: Some("2026-11-16T01:02:03.137".into()),
             ..Default::default()
         },
-
-        ..Default::default()
     };
     vec![ReplicationObservation {
         source: "availability-group-state".into(),

@@ -161,11 +161,9 @@ fn nullable_native_tier_visibility_and_saved_authority_are_required_serialized_f
     let source = source();
     let read = WaitCounterSnapshot::from_source(&source, vec![row()], true).unwrap();
     let original = serde_json::to_value(&read).unwrap();
-    for path in ["pool_current"] {
-        let mut missing = original.clone();
-        missing.as_object_mut().unwrap().remove(path);
-        assert!(serde_json::from_value::<WaitCounterSnapshot>(missing).is_err());
-    }
+    let mut missing = original.clone();
+    missing.as_object_mut().unwrap().remove("pool_current");
+    assert!(serde_json::from_value::<WaitCounterSnapshot>(missing).is_err());
     let original = serde_json::to_value(point("2026-11-21T00:00:00Z")).unwrap();
     for field in ["native_tier", "server_performance_state"] {
         let mut missing = original.clone();

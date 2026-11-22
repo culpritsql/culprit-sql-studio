@@ -9,6 +9,15 @@ use setup::IdleClients;
 const IDLE_POPULATIONS: [usize; 2] = [3, 32];
 const ROUNDS: usize = 2;
 const COST_CASE_BOUND: Duration = Duration::from_secs(90);
+struct CensusCostRound<'a> {
+    identities: &'a [IdleIdentity],
+    controls: &'a actor::Identity,
+    population: usize,
+    round: usize,
+    controls_idle: bool,
+    root: Option<&'a str>,
+}
+
 struct IdleIdentity {
     session: NativeActivityIdentity,
     connection_id: String,
@@ -90,7 +99,12 @@ async fn run(directory: &Path, cancellation: &CollectionCancellation) -> Result<
         for population in IDLE_POPULATIONS {
             Box::pin(clients.extend_to(population, &fixture, cancellation)).await?;
             for round in 0..ROUNDS {
-                Box::pin(measure(&fixture, directory, clients.identities(), &identity, population, round, false, None, cancellation)).await?;
+                Box::pin(measure(
+                    &fixture,
+                    directory,
+                    CensusCostRound { identities: clients.identities(), controls: &identity, population, round, controls_idle: false, root: None },
+                    cancellation,
+                )).await?;
             }
         }
         Box::pin(actor.idle(cancellation)).await?;
@@ -104,7 +118,12 @@ async fn run(directory: &Path, cancellation: &CollectionCancellation) -> Result<
         }
         let root = idle["native_root"].as_str().ok_or_else(invalid_data)?;
         save_cost_receipt(directory, "idle-connection-native-idle-mars-witness", &idle)?;
-        Box::pin(measure(&fixture, directory, clients.identities(), &identity, 32, ROUNDS, true, Some(root), cancellation)).await?;
+        Box::pin(measure(
+            &fixture,
+            directory,
+            CensusCostRound { identities: clients.identities(), controls: &identity, population: 32, round: ROUNDS, controls_idle: true, root: Some(root) },
+            cancellation,
+        )).await?;
         owned_case::require_active(cancellation)?;
         let captured = Box::pin(captures.capture_with_cancellation(CollectionSelection::Activity, cancellation)).await?;
         if !(7..=8).contains(&captured.manifest.source_queries) { return Err(invalid_data()) }
@@ -273,14 +292,10 @@ async fn witness(
 async fn measure(
     fixture: &OwnedSourceFixture,
     directory: &Path,
-    identities: &[IdleIdentity],
-    controls: &actor::Identity,
-    population: usize,
-    round: usize,
-    controls_idle: bool,
-    root: Option<&str>,
+    case: CensusCostRound<'_>,
     cancellation: &CollectionCancellation,
 ) -> Result<()> {
+    let CensusCostRound { identities, controls, population, round, controls_idle, root } = case;
     let budget = CollectionBudget {
         max_queries: 7,
         max_snapshot_rows: 500,

@@ -49,8 +49,7 @@ async fn local_pool_settings_refuse_wrong_connection_cancelled_byte_limited_and_
     let id = &fixture.manifest.capture.observation_id;
     assert!(analyze(&reader, "foreign-connection", id).await.is_err());
     assert!(analyze(&reader, "local-evidence", id).await.is_ok());
-    let mut budget = CompletedCaptureBudget::default();
-    budget.max_bytes = 1;
+    let budget = CompletedCaptureBudget { max_bytes: 1, ..Default::default() };
     let small = OutboxCaptureReader::directory(fixture.directory.clone(), budget).unwrap();
     assert!(analyze(&small, "local-evidence", id).await.is_err());
     let guard = OperationGuard::new(reader.timeout()).unwrap();

@@ -209,34 +209,36 @@ async fn cancelled_or_expired_preparation_waiting_for_the_existing_handle_lock_c
         let dir = tempfile::tempdir().unwrap();
         let secrets = Arc::new(Secrets::default());
         let (ws, saved, _, configured) = configured_with_secrets(dir.path(), secrets.clone()).await;
-        let held = ws.warehouse.handles.lock().unwrap();
-        let manager = ws.warehouse.clone();
-        let cancellation = CollectionCancellation::default();
-        let preparing = cancellation.clone();
-        let deadline = Instant::now() + if cancel { Duration::from_secs(5) } else { Duration::from_millis(10) };
-        let (entered, submitted) = std::sync::mpsc::channel();
-        let worker_secrets = secrets.clone();
-        // This is the real preparation entry and real existing mutex, not a mirrored gate or fake credential path.
-        let worker = std::thread::spawn(move || {
-            entered.send(()).unwrap();
-            manager.prepare(&saved.reference, worker_secrets, &preparing, deadline)
-        });
-        submitted.recv_timeout(Duration::from_secs(2)).unwrap();
-        if cancel {
-            cancellation.cancel();
-        } else {
-            tokio::time::sleep_until(deadline).await;
+        {
+            let held = ws.warehouse.handles.lock().unwrap();
+            let manager = ws.warehouse.clone();
+            let cancellation = CollectionCancellation::default();
+            let preparing = cancellation.clone();
+            let deadline = Instant::now() + if cancel { Duration::from_secs(5) } else { Duration::from_millis(10) };
+            let (entered, submitted) = std::sync::mpsc::channel();
+            let worker_secrets = secrets.clone();
+            // This is the real preparation entry and real existing mutex, not a mirrored gate or fake credential path.
+            let worker = std::thread::spawn(move || {
+                entered.send(()).unwrap();
+                manager.prepare(&saved.reference, worker_secrets, &preparing, deadline)
+            });
+            submitted.recv_timeout(Duration::from_secs(2)).unwrap();
+            if cancel {
+                cancellation.cancel();
+            } else {
+                std::thread::sleep(deadline.saturating_duration_since(Instant::now()));
+            }
+            drop(held);
+            let error = worker.join().unwrap().err().unwrap();
+            assert_eq!(
+                CollectionStop::from_error(&error),
+                if cancel { CollectionStop::Cancelled } else { CollectionStop::TimedOut }
+            );
+            assert_eq!(secrets.reads.load(Ordering::SeqCst), 0);
+            assert_eq!(configured.load(Ordering::SeqCst), 0);
+            assert!(ws.warehouse.handles.lock().unwrap().is_empty());
+            assert!(ws.connections().unwrap().is_empty());
         }
-        drop(held);
-        let error = worker.join().unwrap().err().unwrap();
-        assert_eq!(
-            CollectionStop::from_error(&error),
-            if cancel { CollectionStop::Cancelled } else { CollectionStop::TimedOut }
-        );
-        assert_eq!(secrets.reads.load(Ordering::SeqCst), 0);
-        assert_eq!(configured.load(Ordering::SeqCst), 0);
-        assert!(ws.warehouse.handles.lock().unwrap().is_empty());
-        assert!(ws.connections().unwrap().is_empty());
     }
 }
 #[tokio::test]

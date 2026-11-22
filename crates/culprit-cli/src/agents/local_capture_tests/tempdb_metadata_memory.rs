@@ -10,13 +10,11 @@ async fn metadata_local_action_preserves_disabled_unknown_and_partial_native_evi
     for case in TempdbMetadataMemoryCase::ALL {
         let (source, mut records) = tempdb_metadata_memory_evidence(case);
         for record in &mut records {
-            if let TelemetryRecord::Operational(row) = record {
-                if let OperationalFact::CounterSet(sample) = &mut row.fact {
-                    sample.properties.insert("private_unused_proof".into(), "private-metadata-proof-canary".into());
-                    sample
-                        .properties
-                        .insert("private_unused_sql".into(), "SELECT 'private-metadata-sql-canary'".into());
-                }
+            if let TelemetryRecord::Operational(row) = record
+                && let OperationalFact::CounterSet(sample) = &mut row.fact
+            {
+                sample.properties.insert("private_unused_proof".into(), "private-metadata-proof-canary".into());
+                sample.properties.insert("private_unused_sql".into(), "SELECT 'private-metadata-sql-canary'".into());
             }
         }
         let expected = source.observation.snapshot().unwrap().sources[0].clone();

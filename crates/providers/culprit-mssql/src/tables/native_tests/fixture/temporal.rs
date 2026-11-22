@@ -38,7 +38,7 @@ impl Witness {
             || optional_integer(row, "history_history_id")?.is_some()
             || text(row, "updateability")? != "READ_WRITE"
             || integer(row, "metadata_visible")? != 1
-            || !matches!(integer(row, "edition")?, 2 | 3 | 4)
+            || !matches!(integer(row, "edition")?, 2..=4)
         {
             return Err(invalid_data());
         }
@@ -110,7 +110,7 @@ impl Fixture<'_> {
         let oracle = self.temporal_oracle(layout);
         let ids=self.control("culprit-temporal-setup",async |commands,_|{
             let before=commands.row(&format!("SELECT /* culprit fixture temporal admission */ CONVERT(int,SERVERPROPERTY('ProductMajorVersion')) AS major,CONVERT(int,SERVERPROPERTY('EngineEdition')) AS edition,OBJECT_ID(N'dbo.{current}',N'U') AS current_id,OBJECT_ID(N'dbo.{history}',N'U') AS history_id,(SELECT COUNT(*) FROM sys.all_columns WHERE object_id=OBJECT_ID(N'sys.tables') AND name IN(N'history_retention_period',N'history_retention_period_unit',N'history_retention_period_unit_desc')) AS retention_columns")).await;
-            if !matches!(integer(&before,"edition")?,2|3|4) || !layout.accepts(integer(&before,"major")?,integer(&before,"retention_columns")?){return Err(culprit_core::Error::new(culprit_core::ErrorCode::Unsupported,"This owned selector requires its exact supported/unsupported native temporal layout; no temporal positive was run."))}
+            if !matches!(integer(&before,"edition")?,2..=4) || !layout.accepts(integer(&before,"major")?,integer(&before,"retention_columns")?){return Err(culprit_core::Error::new(culprit_core::ErrorCode::Unsupported,"This owned selector requires its exact supported/unsupported native temporal layout; no temporal positive was run."))}
             assert_eq!(optional_integer(&before,"current_id")?,None,"no existing current table may be claimed");assert_eq!(optional_integer(&before,"history_id")?,None,"no existing history table may be claimed");
             commands.claim_temporal();
             let retention=if layout==RetentionLayout::Available{",HISTORY_RETENTION_PERIOD=6 MONTHS"}else{""};

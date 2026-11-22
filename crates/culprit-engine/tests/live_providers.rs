@@ -115,10 +115,12 @@ async fn sqlite_telemetry_survives_outbox_restart_and_analytical_projection() {
 
 #[cfg(feature = "collector")]
 async fn telemetry_roundtrip(spec: ConnectionSpec, activity: bool) {
-    use culprit_collector::analytical::{catalog::LogicalCatalog, envelope::Envelope, projection};
-    use culprit_collector::{capture::CollectionCancellation, delivery::contract::Contract, outbox::Outbox};
+    use culprit_collector::outbox::Outbox;
     use culprit_core::{AuthKind, telemetry::*};
     use culprit_engine::{NewConnection, Workspace};
+    use culprit_evidence::analytical::{catalog::LogicalCatalog, envelope::Envelope, projection};
+    use culprit_evidence::delivery::contract::Contract;
+    use culprit_read::cancellation::CollectionCancellation;
     use std::sync::Arc;
 
     let engine = spec.engine.unwrap();

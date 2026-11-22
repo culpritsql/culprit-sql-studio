@@ -164,12 +164,12 @@ impl<S: NativeRead, O: NativeRead> NativeRead for PhaseRead<'_, S, O> {
             self.first_error = Some(error.clone());
             return Err(ReadError::Source(error));
         }
-        if !self.baseline_matched {
-            if let Err(error) = self.baseline().await {
-                self.state = TraceState::BaselineFailed;
-                self.first_error = Some(error.clone());
-                return Err(ReadError::Source(error));
-            }
+        if !self.baseline_matched
+            && let Err(error) = self.baseline().await
+        {
+            self.state = TraceState::BaselineFailed;
+            self.first_error = Some(error.clone());
+            return Err(ReadError::Source(error));
         }
         if let Err(error) = owned_case::require_active(self.cancellation) {
             self.state = TraceState::CallerCancelled;

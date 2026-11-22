@@ -370,7 +370,7 @@ async fn changed_current_native_incarnation_has_context_and_flags_but_no_origina
     let point = compare_predicates(&mut reader, OBJECT, &original).await.unwrap().unwrap();
     assert_eq!(point.context.identity.plan_generation, "9");
     assert!(!point.comparison.original_incarnation_matches);
-    assert_eq!(point.native_predicates["plan_generation_matches"], false);
+    assert!(!point.native_predicates["plan_generation_matches"]);
     assert_eq!(point.original_binding_verified, None);
     assert_eq!(reader.queries(), 1);
 }

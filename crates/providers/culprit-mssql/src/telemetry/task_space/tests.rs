@@ -382,11 +382,9 @@ async fn question_request() -> CollectionRequest {
     }
 }
 fn with_native_role(mut rows: Vec<ReadResult<Vec<Rec>>>, role: Option<&str>) -> Vec<ReadResult<Vec<Rec>>> {
-    for result in &mut rows {
-        if let Ok(rows) = result {
-            for row in rows {
-                *row = replace(row, &[("updateability", role.map(|role| Val::Text(role.into())).unwrap_or(Val::Null))]);
-            }
+    for rows in rows.iter_mut().flatten() {
+        for row in rows {
+            *row = replace(row, &[("updateability", role.map(|role| Val::Text(role.into())).unwrap_or(Val::Null))]);
         }
     }
     rows

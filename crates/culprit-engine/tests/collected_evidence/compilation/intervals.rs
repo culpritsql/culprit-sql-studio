@@ -55,7 +55,7 @@ async fn matched_original_reads_replay_approximate_elapsed_work_without_borrowin
             DefinitionPayload::Unavailable { reason: PayloadUnavailable::Restricted }
         };
         let expected_statement = current.statement.clone();
-        let expected_memory = current.memory.clone();
+        let expected_memory = current.memory;
         let expected_identity = current.identity.clone();
         let SourceObservation::Snapshot(point) = &mut after_source.observation else { panic!() };
         point.observed_from = "2020-01-01T13:00:01Z".into();

@@ -75,9 +75,8 @@ fn original_query(query_id: &str) -> OriginalQuery {
         }),
     )
     .unwrap();
-    focus.basis = Box::new(
-        DiagnosticEvidenceRef::from_export(&source, &digest(b"selected-query-original-manifest"), &row, 0).unwrap(),
-    );
+    *focus.basis =
+        DiagnosticEvidenceRef::from_export(&source, &digest(b"selected-query-original-manifest"), &row, 0).unwrap();
     focus.prerequisite = SourceReadPrerequisite::ObservedQueryHistoryFailure { query };
     request.validate().unwrap();
     OriginalQuery { source, row, request }
