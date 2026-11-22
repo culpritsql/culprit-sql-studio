@@ -46,6 +46,8 @@ class StageWasmRepoTests(unittest.TestCase):
 
         (template / "README.md").write_text("# @culpritsql/plans\n")
         (template / ".gitattributes").write_text("pkg/** linguist-generated=true\n")
+        (template / "assets").mkdir(parents=True)
+        (template / "assets/hero-dark.png").write_bytes(b"\x89PNG\r\n\x1a\n")
         (template / "smoke.mjs").write_text("#!/usr/bin/env node\n")
         (template / "workflows/ci.yml").write_text("name: CI\n")
         (template / "workflows/publish.yml").write_text("name: Publish\n")
@@ -97,6 +99,7 @@ class StageWasmRepoTests(unittest.TestCase):
         self.assertEqual(manifest["version"], "0.5.6")
         self.assertEqual(manifest["publishConfig"], {"access": "public", "provenance": True})
         self.assertFalse((self.out / ".github").exists())
+        self.assertTrue((self.out / "assets/hero-dark.png").is_file())
 
         report_text = (self.out / "pkg/build-report.json").read_text()
         self.assertNotIn("/Users/", report_text)
@@ -110,6 +113,10 @@ class StageWasmRepoTests(unittest.TestCase):
         (target / ".github/workflows/ci.yml").write_text("name: CI\n")
         (target / "pkg/build-report.json").write_text('{"cargo_lock_sha256": "different"}\n')
         self.assertFalse(has_meaningful_changes(self.out, target))
+        self.assertFalse(has_pkg_changes(self.out, target))
+
+        (target / "README.md").write_text("# Updated README\n")
+        self.assertTrue(has_meaningful_changes(self.out, target))
         self.assertFalse(has_pkg_changes(self.out, target))
 
         (target / "pkg/models/Plan.d.ts").write_text("export type Plan = { id: number };\n")

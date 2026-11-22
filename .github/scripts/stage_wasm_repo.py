@@ -177,6 +177,10 @@ def stage_repository(destination: Path, *, root: Path = ROOT, include_pkg: bool 
     shutil.copyfile(template_dir / "README.md", destination / "README.md")
     shutil.copyfile(template_dir / ".gitattributes", destination / ".gitattributes")
 
+    assets_src = template_dir / "assets"
+    if assets_src.is_dir():
+        shutil.copytree(assets_src, destination / "assets")
+
     for rel in ("src/index.ts", "test/contract.ts", "tsconfig.json", "tsconfig.contract.json"):
         target = destination / rel
         target.parent.mkdir(parents=True, exist_ok=True)

@@ -1,28 +1,36 @@
-# @culpritsql/plans
+<div align="center">
 
-Portable WebAssembly execution plan parser, comparator, deadlock parser, and exporter extracted from [Culprit SQL Studio](https://github.com/culpritsql/culprit-sql-studio).
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/culpritsql/culprit-plans/main/assets/hero-dark.png">
+  <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/culpritsql/culprit-plans/main/assets/hero-light.png">
+  <img alt="@culpritsql/plans" src="https://raw.githubusercontent.com/culpritsql/culprit-plans/main/assets/hero-light.png" width="100%">
+</picture>
 
-Runs locally in browsers and JavaScript runtimes with zero runtime npm dependencies, no database drivers, and no network calls. TypeScript declarations are generated directly from Culprit's Rust domain model (`ts-rs`).
+<br />
 
-## Supported Formats
+[![npm](https://img.shields.io/npm/v/%40culpritsql%2Fplans?style=flat-square&label=npm&color=ffcf33&labelColor=181715)](https://www.npmjs.com/package/@culpritsql/plans)
+[![Runtime: Rust + Wasm](https://img.shields.io/badge/runtime-Rust%20%2B%20Wasm-dea584?style=flat-square&labelColor=181715)](https://webassembly.org)
+[![Zero Dependencies](https://img.shields.io/badge/dependencies-0-4cbb84?style=flat-square&labelColor=181715)](https://www.npmjs.com/package/@culpritsql/plans?activeTab=dependencies)
+[![TypeScript](https://img.shields.io/badge/types-ts--rs-3178c6?style=flat-square&labelColor=181715)](https://github.com/culpritsql/culprit-sql-studio)
+[![License: MIT](https://img.shields.io/badge/license-MIT-4cbb84?style=flat-square&labelColor=181715)](./LICENSE)
 
-| Engine | Execution Plans | Deadlocks |
-| --- | --- | --- |
-| SQL Server | XML Showplan (`.sqlplan`) | XML deadlock graphs |
-| PostgreSQL | `EXPLAIN (FORMAT JSON)`, `EXPLAIN (ANALYZE, BUFFERS)` text | Server log deadlock excerpts |
-| MySQL & MariaDB | `EXPLAIN FORMAT=JSON`, `EXPLAIN ANALYZE` tree text | `SHOW ENGINE INNODB STATUS` deadlocks |
-| YugabyteDB | `EXPLAIN (FORMAT JSON)`, text plans | PostgreSQL-compatible deadlock logs |
-| SQLite | `EXPLAIN QUERY PLAN` text | Not applicable |
+**Portable WebAssembly execution plan parser, structural differ, deadlock parser, and exporter.**
+<br />
+Compiled directly from [Culprit SQL Studio](https://github.com/culpritsql/culprit-sql-studio) and paired with [`@culpritsql/plan-viewer`](https://github.com/culpritsql/culprit-plan-viewer).
 
-## Install
+[Quickstart](#quickstart) · [Supported Engines](#supported-engines) · [API Reference](#api-reference) · [Node.js & Bundlers](#nodejs--bundlers) · [Security & Limits](#security--limits)
+
+</div>
+
+---
+
+## Quickstart
 
 ```sh
 npm install @culpritsql/plans
 ```
 
-## Quickstart
-
-Initialize the WebAssembly module once, then call the synchronous operations:
+Initialize the WebAssembly module once, then call the synchronous parser, comparison, deadlock, and export operations:
 
 ```ts
 import {
@@ -31,14 +39,13 @@ import {
   diffPlans,
   parseDeadlock,
   exportPlan,
-  ParserError,
 } from "@culpritsql/plans";
 
 await init();
 
 const before = parsePlan(beforePlanText);
 const after = parsePlan(afterPlanText, "postgres");
-const diff = diffPlans(before, "before", after, "after");
+const diff = diffPlans(before, "Before", after, "After");
 
 const deadlocks = parseDeadlock(deadlockLogText);
 const exported = exportPlan(after, "checkout-query", "markdown", {
@@ -47,9 +54,66 @@ const exported = exportPlan(after, "checkout-query", "markdown", {
 });
 ```
 
-### Node.js and Custom Asset URLs
+> Rendering in React? Pass `Plan`, `PlanDiff`, and `Deadlock` directly to [`@culpritsql/plan-viewer`](https://www.npmjs.com/package/@culpritsql/plan-viewer). Both packages share the exact same generated `ts-rs` model types.
 
-In browsers, `init()` resolves `culprit_wasm_bg.wasm` relative to `import.meta.url` via `fetch`. In Node.js, or when a bundler emits the `.wasm` asset at a custom URL, pass `module_or_path` explicitly:
+---
+
+## Supported Engines
+
+| Engine | Execution Plans | Deadlocks |
+| --- | --- | --- |
+| **SQL Server** | `.sqlplan` Showplan XML | XML deadlock graphs |
+| **PostgreSQL** | `EXPLAIN (FORMAT JSON)`, `EXPLAIN (ANALYZE, BUFFERS)` text | Server log deadlock excerpts |
+| **MySQL & MariaDB** | `EXPLAIN FORMAT=JSON`, `EXPLAIN ANALYZE` tree text | `SHOW ENGINE INNODB STATUS` |
+| **YugabyteDB** | `EXPLAIN (FORMAT JSON)` + DocDB RPC/storage metrics | PostgreSQL-compatible logs |
+| **SQLite** | `EXPLAIN QUERY PLAN` text | Not applicable |
+
+---
+
+## API Reference
+
+| Export | Signature | Description |
+| --- | --- | --- |
+| `init` | `init(input?): Promise<void>` | Instantiates the Wasm module once; subsequent calls reuse the live instance |
+| `parsePlan` | `parsePlan(input: string, engine?: Engine): Plan` | Auto-detects format or validates strictly against `"mssql" \| "postgres" \| "mysql" \| "yugabyte" \| "sqlite"` |
+| `diffPlans` | `diffPlans(a: Plan, nameA: string, b: Plan, nameB: string, context?: CompareContext): PlanDiff` | Computes structural operator changes, access-path flips, cardinality shifts, and speedup/cost verdicts |
+| `parseDeadlock` | `parseDeadlock(input: string): Deadlock[]` | Extracts victim selection, participant sessions, held/waited locks, and original timestamps |
+| `exportPlan` | `exportPlan(plan: Plan, title: string, format: ExportFormat, options: ExportOptions): ExportFile` | Exports `"markdown"`, `"html"`, or `"native"` with optional SQL literal redaction |
+| `ParserError` | `class ParserError extends Error` | Structured refusal error (`error.error` carries `{ code, message, hint, detail }`) instead of Wasm traps |
+
+### Redacted Exports
+
+Setting `redact: true` scrubs SQL string and numeric literals from statements, filter predicates, and native Showplan XML parameter lists before returning the file:
+
+```ts
+const file = exportPlan(plan, "Order Lookup", "html", {
+  redact: true,
+  notes: [],
+});
+// file => { name: "order-lookup.html", format: "html", contents: "<!doctype html>..." }
+```
+
+### Structured Error Handling
+
+Malformed XML/JSON, mismatched engine hints, DTD attempts, or over-depth trees throw `ParserError` cleanly without corrupting the Wasm instance:
+
+```ts
+import { parsePlan, ParserError } from "@culpritsql/plans";
+
+try {
+  const plan = parsePlan(untrustedInput, "postgres");
+} catch (err) {
+  if (err instanceof ParserError) {
+    console.error(err.error.code, err.error.message, err.error.hint);
+  }
+}
+```
+
+---
+
+## Node.js & Bundlers
+
+In browsers, `init()` resolves `culprit_wasm_bg.wasm` relative to `import.meta.url` via `fetch`. In Node.js or custom bundler setups, pass `module_or_path` explicitly:
 
 ```ts
 import { readFile } from "node:fs/promises";
@@ -66,7 +130,7 @@ await init({ module_or_path: wasmBytes });
 const plan = parsePlan("QUERY PLAN\n`--SCAN orders", "sqlite");
 ```
 
-With Vite or Next.js static asset imports:
+With **Vite** or **Next.js** static asset URLs:
 
 ```ts
 import wasmUrl from "@culpritsql/plans/pkg/native/culprit_wasm_bg.wasm?url";
@@ -75,45 +139,15 @@ import { init } from "@culpritsql/plans";
 await init({ module_or_path: wasmUrl });
 ```
 
-## API
+---
 
-### `init(input?): Promise<void>`
+## Security & Limits
 
-Loads and instantiates the WebAssembly module. Safe to call more than once; subsequent calls reuse the initialized instance.
-
-### `parsePlan(input: string, engine?: Engine): Plan`
-
-Parses raw plan text into a typed `Plan` tree (`"mssql" | "postgres" | "mysql" | "yugabyte" | "sqlite"`). When `engine` is omitted, the format is detected from the input. When `engine` is provided, incompatible inputs are rejected.
-
-### `diffPlans(a: Plan, nameA: string, b: Plan, nameB: string, context?: CompareContext): PlanDiff`
-
-Compares two parsed plans structurally and across operator estimates, actual row counts, and costs. Optional `CompareContext` supplies explicit table statistics without touching a database connection.
-
-### `parseDeadlock(input: string): Deadlock[]`
-
-Parses native deadlock XML or server log text into typed `Deadlock` observations, preserving participant processes, held/waited locks, victim selection, and original timestamps when present.
-
-### `exportPlan(plan: Plan, title: string, format: ExportFormat, options: ExportOptions): ExportFile`
-
-Formats a `Plan` as `"markdown"`, `"html"`, or `"native"` (`ExportFile` with `name`, `format`, `contents`). Setting `options.redact = true` scrubs SQL string and numeric literals from statements, predicates, and native XML parameters, and HTML exports escape all user and plan strings.
-
-### `ParserError`
-
-Invalid, empty, malformed, over-depth, or mismatched inputs throw `ParserError` rather than trapping the WebAssembly instance. Inspect `.error` for the structured Culprit error (`{ code, message, hint, detail }`).
-
-## Runtime and Security Notes
-
-- Serve `.wasm` files with `Content-Type: application/wasm`.
-- Under a strict Content Security Policy, include `'wasm-unsafe-eval'` in `script-src`.
-- XML DTD declarations and entity expansions are rejected. Inputs are bounded to 1024 nested XML elements and 56 plan operator levels.
-- Compressed payload size is ~1.41 MB gzip (~1.00 MB Brotli) with 108 generated TypeScript model declarations.
-
-## Source Repository
-
-This repository is synced automatically from [`culpritsql/culprit-sql-studio`](https://github.com/culpritsql/culprit-sql-studio) (`crates/culprit-plans`, `crates/culprit-wasm`, and `packages/culprit-wasm`).
-
-- Website: [culpritsql.com](https://culpritsql.com)
-- Parser and engine source: [github.com/culpritsql/culprit-sql-studio](https://github.com/culpritsql/culprit-sql-studio)
+- **Zero runtime dependencies**: Pure Rust compiled to `wasm32-unknown-unknown` with zero npm dependencies, no database drivers, and no network calls.
+- **Hardened XML & JSON bounds**: Rejects XML `<!DOCTYPE>` / entity expansion (`XXE`) and enforces deterministic depth ceilings (`1,024` XML elements, `56` plan operator levels) on a dedicated 32 MiB Wasm linear stack.
+- **HTML-safe exports**: HTML plan exports escape every identifier, predicate, and title string.
+- **CSP compatibility**: Serve `.wasm` assets with `Content-Type: application/wasm` and include `'wasm-unsafe-eval'` in `script-src` under strict Content Security Policies.
+- **Single source of truth**: Synced automatically from [`culpritsql/culprit-sql-studio`](https://github.com/culpritsql/culprit-sql-studio) (`crates/culprit-plans`, `crates/culprit-wasm`, `packages/culprit-wasm`).
 
 ## License
 
