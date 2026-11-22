@@ -34,7 +34,7 @@ async fn one_held_native_owner_rechecks_original_generation_and_returns_only_sig
     let dispatch = &reader.calls[4];
     assert_eq!(dispatch.limit, 1);
     assert!(dispatch.sql.contains("KILL 42;"));
-    assert!(dispatch.sql.contains("login_time=CONVERT(datetime,@P2,126)"));
+    assert!(dispatch.sql.contains("CAST(s.login_time AS datetime2(7))=CONVERT(datetime2(7),@P2,126)"));
     assert!(dispatch.sql.contains("session_id<>@@SPID"));
     assert!(dispatch.sql.contains("DATABASEPROPERTYEX"));
     assert!(reader.calls[2].sql.contains(ESTABLISHED_SESSION_SQL));

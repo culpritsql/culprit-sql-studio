@@ -15,7 +15,7 @@ const MAX_XML_BYTES: i64 = 4 * 1024 * 1024;
 // Read configuration before requesting target_data. The required explicit target limits bound the source,
 // rather than assuming a TOP clause or a client timeout bounds serialization of an arbitrary ring buffer.
 const CONFIGURATION: &str = r#"SELECT TOP (2) /* culprit */ c.event_session_id,
- CONVERT(varchar(40),s.create_time,126) AS generation,
+ CONVERT(varchar(40),CAST(s.create_time AS datetime2(7)),126) AS generation,
  CONVERT(bigint,m.value) AS memory_kib,CONVERT(bigint,n.value) AS maximum_events
 FROM sys.database_event_sessions c
 JOIN sys.dm_xe_database_sessions s ON s.name=c.name
@@ -31,13 +31,18 @@ WHERE c.name=@P1 AND target.name=N'ring_buffer' AND target.package=N'package0'
    AND a.name=N'event_sequence' AND a.package=N'package0')
 OPTION(MAXDOP 1)"#;
 
-const TARGET: &str = r#"SELECT TOP (2) /* culprit */ DATALENGTH(t.target_data) AS target_bytes,
+fn target_sql() -> String {
+    let generation_matches = crate::sql_time::native_time_matches("s.create_time", "@P3");
+    format!(
+        r#"SELECT TOP (2) /* culprit */ DATALENGTH(t.target_data) AS target_bytes,
  CASE WHEN DATALENGTH(t.target_data)<=@P4 THEN t.target_data END AS target_xml
 FROM sys.dm_xe_database_sessions s
 JOIN sys.dm_xe_database_session_targets t ON t.event_session_address=s.address
 JOIN sys.database_event_sessions c ON c.name=s.name
-WHERE s.name=@P1 AND c.event_session_id=@P2 AND s.create_time=CONVERT(datetime,@P3,126)
- AND t.target_name=N'ring_buffer' OPTION(MAXDOP 1)"#;
+WHERE s.name=@P1 AND c.event_session_id=@P2 AND {generation_matches}
+ AND t.target_name=N'ring_buffer' OPTION(MAXDOP 1)"#
+    )
+}
 
 pub(super) async fn read<R: NativeRead>(
     io: &mut R,
@@ -55,13 +60,10 @@ pub(super) async fn read<R: NativeRead>(
     if !(1..=MAX_MEMORY_KIB).contains(&memory) || !(1..=MAX_EVENTS as i64).contains(&maximum_events) {
         return Err(setup_required());
     }
-    let generation = text(configuration, "generation")?;
-    if chrono::NaiveDateTime::parse_from_str(&generation, "%Y-%m-%dT%H:%M:%S%.f").is_err() {
-        return Err(invalid_data());
-    }
+    let generation = crate::sql_time::native_time(&text(configuration, "generation")?)?;
     let rows = io
         .query(
-            TARGET,
+            &target_sql(),
             vec![
                 Parameter::Text(SESSION.into()),
                 Parameter::Integer(integer(configuration, "event_session_id")?),

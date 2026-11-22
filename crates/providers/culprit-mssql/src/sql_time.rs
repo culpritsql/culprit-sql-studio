@@ -31,3 +31,9 @@ pub(crate) fn native_time(value: &str) -> culprit_core::Result<String> {
     }
     Ok(format!("{}.{:07}", value.format("%Y-%m-%dT%H:%M:%S"), value.nanosecond() / NANOS_PER_NATIVE_TICK))
 }
+
+/// Compare the same native precision captured by `CAST(... AS datetime2)`. Parsing the canonical
+/// seven-digit identity as datetime can fail, and rounding it can accept a different native identity.
+pub(crate) fn native_time_matches(column: &str, parameter: &str) -> String {
+    format!("CAST({column} AS datetime2(7))=CONVERT(datetime2(7),{parameter},126)")
+}

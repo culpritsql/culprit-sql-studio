@@ -10,7 +10,7 @@ const UNTIL: &str = "2020-01-01T07:00:00Z";
 pub(crate) fn configuration() -> Rec {
     Rec::of(&[
         ("event_session_id", Val::Int(4)),
-        ("generation", Val::Text("2020-01-01T05:00:00.153".into())),
+        ("generation", Val::Text("2020-01-01T05:00:00.1533333".into())),
         ("memory_kib", Val::Int(1024)),
         ("maximum_events", Val::Int(256)),
     ])
@@ -51,7 +51,9 @@ async fn explicit_bounded_session_keeps_fractional_time_and_exact_event_identity
     assert_eq!(event.graphs[0].at.as_deref(), Some(event.at.as_str()));
     assert_eq!(event.graphs[0].processes[0].session.as_deref(), Some("20"));
     assert_eq!(io.calls.len(), 2);
-    assert!(matches!(&io.calls[1].parameters[2],Parameter::Text(value) if value=="2020-01-01T05:00:00.153"));
+    assert!(matches!(&io.calls[1].parameters[2],Parameter::Text(value) if value=="2020-01-01T05:00:00.1533333"));
+    assert!(io.calls[0].sql.contains("CAST(s.create_time AS datetime2(7))"));
+    assert!(io.calls[1].sql.contains("CAST(s.create_time AS datetime2(7))=CONVERT(datetime2(7),@P3,126)"));
     for call in &io.calls {
         assert!(!call.sql.contains("fn_xe_telemetry"));
         assert!(!call.sql.contains("fn_xe_file_target_read_file"));

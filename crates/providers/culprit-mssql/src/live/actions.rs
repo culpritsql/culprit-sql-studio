@@ -211,12 +211,13 @@ async fn current_session<R: NativeRead>(reader: &mut R, id: u64) -> Result<Activ
 fn guarded_kill(id: u64) -> String {
     // KILL cannot bind its SPID argument. Only the parsed integer enters this fixed administrative template.
     // Even in one batch, the predicate and KILL are not an atomic compare-and-signal primitive.
+    let generation_matches = crate::sql_time::native_time_matches("s.login_time", "@P2");
     format!(
         r#"DECLARE /* culprit */ @signalled bit=0;
 IF DB_NAME()=@P3
  AND CONVERT(nvarchar(32),DATABASEPROPERTYEX(DB_NAME(),'Updateability'))=CASE @P4 WHEN 1 THEN N'READ_WRITE' ELSE N'READ_ONLY' END
  AND EXISTS(SELECT 1 FROM sys.dm_exec_sessions s
-   WHERE s.session_id=@P1 AND s.login_time=CONVERT(datetime,@P2,126)
+   WHERE s.session_id=@P1 AND {generation_matches}
     AND s.is_user_process=1 AND s.session_id<>@@SPID AND LOWER(COALESCE(s.program_name,N''))<>N'culprit'
     AND {ESTABLISHED_SESSION_SQL})
 BEGIN
