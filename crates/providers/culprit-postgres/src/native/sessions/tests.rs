@@ -3,7 +3,7 @@ use culprit_core::{ConnectionOutcomeMetricKind, MeasurementScope, ResetMarker};
 
 pub(crate) fn values() -> Value {
     serde_json::json!({
-        "datid":42,"datname":"fixture","stats_reset":"2020-01-01T00:00:00Z",
+        "datid":"42","datname":"fixture","stats_reset":"2020-01-01T00:00:00Z",
         "counter_observed_at":"2020-01-02T00:00:00Z","native_postmaster_started_at":"2020-01-01T23:00:00Z",
         "native_server_version_num":"180000","native_block_bytes":"8192",
         "sessions":9007199254740993u64,"sessions_abandoned":0,"sessions_fatal":null,"sessions_killed":7,
@@ -138,6 +138,32 @@ async fn acquisition_uses_one_held_reader_statement_and_terminal_failures_do_not
         let mut reader = Reader { calls: 0, reply: Some(Err(stop.error())) };
         let error = acquire(&mut reader, target.clone()).await.unwrap_err();
         assert_eq!(CollectionStop::from_error(&error), stop);
+        assert_eq!(reader.calls, 1);
+    }
+}
+
+#[tokio::test]
+async fn malformed_native_database_oids_refuse_session_acquisition_without_another_dispatch() {
+    let target = DatabaseIdentity::server(culprit_core::Engine::Postgres, "fixture", "fixture.invalid", 5432, None);
+    for oid in [
+        Value::from(42),
+        Value::from(42.0),
+        Value::Null,
+        Value::from(false),
+        Value::from("0"),
+        Value::from("042"),
+        Value::from("+42"),
+        Value::from("42 "),
+        Value::from("4294967296"),
+    ] {
+        let mut native = values();
+        native["datid"] = oid.clone();
+        let mut reader = Reader { calls: 0, reply: Some(Ok(vec![row(native)])) };
+        assert_eq!(
+            CollectionStop::from_error(&acquire(&mut reader, target.clone()).await.unwrap_err()),
+            CollectionStop::InvalidPage,
+            "{oid}"
+        );
         assert_eq!(reader.calls, 1);
     }
 }

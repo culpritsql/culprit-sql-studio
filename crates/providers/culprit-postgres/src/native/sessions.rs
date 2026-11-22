@@ -50,8 +50,7 @@ pub(crate) fn decode(row: &Row, database: &str) -> Result<ConnectionOutcomeObser
     if values.get("datname").and_then(Value::as_str) != Some(database) {
         return Err(CollectionStop::SourceChanged.error());
     }
-    let database_oid =
-        values.get("datid").and_then(Value::as_u64).filter(|oid| *oid > 0).ok_or_else(invalid)?.to_string();
+    let database_oid = json_oid(&values, "datid")?.to_owned();
     let started_at = values.get("native_postmaster_started_at").and_then(Value::as_str).ok_or_else(invalid)?;
     let started_at = canonical_time(started_at)?;
     let version = values

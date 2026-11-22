@@ -158,8 +158,8 @@ pub(crate) fn decode_values(source: String, values: Value, meta: CounterReadCont
     if scope == MeasurementScope::Database {
         identity = identity.qualified("dbid", meta.database_oid);
     }
-    if let Some(id) = values.get("subid").and_then(Value::as_u64) {
-        identity = identity.qualified("subid", id.to_string());
+    if source == "pg_stat_subscription_stats" {
+        identity = identity.qualified("subid", json_oid(&values, "subid")?);
     }
     let mut counters = vec![];
     for (name, value) in fields {

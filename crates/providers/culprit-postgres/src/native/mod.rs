@@ -25,6 +25,15 @@ pub(crate) fn invalid() -> culprit_core::Error {
 pub(crate) fn text(row: &Row, field: &str) -> Result<String> {
     row.text(field).filter(|value| !value.is_empty()).ok_or_else(invalid)
 }
+/// PostgreSQL serializes native oid fields as JSON strings. Require their exact positive
+/// 32-bit representation; coercion would hide a different projection or malformed identity.
+pub(crate) fn json_oid<'a>(values: &'a serde_json::Value, field: &str) -> Result<&'a str> {
+    values
+        .get(field)
+        .and_then(serde_json::Value::as_str)
+        .filter(|value| value.parse::<u32>().is_ok_and(|oid| oid > 0 && oid.to_string() == *value))
+        .ok_or_else(invalid)
+}
 pub(crate) fn integer(row: &Row, field: &str) -> Result<u64> {
     text(row, field)?.parse::<u64>().map_err(|_| invalid())
 }
@@ -45,3 +54,6 @@ pub(crate) async fn one<R: QueryRead>(reader: &mut R, sql: &str) -> Result<Row> 
 pub(crate) fn iso(expression: &str) -> String {
     format!("pg_catalog.to_char(({expression}) AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"')")
 }
+
+#[cfg(test)]
+mod tests;

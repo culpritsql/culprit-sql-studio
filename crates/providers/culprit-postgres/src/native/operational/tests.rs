@@ -117,3 +117,45 @@ fn native_decoding_enforces_requested_scope_before_admitting_counters() {
     let removed_source = row("pg_stat_checkpointer", serde_json::json!({"num_done":1}));
     assert!(decode(&removed_source, &metadata(160_000, false), Selection::Instance).is_err());
 }
+
+#[test]
+fn native_subscription_oids_keep_distinct_counter_owners_and_refuse_missing_or_coerced_identity() {
+    let meta = metadata(180_000, false);
+    let values = |oid| {
+        serde_json::json!({
+            "subid":oid,"subname":"fixture subscription","apply_error_count":0,"sync_error_count":2,
+            "stats_reset":"2020-01-01T05:30:00Z",
+        })
+    };
+    let mut keys = std::collections::BTreeSet::new();
+    for oid in ["73", "4294967295"] {
+        let record =
+            decode(&row("pg_stat_subscription_stats", values(serde_json::json!(oid))), &meta, Selection::Database)
+                .unwrap();
+        let TelemetryRecord::Operational(observation) = record else { panic!() };
+        let OperationalFact::CounterSet(counters) = &observation.fact else { panic!() };
+        assert_eq!(counters.identity.qualifiers.get("subid").map(String::as_str), Some(oid));
+        assert_eq!(counters.identity.qualifiers.get("dbid").map(String::as_str), Some("42"));
+        assert!(keys.insert(observation.key), "different native subscriptions cannot collapse to one counter owner");
+    }
+    for oid in [
+        serde_json::json!(73),
+        serde_json::json!(null),
+        serde_json::json!(false),
+        serde_json::json!("0"),
+        serde_json::json!("073"),
+        serde_json::json!("4294967296"),
+    ] {
+        assert_eq!(
+            CollectionStop::from_error(
+                &decode(&row("pg_stat_subscription_stats", values(oid.clone())), &meta, Selection::Database)
+                    .unwrap_err()
+            ),
+            CollectionStop::InvalidPage,
+            "{oid}"
+        );
+    }
+    let mut missing = values(serde_json::json!("73"));
+    missing.as_object_mut().unwrap().remove("subid");
+    assert!(decode(&row("pg_stat_subscription_stats", missing), &meta, Selection::Database).is_err());
+}
