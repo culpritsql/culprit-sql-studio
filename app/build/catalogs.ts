@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { normalizePath, type Plugin } from "vite";
 
@@ -19,6 +19,8 @@ export function frontendKeys(source: string, english: Catalog): Set<string> {
     }
   };
   visit(source);
+  const viewerSrc = join(source, "../../packages/culprit-plan-viewer/src");
+  if (existsSync(viewerSrc)) visit(viewerSrc);
   return keys;
 }
 

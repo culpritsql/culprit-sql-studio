@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from "react";
+import { bindPlanViewerI18n } from "../../../packages/culprit-plan-viewer/src/host";
 import english from "../../../locales/en.json" with { type: "json" };
 import { type Args, type Locale, formatMessage } from "./message-format";
 import { isLanguageCode } from "./language-code";
@@ -109,3 +110,5 @@ function chosen(): string {
   }
   return "en";
 }
+
+bindPlanViewerI18n({ t, locale, language, subscribe });

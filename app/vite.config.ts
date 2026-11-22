@@ -5,11 +5,22 @@ import { uiCatalogs } from "./build/catalogs.ts";
 
 const host = process.env.TAURI_DEV_HOST;
 
+const appRoot = fileURLToPath(new URL(".", import.meta.url)).replace(/\/$/, "");
+
 export default defineConfig({
-  plugins: [uiCatalogs(fileURLToPath(new URL(".", import.meta.url)).replace(/\/$/, "")), react()],
+  plugins: [uiCatalogs(appRoot), react()],
   clearScreen: false,
   // CodeMirror breaks when two copies of its core load (instanceof checks); keep one of each.
-  resolve: { dedupe: ["@codemirror/state", "@codemirror/view", "@codemirror/language", "@codemirror/autocomplete"] },
+  // Alias shared UI runtime packages so workspace sources under ../packages/ resolve app/node_modules cleanly.
+  resolve: {
+    dedupe: ["react", "react-dom", "@codemirror/state", "@codemirror/view", "@codemirror/language", "@codemirror/autocomplete"],
+    alias: {
+      "lucide-react": `${appRoot}/node_modules/lucide-react`,
+      "react/jsx-runtime": `${appRoot}/node_modules/react/jsx-runtime.js`,
+      "react/jsx-dev-runtime": `${appRoot}/node_modules/react/jsx-dev-runtime.js`,
+      react: `${appRoot}/node_modules/react`,
+    },
+  },
   optimizeDeps: { include: ["codemirror", "@codemirror/state", "@codemirror/view", "@codemirror/lang-sql", "@codemirror/autocomplete"] },
   server: {
     port: 1420,

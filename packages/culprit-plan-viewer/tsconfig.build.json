@@ -1,0 +1,27 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ES2022",
+    "moduleResolution": "Bundler",
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "jsx": "react-jsx",
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedIndexedAccess": true,
+    "resolveJsonModule": true,
+    "declaration": true,
+    "verbatimModuleSyntax": true,
+    "noEmitOnError": true,
+    "rootDir": "src",
+    "outDir": "pkg",
+    "types": [],
+    "paths": {
+      "react": ["../../app/node_modules/@types/react/index.d.ts"],
+      "react/jsx-runtime": ["../../app/node_modules/@types/react/jsx-runtime.d.ts"],
+      "lucide-react": ["../../app/node_modules/lucide-react/dist/lucide-react.d.ts"]
+    }
+  },
+  "include": ["src/**/*.ts", "src/**/*.tsx"]
+}

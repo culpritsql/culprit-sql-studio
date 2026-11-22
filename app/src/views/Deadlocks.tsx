@@ -1,9 +1,8 @@
 import { databaseDeadlockGraphCount, DeadlockScopeNotice, DeadlockUnavailableHistory } from "../lib/deadlock-scope";
 import { evidencePresentation } from "../lib/engines";
-import { ArrowUpRight, CircleCheck, ClipboardPaste, Copy, FileWarning } from "lucide-react";
+import { ArrowUpRight, CircleCheck, ClipboardPaste, FileWarning } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { DeadlockGraph } from "../components/DeadlockGraph";
-import { Sql } from "../components/Sql";
+import { DeadlockViewer } from "../../../packages/culprit-plan-viewer/src/DeadlockViewer";
 import type { Deadlock } from "../gen/Deadlock";
 import type { DeadlockPattern } from "../gen/DeadlockPattern";
 import type { DeadlockProcess } from "../gen/DeadlockProcess";
@@ -12,9 +11,9 @@ import type { Engine } from "../gen/Engine";
 import { api, errorMessage, type ApiError } from "../lib/api";
 import { useHotkeys } from "../lib/hotkeys";
 import { t } from "../lib/i18n";
+import "../lib/clipboard";
 import { currentReport, setState, toast, useStore } from "../lib/store";
 import { keys } from "../lib/keys";
-import { copyAndTell } from "../lib/clipboard";
 import { dateLocale, digits } from "../lib/format";
 import { slot, withElements } from "../lib/message-parts";
 
@@ -274,61 +273,18 @@ export default function Deadlocks({ connection, engine }: { connection: string; 
             {load.status === "ready" && load.report.note && <p className="dl-list-note muted">{load.report.note}</p>}
           </div>
           {current && (
-            <article className="dl-detail" key={current.id}>
-              <div className="dl-detail-meta">
-                <span className="dl-pattern">{patternLabel(current.pattern)}</span>
-                <span className="muted" title={when(current.at).full}>
-                  {current.source === "pasted" ? t("ui.deadlocks.pasted") : when(current.at).short} · {current.source}
-                </span>
-              </div>
-              <h2 className="dl-headline">{current.headline}</h2>
-              <DeadlockGraph deadlock={current} onPick={(p: DeadlockProcess) => document.getElementById(`dl-proc-${p.id}`)?.scrollIntoView({ block: "nearest", behavior: "smooth" })} />
-              <p className="dl-explain">{current.explanation}</p>
-
-              <h3 className="dl-section">{t("ui.deadlocks.how_to_fix")}</h3>
-              <ol className="dl-fixes">
-                {current.fixes.map((f, i) => {
-                  const related = findingTitle(f.finding);
-                  return (
-                    <li key={i} className="dl-fix">
-                      <div className="dl-fix-title">{f.title}</div>
-                      <p>{f.detail}</p>
-                      {f.sql && (
-                        <div className="dl-fix-sql">
-                          <Sql text={f.sql} pretty={false} />
-                          <button type="button" className="btn ghost small" onClick={() => copyAndTell(f.sql!, t("ui.common.copied"))} aria-label={t("ui.deadlocks.copy_sql")}>
-                            <Copy size={12} /> {t("ui.common.copy")}
-                          </button>
-                        </div>
-                      )}
-                      {related && f.finding && (
-                        <button type="button" className="link-button dl-related" onClick={() => setState({ view: "overview", finding: f.finding })}>
-                          {t("ui.deadlocks.same_fix", { finding: related })} <ArrowUpRight size={12} />
-                        </button>
-                      )}
-                    </li>
-                  );
-                })}
-              </ol>
-
-              <h3 className="dl-section">{t("ui.deadlocks.involved")}</h3>
-              <div className="dl-procs">
-                {current.processes.map((p) => (
-                  <div key={p.id} id={`dl-proc-${p.id}`} className={`dl-proc-card ${p.victim ? "victim" : ""}`}>
-                    <div className="dl-proc-head">
-                      <strong>{p.session ? t("ui.deadlocks.session", { session: p.session }) : t("ui.deadlocks.process", { id: p.id })}</strong>
-                      {p.victim && <span className="pill victim">{t("ui.deadlocks.rolled_back")}</span>}
-                    </div>
-                    <div className="dl-proc-facts muted">
-                      {[p.application, p.login && p.host ? `${p.login}@${p.host}` : (p.login ?? p.host), p.isolation, p.wait_mode ? t("ui.deadlocks.wanted", { mode: p.wait_mode }) : null, p.procedure ? t("ui.deadlocks.in_procedure", { procedure: p.procedure }) : null]
-                        .filter(Boolean)
-                        .join(" · ")}
-                    </div>
-                    {p.statement ? <Sql text={p.statement} className="dl-proc-sql" /> : <p className="muted">{t("ui.deadlocks.no_statement")}</p>}
-                  </div>
-                ))}
-              </div>
-            </article>
+            <DeadlockViewer
+              key={current.id}
+              deadlock={current}
+              renderRelatedFinding={(f) => {
+                const related = findingTitle(f.finding);
+                return related && f.finding ? (
+                  <button type="button" className="link-button dl-related" onClick={() => setState({ view: "overview", finding: f.finding })}>
+                    {t("ui.deadlocks.same_fix", { finding: related })} <ArrowUpRight size={12} />
+                  </button>
+                ) : null;
+              }}
+            />
           )}
         </div>
       )}

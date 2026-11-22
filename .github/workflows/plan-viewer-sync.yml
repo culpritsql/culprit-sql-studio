@@ -1,0 +1,223 @@
+name: Plan Viewer Package Sync
+
+# Builds, browser-tests, and syncs @culpritsql/plan-viewer to https://github.com/culpritsql/culprit-plan-viewer.
+# Uses CULPRIT_PLAN_VIEWER_SYNC_TOKEN (or falls back to CULPRIT_PLANS_SYNC_TOKEN when scoped to both public package repos).
+# When a v* release tag is pushed here, the matching v* tag is pushed to culpritsql/culprit-plan-viewer, triggering npm publish.
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      sync_tag:
+        description: "Optional existing v* tag to sync and tag in culpritsql/culprit-plan-viewer"
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: plan-viewer-sync-${{ inputs.sync_tag && format('refs/tags/{0}', inputs.sync_tag) || github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  changes:
+    name: Select sync source
+    runs-on: ubuntu-latest
+    outputs:
+      should_run: ${{ steps.select.outputs.should_run }}
+      sha: ${{ steps.select.outputs.sha }}
+      tag: ${{ steps.select.outputs.tag }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.sync_tag && format('refs/tags/{0}', inputs.sync_tag) || github.sha }}
+          fetch-depth: 2
+          persist-credentials: false
+      - id: select
+        name: Check relevant paths and release tag
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_REF: ${{ github.ref }}
+          BEFORE_SHA: ${{ github.event.before }}
+          REQUESTED_TAG: ${{ inputs.sync_tag }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          import subprocess
+          import tomllib
+
+          event = os.environ["EVENT_NAME"]
+          ref = os.environ["EVENT_REF"]
+          before = os.environ["BEFORE_SHA"]
+          tag = os.environ["REQUESTED_TAG"].strip()
+          if not tag and event == "push" and ref.startswith("refs/tags/v"):
+              tag = ref.removeprefix("refs/tags/")
+
+          workspace_version = tomllib.loads(Path("Cargo.toml").read_text())["workspace"]["package"]["version"]
+          viewer_version = json.loads(Path("packages/culprit-plan-viewer/package.json").read_text())["version"]
+          if viewer_version != workspace_version:
+              raise SystemExit(f"packages/culprit-plan-viewer version {viewer_version} != workspace version {workspace_version}")
+          if tag and tag != f"v{workspace_version}":
+              raise SystemExit(f"Tag {tag} does not match workspace version {workspace_version}")
+
+          watched_prefixes = (
+              "packages/culprit-plan-viewer/",
+              "app/src/gen/",
+              "locales/",
+              ".github/plan-viewer-repo/",
+          )
+          watched_files = {
+              "Cargo.toml",
+              "Cargo.lock",
+              "app/package.json",
+              "app/bun.lock",
+              "dev/build-plan-viewer.py",
+              "dev/smoke-plan-viewer.mjs",
+              "dev/licenses.py",
+              "dev/check-boundaries.py",
+              ".github/scripts/stage_plan_viewer_repo.py",
+              ".github/workflows/plan-viewer-sync.yml",
+          }
+
+          should_run = True
+          if event == "push" and not tag:
+              if before and set(before) != {"0"}:
+                  check = subprocess.run(["git", "cat-file", "-e", f"{before}^{{commit}}"], capture_output=True)
+                  if check.returncode == 0:
+                      changed = subprocess.check_output(
+                          ["git", "diff", "--name-only", before, "HEAD"], text=True
+                      ).splitlines()
+                      should_run = any(
+                          path in watched_files or path.startswith(watched_prefixes) for path in changed
+                      )
+
+          sha = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as handle:
+              handle.write(f"should_run={'true' if should_run else 'false'}\nsha={sha}\ntag={tag}\n")
+          print(f"should_run={should_run} sha={sha} tag={tag or '(main)'}")
+          PY
+
+  sync:
+    name: Build, verify, and sync @culpritsql/plan-viewer
+    if: needs.changes.outputs.should_run == 'true'
+    needs: [changes]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.changes.outputs.sha }}
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249 # stable
+        with:
+          toolchain: stable
+      - run: rustup target add wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        with:
+          key: standalone-wasm-english
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: "24"
+      - name: Install the exact verified wasm-bindgen CLI
+        shell: bash
+        run: |
+          archive="$RUNNER_TEMP/wasm-bindgen-0.2.129-x86_64-unknown-linux-musl.tar.gz"
+          curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' --retry 3 \
+            https://github.com/wasm-bindgen/wasm-bindgen/releases/download/0.2.129/wasm-bindgen-0.2.129-x86_64-unknown-linux-musl.tar.gz \
+            --output "$archive"
+          printf '82d12bb940e2d4e72e0d5605387fc1b8ca179044e012b620f0ce4e7440e8320e  %s\n' "$archive" | sha256sum --check
+          tool="$RUNNER_TEMP/wasm-bindgen-0.2.129"
+          mkdir -p "$tool"
+          tar -xzf "$archive" --strip-components=1 -C "$tool"
+          test "$("$tool/wasm-bindgen" --version)" = 'wasm-bindgen 0.2.129'
+          echo "WASM_BINDGEN=$tool/wasm-bindgen" >> "$GITHUB_ENV"
+      - name: Configure the Ubuntu package mirror
+        run: sudo python3 .github/scripts/configure_ubuntu_mirror.py
+      - name: Install frozen UI tools and Chromium
+        timeout-minutes: 15
+        working-directory: app
+        run: |
+          bun install --frozen-lockfile
+          bunx playwright install --with-deps --only-shell chromium
+      - name: Install shared license tooling
+        uses: ./.github/actions/install-cargo-about
+      - name: Generate shared third-party notices
+        run: python3 -B dev/licenses.py
+      - name: Build @culpritsql/plans WebAssembly parser for browser verification
+        run: python3 -B dev/build-wasm.py --bindgen "$WASM_BINDGEN"
+      - name: Build @culpritsql/plan-viewer React package
+        run: python3 -B dev/build-plan-viewer.py
+      - name: Verify closed distribution and model digests
+        run: python3 -B dev/check-boundaries.py --plan-viewer-artifacts
+      - name: Run Chromium browser smoke suite
+        run: node dev/smoke-plan-viewer.mjs > target/plan-viewer-browser-smoke.json
+      - name: Stage public @culpritsql/plan-viewer repository
+        run: |
+          STAGE_PARENT="$RUNNER_TEMP/pv-stage"
+          mkdir -p "$STAGE_PARENT"
+          ln -s "$GITHUB_WORKSPACE/app/node_modules" "$STAGE_PARENT/node_modules"
+          python3 -B .github/scripts/stage_plan_viewer_repo.py --omit-workflows "$STAGE_PARENT/repo"
+          node "$STAGE_PARENT/repo/test/smoke.mjs" --require-pkg
+      - name: Upload staged npm package artifact
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: culprit-plan-viewer-staged
+          path: ${{ runner.temp }}/pv-stage/repo/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 7
+      - name: Push synced package to culpritsql/culprit-plan-viewer
+        env:
+          DEDICATED_TOKEN: ${{ secrets.CULPRIT_PLAN_VIEWER_SYNC_TOKEN }}
+          SHARED_TOKEN: ${{ secrets.CULPRIT_PLANS_SYNC_TOKEN }}
+          SOURCE_SHA: ${{ needs.changes.outputs.sha }}
+          SYNC_TAG: ${{ needs.changes.outputs.tag }}
+        run: |
+          set -euo pipefail
+          SYNC_TOKEN="${DEDICATED_TOKEN:-$SHARED_TOKEN}"
+          if [ -z "$SYNC_TOKEN" ]; then
+            echo "::warning::Neither CULPRIT_PLAN_VIEWER_SYNC_TOKEN nor CULPRIT_PLANS_SYNC_TOKEN is configured; skipping push."
+            exit 0
+          fi
+          AUTH_HEADER="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$SYNC_TOKEN" | base64 | tr -d '\n')"
+          export GIT_CONFIG_COUNT=1
+          export GIT_CONFIG_KEY_0="http.https://github.com/.extraheader"
+          export GIT_CONFIG_VALUE_0="$AUTH_HEADER"
+
+          git clone --branch main https://github.com/culpritsql/culprit-plan-viewer.git "$RUNNER_TEMP/target-repo"
+          rsync -a --delete --exclude '.git/' --exclude '.github/' "$RUNNER_TEMP/pv-stage/repo/" "$RUNNER_TEMP/target-repo/"
+
+          cd "$RUNNER_TEMP/target-repo"
+          git config user.name "culprit-bot"
+          git config user.email "noreply@culpritsql.com"
+          SHORT_SHA="${SOURCE_SHA:0:8}"
+
+          if [ -n "$(git status --porcelain)" ]; then
+            git add -A
+            git commit -m "Sync @culpritsql/plan-viewer from culprit-sql-studio@${SHORT_SHA}"
+            if [ -z "$SYNC_TAG" ]; then
+              git push origin HEAD:main
+            else
+              git push origin HEAD:main || echo "main has advanced beyond ${SHORT_SHA}; tagging synced commit directly"
+            fi
+          else
+            echo "culpritsql/culprit-plan-viewer is already identical to culprit-sql-studio@${SHORT_SHA}."
+          fi
+
+          if [ -n "$SYNC_TAG" ]; then
+            if git ls-remote --exit-code --tags origin "refs/tags/${SYNC_TAG}" >/dev/null 2>&1; then
+              echo "Tag ${SYNC_TAG} already exists on culpritsql/culprit-plan-viewer."
+            else
+              git tag -a "$SYNC_TAG" -m "Release @culpritsql/plan-viewer ${SYNC_TAG#v} (culprit-sql-studio@${SHORT_SHA})"
+              git push origin "refs/tags/${SYNC_TAG}"
+            fi
+          fi

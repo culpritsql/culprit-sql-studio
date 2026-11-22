@@ -217,6 +217,62 @@ def verify_wasm_artifacts(root=ROOT):
     print("culprit-wasm: closed standalone package, generated models and executable digests verified")
 
 
+def verify_plan_viewer_artifacts(root=ROOT):
+    package = root / "packages/culprit-plan-viewer"
+    manifest = json.loads((package / "package.json").read_text())
+    exports = {
+        ".": {"types": "./pkg/index.d.ts", "import": "./pkg/index.js"},
+        "./styles.css": "./pkg/styles.css",
+    }
+    if (manifest.get("type") != "module" or manifest.get("private") is not True
+            or manifest.get("files") != ["pkg"] or manifest.get("exports") != exports
+            or set(manifest.get("dependencies", {})) != {"lucide-react"}
+            or set(manifest.get("peerDependencies", {})) != {"react"}
+            or any(manifest.get(name) for name in ["optionalDependencies", "devDependencies"])):
+        raise RuntimeError("plan-viewer package manifest changed its closed React/lucide dependency boundary")
+    output = package / "pkg"
+    if output.is_symlink() or not output.is_dir():
+        raise RuntimeError("plan-viewer output must be an owned package directory")
+    files = {}
+    for path in output.rglob("*"):
+        if path.is_symlink():
+            raise RuntimeError("plan-viewer distribution cannot include symlinked files")
+        if path.is_file():
+            files[path.relative_to(output).as_posix()] = path
+    required = {"index.js", "index.d.ts", "styles.css", "build-report.json", "THIRD-PARTY-LICENSES.txt"}
+    if not required <= files.keys():
+        raise RuntimeError("plan-viewer distribution is missing required artifacts")
+    notices = root / "target/licenses/THIRD-PARTY-LICENSES.txt"
+    if (not notices.is_file() or notices.stat().st_size == 0
+            or notices.read_bytes() != files["THIRD-PARTY-LICENSES.txt"].read_bytes()):
+        raise RuntimeError("plan-viewer distribution must retain the exact shared third-party notices")
+    report_raw = files["build-report.json"].read_text()
+    if "/Users/" in report_raw or "/home/" in report_raw:
+        raise RuntimeError("plan-viewer build-report.json contains host path metadata")
+    report = json.loads(report_raw)
+    if report.get("target") != "es2022-react-esm" or report.get("native_or_database_work") is not False:
+        raise RuntimeError("plan-viewer report changed target or source-free boundary")
+    shipped = {name for name in files if name.endswith((".js", ".css"))}
+    if set(report.get("artifacts", {})) != shipped:
+        raise RuntimeError("plan-viewer artifact report must cover every .js and .css file exactly")
+    for name in shipped:
+        body = files[name].read_bytes()
+        if (report["artifacts"][name].get("bytes") != len(body)
+                or report["artifacts"][name].get("sha256") != hashlib.sha256(body).hexdigest()):
+            raise RuntimeError(f"plan-viewer artifact digest mismatch: {name}")
+    models = report.get("models", [])
+    names = [row["name"] for row in models]
+    if (len(names) != len(set(names))
+            or {f"models/{name}.d.ts" for name in names} != {name for name in files if name.startswith("models/")}):
+        raise RuntimeError("plan-viewer model declarations must match the closed generated declaration manifest")
+    for row in models:
+        source = root / "app/src/gen" / f"{row['name']}.ts"
+        if (not source.is_file() or row.get("source_sha256") != hashlib.sha256(source.read_bytes()).hexdigest()
+                or row.get("package_sha256") != hashlib.sha256(files[f"models/{row['name']}.d.ts"].read_bytes()).hexdigest()):
+            raise RuntimeError("plan-viewer declaration/source digest mismatch")
+    print("culprit-plan-viewer: closed standalone package, generated models and artifact digests verified")
+
+
 def main():
     for package, forbidden in sorted(default_rules().items()):
         verify(package, None, forbidden)
@@ -236,9 +292,12 @@ if __name__ == "__main__":
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--portable", action="store_true", help="Check only pure Plans/Wasm normal/build graphs and standalone selection")
     mode.add_argument("--wasm-artifacts", action="store_true", help="Verify the actual built standalone browser distribution")
+    mode.add_argument("--plan-viewer-artifacts", action="store_true", help="Verify the built @culpritsql/plan-viewer React distribution")
     options = parser.parse_args()
     if options.wasm_artifacts:
         verify_wasm_artifacts()
+    elif options.plan_viewer_artifacts:
+        verify_plan_viewer_artifacts()
     elif options.portable:
         verify_portable_graphs()
     else:

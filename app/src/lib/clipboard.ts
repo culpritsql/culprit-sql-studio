@@ -1,3 +1,4 @@
+import { bindPlanViewerClipboard } from "../../../packages/culprit-plan-viewer/src/host";
 import { copyText } from "./api";
 import { t } from "./i18n";
 import { toast } from "./store";
@@ -13,3 +14,5 @@ export async function copyAndTell(text: string, message?: string): Promise<boole
     return false;
   }
 }
+
+bindPlanViewerClipboard(copyAndTell);
