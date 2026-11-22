@@ -65,6 +65,8 @@ pub use cdc::*;
 mod columns;
 mod compilation;
 mod compiler_admission;
+mod worker_starvation;
+pub use worker_starvation::*;
 mod configured_log_rates;
 mod hyperscale_log_components;
 mod memory_clerks;
@@ -139,13 +141,17 @@ mod runtime_distributions;
 mod session_memory;
 mod settings;
 mod source_read;
+mod transaction_metadata;
 use source_read::same_time;
 pub use source_read::{
     LocalResourceReadScope, NativeSourceReadScope, QueryCompilationAnswer, QueryCompilationGap,
-    QueryCompilationSelection, SourceReadAnswer, SourceReadExecutionScope, SourceReadFocus, SourceReadPrerequisite,
-    SourceReadQuestion, SourceReadStage, SourceReadStageState, TemporaryResourceAnswer, TemporaryResourceContribution,
-    TemporaryResourceMechanism, local_resource_header_is_valid,
+    QueryCompilationSelection, RelationalInputAnswer, RelationalInputGap, RelationalInputSelection,
+    SharedResourceReadScope, SourceReadAnswer, SourceReadExecutionScope, SourceReadFocus, SourceReadPrerequisite,
+    SourceReadQuestion, SourceReadStage, SourceReadStageState, SourceReadStages, TemporaryResourceAnswer,
+    TemporaryResourceContribution, TemporaryResourceMechanism, TransactionMetadataAnswer, WorkerStarvationAnswer,
+    local_resource_header_is_valid,
 };
+pub use transaction_metadata::*;
 mod instance_resources;
 mod source_partition;
 mod state;
@@ -378,8 +384,8 @@ impl CollectionRequest {
                 }
             }
             CollectionSelection::SourceRead { focus, execution } => {
-                self.subject.require_database()?;
-                if !focus.is_valid()
+                if self.subject != execution.subject()
+                    || !focus.is_valid()
                     || !execution.accepts_question(focus.question)
                     || !execution.matches_target(&focus.target)
                 {
@@ -808,6 +814,7 @@ impl TelemetryRecord {
             Self::Activity(row) => {
                 row.redact(source.target.engine());
                 source.observation.activity().is_some()
+                    && row.native_locks_fit_source(source)
                     && match &source.observation {
                         SourceObservation::FocusedBlocking { result, .. } => result.accepts_row(row),
                         _ => true,
@@ -860,6 +867,14 @@ impl TelemetryRecord {
                         | OperationalFact::MssqlAgentHistory(_)
                         | OperationalFact::MssqlAgentContext(_),
                     ) => false,
+                    (_, OperationalFact::PostgresTransactionMetadata(point)) => {
+                        accepted && point.fits_source_scope(source)
+                    }
+                    (SourceObservation::SourceRead { snapshot, .. }, _)
+                        if snapshot.dataset == SnapshotDataset::TransactionMetadata =>
+                    {
+                        false
+                    }
                     (SourceObservation::CurrentRequestWork { .. }, OperationalFact::CurrentRequestWork(point)) => {
                         accepted && point.fits_source_scope(source)
                     }
@@ -883,6 +898,12 @@ impl TelemetryRecord {
                     (SourceObservation::GroupReplication { .. }, _) => false,
                     (_, OperationalFact::MariadbGalera(point)) => accepted && point.fits_source(source),
                     (SourceObservation::Galera { .. }, _) => false,
+                    (_, OperationalFact::MssqlWorkerStarvation(point)) => accepted && point.fits_source(source),
+                    (SourceObservation::SourceRead { snapshot, .. }, _)
+                        if snapshot.dataset == SnapshotDataset::WorkerStarvation =>
+                    {
+                        false
+                    }
                     (_, OperationalFact::MssqlTableMemory(point)) => accepted && point.fits_source(source),
                     (SourceObservation::TableMemory { .. }, _) => false,
                     (_, OperationalFact::MssqlColumnstoreRowgroup(point)) => accepted && point.fits_source(source),

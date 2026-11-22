@@ -408,6 +408,7 @@ impl<R: NativeRead> TelemetrySource for StateSource<R> {
                     | SnapshotDataset::Indexes
                     | SnapshotDataset::CheckConstraints
                     | SnapshotDataset::QueryCompilation
+                    | SnapshotDataset::WorkerStarvation
                     | SnapshotDataset::CompilerAdmission
                     | SnapshotDataset::MaintenanceProgress
                     | SnapshotDataset::CurrentRequestWork
@@ -435,7 +436,8 @@ impl<R: NativeRead> TelemetrySource for StateSource<R> {
                     | SnapshotDataset::PageWaitTargets
                     | SnapshotDataset::TaskSpace
                     | SnapshotDataset::PageWaitWriters
-                    | SnapshotDataset::PageTaskHolders => return Err(invalid_data()),
+                    | SnapshotDataset::PageTaskHolders
+                    | SnapshotDataset::TransactionMetadata => return Err(invalid_data()),
                 }
             }
             .into(),

@@ -6,7 +6,7 @@ use culprit_read::cancellation::CollectionCancellation;
 async fn a_task_point_prepares_only_its_holder_question_from_the_two_exact_original_receipts() {
     let mut harness = paired_harness().await;
     let episode = task_episode(&harness).await;
-    assert_eq!(possible_questions(&episode), [RecipeSelector::FocusedPageTaskHolders]);
+    assert_eq!(possible_questions(&episode), [EpisodeQuestion::Primary(RecipeSelector::FocusedPageTaskHolders)]);
     let before = harness.backend.calls.opened.load(Ordering::SeqCst);
     let prepared = harness.prepare(&CollectionCancellation::default()).await.unwrap();
     let [candidate] = prepared.as_slice() else { panic!("one native task question") };
@@ -61,7 +61,7 @@ async fn missing_original_task_page_never_chooses_a_current_actor_or_opens_a_sou
                 &harness.inventory.targets[0],
                 &episode,
                 harness.bindings.get("target").unwrap(),
-                RecipeSelector::FocusedPageTaskHolders,
+                EpisodeQuestion::Primary(RecipeSelector::FocusedPageTaskHolders),
             )
             .await
             .unwrap()

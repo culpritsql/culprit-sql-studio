@@ -1,6 +1,6 @@
 use super::*;
 
-fn original_log_wait() -> Original {
+pub(super) fn original_log_wait() -> Original {
     let mut value = original();
     let TelemetryRecord::Activity(actor) = &mut value.row.record else { panic!() };
     actor.wait.as_mut().unwrap().class = Some(ActivityWaitClass::LogRateGovernance);
@@ -20,7 +20,7 @@ fn original_log_wait() -> Original {
         reference,
     )
     .unwrap();
-    value.focus = value.episode.source_read_focus().unwrap().unwrap();
+    value.focus = value.episode.source_read_focus(SourceReadQuestion::HyperscaleLogComponents).unwrap().unwrap();
     value
 }
 
@@ -31,7 +31,8 @@ fn log_wait_justifies_its_own_finite_question_without_a_compiler_answer() {
     assert_eq!(value.focus.question, SourceReadQuestion::HyperscaleLogComponents);
     assert_eq!(value.focus.prerequisite, SourceReadPrerequisite::ObservedLogRateWait);
     assert!(value.focus.matches_basis(&value.source, &value.row, &value.execution.clone().into()));
-    let DiagnosticFocusPlan::Ready(focus) = value.episode.plan_source_read_focus(&value.source, &value.row).unwrap()
+    let DiagnosticFocusPlan::Ready(focus) =
+        value.episode.plan_source_read_focus(&value.focus, &value.source, &value.row).unwrap()
     else {
         panic!()
     };
@@ -75,7 +76,7 @@ fn log_followup_cannot_borrow_a_current_row_epoch_updateability_or_compiler_cost
     frame.database_writable = None;
     assert!(
         matches!(
-            value.episode.plan_source_read_focus(&source, &value.row),
+            value.episode.plan_source_read_focus(&value.focus, &source, &value.row),
             Err(_) | Ok(DiagnosticFocusPlan::Unavailable(DiagnosticAnalysisIssue::MissingNativeIdentity))
         ),
         "missing original updateability cannot borrow the saved execution's value"
@@ -119,7 +120,7 @@ fn actual_wait_survives_resolution_and_completion_retires_the_single_owed_questi
     enrolled.recovery = Some(DiagnosticRecoveryProof::CompleteScope { capture: value.episode.first.capture_ref() });
     assert!(enrolled.is_valid());
     assert!(enrolled.has_owed_question(), "recovery does not erase the original incident");
-    let collecting = enrolled.transition_source_read(SourceReadStageState::Collecting).unwrap();
+    let collecting = enrolled.transition_source_read(&value.focus, SourceReadStageState::Collecting).unwrap();
     let mut source = description(&value, "2020-01-01T12:00:03Z");
     let SourceObservation::SourceRead { snapshot, .. } = &mut source.observation else { panic!() };
     snapshot.dataset = SnapshotDataset::HyperscaleLogComponents;
@@ -142,7 +143,7 @@ fn actual_wait_survives_resolution_and_completion_retires_the_single_owed_questi
     let answered = collecting.complete_source_read(&intent, &source, &capture).unwrap();
     assert_eq!(answered.lifecycle, DiagnosticLifecycle::Resolved);
     assert_eq!(answered.first, enrolled.first);
-    assert_eq!(answered.source_read_capture(), Some(&capture));
+    assert_eq!(answered.source_read_captures().collect::<Vec<_>>(), vec![&capture]);
     assert!(!answered.has_owed_question());
 }
 

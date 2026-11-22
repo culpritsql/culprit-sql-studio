@@ -2,10 +2,21 @@
 use super::super::*;
 
 pub(in crate::telemetry) fn definition_scope(source: &CollectionDescription, domain: &str) -> Result<String> {
+    let partition = if let Some(execution) = source.observation.execution_context() {
+        if source.observation.collection() != TelemetryCollection::Snapshot(SnapshotDataset::RetainedPlans)
+            || !source.partition_is_consistent()
+            || SourceReadExecutionScope::from_context(SourceReadQuestion::RelationalInputContext, execution).is_err()
+        {
+            return Err(CollectionStop::InvalidPage.error());
+        }
+        &execution.partition
+    } else {
+        &source.partition
+    };
     if source.target.engine() != crate::Engine::Mssql
         || source.target.database().is_none()
-        || !source.is_partition_qualified()
-        || !matches!(source.partition, SourcePartition::InstanceLocal { .. })
+        || !partition.is_qualified()
+        || !matches!(partition, SourcePartition::InstanceLocal { .. })
     {
         return Err(CollectionStop::InvalidPage.error());
     }
@@ -16,6 +27,8 @@ pub(in crate::telemetry) fn definition_dataset(source: &CollectionDescription) -
     match &source.observation {
         SourceObservation::Snapshot(snapshot) => Some(snapshot.dataset),
         SourceObservation::PagedSnapshot(snapshot) => Some(snapshot.dataset),
+        SourceObservation::SourceRead { snapshot, .. } => Some(snapshot.dataset),
+        SourceObservation::PagedSourceRead { snapshot, .. } => Some(snapshot.dataset),
         _ => None,
     }
 }

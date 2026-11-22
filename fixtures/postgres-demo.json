@@ -55,7 +55,7 @@
       "reason": null
     }
   ],
-  "format": 55,
+  "format": 56,
   "id": "20261011T115421.485Z",
   "connection": "pg-demo",
   "environment": "local",

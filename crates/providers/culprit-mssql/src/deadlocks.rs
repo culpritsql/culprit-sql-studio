@@ -55,6 +55,7 @@ pub(crate) async fn lock_waits(client: &mut impl NativeRead) -> Result<Vec<LockW
             resource: r.str("resource"),
             object: r.str("object_name"),
             index: r.str("index_name"),
+            native: None,
         });
     }
     Ok(out)

@@ -160,11 +160,11 @@ fn current_schema_matches_source(
             && definition_dataset(source) == Some(dataset)
             && MssqlRelationalInputProof::supports_source(source)
             && match &source.observation {
-                SourceObservation::Snapshot(snapshot) => {
+                SourceObservation::Snapshot(snapshot) | SourceObservation::SourceRead { snapshot, .. } => {
                     ObservationBounds::new(&snapshot.observed_from, &snapshot.observed_until)
                         .is_some_and(|bounds| bounds.contains(&schema.observed_at))
                 }
-                SourceObservation::PagedSnapshot(snapshot) => {
+                SourceObservation::PagedSnapshot(snapshot) | SourceObservation::PagedSourceRead { snapshot, .. } => {
                     // The stream has no final clock yet. Final capture replay checks the completion bounds again.
                     ObservationBounds::new(&snapshot.observed_from, &schema.observed_at).is_some()
                 }

@@ -39,13 +39,21 @@ impl Original {
         specification: &ConnectionSpec,
         cancellation: &CollectionCancellation,
     ) -> owned_fixture::Captured {
+        self.blocking_with_budget(specification, cancellation, CollectionBudget::default()).await
+    }
+    pub(super) async fn blocking_with_budget(
+        &mut self,
+        specification: &ConnectionSpec,
+        cancellation: &CollectionCancellation,
+        budget: CollectionBudget,
+    ) -> owned_fixture::Captured {
         self.capture
             .followup(
                 specification,
                 CollectionRequest {
                     subject: CollectionSubject::Database,
                     selection: CollectionSelection::FocusedBlocking { focus: Box::new(self.focus.clone()) },
-                    budget: crate::telemetry::blocking::bounded_budget(&CollectionBudget::default()),
+                    budget: crate::telemetry::blocking::bounded_budget(&budget),
                 },
                 cancellation,
             )

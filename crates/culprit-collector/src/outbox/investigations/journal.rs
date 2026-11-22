@@ -90,7 +90,7 @@ fn complete_step(
         if let Some(recovery) = &episode.recovery {
             pin(tx, &head_owner, &recovery.capture().capture.observation_id)?;
         }
-        if let Some(result) = episode.source_read_capture() {
+        for result in episode.source_read_captures() {
             pin(tx, &head_owner, &result.capture.observation_id)?;
         }
     }
@@ -131,7 +131,7 @@ fn complete_step(
     for reference in update.revisions.iter().flat_map(|revision| &revision.inputs) {
         pin(tx, &derived_owner, &reference.capture.observation_id)?;
     }
-    for result in update.revisions.iter().filter_map(|revision| revision.episode.source_read_capture()) {
+    for result in update.revisions.iter().flat_map(|revision| revision.episode.source_read_captures()) {
         pin(tx, &derived_owner, &result.capture.observation_id)?;
     }
     tx.execute(
@@ -288,6 +288,13 @@ pub(in crate::outbox) fn episode_references(
         .chain(episode.peak.iter())
         .chain(episode.signal.references())
         .chain(episode.report.iter().flat_map(DiagnosticReport::references))
+        .chain(episode.source_reads.iter().flat_map(|stage| {
+            let answer = match &stage.state {
+                SourceReadStageState::Answered { answer } => Some(answer.as_ref()),
+                _ => None,
+            };
+            stage.focus.references().chain(answer.into_iter().flat_map(SourceReadAnswer::references))
+        }))
 }
 pub(in crate::outbox) fn pin(tx: &Transaction<'_>, owner: &str, observation_id: &str) -> Result<()> {
     tx.execute("INSERT OR IGNORE INTO diagnostic_pins VALUES(?1,?2)", params![owner, observation_id])

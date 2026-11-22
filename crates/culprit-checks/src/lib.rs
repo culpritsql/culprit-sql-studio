@@ -36,7 +36,7 @@ pub use views::{
     query_runtime_fragments, query_store_definitions, query_wait_fragments, replication, request_memory,
     runtime_distributions, session_census, session_memory, source_overhead, statement_grants, statement_work, storage,
     suspect_pages, table_catalog, table_full_text, table_memory, table_temporal, task_space, tempdb_metadata_memory,
-    temporary_work, wait_counters, waits,
+    temporary_work, wait_counters, waits, worker_starvation,
 };
 
 use std::sync::Arc;
@@ -126,6 +126,22 @@ pub fn analyze_with(snapshot: Snapshot, extra: &[Arc<dyn Check>]) -> Report {
     pipeline_with(extra).run(snapshot)
 }
 
+pub use views::group_replication;
+
+pub use views::galera;
+
+pub use views::pool_settings;
+
+pub use views::managed_instance_resources;
+
+pub use views::index_configuration;
+
+pub use views::indexed_views;
+
+pub use views::incident_history;
+pub use views::provider_acquisition;
+pub use views::transaction_metadata;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -152,18 +168,3 @@ mod tests {
         }
     }
 }
-
-pub use views::group_replication;
-
-pub use views::galera;
-
-pub use views::pool_settings;
-
-pub use views::managed_instance_resources;
-
-pub use views::index_configuration;
-
-pub use views::indexed_views;
-
-pub use views::incident_history;
-pub use views::provider_acquisition;

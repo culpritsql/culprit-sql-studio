@@ -15,9 +15,9 @@ impl PopulationCase {
 
     fn with_original_token(known: bool) -> Self {
         let mut first = actor();
-        if !known {
-            first.statement_identity = None;
-        }
+        first.key.session.generation = "2020-01-01T00:00:00".into();
+        first.key.request.as_mut().unwrap().generation = "2020-01-01T00:00:01".into();
+        first.statement_identity = known.then(native_statement);
         first.wait = None;
         first.elapsed_ms = Some("120000".into());
         let mut second = first.clone();
@@ -104,7 +104,7 @@ impl PopulationCase {
             .map(|(ordinal, (_, original))| {
                 let mut row = original.clone();
                 if ordinal == 0 {
-                    row.statement_identity = token.then(|| NativeIdentity::new("native-statement"));
+                    row.statement_identity = token.then(native_statement);
                 }
                 let exported =
                     ExportedRecord::new(&source, &parent.capture, TelemetryRecord::from(row.clone())).unwrap();
@@ -253,7 +253,14 @@ fn only_the_first_receipt_can_authorize_the_population_even_when_a_later_point_h
         let updated = observe(&later, Some(&previous));
         let episode = updated.checkpoint.episodes.iter().find(|episode| episode.first == case.rows[0].0).unwrap();
         assert_ne!(episode.first, episode.latest);
-        assert!(episode.plan_page_wait_tasks_focus(&population_evidence(&later.0, &later.2)).is_err());
+        let later_plan = episode.plan_page_wait_tasks_focus(&population_evidence(&later.0, &later.2));
+        if first_token {
+            assert!(later_plan.is_err());
+        } else {
+            assert_eq!(episode.analysis, DiagnosticAnalysisStatus::Unresolved);
+            assert_eq!(episode.issue, Some(DiagnosticAnalysisIssue::MissingNativeIdentity));
+            assert_eq!(later_plan.unwrap(), DiagnosticFocusPlan::NotRequired);
+        }
         let original_plan = episode.plan_page_wait_tasks_focus(&population_evidence(&case.source, &case.rows)).unwrap();
         match original_plan {
             DiagnosticFocusPlan::Ready(question) if first_token => {
@@ -264,10 +271,14 @@ fn only_the_first_receipt_can_authorize_the_population_even_when_a_later_point_h
                     later.0.observation.activity().unwrap().at.clone();
                 assert!(!episode.matches_focus(&substituted));
             }
-            DiagnosticFocusPlan::Unavailable(DiagnosticAnalysisIssue::MissingNativeIdentity) if !first_token => (),
+            DiagnosticFocusPlan::NotRequired if !first_token => (),
             _ => panic!("later token visibility cannot repair or erase the original receipt"),
         }
     }
+}
+
+fn native_statement() -> NativeIdentity {
+    mssql_request_statement_identity(&"A1".repeat(64), 0, -1, 7).unwrap()
 }
 
 #[test]

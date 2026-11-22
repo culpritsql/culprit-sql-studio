@@ -1,20 +1,30 @@
 //! A retained answer selects already checked native context, never an allocating statement or a cause.
 use super::*;
+mod relational_inputs;
+mod transaction_metadata;
+mod workers;
 
 pub(super) fn append(
     originals: &[&dyn OriginalProjection],
     episode: &DiagnosticEpisode,
     explanation: &mut Explanation,
 ) -> Result<()> {
-    let Some(SourceReadStage { state: SourceReadStageState::Answered { answer }, .. }) = episode.source_read.as_deref()
-    else {
-        return Ok(());
-    };
-    match answer.as_ref() {
-        SourceReadAnswer::TemporaryResources(answer) => temporary(originals, answer, explanation),
-        // Compilation totals do not identify a historical execution's caller, runtime inputs or harmful reuse.
-        SourceReadAnswer::QueryCompilation(_) => Ok(()),
+    for stage in episode.source_reads.iter() {
+        let SourceReadStageState::Answered { answer } = &stage.state else { continue };
+        let mut followup = Explanation::default();
+        match answer.as_ref() {
+            SourceReadAnswer::TemporaryResources(answer) => temporary(originals, answer, &mut followup),
+            SourceReadAnswer::TransactionMetadata(answer) => {
+                transaction_metadata::append(originals, answer, &mut followup)
+            }
+            SourceReadAnswer::WorkerStarvation(answer) => workers::append(originals, answer, &mut followup),
+            SourceReadAnswer::RelationalInputs(answer) => relational_inputs::append(originals, answer, &mut followup),
+            // Compilation totals do not identify a historical execution's caller, runtime inputs or harmful reuse.
+            SourceReadAnswer::QueryCompilation(_) => Ok(()),
+        }?;
+        explanation.merge_followup(followup);
     }
+    Ok(())
 }
 
 fn temporary(

@@ -75,7 +75,7 @@ async fn unqualified_log_component_question_keeps_original_incident_without_open
     let incident = log_episode(&mut runtime).await;
     assert!(incident.report.is_none());
     assert!(matches!(
-        incident.source_read.as_ref().unwrap().state,
+        incident.source_reads.get(SourceReadQuestion::HyperscaleLogComponents).unwrap().state,
         SourceReadStageState::Deferred { issue: DiagnosticAnalysisIssue::CostUnqualified }
     ));
     let before = runtime.native_calls();
@@ -110,7 +110,7 @@ async fn native_log_wait_routes_directly_to_one_authenticated_component_capture_
     let answered = log_episode(&mut runtime).await;
     assert_eq!(answered.first, original.first);
     assert!(answered.report.is_none(), "affected query and component limits are not a fabricated root cause");
-    assert_eq!(answered.source_read_capture(), Some(&capture));
+    assert_eq!(answered.source_read_capture(SourceReadQuestion::HyperscaleLogComponents), Some(&capture));
     runtime.reconcile().await;
     assert!(!runtime.enroll().await);
     assert_eq!(runtime.native_calls(), [2; 5], "one baseline and one component read, no compiler prerequisite");

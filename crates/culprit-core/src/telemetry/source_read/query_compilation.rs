@@ -230,9 +230,10 @@ impl DiagnosticEpisode {
         }
         let DiagnosticFocus::SourceRead { focus } = &intent.focus else { return Err(invalid()) };
         let answer = QueryCompilationAnswer::from_originals(focus, original_source, original, source, capture, rows)?;
-        self.transition_source_read(SourceReadStageState::Answered {
-            answer: Box::new(SourceReadAnswer::QueryCompilation(Box::new(answer))),
-        })
+        self.transition_source_read(
+            focus,
+            SourceReadStageState::Answered { answer: Box::new(SourceReadAnswer::QueryCompilation(Box::new(answer))) },
+        )
     }
 }
 

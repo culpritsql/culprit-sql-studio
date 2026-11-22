@@ -71,7 +71,7 @@ pub fn query_compilation_followup_result(
     let context = NativeReadContext {
         target: focus.target.clone(),
         partition: execution.partition().clone(),
-        database_writable: Some(execution.database_writable()),
+        database_writable: execution.database_writable(),
         observed_from: "2020-01-01T12:00:02.000000000Z".into(),
         observed_until: "2020-01-01T12:00:03.000000000Z".into(),
     };
@@ -128,7 +128,7 @@ pub fn query_compilation_followup_original() -> QueryCompilationOriginal {
     )
     .unwrap();
     let episode = update.checkpoint.episodes[0].finish_original_observation_planning().unwrap();
-    let focus = episode.source_read_focus().unwrap().unwrap();
+    let focus = episode.source_read_focus(SourceReadQuestion::CompilationHistory).unwrap().unwrap();
     let execution =
         SourceReadExecutionScope::from_context(focus.question, &focus.original_context(&source).unwrap()).unwrap();
 
@@ -142,7 +142,7 @@ pub fn query_compilation_followup_evidence(
         query_compilation_followup_original();
     let capture = original.capture.clone();
     let enrolled = episode.enroll_source_read(focus.clone()).unwrap();
-    let collecting = enrolled.transition_source_read(SourceReadStageState::Collecting).unwrap();
+    let collecting = enrolled.transition_source_read(&focus, SourceReadStageState::Collecting).unwrap();
     let fixture = investigation_fixture();
     let component = fixture.intent.qualification.component().clone();
     let mut recipe = fixture.recipe;
@@ -251,7 +251,9 @@ pub fn assert_query_compilation_followup_capture(
     assert_diagnostic_capture(capture, source, records);
     let TelemetryRecord::Operational(native) = &capture.records()[0].row().record else { unreachable!() };
     let OperationalFact::DiagnosticRevision(revision) = &native.fact else { unreachable!() };
-    let SourceReadStageState::Answered { answer } = &revision.episode.source_read.as_ref().unwrap().state else {
+    let SourceReadStageState::Answered { answer } =
+        &revision.episode.source_reads.get(SourceReadQuestion::CompilationHistory).unwrap().state
+    else {
         unreachable!()
     };
     let SourceReadAnswer::QueryCompilation(answer) = answer.as_ref() else { unreachable!() };

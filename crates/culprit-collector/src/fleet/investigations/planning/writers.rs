@@ -8,10 +8,10 @@ impl EvidencePlanner<'_> {
         target: &FleetTarget,
         episode: &DiagnosticEpisode,
         binding: &RouteBinding,
-        requested: RecipeSelector,
+        question: EpisodeQuestion<'_>,
     ) -> Result<Option<Box<DiagnosticFocus>>> {
-        if episode.source_read.is_some() {
-            return self.source_read(outbox, target, episode, binding, requested).await;
+        if let EpisodeQuestion::Followup(stage) = question {
+            return self.source_read(outbox, target, episode, binding, stage).await;
         }
         if matches!(episode.signal, DiagnosticSignal::PageTaskWait { .. }) {
             return self.task_holders(outbox, target, episode).await;
@@ -19,7 +19,7 @@ impl EvidencePlanner<'_> {
         if let Some(DiagnosticReport::PageWait { observation, .. }) = &episode.report {
             return self.page_writers(outbox, target, episode, observation).await;
         }
-        if requested == RecipeSelector::PageWaitTasks {
+        if question.selector() == RecipeSelector::PageWaitTasks {
             return self.page_tasks(outbox, target, episode).await;
         }
         let reference = &episode.latest;

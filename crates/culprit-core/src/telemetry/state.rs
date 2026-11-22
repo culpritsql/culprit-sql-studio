@@ -39,6 +39,7 @@ pub enum SnapshotDataset {
     PageWaitWriters,
     PageTaskHolders,
     TaskSpace,
+    TransactionMetadata,
     MemoryFailures,
     NativeFailures,
     Jobs,
@@ -52,6 +53,7 @@ pub enum SnapshotDataset {
     MissingIndexes,
     QueryCompilation,
     CompilerAdmission,
+    WorkerStarvation,
     MaintenanceProgress,
     CachedRuntime,
     Objects,
@@ -94,6 +96,7 @@ impl SnapshotDataset {
             | Self::PageWaitWriters
             | Self::PageTaskHolders
             | Self::TaskSpace
+            | Self::TransactionMetadata
             | Self::MemoryFailures
             | Self::NativeFailures
             | Self::Jobs
@@ -103,6 +106,7 @@ impl SnapshotDataset {
             | Self::Indexes
             | Self::MissingIndexes
             | Self::QueryCompilation
+            | Self::WorkerStarvation
             | Self::CompilerAdmission
             | Self::MaintenanceProgress
             | Self::CachedRuntime => &[TelemetryStream::OperationalSamples],
@@ -474,6 +478,7 @@ pub enum OperationalFact {
     Counter(NativeCounterSample),
     CounterSet(Box<NativeCounterSet>),
     CompilerWaiter(Box<CompilerWaiterObservation>),
+    MssqlWorkerStarvation(Box<MssqlWorkerStarvationPoint>),
     MaintenanceProgress(Box<MaintenanceProgressObservation>),
     CurrentRequestWork(Box<CurrentRequestWorkObservation>),
     CatalogCounters(Box<NativeCatalogCounters>),
@@ -485,6 +490,7 @@ pub enum OperationalFact {
     PageWaitWriters(Box<PageWaitWriterObservation>),
     PageTaskHolders(Box<PageTaskHolderObservation>),
     TaskSpace(Box<TaskSpaceObservation>),
+    PostgresTransactionMetadata(Box<PostgresTransactionMetadata>),
     MssqlOutOfMemory(Box<MssqlOutOfMemoryObservation>),
     MysqlErrorLog(Box<MysqlErrorLogObservation>),
     PostgresLog(Box<PostgresLogFailureObservation>),
@@ -537,6 +543,7 @@ impl OperationalFact {
             Self::MssqlFullTextPopulation(point) => point.key(),
             Self::CounterSet(counters) => counters.key(),
             Self::CompilerWaiter(waiter) => waiter.key(),
+            Self::MssqlWorkerStarvation(point) => point.key(),
             Self::MaintenanceProgress(point) => point.key(),
             Self::CurrentRequestWork(point) => point.key(),
             Self::CatalogCounters(counters) => counters.catalog.key(),
@@ -548,6 +555,7 @@ impl OperationalFact {
             Self::PageWaitWriters(observation) => observation.key(),
             Self::PageTaskHolders(observation) => observation.key(),
             Self::TaskSpace(observation) => observation.key(),
+            Self::PostgresTransactionMetadata(observation) => observation.key(),
             Self::MssqlOutOfMemory(observation) => observation.key(),
             Self::MysqlErrorLog(observation) => observation.key(),
             Self::PostgresLog(observation) => observation.key(),
@@ -590,6 +598,11 @@ impl OperationalFact {
     pub(super) fn redact(&mut self, engine: crate::Engine) {
         match self {
             Self::CompilerWaiter(waiter) => waiter.request.redact(engine),
+            Self::MssqlWorkerStarvation(point) => {
+                for request in &mut point.requests {
+                    request.observation.redact(engine);
+                }
+            }
             Self::MssqlCdc(_)
             | Self::MssqlChangeFeed(_)
             | Self::MssqlBackupHistory(_)
@@ -615,6 +628,7 @@ impl OperationalFact {
             Self::PageTaskHolders(observation) => observation.redact(engine),
             Self::MssqlCacheEntryMemory(entry) => entry.redact(engine),
             Self::TaskSpace(observation) => observation.redact(engine),
+            Self::PostgresTransactionMetadata(observation) => observation.redact(engine),
             Self::CurrentRequestWork(observation) => observation.redact(),
             Self::MssqlStatementGrants(grants) => {
                 if let DefinitionPayload::Available { text, .. } = &grants.statement {
@@ -706,6 +720,7 @@ impl OperationalFact {
                         || MssqlProcessCpuPoint::from_sample(counters).is_ok())
             }
             Self::CompilerWaiter(waiter) => waiter.is_valid(),
+            Self::MssqlWorkerStarvation(point) => point.is_valid(),
             Self::MaintenanceProgress(point) => point.is_valid(),
             Self::CurrentRequestWork(point) => point.is_valid(),
             Self::CatalogCounters(counters) => counters.is_valid(),
@@ -717,6 +732,7 @@ impl OperationalFact {
             Self::PageWaitWriters(observation) => observation.is_valid(),
             Self::PageTaskHolders(observation) => observation.is_valid(),
             Self::TaskSpace(observation) => observation.is_valid(),
+            Self::PostgresTransactionMetadata(observation) => observation.is_valid(),
             Self::MssqlOutOfMemory(observation) => observation.is_valid(),
             Self::MysqlErrorLog(observation) => observation.is_valid(),
             Self::PostgresLog(observation) => observation.is_valid(),
@@ -815,6 +831,7 @@ impl OperationalObservation {
                     self.source == TIMESCALE_CONTINUOUS_AGGREGATES_SOURCE
                 }
                 OperationalFact::CompilerWaiter(_) => self.source == crate::source_id::COMPILATION_GATEWAYS,
+                OperationalFact::MssqlWorkerStarvation(_) => self.source == crate::source_id::WORKER_QUEUE,
                 OperationalFact::ConfiguredLogRateLimits(_) => self.source == CONFIGURED_LOG_RATES_SOURCE,
                 OperationalFact::HyperscaleLogComponent(_) => self.source == HYPERSCALE_LOG_COMPONENTS_SOURCE,
                 OperationalFact::DatabaseProperties(_) => self.source == DATABASE_PROPERTIES_SOURCE,
@@ -836,6 +853,7 @@ impl OperationalObservation {
                     point.page.as_ref().is_none_or(|page| page.source == self.source)
                 }
                 OperationalFact::TaskSpace(observation) => observation.source == self.source,
+                OperationalFact::PostgresTransactionMetadata(_) => self.source == POSTGRES_TRANSACTION_METADATA_SOURCE,
                 OperationalFact::RuntimeDistribution(observation) => observation.distribution.source == self.source,
                 _ => true,
             }

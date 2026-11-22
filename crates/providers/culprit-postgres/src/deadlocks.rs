@@ -44,6 +44,7 @@ pub(crate) async fn lock_waits(client: &Client) -> Result<Vec<LockWait>> {
             resource: r.text("locktype"),
             object: r.text("object"),
             index: None,
+            native: None,
         });
     }
     Ok(out)

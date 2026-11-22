@@ -28,7 +28,7 @@ fn registered_source_versions_include_native_acquisition_policy_revisions() {
             ("mssql.pool-resource-history", 2),
             ("mssql.deadlock-history", 2),
             ("mssql.system-health-deadlocks", 2),
-            ("mssql.activity", 7),
+            ("mssql.activity", 8),
             ("mssql.page-wait-targets", 4),
             ("mssql.page-wait-tasks", 4),
             ("mssql.shared-tempdb-page-wait-targets", 5),
@@ -69,7 +69,7 @@ fn registered_source_versions_include_native_acquisition_policy_revisions() {
             ("mssql.triggers", 2),
             ("mssql.partitions", 2),
             ("mssql.cached-definitions", 7),
-            ("mssql.retained-plans", 8),
+            ("mssql.retained-plans", 9),
         ])
     );
 }
@@ -92,6 +92,7 @@ async fn selection(selector: RecipeSelector) -> CollectionSelection {
     let until = "2020-01-01T07:00:00Z".to_owned();
     match selector {
         RecipeSelector::ResourcePoolSettings => CollectionSelection::ResourcePoolSettings,
+        RecipeSelector::WorkerStarvation => super::super::worker_starvation::tests::request(false).await.selection,
         RecipeSelector::Collection(TelemetryCollection::QueryHistory) => {
             CollectionSelection::QueryHistory { from, until }
         }
@@ -140,9 +141,9 @@ async fn selection(selector: RecipeSelector) -> CollectionSelection {
         RecipeSelector::MaintenanceProgress => {
             panic!("the SQL Server catalog does not declare maintenance progress")
         }
-        RecipeSelector::CurrentRequestWork => {
-            panic!("the SQL Server catalog does not declare current request work")
-        }
+        RecipeSelector::CurrentRequestWork => CollectionSelection::CurrentRequestWork {
+            focus: Box::new(crate::activity::current_request_work::tests::focus().await),
+        },
         RecipeSelector::FocusedBlocking => {
             CollectionSelection::FocusedBlocking { focus: Box::new(crate::activity::blocking::tests::focus().await) }
         }
@@ -211,12 +212,15 @@ async fn every_declared_recipe_uses_exactly_one_actual_constructor_without_nativ
                     },
                 };
             }
+            if descriptor.selector == RecipeSelector::WorkerStarvation {
+                selection = super::super::worker_starvation::tests::request_for_subject(&subject).await.selection;
+            }
             let request = CollectionRequest { subject, selection, budget: descriptor.budget.clone() };
             assert!(descriptor.accepts(&request));
             assert_eq!(REGISTRATIONS.iter().filter(|entry| entry.accepts(&request)).count(), 1, "{}", descriptor.id);
             let source =
                 open(Arc::new(Pool::new(tiberius::Config::new(), None)), &request, "fixture.invalid".into(), 1433)
-                    .unwrap();
+                    .unwrap_or_else(|error| panic!("{} / {:?}: {error:?}", descriptor.id, kind));
             assert_eq!(source.query_count(), 0, "{}", descriptor.id);
             assert!(source.read_metrics().is_none_or(|metrics| metrics.active_tasks == 0));
             // Drop owns an unused native session; the constructor has not acquired a connection.
@@ -741,4 +745,50 @@ fn boxed_cpu_recipe_is_explicit_shared_instance_only_and_reserves_setup_inside_t
     assert_eq!(bounded.page_bytes, 64 * 1024);
     assert_eq!(bounded.total_bytes, 256 * 1024);
     assert_eq!(ReadSession::budget_after_setup(bounded).unwrap().max_queries, 9);
+}
+
+#[test]
+fn worker_starvation_is_question_only_unqualified_and_preserves_the_setup_in_its_total() {
+    let recipe = declarations().into_iter().find(|recipe| recipe.id == "mssql.worker-starvation").unwrap();
+    assert_eq!(recipe.version, 1);
+    assert_eq!(recipe.selector, RecipeSelector::WorkerStarvation);
+    assert_eq!(recipe.purpose, RecipePurpose::Investigation);
+    assert_eq!(recipe.admission, RecipeAdmission::Unqualified);
+    assert_eq!(
+        recipe.subjects,
+        vec![
+            RecipeSubject::Database,
+            RecipeSubject::Shared(SharedResourceKind::Instance),
+            RecipeSubject::Shared(SharedResourceKind::Node)
+        ]
+    );
+    assert_eq!(recipe.budget.max_queries, 14);
+    assert_eq!(ReadSession::budget_after_setup(recipe.budget).unwrap().max_queries, 13);
+}
+
+#[tokio::test]
+async fn declared_node_followup_does_not_open_an_ordinary_or_foreign_provider_source() {
+    let registration = REGISTRATIONS.iter().find(|entry| entry.id == "mssql.worker-starvation").unwrap();
+    let node = subject(RecipeSubject::Shared(SharedResourceKind::Node));
+    let mut request = super::super::worker_starvation::tests::request_for_subject(&node).await;
+    assert!(registration.accepts(&request));
+    let source =
+        open(Arc::new(Pool::new(tiberius::Config::new(), None)), &request, "fixture.invalid".into(), 1433).unwrap();
+    assert_eq!(source.query_count(), 0);
+    drop(source);
+
+    request.selection = CollectionSelection::Snapshot { dataset: SnapshotDataset::Operational };
+    assert!(!REGISTRATIONS.iter().any(|entry| entry.accepts(&request)));
+    assert!(
+        open(Arc::new(Pool::new(tiberius::Config::new(), None)), &request, "fixture.invalid".into(), 1433).is_err()
+    );
+
+    let subject = subject(RecipeSubject::Shared(SharedResourceKind::Node));
+    let mut request = super::super::worker_starvation::tests::request_for_subject(&subject).await;
+    let CollectionSubject::Shared { resource } = &mut request.subject else { panic!() };
+    resource.engine = culprit_core::Engine::Postgres;
+    assert!(!REGISTRATIONS.iter().any(|entry| entry.accepts(&request)));
+    assert!(
+        open(Arc::new(Pool::new(tiberius::Config::new(), None)), &request, "fixture.invalid".into(), 1433).is_err()
+    );
 }

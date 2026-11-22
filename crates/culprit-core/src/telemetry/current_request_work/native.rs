@@ -6,15 +6,17 @@ use super::*;
 #[ts(export)]
 pub enum CurrentRequestWorkProfile {
     MysqlStatementEvent,
+    MssqlRequest,
     PostgresCopy,
 }
 
 impl CurrentRequestWorkProfile {
-    pub const ALL: [Self; 2] = [Self::MysqlStatementEvent, Self::PostgresCopy];
+    pub const ALL: [Self; 3] = [Self::MysqlStatementEvent, Self::PostgresCopy, Self::MssqlRequest];
 
     pub fn engine(self) -> Engine {
         match self {
             Self::MysqlStatementEvent => Engine::Mysql,
+            Self::MssqlRequest => Engine::Mssql,
             Self::PostgresCopy => Engine::Postgres,
         }
     }
@@ -26,6 +28,11 @@ impl CurrentRequestWorkProfile {
                 matches!(scope, ActivityScopeBasis::RequestDatabase | ActivityScopeBasis::SessionDatabase)
                     && crate::engines::mysql_activity_statement_identity(&actor.session, request).as_ref()
                         == Some(statement)
+            }
+            Self::MssqlRequest => {
+                scope == ActivityScopeBasis::RequestDatabase
+                    && super::mssql::mssql_actor_is_valid(actor)
+                    && mssql_request_statement_identity_is_valid(statement)
             }
             Self::PostgresCopy => {
                 scope == ActivityScopeBasis::SessionDatabase
@@ -51,6 +58,7 @@ impl CurrentRequestWorkProfile {
 #[ts(export)]
 pub enum CurrentRequestWorkNative {
     Mysql { work: Box<MysqlCurrentRequestWork> },
+    Mssql { work: Box<MssqlCurrentRequestWork> },
     PostgresCopy { progress: Box<PostgresCopyProgress> },
 }
 
@@ -58,6 +66,7 @@ impl CurrentRequestWorkNative {
     pub fn profile(&self) -> CurrentRequestWorkProfile {
         match self {
             Self::Mysql { .. } => CurrentRequestWorkProfile::MysqlStatementEvent,
+            Self::Mssql { .. } => CurrentRequestWorkProfile::MssqlRequest,
             Self::PostgresCopy { .. } => CurrentRequestWorkProfile::PostgresCopy,
         }
     }
@@ -68,27 +77,52 @@ impl CurrentRequestWorkNative {
     pub fn mysql(&self) -> Option<&MysqlCurrentRequestWork> {
         match self {
             Self::Mysql { work } => Some(work),
-            Self::PostgresCopy { .. } => None,
+            Self::PostgresCopy { .. } | Self::Mssql { .. } => None,
         }
     }
 
     pub fn mysql_mut(&mut self) -> Option<&mut MysqlCurrentRequestWork> {
         match self {
             Self::Mysql { work } => Some(work),
-            Self::PostgresCopy { .. } => None,
+            Self::PostgresCopy { .. } | Self::Mssql { .. } => None,
         }
     }
 
     pub fn is_valid(&self) -> bool {
         match self {
             Self::Mysql { work } => work.is_valid(),
+            Self::Mssql { work } => work.is_valid(),
             Self::PostgresCopy { progress } => progress.is_valid(),
+        }
+    }
+
+    pub(super) fn fits_point(&self, at: &str, statement: &NativeIdentity) -> bool {
+        match self {
+            Self::Mssql { work } => {
+                ObservationBounds::new(at, &work.checked_until).is_some()
+                    && statement.qualifiers.get("database_id") == Some(&work.native_database_id.to_string())
+                    && work.current_plan.matches_statement(statement)
+                    && match &work.current_plan {
+                        MssqlCurrentRequestPlan::Observed { observed_from, .. } => {
+                            ObservationBounds::new(at, observed_from).is_some()
+                        }
+                        MssqlCurrentRequestPlan::Unavailable { .. } => true,
+                    }
+            }
+            _ => true,
+        }
+    }
+    pub(super) fn fits_context(&self, context: &NativeReadContext) -> bool {
+        match self {
+            Self::Mssql { work } => work.fits_context(context),
+            _ => true,
         }
     }
 
     pub(super) fn matches_embedded_actor(&self, actor: &ActivityKey) -> bool {
         match self {
             Self::Mysql { work } => work.matches_actor(actor),
+            Self::Mssql { .. } => super::mssql::mssql_actor_is_valid(actor),
             Self::PostgresCopy { .. } => true,
         }
     }

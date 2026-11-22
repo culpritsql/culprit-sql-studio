@@ -1393,3 +1393,44 @@ pub(crate) use provider_acquisition::{provider_acquisition, provider_acquisition
 
 mod incidents;
 pub(crate) use incidents::incidents;
+#[cfg(test)]
+mod mssql_current_request_work_tests {
+    use super::*;
+    use culprit_core::telemetry::*;
+    #[test]
+    fn canonical_mssql_current_work_text_keeps_request_scope_exact_counts_and_unavailable_cache_context() {
+        let (source, records) = culprit_evidence::analytical::test_support::mssql_current_work_evidence(
+            culprit_evidence::analytical::test_support::MssqlWorkCase::CacheChanged,
+        );
+        let SourceObservation::CurrentRequestWork { profile, snapshot, result } = &source.observation else { panic!() };
+        let observations = records
+            .into_iter()
+            .map(|record| {
+                let TelemetryRecord::Operational(OperationalObservation {
+                    fact: OperationalFact::CurrentRequestWork(row),
+                    ..
+                }) = record
+                else {
+                    panic!()
+                };
+                *row
+            })
+            .collect();
+        let report = culprit_checks::current_request_work::explain(
+            &CurrentRequestWorkSnapshot {
+                profile: *profile,
+                source: source.source.clone(),
+                context: result.read_context(&source, snapshot),
+                coverage: snapshot.sources[0].clone(),
+                result: result.as_ref().clone(),
+                observations,
+            },
+            true,
+        )
+        .unwrap();
+        let text = current_request_work(&report);
+        assert!(text.contains(&culprit_core::format::digits("9007199254740993".into())));
+        assert!(text.contains(&t!("view.current_request_work.mssql.observed")));
+        assert!(!text.contains("private-current-request-secret"));
+    }
+}

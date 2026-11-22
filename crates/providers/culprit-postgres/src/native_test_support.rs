@@ -1,5 +1,6 @@
 //! One nonce-owned PostgreSQL fixture actor/deadline owner, reused by provider and Engine native acceptance.
 //! This explicit test feature is absent from ordinary provider/desktop/MCP dependency graphs.
+pub(crate) mod actor;
 pub mod case;
 mod maintenance;
 use crate::{
@@ -7,7 +8,9 @@ use crate::{
     read::{NativeRead, QueryRead, ReadSession},
 };
 use culprit_core::{ConnectionSpec, Engine, telemetry::*};
-pub use maintenance::{AutomaticCase, MaintenanceFixture};
+pub use maintenance::{
+    AutomaticCase, MaintenanceFixture, RelationQueueCase, RelationQueueRole, TransactionMetadataRole,
+};
 
 pub fn connection_spec() -> ConnectionSpec {
     let database = std::env::var("CULPRIT_PREVIEW_PG_DATABASE").unwrap();
@@ -55,7 +58,15 @@ pub async fn specification(database: &str, budget: CollectionBudget) -> Connecti
 
 /// Receipt output is fixture-only and contains no connection specification, password or raw SQL.
 pub fn write_automatic_receipt(case: &str, name: &str, value: &serde_json::Value) -> std::io::Result<()> {
-    assert!(matches!(case, "builtin-safety" | "builtin-recovery"));
+    assert!(matches!(
+        case,
+        "builtin-safety"
+            | "builtin-recovery"
+            | "relation-queue-small"
+            | "relation-queue-medium"
+            | "relation-queue-parallel"
+            | "transaction-metadata"
+    ));
     assert!(name.ends_with(".json") && !name.contains('/') && !name.contains('\\'));
     let directory = automatic_directory(case)?;
     let mut options = std::fs::OpenOptions::new();
@@ -72,7 +83,15 @@ pub fn write_automatic_receipt(case: &str, name: &str, value: &serde_json::Value
 }
 
 pub fn automatic_directory(case: &str) -> std::io::Result<std::path::PathBuf> {
-    assert!(matches!(case, "builtin-safety" | "builtin-recovery"));
+    assert!(matches!(
+        case,
+        "builtin-safety"
+            | "builtin-recovery"
+            | "relation-queue-small"
+            | "relation-queue-medium"
+            | "relation-queue-parallel"
+            | "transaction-metadata"
+    ));
     let root = std::path::PathBuf::from(std::env::var("CULPRIT_NATIVE_SAFETY_RECEIPT_DIR").map_err(|_| {
         std::io::Error::new(std::io::ErrorKind::NotFound, "explicit private native safety receipt directory required")
     })?);

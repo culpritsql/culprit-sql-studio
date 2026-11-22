@@ -17,6 +17,7 @@ pub(crate) mod references;
 pub use blocking::blocking;
 mod cached_plans;
 pub use cached_plans::cached_plans;
+pub(crate) use cached_plans::explain_cached_plan_original;
 mod cache_entry_memory;
 pub use cache_entry_memory::cache_entry_memory;
 mod backup_history;

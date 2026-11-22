@@ -585,3 +585,41 @@ fn zero_job_events_keep_the_single_original_assessment_and_cannot_impersonate_a_
     header.analysis_id = header.expected_analysis_id().unwrap();
     assert!(!header.is_valid());
 }
+
+#[test]
+fn shared_worker_query_retains_member_and_native_database_label_without_target_or_sql_causal_authority() {
+    let actor = ActivityKey {
+        session: NativeActivityIdentity { id: "42".into(), generation: "native-login".into() },
+        request: Some(NativeActivityIdentity { id: "0".into(), generation: "native-request".into() }),
+        transaction: None,
+    };
+    let member = SharedResourceIdentity {
+        engine: Engine::Mssql,
+        kind: SharedResourceKind::Instance,
+        namespace: NativeIdentity::new("native-server"),
+        native: NativeIdentity::new("native-instance"),
+    };
+    let mut query = DerivedIncidentQuery {
+        causal_role: Some(DerivedCausalRole::new(DerivedCausalRoleKind::AssignedWorkerContributor)),
+        identity: Some(DerivedQueryIdentity::SharedActivity {
+            member_id: member.telemetry_id().unwrap(),
+            member_kind: member.kind,
+            actor,
+            statement: None,
+            database: Some("foreign <db>".into()),
+        }),
+        sql: DefinitionPayload::Unavailable { reason: PayloadUnavailable::NotCollected },
+        caller: None,
+        evidence: vec![reference("original")],
+    };
+    assert!(query.is_valid());
+    let copy: DerivedIncidentQuery = serde_json::from_slice(&serde_json::to_vec(&query).unwrap()).unwrap();
+    assert_eq!(copy, query);
+    assert!(copy.identity.as_ref().unwrap().shared_scope_label().unwrap().contains("foreign <db>"));
+    query.sql = DefinitionPayload::sql("SELECT 1", Engine::Mssql);
+    assert!(!query.is_valid(), "resource assignment never proves acquiring SQL");
+    query.sql = DefinitionPayload::Unavailable { reason: PayloadUnavailable::NotCollected };
+    let Some(DerivedQueryIdentity::SharedActivity { member_id, .. }) = &mut query.identity else { panic!() };
+    member_id.clear();
+    assert!(!query.is_valid(), "a database label cannot replace missing shared member identity");
+}

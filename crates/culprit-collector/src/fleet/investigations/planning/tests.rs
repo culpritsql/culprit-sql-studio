@@ -46,7 +46,7 @@ async fn a_native_lock_wait_without_duration_selects_its_question_but_unqualifie
     let episodes = &page.checkpoints[0].episodes;
     let [episode] = episodes.as_slice() else { panic!("one native lock question, without invented timed symptoms") };
     assert!(matches!(episode.signal, DiagnosticSignal::LockWait { .. }));
-    assert_eq!(possible_questions(episode), [RecipeSelector::FocusedBlocking]);
+    assert_eq!(possible_questions(episode), [EpisodeQuestion::Primary(RecipeSelector::FocusedBlocking)]);
     assert!(harness.prepare(&CollectionCancellation::default()).await.unwrap().is_empty());
     assert_eq!(harness.backend.components.load(Ordering::SeqCst), 0);
     assert_eq!(harness.backend.verified.load(Ordering::SeqCst), 0);
@@ -125,9 +125,9 @@ async fn bounded_scans_resume_after_a_withheld_prefix_instead_of_starving_later_
     let mut harness = Harness::new(MAX_QUESTIONS_PER_PASS + 2).await;
     harness.backend.recipe.admission = RecipeAdmission::Unqualified;
     assert!(harness.prepare(&CollectionCancellation::default()).await.unwrap().is_empty());
-    assert_eq!(harness.bindings.planning_position().1, MAX_QUESTIONS_PER_PASS);
+    assert_eq!(harness.bindings.planning_position().episode, MAX_QUESTIONS_PER_PASS);
     assert!(harness.prepare(&CollectionCancellation::default()).await.unwrap().is_empty());
-    assert_eq!(harness.bindings.planning_position(), (None, 0));
+    assert_eq!(harness.bindings.planning_position(), PlanningPosition::default());
     assert_eq!(harness.backend.verified.load(Ordering::SeqCst), 0);
 }
 

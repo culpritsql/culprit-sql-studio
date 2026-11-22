@@ -1301,6 +1301,15 @@ stream and ordinal instead of copying native evidence into an inline incident st
 an episode. Absence-based recovery requires the matching native source, epoch, population and measurement scope;
 an old epoch is not declared healthy when a different source generation is observed.
 
+An incident can owe several different follow-up questions. Each keeps its own original evidence, admission,
+result and answer. Completing one question does not discard another or replace the original analysis. All questions
+share the existing resource budget, cooldown and scheduler; adding a question does not grant another production-read
+allowance. Planning resumes within an incident when its per-pass work limit is reached.
+
+A later activity sample that loses a statement token cannot cancel an unanswered question about an already pinned
+original. A token missing from the original remains missing. The native reader still checks the original request
+against the current connection and refuses changed or unavailable participants.
+
 The selected provider's static catalog is read without constructing a provider, resolving credentials or opening a
 connection. A recipe declares its admission policy: a supported source-owned built-in safety policy, an authenticated
 measured qualification, or unqualified. For a supported focused question from the current baseline, the worker
@@ -1395,6 +1404,29 @@ preserving admitted work and retained answers. Repeated observations cannot reop
 reading verifies every original row and EOF even when it retains only selected query rows and their original ordinals.
 Public warehouse fields carry consistency metadata; reconstructing private scope or an answer requires authenticated
 original recovery payloads.
+
+### Targeted query and transaction evidence
+
+These observations feed the same incident history and the derived warehouse diagnoses:
+
+- **PostgreSQL lock queues:** a qualified relation-lock point can connect the original holder, a queued lock request
+  and affected queries. Exact relation OIDs and native modes distinguish competing objects with the same name.
+  A lock mode alone does not establish a DDL command or lock escalation; the holder's current SQL need not be the
+  statement that acquired the lock.
+- **SQL Server current work:** the original request's counters remain separate from later cached-plan metadata.
+  A retained plan can identify a bound TVP or table-variable candidate without proving that it executed for the
+  affected request, had particular input values or caused harmful plan reuse.
+- **SQL Server worker queues:** the selected task/worker census retains assigned workers, native scheduler queues,
+  blocking edges and unassigned or unknown workers. A task count is not live DOP. An observed contribution does not
+  establish an exclusive cause or identify the SQL that acquired a blocking lock.
+- **PostgreSQL 16+ transaction metadata:** the public backend-subtransaction API supplies its own cache count and
+  overflow flag. SLRU counters and observed xmin retainers keep independent clocks and scope. Transaction-ID lock
+  counts, current SQL and an old snapshot cannot establish a SAVEPOINT loop or an exclusive SLRU cause.
+
+The new SQL Server recipes and PostgreSQL transaction-metadata recipe remain unqualified for automatic admission.
+Their statement, total-time, row and byte ceilings still apply to explicit collection, including stricter caller
+limits. The retained-plan reader accounts for all 13 phases including setup and its final native binding check;
+a caller allowing only 12 cannot complete that read. Correctness fixtures do not measure production CPU or I/O cost.
 
 Approved SQL Server and PostgreSQL Activity profiles bind their original native owner, known role and held
 connection inside the existing reader. Approval retirement is permanent for that source lifetime and is checked

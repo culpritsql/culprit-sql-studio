@@ -32,7 +32,7 @@ fn explicit_withdrawals_preserve_each_raw_family_without_fabricated_native_conte
     }
     assert_eq!(
         snapshot.operations.change_capture.originals(culprit_core::telemetry::MssqlChangeCaptureFamily::Cdc),
-        &[original.clone()]
+        std::slice::from_ref(&original)
     );
     assert_eq!(
         snapshot.operations.change_capture.originals(culprit_core::telemetry::MssqlChangeCaptureFamily::ChangeFeed),

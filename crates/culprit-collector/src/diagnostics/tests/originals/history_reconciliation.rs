@@ -197,7 +197,7 @@ async fn more_than_4096_groups_across_intervals_archive_restart_and_reconcile_th
     assert_eq!(replayed.episode.revision, "2");
     assert_eq!(replayed.episode.analysis, original.analysis);
     assert_eq!(replayed.episode.issue, original.issue);
-    assert_eq!(replayed.episode.source_read, original.source_read);
+    assert_eq!(replayed.episode.source_reads, original.source_reads);
     assert!(replayed.episode.recovery.is_none());
     assert_eq!(fixture.harness.calls.counts(), [66, 66, 66, 66]);
 }
@@ -269,7 +269,10 @@ fn canonical_answered_question_is_unchanged_after_reobserving_its_original_witho
     let basis = query_compilation_followup_original();
     let (_, rows) = query_compilation_followup_evidence(QueryCompilationFollowupCase::Exact);
     let terminal = rows.iter().find_map(original_revision).unwrap().episode.clone();
-    assert!(matches!(&terminal.source_read.as_ref().unwrap().state, SourceReadStageState::Answered { .. }));
+    assert!(matches!(
+        &terminal.source_reads.get(SourceReadQuestion::CompilationHistory).unwrap().state,
+        SourceReadStageState::Answered { .. }
+    ));
     assert!(!terminal.retained_in_checkpoint());
     let mut source = basis.source;
     source_at(&mut source, 6);
@@ -284,7 +287,7 @@ fn canonical_answered_question_is_unchanged_after_reobserving_its_original_witho
         &reference.capture_ref(),
         &[DiagnosticOriginalRow { reference: &reference, record: &row.record }],
         None,
-        &[terminal.clone()],
+        std::slice::from_ref(&terminal),
         "2020-01-01T12:00:08Z",
     )
     .unwrap();
@@ -292,7 +295,7 @@ fn canonical_answered_question_is_unchanged_after_reobserving_its_original_witho
     let [revision] = result.revisions.as_slice() else { panic!() };
     assert_eq!(revision.episode.id, terminal.id);
     assert_eq!(revision.episode.first, terminal.first);
-    assert_eq!(revision.episode.source_read, terminal.source_read);
+    assert_eq!(revision.episode.source_reads, terminal.source_reads);
     assert_eq!(revision.episode.analysis, terminal.analysis);
     assert_eq!(revision.episode.issue, terminal.issue);
     assert!(revision.episode.recovery.is_none());
@@ -304,9 +307,9 @@ fn an_owed_original_question_stays_working_and_cannot_be_installed_as_retired_hi
     let basis = query_compilation_followup_original();
     let owed = basis
         .episode
-        .enroll_source_read(basis.focus)
+        .enroll_source_read(basis.focus.clone())
         .unwrap()
-        .transition_source_read(SourceReadStageState::Collecting)
+        .transition_source_read(&basis.focus, SourceReadStageState::Collecting)
         .unwrap();
     assert!(owed.retained_in_checkpoint());
     let checkpoint = DiagnosticCheckpoint {
@@ -335,7 +338,7 @@ fn an_owed_original_question_stays_working_and_cannot_be_installed_as_retired_hi
     )
     .unwrap();
     assert_eq!(update.checkpoint.episodes.len(), 1);
-    assert_eq!(update.checkpoint.episodes[0].source_read, owed.source_read);
+    assert_eq!(update.checkpoint.episodes[0].source_reads, owed.source_reads);
     assert!(update.checkpoint.episodes[0].retained_in_checkpoint());
     assert!(
         observe_diagnostic_original(&source, &reference.capture_ref(), &rows, None, &[owed], "2020-01-01T12:00:08Z")
@@ -425,7 +428,7 @@ async fn archive_acknowledgement_between_absence_snapshot_and_commit_defers_then
     let replayed = fixture.harness.revisions(&capture).await.remove(0).episode;
     assert_eq!(replayed.id, original.id);
     assert_eq!(replayed.first, original.first);
-    assert_eq!(replayed.source_read, original.source_read);
+    assert_eq!(replayed.source_reads, original.source_reads);
     assert_eq!(replayed.analysis, original.analysis);
     assert_eq!(replayed.issue, original.issue);
     assert!(replayed.recovery.is_none());
@@ -536,7 +539,7 @@ async fn only_authenticated_retired_priors_supply_old_first_identity_to_a_new_re
     assert_eq!(next.first, original.first);
     assert_eq!(next.id, original.id);
     assert_eq!(next.revision, "2");
-    assert_eq!(next.source_read, original.source_read);
+    assert_eq!(next.source_reads, original.source_reads);
     assert_eq!(next.analysis, original.analysis);
     assert_eq!(next.issue, original.issue);
     assert!(next.recovery.is_none());

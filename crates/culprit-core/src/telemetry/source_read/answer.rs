@@ -7,36 +7,63 @@ use super::*;
 pub enum SourceReadAnswer {
     TemporaryResources(Box<TemporaryResourceAnswer>),
     QueryCompilation(Box<QueryCompilationAnswer>),
+    TransactionMetadata(Box<TransactionMetadataAnswer>),
+    WorkerStarvation(Box<WorkerStarvationAnswer>),
+    RelationalInputs(Box<RelationalInputAnswer>),
 }
 impl SourceReadAnswer {
     pub fn is_valid(&self) -> bool {
         match self {
             Self::TemporaryResources(answer) => answer.is_valid(),
             Self::QueryCompilation(answer) => answer.is_valid(),
+            Self::TransactionMetadata(answer) => answer.is_valid(),
+            Self::WorkerStarvation(answer) => answer.is_valid(),
+            Self::RelationalInputs(answer) => answer.is_valid(),
         }
+    }
+    pub fn matches_focus(&self, focus: &SourceReadFocus) -> bool {
+        self.is_valid()
+            && self.question() == focus.question
+            && self.basis() == focus.basis.as_ref()
+            && match self {
+                Self::RelationalInputs(answer) => answer.matches_prerequisite(&focus.prerequisite),
+                _ => true,
+            }
     }
     pub fn question(&self) -> SourceReadQuestion {
         match self {
             Self::TemporaryResources(_) => SourceReadQuestion::TemporarySpaceContributors,
             Self::QueryCompilation(_) => SourceReadQuestion::CompilationHistory,
+            Self::TransactionMetadata(_) => SourceReadQuestion::TransactionMetadata,
+            Self::WorkerStarvation(_) => SourceReadQuestion::WorkerStarvation,
+            Self::RelationalInputs(_) => SourceReadQuestion::RelationalInputContext,
         }
     }
     pub fn basis(&self) -> &DiagnosticEvidenceRef {
         match self {
             Self::TemporaryResources(answer) => &answer.basis,
             Self::QueryCompilation(answer) => &answer.basis,
+            Self::TransactionMetadata(answer) => &answer.basis,
+            Self::WorkerStarvation(answer) => &answer.basis,
+            Self::RelationalInputs(answer) => &answer.basis,
         }
     }
     pub fn result(&self) -> &DiagnosticCaptureRef {
         match self {
             Self::TemporaryResources(answer) => &answer.result,
             Self::QueryCompilation(answer) => &answer.result,
+            Self::TransactionMetadata(answer) => &answer.result,
+            Self::WorkerStarvation(answer) => &answer.result,
+            Self::RelationalInputs(answer) => &answer.result,
         }
     }
     pub fn references(&self) -> std::vec::IntoIter<&DiagnosticEvidenceRef> {
         let references: Vec<_> = match self {
             Self::TemporaryResources(answer) => answer.references().collect(),
             Self::QueryCompilation(answer) => answer.references().collect(),
+            Self::TransactionMetadata(answer) => answer.references().collect(),
+            Self::WorkerStarvation(answer) => answer.references().collect(),
+            Self::RelationalInputs(answer) => answer.references().collect(),
         };
         references.into_iter()
     }
@@ -58,11 +85,20 @@ impl DiagnosticEpisode {
             return Err(invalid());
         }
         match &focus.prerequisite {
+            SourceReadPrerequisite::ObservedTransactionMetadataWait { .. } => {
+                self.complete_transaction_metadata_read(intent, original_source, original, source, capture, rows)
+            }
+            SourceReadPrerequisite::ObservedWorkerQueue => {
+                self.complete_worker_starvation_read(intent, original_source, original, source, capture, rows)
+            }
             SourceReadPrerequisite::ObservedCleanupBoundary { .. } => {
                 self.complete_temporary_resource_read(intent, original_source, original, source, capture, rows)
             }
             SourceReadPrerequisite::ObservedQueryHistoryFailure { .. } => {
                 self.complete_query_compilation_read(intent, original_source, original, source, capture, rows)
+            }
+            SourceReadPrerequisite::ObservedCurrentRequestPlan { .. } => {
+                self.complete_relational_input_read(intent, original_source, original, source, capture, rows)
             }
             _ if rows.is_empty() => self.complete_source_read(intent, source, capture),
             _ => Err(invalid()),

@@ -2,6 +2,7 @@
 use super::*;
 use crate::{connect::Flavor, rows::Rec};
 use culprit_core::{ConnectionSpec, Engine};
+use mysql_async::Value;
 
 // Eight owned database-session setup statements plus seventeen guarded fixture/control phases.
 pub(super) const MAX_QUERIES: u32 = 25;

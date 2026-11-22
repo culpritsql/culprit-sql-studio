@@ -48,7 +48,7 @@ pub fn temporary_resource_result(
             partition: execution.partition().clone(),
             observed_from: snapshot.observed_from.clone(),
             observed_until: snapshot.observed_until.clone(),
-            database_writable: Some(execution.database_writable()),
+            database_writable: execution.database_writable(),
         }),
         focus_key: focus.key().unwrap(),
         snapshot,
@@ -97,7 +97,7 @@ pub fn temporary_resource_history(partial: bool) -> (CollectionDescription, Vec<
     // source question executes. Answer transitions preserve that settled original analysis independently.
     let episode =
         observed.checkpoint.episodes.into_iter().next().unwrap().finish_original_observation_planning().unwrap();
-    let focus = episode.source_read_focus().unwrap().unwrap();
+    let focus = episode.source_read_focus(SourceReadQuestion::TemporarySpaceContributors).unwrap().unwrap();
     let execution = SourceReadExecutionScope::from_context(
         focus.question,
         &NativeReadContext::from_snapshot(&basis_source).unwrap(),
@@ -137,13 +137,14 @@ pub fn temporary_resource_history(partial: bool) -> (CollectionDescription, Vec<
         TemporaryResourceAnswer::from_originals(&focus, &basis_source, &basis_rows[0], &result_source, &result, &rows)
             .unwrap();
     let episode = episode
-        .enroll_source_read(focus)
+        .enroll_source_read(focus.clone())
         .unwrap()
-        .transition_source_read(SourceReadStageState::Collecting)
+        .transition_source_read(&focus, SourceReadStageState::Collecting)
         .unwrap()
-        .transition_source_read(SourceReadStageState::Answered {
-            answer: Box::new(SourceReadAnswer::TemporaryResources(Box::new(answer))),
-        })
+        .transition_source_read(
+            &focus,
+            SourceReadStageState::Answered { answer: Box::new(SourceReadAnswer::TemporaryResources(Box::new(answer))) },
+        )
         .unwrap();
     let revision = DiagnosticRevision::between(None, episode, "2020-01-01T12:00:12Z").unwrap().unwrap();
     let parent = basis_refs[0].capture_ref();
@@ -195,7 +196,8 @@ mod tests {
             assert!(revision.is_valid());
             assert_eq!(revision.episode.analysis, DiagnosticAnalysisStatus::Unresolved);
             assert_eq!(revision.episode.issue, Some(DiagnosticAnalysisIssue::Unsupported));
-            let SourceReadStageState::Answered { answer } = &revision.episode.source_read.as_ref().unwrap().state
+            let SourceReadStageState::Answered { answer } =
+                &revision.episode.source_reads.get(SourceReadQuestion::TemporarySpaceContributors).unwrap().state
             else {
                 panic!("the final canonical revision must retain its completed typed answer");
             };

@@ -5,5 +5,10 @@ import type { CachedStatementContext } from "./CachedStatementContext";
 import type { NativeIdentity } from "./NativeIdentity";
 import type { NativePlanIdentity } from "./NativePlanIdentity";
 import type { NativeQueryIdentity } from "./NativeQueryIdentity";
+import type { SharedResourceKind } from "./SharedResourceKind";
 
-export type DerivedQueryIdentity = { "kind": "activity", "data": { actor: ActivityKey, statement: NativeIdentity | null, } } | { "kind": "query-history", "data": { query: NativeQueryIdentity, plan: NativePlanIdentity | null, } } | { "kind": "cached-statement", "data": CachedStatementContext } | { "kind": "native-wait-owner", "data": ActivityWaitOwner };
+export type DerivedQueryIdentity = { "kind": "activity", "data": { actor: ActivityKey, statement: NativeIdentity | null, } } | { "kind": "shared-activity", "data": { 
+/**
+ * Exact original SharedResourceIdentity::telemetry_id(); an opaque locator, never native authority.
+ */
+member_id: string, member_kind: SharedResourceKind, actor: ActivityKey, statement: NativeIdentity | null, database: string | null, } } | { "kind": "query-history", "data": { query: NativeQueryIdentity, plan: NativePlanIdentity | null, } } | { "kind": "cached-statement", "data": CachedStatementContext } | { "kind": "native-wait-owner", "data": ActivityWaitOwner };

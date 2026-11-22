@@ -8,6 +8,7 @@ enum Route {
     Jobs,
     MaintenanceProgress,
     CurrentRequestWork,
+    TransactionMetadata,
     Snapshot(Recipe),
 }
 impl Route {
@@ -18,6 +19,7 @@ impl Route {
             Self::Blocking => TelemetryCollection::Activity,
             Self::MaintenanceProgress => TelemetryCollection::Snapshot(SnapshotDataset::MaintenanceProgress),
             Self::CurrentRequestWork => TelemetryCollection::Snapshot(SnapshotDataset::CurrentRequestWork),
+            Self::TransactionMetadata => TelemetryCollection::Snapshot(SnapshotDataset::TransactionMetadata),
             Self::Snapshot(recipe) => TelemetryCollection::Snapshot(recipe.dataset()),
         }
     }
@@ -36,6 +38,7 @@ impl Route {
             Self::Blocking => blocking::bounded_budget(requested),
             Self::MaintenanceProgress => crate::progress::bounded_budget(requested),
             Self::CurrentRequestWork => crate::progress::current_work_budget(requested),
+            Self::TransactionMetadata => transaction_metadata::bounded_budget(requested),
             Self::Snapshot(_) => requested.clone(),
         }
     }
@@ -43,6 +46,7 @@ impl Route {
         match self {
             Self::Jobs => crate::jobs::source(connector, request),
             Self::Activity => activity::source(connector, request),
+            Self::TransactionMetadata => transaction_metadata::source(connector, request),
             Self::Blocking => blocking::source(connector, request),
             Self::MaintenanceProgress | Self::CurrentRequestWork => crate::progress::source(connector, request),
             Self::Snapshot(recipe) => snapshot_source(connector, request, recipe),
@@ -111,6 +115,13 @@ impl Registration {
 }
 
 const REGISTRATIONS: &[Registration] = &[
+    Registration {
+        id: "postgres.transaction-metadata",
+        version: 1,
+        purpose: RecipePurpose::Investigation,
+        subject: RecipeSubject::Database,
+        route: Route::TransactionMetadata,
+    },
     Registration {
         id: "postgres.timescale-jobs",
         version: 3,

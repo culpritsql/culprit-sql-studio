@@ -8,10 +8,12 @@ impl EvidencePlanner<'_> {
         target: &FleetTarget,
         episode: &DiagnosticEpisode,
         binding: &RouteBinding,
-        requested: RecipeSelector,
+        stage: &SourceReadStage,
     ) -> Result<Option<Box<DiagnosticFocus>>> {
-        let Some(stage) = &episode.source_read else { return Err(DeliveryProblem::Integrity.error()) };
-        if !stage.needs_admission() || requested != stage.focus.question.selector() {
+        if episode.source_reads.get(stage.focus.question) != Some(stage) {
+            return Err(DeliveryProblem::Integrity.error());
+        }
+        if !stage.needs_admission() {
             return Ok(None);
         }
         let Some((source, row)) =
@@ -31,7 +33,7 @@ impl EvidencePlanner<'_> {
             .await?;
             return Ok(None);
         };
-        match episode.plan_source_read_for_execution(&source, &row, &execution)? {
+        match episode.plan_source_read_for_execution(&stage.focus, &source, &row, &execution)? {
             DiagnosticFocusPlan::Ready(focus) => {
                 let DiagnosticFocus::SourceRead { focus: source_focus } = focus.as_ref() else {
                     return Err(DeliveryProblem::Integrity.error());

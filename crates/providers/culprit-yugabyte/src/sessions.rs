@@ -166,6 +166,7 @@ async fn read_live(observed: &mut ReadSession, connector: &Connector, environmen
                     resource: row.text("locktype"),
                     object: row.text("object"),
                     index: None,
+                    native: None,
                     mode: row.text("mode"),
                 });
             }

@@ -41,6 +41,9 @@ function Queries({ title, entries }: { title: string; entries: DerivedIncidentQu
   if (entries.length === 0) return null;
   return <details><summary>{title}</summary><ObservationList source={t("ui.archives.published")} scope={t("ui.archives.original_scope")} report={{ title, summary: t("ui.archives.query_scope"), limitations: [], sources: [], entries: entries.map((query, position) => ({ query, position })) }} renderEntry={({ query, position }) => <div key={position}>
     <pre>{query.sql.state === "available" ? text(query.sql.text) : t("ui.archives.sql_unknown")}</pre>
+    {query.identity?.kind === "shared-activity" && <p className="muted">{query.identity.data.database == null
+      ? t("view.synthesis.shared_database_unknown")
+      : t("view.synthesis.shared_database", { database: text(query.identity.data.database) })}</p>}
     {query.causal_role && <p>{text(query.causal_role.explanation.text)}</p>}
     <Caller caller={query.caller} />
   </div>} /></details>;

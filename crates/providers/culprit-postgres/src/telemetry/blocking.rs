@@ -155,6 +155,7 @@ async fn capture_with_profile<R: NativeRead>(
                     version: before.version,
                     database_oid: &before.database_oid,
                     max_snapshot_rows: request.budget.max_snapshot_rows as usize,
+                    lock_projection: native_activity::LockProjection::FocusedRelations,
                 },
             )
             .await?;

@@ -56,6 +56,33 @@ pub enum TaskRequestContext {
     Unverified,
 }
 
+impl TaskRequestContext {
+    /// One endpoint-state rule for native request details. Missing native rows remain Missing, never recovery.
+    pub fn from_checks(has_request: bool, before: &Option<TaskRequestCheck>, after: &Option<TaskRequestCheck>) -> Self {
+        let states = [before, after];
+        if states.into_iter().flatten().any(|check| check.state == TaskRequestState::Changed) {
+            return TaskRequestContext::Changed;
+        }
+        if states.into_iter().flatten().any(|check| check.state == TaskRequestState::Missing) {
+            return TaskRequestContext::Missing;
+        }
+        if !has_request {
+            return TaskRequestContext::Unverified;
+        }
+        if states.iter().all(|check| check.is_none()) {
+            return TaskRequestContext::NativeJoinOnly;
+        }
+        if states
+            .into_iter()
+            .all(|check| check.as_ref().is_some_and(|check| check.state == TaskRequestState::SameStatement))
+        {
+            TaskRequestContext::CheckedAtBounds
+        } else {
+            TaskRequestContext::Unverified
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize, TS, Clone, Debug, PartialEq, Eq)]
 #[ts(export)]
 pub struct TaskSpaceObservation {
@@ -86,27 +113,7 @@ impl TaskSpaceObservation {
     /// Checked endpoints qualify the request/statement context only. They do not supply a task incarnation or
     /// establish which statement in a multi-statement request produced the allocation counters.
     pub fn request_context(&self) -> TaskRequestContext {
-        let states = [&self.before_check, &self.after_check];
-        if states.into_iter().flatten().any(|check| check.state == TaskRequestState::Changed) {
-            return TaskRequestContext::Changed;
-        }
-        if states.into_iter().flatten().any(|check| check.state == TaskRequestState::Missing) {
-            return TaskRequestContext::Missing;
-        }
-        if self.request.is_none() {
-            return TaskRequestContext::Unverified;
-        }
-        if states.iter().all(|check| check.is_none()) {
-            return TaskRequestContext::NativeJoinOnly;
-        }
-        if states
-            .into_iter()
-            .all(|check| check.as_ref().is_some_and(|check| check.state == TaskRequestState::SameStatement))
-        {
-            TaskRequestContext::CheckedAtBounds
-        } else {
-            TaskRequestContext::Unverified
-        }
+        TaskRequestContext::from_checks(self.request.is_some(), &self.before_check, &self.after_check)
     }
 
     pub fn fits_database_capture(&self, database: &str) -> bool {

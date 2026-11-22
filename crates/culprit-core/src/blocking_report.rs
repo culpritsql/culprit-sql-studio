@@ -21,9 +21,29 @@ pub struct BlockingReport {
     pub relationships: Vec<BlockingObservation>,
     pub blocking: Option<Box<Blocking>>,
     pub maintenance: Option<Box<MaintenanceReport>>,
+    pub metadata_queue: MetadataQueueReport,
     pub title: String,
     pub summary: String,
     pub limitations: Vec<String>,
+    pub investigation: String,
+    pub verify: String,
+}
+
+/// The native proof and its wording remain separate from the general blocking graph and from current action authority.
+#[derive(Serialize, Deserialize, TS, Clone, Debug)]
+#[ts(export)]
+pub struct MetadataQueueReport {
+    pub evidence: crate::blocking::MetadataQueueEvidence,
+    pub summary: String,
+    pub explanations: Vec<MetadataQueueExplanation>,
+    pub limitations: Vec<String>,
+}
+#[derive(Serialize, Deserialize, TS, Clone, Debug)]
+#[ts(export)]
+pub struct MetadataQueueExplanation {
+    pub key: String,
+    pub victim_summary: String,
+    pub mechanism: String,
     pub investigation: String,
     pub verify: String,
 }

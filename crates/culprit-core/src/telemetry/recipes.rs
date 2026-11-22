@@ -56,6 +56,7 @@ pub enum RecipeSelector {
     MaintenanceProgress,
     CurrentRequestWork,
     FocusedCompilationAdmission,
+    WorkerStarvation,
 }
 
 #[cfg(test)]
@@ -64,6 +65,14 @@ mod tests;
 impl RecipeSelector {
     pub fn matches(&self, request: &CollectionRequest) -> bool {
         match (self, &request.selection) {
+            (Self::WorkerStarvation, CollectionSelection::SourceRead { focus, .. }) => {
+                focus.question == SourceReadQuestion::WorkerStarvation
+            }
+            (Self::Collection(_), CollectionSelection::SourceRead { focus, .. })
+                if focus.question == SourceReadQuestion::WorkerStarvation =>
+            {
+                false
+            }
             (Self::ResourcePoolSettings, CollectionSelection::ResourcePoolSettings) => true,
             (Self::Collection(_), CollectionSelection::ResourcePoolSettings) => false,
             (Self::FocusedBlocking, CollectionSelection::FocusedBlocking { .. }) => true,

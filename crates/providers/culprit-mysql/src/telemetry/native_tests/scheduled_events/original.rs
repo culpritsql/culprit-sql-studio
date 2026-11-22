@@ -35,12 +35,12 @@ pub(super) async fn take(
         return Err(CollectionStop::CancellationUnconfirmed.error());
     }
     commit?;
-    if let Err(error) = result {
-        if error.code != culprit_core::ErrorCode::PermissionDenied || error.detail.is_some() {
-            return Err(error);
-        }
-        // Retain the actual failed manifest; a native access denial is never converted to empty success.
+    if let Err(error) = result
+        && (error.code != culprit_core::ErrorCode::PermissionDenied || error.detail.is_some())
+    {
+        return Err(error);
     }
+    // Retain the actual failed manifest; a native access denial is never converted to empty success.
     let bytes = read_bounded(&output.join("manifest.json"), MAX_MANIFEST_BYTES)?;
     let original: Box<CollectionManifest> = serde_json::from_slice(&bytes).map_err(|_| native::invalid())?;
     if original.capture != identity || identity.revision.is_none() {

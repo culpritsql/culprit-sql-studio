@@ -1,4 +1,5 @@
 //! Presentation of the existing native Activity/graph evidence, without another blocking classifier.
+mod metadata_queue;
 use culprit_core::{BlockingReport, Error, Result, SourceState, format, t, telemetry::*};
 
 pub fn explain(
@@ -15,6 +16,7 @@ pub fn explain(
     let relationships = ActivityEvidence::blocking_observations(&observations)?;
     let blocking = culprit_core::blocking::analyze_activity(&frame)?.map(Box::new);
     let maintenance = super::maintenance::explain(source, rows, read_complete)?;
+    let metadata_queue = metadata_queue::explain(&frame)?;
     let mut limitations =
         vec![t!("view.blocking.limit.point"), t!("view.blocking.limit.session"), t!("view.blocking.limit.population")];
     if result.binding == FocusedRequestBinding::UnverifiedOriginalScope {
@@ -63,6 +65,7 @@ pub fn explain(
         read_complete,
         native_rows: snapshot.native_rows,
         observed_rows: rows.len() as u32,
+        metadata_queue,
         original: result.focus.parent.clone(),
         binding: result.binding,
         membership: result.membership,

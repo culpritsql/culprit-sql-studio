@@ -1,3 +1,5 @@
+pub(crate) mod payloads;
+
 use super::{ActivityFrame, ActivityReader, ActivityRecord, RequestLocator};
 use crate::read::{NativeRead, Parameter, ReadError};
 use crate::{
@@ -231,9 +233,16 @@ fn participants_sql() -> String {
 }
 
 pub(super) fn participant_query(extra_columns: &str, extra_joins: &str) -> String {
+    participant_query_with_declarations(extra_columns, extra_joins, "")
+}
+pub(super) fn participant_query_with_declarations(
+    extra_columns: &str,
+    extra_joins: &str,
+    declarations: &str,
+) -> String {
     format!(
         r#"
-DECLARE /* culprit */ @targets xml=CAST(@P1 AS xml),@at datetime2=SYSUTCDATETIME();
+DECLARE /* culprit */ @targets xml=CAST(@P1 AS xml),@at datetime2=SYSUTCDATETIME();{declarations}
 SELECT /* culprit */ {CHECK_COLUMNS}{extra_columns}
 FROM @targets.nodes('/activity/row') t(n)
 CROSS APPLY(SELECT t.n.value('@ordinal[1]','int') AS ordinal,t.n.value('@session[1]','int') AS session_id,

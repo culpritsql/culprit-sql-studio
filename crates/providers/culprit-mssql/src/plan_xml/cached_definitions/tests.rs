@@ -277,3 +277,50 @@ fn raw_native_namespace_requires_valid_database_read_context() {
         );
     }
 }
+
+#[test]
+fn selected_retained_source_read_uses_the_existing_native_parser_and_original_binding_proof() {
+    use culprit_evidence::analytical::test_support::{TvpLoopCase, relational_input_question_fixture};
+    let fixture = relational_input_question_fixture(TvpLoopCase::RepeatedAccess);
+    let [TelemetryRecord::ObjectDefinition(record)] = fixture.records.as_slice() else { panic!() };
+    let ObjectDefinitionFact::MssqlRetainedPlan(definition) = &record.fact else { panic!() };
+    assert!(definition.native_plan_proofs_match(&fixture.source));
+    let parsed = parse_retained_definition(definition, &fixture.source).unwrap();
+    assert!(parsed.nodes().iter().any(|node| {
+        node.facts()
+            .relational_input
+            .is_some_and(|input| input.qualified_kind() == RelationalInputKind::TableValuedParameter)
+    }));
+    assert_eq!(parsed.facts().query_hash, definition.context.query_hash);
+    // The source-read envelope does not change the separately retained execution into its adverse parent.
+    assert_eq!(parsed.facts().elapsed_ms, None);
+    assert_eq!(parsed.facts().last_run_at, None);
+}
+
+#[test]
+fn selected_retained_parser_refuses_changed_focus_or_unknown_native_context_and_never_widens_cached_definitions() {
+    use culprit_evidence::analytical::test_support::{TvpLoopCase, relational_input_question_fixture};
+    let fixture = relational_input_question_fixture(TvpLoopCase::RepeatedAccess);
+    let [TelemetryRecord::ObjectDefinition(record)] = fixture.records.as_slice() else { panic!() };
+    let ObjectDefinitionFact::MssqlRetainedPlan(definition) = &record.fact else { panic!() };
+    for defect in ["focus", "epoch", "role", "dataset"] {
+        let mut source = fixture.source.clone();
+        let SourceObservation::SourceRead { focus_key, execution, snapshot } = &mut source.observation else {
+            panic!()
+        };
+        match defect {
+            "focus" => *focus_key = digest(b"another-valid-focused-original"),
+            "epoch" => {
+                let SourcePartition::InstanceLocal { epoch, .. } = &mut execution.partition else { panic!() };
+                *epoch = None;
+            }
+            "role" => execution.database_writable = None,
+            "dataset" => snapshot.dataset = SnapshotDataset::CachedDefinitions,
+            _ => unreachable!(),
+        }
+        assert!(parse_retained_definition(definition, &source).is_err(), "{defect}");
+    }
+    let source = fixture.source;
+    let definition = cached(&document(&statement(HASH, 1, false)));
+    assert!(parse_cached_definition(&definition, &source).is_err());
+}

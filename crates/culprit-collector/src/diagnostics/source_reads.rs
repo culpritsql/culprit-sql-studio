@@ -25,16 +25,12 @@ pub(super) async fn parents(
     if !intent.matches_parent_record(&original.source, &original.row) {
         return Err(DeliveryProblem::Integrity.error());
     }
-    let Some(prerequisite) = focus.prerequisite.compilation_admission() else {
+    let Some(prerequisite) = focus.prerequisite.observation() else {
         return Ok(Some(original));
     };
-    let context = outbox
-        .diagnostic_input(&prerequisite.observation.capture.observation_id, DIAGNOSTIC_CONTROLLER_VERSION)
-        .await?;
-    let SourceObservation::FocusedCompilationAdmission { result, .. } = &context.source.observation else {
-        return Err(DeliveryProblem::Integrity.error());
-    };
-    if !verify_focus_parent(outbox, &input.connection, &result.focus, recovery, cancellation).await? {
+    let context = outbox.diagnostic_input(&prerequisite.capture.observation_id, DIAGNOSTIC_CONTROLLER_VERSION).await?;
+    let participant = context.source.observation.focus().ok_or_else(|| DeliveryProblem::Integrity.error())?;
+    if !verify_focus_parent(outbox, &input.connection, participant, recovery, cancellation).await? {
         return Ok(None);
     }
     let rows = context
@@ -45,7 +41,7 @@ pub(super) async fn parents(
             _ => Err(DeliveryProblem::Integrity.error()),
         })
         .collect::<Result<Vec<_>>>()?;
-    if context.parent != prerequisite.observation.capture_ref()
+    if context.parent != prerequisite.capture_ref()
         || !focus.matches_prerequisite_input(&original.source, &original.row, &context.source, rows)
     {
         return Err(DeliveryProblem::Integrity.error());
@@ -69,7 +65,13 @@ pub(super) fn analyze(input: &DiagnosticInput, original: &OriginalBasis, at: &st
         return Ok(None);
     };
     let before = checkpoint.episodes[index].clone();
-    let stage = before.source_read.as_deref().ok_or_else(|| DeliveryProblem::Integrity.error())?;
+    let DiagnosticFocus::SourceRead { focus } = &intent.focus else {
+        return Err(DeliveryProblem::Integrity.error());
+    };
+    let stage = before.source_reads.get(focus.question).ok_or_else(|| DeliveryProblem::Integrity.error())?;
+    if stage.focus != **focus {
+        return Err(DeliveryProblem::Integrity.error());
+    }
     let mut revisions = Vec::new();
     match &stage.state {
         SourceReadStageState::Captured { capture } if capture == &input.parent => (),

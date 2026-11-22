@@ -327,8 +327,9 @@ impl DiagnosticEpisode {
             return Err(invalid());
         }
         let answer = TemporaryResourceAnswer::from_originals(focus, original_source, original, source, capture, rows)?;
-        self.transition_source_read(SourceReadStageState::Answered {
-            answer: Box::new(SourceReadAnswer::TemporaryResources(Box::new(answer))),
-        })
+        self.transition_source_read(
+            focus,
+            SourceReadStageState::Answered { answer: Box::new(SourceReadAnswer::TemporaryResources(Box::new(answer))) },
+        )
     }
 }

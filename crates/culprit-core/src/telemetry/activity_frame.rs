@@ -110,6 +110,9 @@ fn validate_references<'a>(
     let mut references = BTreeMap::new();
     let mut positions = BTreeSet::new();
     for row in rows {
+        if !row.observation.native_locks_fit_source(source) {
+            return Err(invalid());
+        }
         if source
             .target
             .database()

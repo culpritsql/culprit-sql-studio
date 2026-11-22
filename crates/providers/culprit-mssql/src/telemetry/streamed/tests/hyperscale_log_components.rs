@@ -126,7 +126,7 @@ fn log_rate_request() -> CollectionRequest {
         basis,
     )
     .unwrap();
-    let focus = episode.source_read_focus().unwrap().unwrap();
+    let focus = episode.source_read_focus(SourceReadQuestion::HyperscaleLogComponents).unwrap().unwrap();
     let execution = NativeSourceReadScope::from_context(&NativeReadContext::from_activity(&source).unwrap()).unwrap();
     assert!(focus.matches_basis(&source, &row, &execution.clone().into()));
     CollectionRequest {

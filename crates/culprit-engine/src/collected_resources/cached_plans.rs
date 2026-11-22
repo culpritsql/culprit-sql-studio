@@ -51,7 +51,17 @@ fn explain(
     dataset: SnapshotDataset,
     definition: &ObjectDefinitionRecord,
 ) -> Result<CachedPlanEntry> {
-    if !definition.fact.native_plan_proofs_match(capture.source()) {
+    explain_cached_plan_original(capture.source(), dataset, definition)
+}
+
+/// Same pure native parser and insight owner for authenticated warehouse/local synthesis inputs.
+/// This input is not a proof token; public warehouse entry points still require EvidenceCapture.
+pub(crate) fn explain_cached_plan_original(
+    source: &CollectionDescription,
+    dataset: SnapshotDataset,
+    definition: &ObjectDefinitionRecord,
+) -> Result<CachedPlanEntry> {
+    if !definition.fact.native_plan_proofs_match(source) {
         return Err(invalid());
     }
     let mut entry = CachedPlanEntry {
@@ -64,31 +74,31 @@ fn explain(
     };
     match (&definition.fact, dataset) {
         (ObjectDefinitionFact::MssqlCachedDefinition(native), SnapshotDataset::CachedDefinitions) => {
-            require_mssql(capture)?;
+            require_mssql(source)?;
             entry.identity = Some(CachedPlanIdentity::Mssql(native.context.identity.clone()));
             payload_available(&native.statement.payload, CachedPlanPayload::Statement, &mut entry);
             if payload_available(&native.estimated_plan.payload, CachedPlanPayload::EstimatedPlan, &mut entry) {
-                attach_mssql(&mut entry, || parse_cached(native, capture.source()))?;
+                attach_mssql(&mut entry, || parse_cached(native, source))?;
             }
         }
         (ObjectDefinitionFact::MssqlRetainedPlan(native), SnapshotDataset::RetainedPlans) => {
-            require_mssql(capture)?;
+            require_mssql(source)?;
             entry.identity = Some(CachedPlanIdentity::Mssql(native.context.identity.clone()));
             payload_available(&native.statement.payload, CachedPlanPayload::Statement, &mut entry);
             if payload_available(&native.batch_plan.payload, CachedPlanPayload::RetainedPlan, &mut entry) {
-                attach_mssql(&mut entry, || parse_retained(native, capture.source()))?;
+                attach_mssql(&mut entry, || parse_retained(native, source))?;
             }
         }
         (
             ObjectDefinitionFact::RetainedPlan(native),
             SnapshotDataset::CachedDefinitions | SnapshotDataset::RetainedPlans,
         ) => {
-            if native.definition.id != native.definition.identity.definition_id(capture.source())? {
+            if native.definition.id != native.definition.identity.definition_id(source)? {
                 return Err(invalid());
             }
             entry.identity = Some(CachedPlanIdentity::Native(native.definition.identity.clone()));
             if payload_available(&native.definition.plan, CachedPlanPayload::RetainedPlan, &mut entry) {
-                attach_native(&mut entry, native, capture.source().target.engine());
+                attach_native(&mut entry, native, source.target.engine());
             }
         }
         _ => add_limit(&mut entry, CachedPlanLimit::UnsupportedDefinition),
@@ -113,8 +123,8 @@ fn explain(
     Ok(entry)
 }
 
-fn require_mssql(capture: &EvidenceCapture) -> Result<()> {
-    if capture.source().target.engine() != Engine::Mssql {
+fn require_mssql(source: &CollectionDescription) -> Result<()> {
+    if source.target.engine() != Engine::Mssql {
         return Err(invalid());
     }
     Ok(())

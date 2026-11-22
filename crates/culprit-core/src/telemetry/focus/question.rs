@@ -184,22 +184,20 @@ impl DiagnosticFocus {
             _ => (None, &[][..]),
         };
         let mut seen = Vec::new();
-        let prerequisite = match self {
-            Self::SourceRead { focus } => Some(&focus.prerequisite),
-            _ => None,
+        let originals = match self {
+            Self::SourceRead { focus } => focus.references().collect::<Vec<_>>(),
+            _ => vec![self.parent()],
         };
-        std::iter::once(self.parent())
-            .chain(prerequisite.into_iter().flat_map(SourceReadPrerequisite::references))
-            .chain(page)
-            .chain(candidates.iter().map(|candidate| &candidate.parent))
-            .filter(move |reference| {
+        originals.into_iter().chain(page).chain(candidates.iter().map(|candidate| &candidate.parent)).filter(
+            move |reference| {
                 if seen.contains(reference) {
                     false
                 } else {
                     seen.push(*reference);
                     true
                 }
-            })
+            },
+        )
     }
 
     /// Shapes an unadmitted database question. Authentication, cost qualification and native guards remain mandatory.

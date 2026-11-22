@@ -382,23 +382,27 @@ impl Files {
         execution: &SourceReadExecutionScope,
     ) -> Result<()> {
         let purpose = match focus.prerequisite {
-            SourceReadPrerequisite::CompilationAdmission { .. } | SourceReadPrerequisite::ObservedLogRateWait => {
+            SourceReadPrerequisite::CompilationAdmission { .. }
+            | SourceReadPrerequisite::ObservedCurrentRequestPlan { .. }
+            | SourceReadPrerequisite::ObservedLogRateWait
+            | SourceReadPrerequisite::ObservedTransactionMetadataWait { .. } => ReferenceUse::ActivityAuthority,
+            SourceReadPrerequisite::ObservedWorkerQueue
+                if focus.basis.stream == TelemetryStream::ActivityObservations =>
+            {
                 ReferenceUse::ActivityAuthority
             }
-            SourceReadPrerequisite::ObservedCleanupBoundary { .. }
+            SourceReadPrerequisite::ObservedWorkerQueue
+            | SourceReadPrerequisite::ObservedCleanupBoundary { .. }
             | SourceReadPrerequisite::ObservedQueryHistoryFailure { .. } => ReferenceUse::Evidence,
         };
         let (source, row) = self.diagnostic_reference_for(&focus.basis, purpose)?;
         if !focus.matches_basis(&source, &row, execution) {
             return Err(integrity());
         }
-        let Some(prerequisite) = focus.prerequisite.compilation_admission() else { return Ok(()) };
-        let context =
-            self.diagnostic_input(&prerequisite.observation.capture.observation_id, DIAGNOSTIC_CONTROLLER_VERSION)?;
-        let SourceObservation::FocusedCompilationAdmission { result, .. } = &context.source.observation else {
-            return Err(integrity());
-        };
-        self.verify_focus_parent(&result.focus)?;
+        let Some(prerequisite) = focus.prerequisite.observation() else { return Ok(()) };
+        let context = self.diagnostic_input(&prerequisite.capture.observation_id, DIAGNOSTIC_CONTROLLER_VERSION)?;
+        let participant = context.source.observation.focus().ok_or_else(integrity)?;
+        self.verify_focus_parent(participant)?;
         let rows = context
             .rows
             .iter()
@@ -407,7 +411,7 @@ impl Files {
                 _ => Err(integrity()),
             })
             .collect::<Result<Vec<_>>>()?;
-        if context.parent != prerequisite.observation.capture_ref()
+        if context.parent != prerequisite.capture_ref()
             || !focus.matches_prerequisite_input(&source, &row, &context.source, rows)
         {
             return Err(integrity());

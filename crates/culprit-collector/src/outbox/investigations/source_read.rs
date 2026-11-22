@@ -69,37 +69,67 @@ impl Files {
         result_source: Option<&CollectionDescription>,
         input: &DiagnosticInput,
     ) -> Result<()> {
-        let Some(stage) = &revision.episode.source_read else { return Ok(()) };
-        if before.and_then(|episode| episode.source_read.as_deref()) == Some(stage.as_ref()) {
-            return Ok(());
+        for stage in revision.episode.source_reads.iter() {
+            if before.and_then(|episode| episode.source_reads.get(stage.focus.question)) == Some(stage) {
+                continue;
+            }
+            self.validate_source_stage(before, revision, stage, result_source, input)?;
         }
+        Ok(())
+    }
+
+    fn validate_source_stage(
+        &mut self,
+        before: Option<&DiagnosticEpisode>,
+        revision: &DiagnosticRevision,
+        stage: &SourceReadStage,
+        result_source: Option<&CollectionDescription>,
+        input: &DiagnosticInput,
+    ) -> Result<()> {
         match &stage.state {
-            SourceReadStageState::Pending | SourceReadStageState::Deferred { .. } => (),
+            SourceReadStageState::Pending | SourceReadStageState::Deferred { .. } => {
+                if revision
+                    .investigation
+                    .as_ref()
+                    .is_some_and(|event| matches!(event.intent.focus, DiagnosticFocus::SourceRead { .. }))
+                {
+                    return Err(integrity());
+                }
+            }
             SourceReadStageState::Recovered => {
                 if revision.episode.lifecycle != DiagnosticLifecycle::Resolved
-                    || stage.focus.question != SourceReadQuestion::TemporarySpaceContributors
+                    || !stage.focus.question.requires_live_episode()
                 {
                     return Err(integrity());
                 }
             }
             SourceReadStageState::Collecting => {
-                let event = revision.investigation.as_ref().ok_or_else(integrity)?;
-                if !matches!(event.intent.focus, DiagnosticFocus::SourceRead { .. })
-                    || !matches!(event.outcome, DiagnosticInvestigationOutcome::Admitted)
-                {
+                let event = stage_event(revision, stage)?;
+                if !matches!(event.outcome, DiagnosticInvestigationOutcome::Admitted) {
+                    return Err(integrity());
+                }
+                let expected = before
+                    .ok_or_else(integrity)?
+                    .transition_source_read(&stage.focus, SourceReadStageState::Collecting)?;
+                if expected.source_reads != revision.episode.source_reads {
                     return Err(integrity());
                 }
             }
             SourceReadStageState::Stopped { issue } => {
-                let event = revision.investigation.as_ref().ok_or_else(integrity)?;
-                if !matches!(event.intent.focus, DiagnosticFocus::SourceRead { .. })
-                    || !matches!(&event.outcome, DiagnosticInvestigationOutcome::Stopped { issue: actual } if actual == issue)
+                let event = stage_event(revision, stage)?;
+                if !matches!(&event.outcome, DiagnosticInvestigationOutcome::Stopped { issue: actual } if actual == issue)
                 {
+                    return Err(integrity());
+                }
+                let expected = before
+                    .ok_or_else(integrity)?
+                    .transition_source_read(&stage.focus, SourceReadStageState::Stopped { issue: issue.clone() })?;
+                if expected.source_reads != revision.episode.source_reads {
                     return Err(integrity());
                 }
             }
             SourceReadStageState::Answered { answer } => {
-                let event = revision.investigation.as_ref().ok_or_else(integrity)?;
+                let event = stage_event(revision, stage)?;
                 let source = result_source.ok_or_else(integrity)?;
                 let (basis_source, basis) = self.diagnostic_reference(&stage.focus.basis)?;
                 let rows = input.rows.iter().map(|row| (&row.reference, &row.row)).collect::<Vec<_>>();
@@ -111,19 +141,30 @@ impl Files {
                     answer.result(),
                     &rows,
                 )?;
-                if expected.source_read != revision.episode.source_read {
+                if expected.source_reads != revision.episode.source_reads {
                     return Err(integrity());
                 }
             }
             SourceReadStageState::Captured { capture } => {
-                let event = revision.investigation.as_ref().ok_or_else(integrity)?;
+                let event = stage_event(revision, stage)?;
                 let source = result_source.ok_or_else(integrity)?;
                 let expected = before.ok_or_else(integrity)?.complete_source_read(&event.intent, source, capture)?;
-                if expected.source_read != revision.episode.source_read {
+                if expected.source_reads != revision.episode.source_reads {
                     return Err(integrity());
                 }
             }
         }
         Ok(())
+    }
+}
+
+fn stage_event<'a>(
+    revision: &'a DiagnosticRevision,
+    stage: &SourceReadStage,
+) -> Result<&'a DiagnosticInvestigationEvent> {
+    let event = revision.investigation.as_ref().ok_or_else(integrity)?;
+    match &event.intent.focus {
+        DiagnosticFocus::SourceRead { focus } if **focus == stage.focus => Ok(event),
+        _ => Err(integrity()),
     }
 }

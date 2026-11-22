@@ -1,10 +1,11 @@
 //! Real canonical warehouse originals enter the same pure analyzer with the Collector feature disabled.
+mod relational_inputs;
 use super::test_support::CaptureFinding;
 use super::*;
 use culprit_evidence::{
     analytical::{
         ProjectionCatalog,
-        evidence::{EvidenceFamily, EvidenceReadBudget, EvidenceReader},
+        evidence::{EvidenceFamily, EvidenceReadBudget, EvidenceReader, RecoveryPayloadBudget},
         indexes::ProjectionIndexes,
         read_store::{AnalyticalReadPage, AnalyticalReadStore},
         test_support::{self, ReadOnlyFixture},
@@ -99,6 +100,7 @@ impl ObjectReadTransport for ReadObjects {
 struct Warehouse {
     range: CommittedRange,
     reader: EvidenceReader,
+    recovery: ObjectRecoveryReader,
     store: Arc<ReadStore>,
     objects: Arc<ReadObjects>,
 }
@@ -124,10 +126,24 @@ impl Warehouse {
         let range = reopen(&recovery, &fixture.manifest.range_id).await.unwrap();
         let store = Arc::new(ReadStore { inner: fixture.store, requests: AtomicUsize::new(0), omitted_batch });
         let reader = EvidenceReader::new(store.clone(), Arc::new(ProjectionIndexes::new(objects.clone())));
-        Self { range, reader, store, objects }
+        Self { range, reader, recovery, store, objects }
     }
     async fn read(&self, families: &[EvidenceFamily]) -> EvidenceCapture {
         self.reader.read_capture(&self.range, families, EvidenceReadBudget::default(), None).await.unwrap()
+    }
+    async fn read_with_native_payloads(
+        &self,
+        families: &[EvidenceFamily],
+        recovery_payloads: RecoveryPayloadBudget,
+    ) -> Result<EvidenceCapture> {
+        self.reader
+            .read_capture(
+                &self.range,
+                families,
+                EvidenceReadBudget { recovery_payloads: Some(recovery_payloads), ..Default::default() },
+                Some(&self.recovery),
+            )
+            .await
     }
     fn work(&self) -> (usize, usize, usize) {
         (

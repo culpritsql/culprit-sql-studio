@@ -4,18 +4,37 @@ use crate::{
     rows::{quote_ident, tagged},
 };
 use culprit_core::ConnectionSpec;
-use culprit_core::telemetry::CollectionBudget;
+use culprit_core::telemetry::{CollectionBudget, digest};
 use culprit_read::cancellation::CollectionCancellation;
 use futures_util::{FutureExt, future::LocalBoxFuture};
 use std::{panic::AssertUnwindSafe, time::Duration};
 use tokio::task::JoinHandle;
 use tokio_postgres::{CancelToken, Client};
 
+mod transaction_metadata;
+pub use transaction_metadata::TransactionMetadataRole;
+use transaction_metadata::TransactionMetadataState;
+
+mod relation_queue;
+use relation_queue::RelationQueueState;
+pub use relation_queue::{RelationQueueCase, RelationQueueRole};
+
 const CASE_TIMEOUT: Duration = Duration::from_secs(25);
 const CONTROL_TIMEOUT: Duration = Duration::from_secs(3);
 const AUTOMATIC_FOCUS_TIMEOUT: Duration = Duration::from_secs(120);
 const DEFAULT_CADENCE_RECOVERY_TIMEOUT: Duration = Duration::from_secs(380);
 const MAX_PHASE_OBSERVATIONS: u32 = 120;
+const POSTGRES_IDENTIFIER_BYTES: usize = 63;
+const COMPANION_SCHEMA_SUFFIX: &str = "_other";
+const CASE_KEY_HEX_BYTES: usize = 12;
+
+/// Keep the complete admitted nonce while reserving room for the fixture's companion schema.
+fn owned_schema_name(owner: &str, case: &str) -> String {
+    let case_key = digest(case.as_bytes());
+    let schema = format!("culprit_maintenance_{owner}_{}", &case_key[..CASE_KEY_HEX_BYTES]);
+    assert!(schema.len() + COMPANION_SCHEMA_SUFFIX.len() <= POSTGRES_IDENTIFIER_BYTES);
+    schema
+}
 
 /// Test lifetimes pay the unchanged native resource cooldown and, separately, the 300-second standard cadence.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -59,6 +78,8 @@ pub struct MaintenanceFixture {
     cancellation_attempts: u32,
     actor_control_unconfirmed: bool,
     automatic_case: Option<AutomaticCase>,
+    relation_queue: Option<RelationQueueState>,
+    transaction_metadata: Option<TransactionMetadataState>,
 }
 
 impl MaintenanceFixture {
@@ -101,6 +122,30 @@ impl MaintenanceFixture {
                     "actor_control_unconfirmed": fixture.actor_control_unconfirmed,
                 }),
             )
+        } else if let Some(state) = &fixture.relation_queue {
+            super::write_automatic_receipt(
+                state.case.name(),
+                "fixture-cleanup.json",
+                &serde_json::json!({
+                    "cleanup_confirmed":settled,"deadline_reached":completed.deadline_reached,
+                    "fixture_admin_dispatches":fixture.fixture_queries,"fixture_phase_observations":fixture.phase_observations,
+                    "phase_observation_cap":MAX_PHASE_OBSERVATIONS,"fixture_connections_started":fixture.connections_started,
+                    "actor_control_unconfirmed":fixture.actor_control_unconfirmed,"admin_in_flight":fixture.admin_in_flight,
+                    "ownership_admission_queries_including_setup":2,"source_queries_paid_separately":true,
+                    "fixture":state.receipt(),"source_cost_qualified":false,
+                }),
+            )
+        } else if let Some(state) = &fixture.transaction_metadata {
+            super::write_automatic_receipt(
+                transaction_metadata::CASE_NAME,
+                "fixture-cleanup.json",
+                &serde_json::json!({
+                    "cleanup_confirmed":settled,"deadline_reached":completed.deadline_reached,
+                    "fixture":fixture.transaction_metadata_receipt(),"source_cost_qualified":false,
+                    "admin_in_flight":fixture.admin_in_flight,"actor_control_unconfirmed":fixture.actor_control_unconfirmed,
+                    "retirement_confirmed":state.retirement_confirmed,
+                }),
+            )
         } else {
             Ok(())
         };
@@ -120,9 +165,22 @@ impl MaintenanceFixture {
     }
 
     async fn open(case: &str, automatic_case: Option<AutomaticCase>) -> Self {
-        assert!(matches!(case, "waiting" | "released" | "builtin-safety" | "builtin-recovery"));
+        assert!(matches!(
+            case,
+            "waiting"
+                | "released"
+                | "builtin-safety"
+                | "builtin-recovery"
+                | "relation-queue-small"
+                | "relation-queue-medium"
+                | "relation-queue-parallel"
+                | transaction_metadata::CASE_NAME
+        ));
         let database = std::env::var("CULPRIT_PREVIEW_PG_DATABASE").unwrap();
-        let budget = if automatic_case.is_some() {
+        let budget = if automatic_case.is_some()
+            || RelationQueueCase::from_name(case).is_some()
+            || case == transaction_metadata::CASE_NAME
+        {
             CollectionBudget {
                 page_rows: 1,
                 max_snapshot_rows: 1,
@@ -144,7 +202,7 @@ impl MaintenanceFixture {
             specification,
             cancellation: CollectionCancellation::default(),
             connector,
-            schema: format!("culprit_maintenance_{}_{}", owner(), case),
+            schema: owned_schema_name(&owner(), case),
             builder_pid: 0,
             holder_pid: 0,
             admin: Some(admin),
@@ -160,6 +218,8 @@ impl MaintenanceFixture {
             cancellation_attempts: 0,
             actor_control_unconfirmed: false,
             automatic_case,
+            relation_queue: RelationQueueCase::from_name(case).map(RelationQueueState::new),
+            transaction_metadata: (case == transaction_metadata::CASE_NAME).then(TransactionMetadataState::new),
         }
     }
 
@@ -170,7 +230,17 @@ impl MaintenanceFixture {
         self.admin_in_flight = true;
         let result =
             tokio::time::timeout(CONTROL_TIMEOUT, self.admin.as_ref().unwrap().batch_execute(&tagged(sql))).await;
-        assert!(matches!(result, Ok(Ok(()))), "owned fixture control SQL did not acknowledge completion");
+        let sqlstate = result
+            .as_ref()
+            .ok()
+            .and_then(|result| result.as_ref().err())
+            .and_then(tokio_postgres::Error::as_db_error)
+            .map(|error| error.code().code());
+        assert!(
+            matches!(&result, Ok(Ok(()))),
+            "owned fixture control operation {} did not acknowledge completion; native_sqlstate={sqlstate:?}",
+            self.fixture_queries
+        );
         self.admin_in_flight = false;
     }
 
@@ -323,11 +393,18 @@ impl MaintenanceFixture {
 
     async fn cleanup(&mut self) -> bool {
         if self.admin_in_flight
+            || self.transaction_metadata.is_some() && self.cancellation.is_cancelled()
             || self.actor_control_unconfirmed
             || self.connector.source_shutdown() != culprit_core::telemetry::SourceShutdown::Quiescent
         {
             // Physical close/abort does not confirm SQL cancellation. Stop all further fixture SQL; the exact
             // nonce-owned supervisor destroys this disposable database after the first failure is reported.
+            if let Some(state) = &mut self.relation_queue {
+                state.fence();
+            }
+            if let Some(state) = &mut self.transaction_metadata {
+                state.fence();
+            }
             self.holder.take();
             self.idle_builder.take();
             self.admin.take();
@@ -335,6 +412,16 @@ impl MaintenanceFixture {
                 build.abort();
                 let _ = build.await;
             }
+            return false;
+        }
+        if self.transaction_metadata.is_some() && !Box::pin(self.retire_transaction_metadata()).await {
+            self.actor_control_unconfirmed = true;
+            self.admin.take();
+            return false;
+        }
+        if self.relation_queue.is_some() && !Box::pin(self.retire_relation_queue()).await {
+            self.actor_control_unconfirmed = true;
+            self.admin.take();
             return false;
         }
         let mut settled = self.release().await;
@@ -357,12 +444,31 @@ impl MaintenanceFixture {
             return false;
         }
         if self.schema_created {
-            let sql = tagged(&format!("DROP SCHEMA IF EXISTS {} CASCADE", quote_ident(&self.schema)));
+            if self.transaction_metadata.is_some() && !self.admit_transaction_drop() {
+                return false;
+            }
+            let sql = tagged(
+                &self
+                    .relation_queue
+                    .as_ref()
+                    .map(|state| state.drop_sql(&self.schema))
+                    .unwrap_or_else(|| format!("DROP SCHEMA IF EXISTS {} CASCADE", quote_ident(&self.schema))),
+            );
+            if let Some(state) = &mut self.relation_queue {
+                state.statements += if state.other_schema_created { 2 } else { 1 };
+            }
             self.fixture_queries += 1;
-            settled &= matches!(
+            if self.relation_queue.is_some() || self.transaction_metadata.is_some() {
+                self.admin_in_flight = true;
+            }
+            let acknowledged = matches!(
                 tokio::time::timeout(CONTROL_TIMEOUT, self.admin.as_ref().unwrap().batch_execute(&sql)).await,
                 Ok(Ok(()))
             );
+            if acknowledged {
+                self.admin_in_flight = false;
+            }
+            settled &= acknowledged;
         }
         settled
     }
@@ -380,6 +486,47 @@ impl Drop for MaintenanceFixture {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn every_owned_case_and_companion_keeps_the_full_nonce_without_native_identifier_truncation() {
+        let owner = "0123456789abcdef01234567";
+        let mut native_names = std::collections::BTreeSet::new();
+        for case in [
+            "waiting",
+            "released",
+            "builtin-safety",
+            "builtin-recovery",
+            "relation-queue-small",
+            "relation-queue-medium",
+            "relation-queue-parallel",
+            transaction_metadata::CASE_NAME,
+        ] {
+            let primary = owned_schema_name(owner, case);
+            let companion = format!("{primary}{COMPANION_SCHEMA_SUFFIX}");
+            assert_eq!(primary.len(), 57, "{case}");
+            assert_eq!(companion.len(), POSTGRES_IDENTIFIER_BYTES, "{case}");
+            assert!(primary.is_ascii() && companion.is_ascii());
+            assert!(primary.contains(owner), "the complete nonce is never shortened or hashed");
+            assert_eq!(owned_schema_name(owner, case), primary, "deterministic native lookup and cleanup");
+            assert!(native_names.insert(primary.clone()), "distinct case identity: {case}");
+            assert!(native_names.insert(companion), "distinct companion identity: {case}");
+            if RelationQueueCase::from_name(case).is_some() {
+                let old = format!("culprit_maintenance_{owner}_{case}");
+                let old_companion = format!("{old}{COMPANION_SCHEMA_SUFFIX}");
+                assert!(old.len() > POSTGRES_IDENTIFIER_BYTES);
+                assert_eq!(
+                    &old[..POSTGRES_IDENTIFIER_BYTES],
+                    &old_companion[..POSTGRES_IDENTIFIER_BYTES],
+                    "the regression actually covers the prior native truncation collision"
+                );
+            }
+        }
+        assert_eq!(native_names.len(), 16);
+        assert_ne!(
+            owned_schema_name("1123456789abcdef01234567", "relation-queue-small"),
+            owned_schema_name(owner, "relation-queue-small"),
+            "independent owners stay disjoint"
+        );
+    }
     #[tokio::test]
     async fn unconfirmed_control_with_no_remaining_client_never_heals_or_dispatches_cleanup_sql() {
         let specification = ConnectionSpec {
@@ -409,6 +556,8 @@ mod tests {
             cancellation_attempts: 0,
             actor_control_unconfirmed: true,
             automatic_case: None,
+            relation_queue: None,
+            transaction_metadata: None,
         };
         assert!(!fixture.cleanup().await);
         fixture.cancellation.cancel();

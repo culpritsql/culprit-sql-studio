@@ -56,7 +56,11 @@ fn activity() -> Frame {
 }
 
 async fn fixture() -> Harness {
-    let mut fixture = Harness::with_activity(activity()).await;
+    fixture_for(activity()).await
+}
+
+async fn fixture_for(activity: Frame) -> Harness {
+    let mut fixture = Harness::with_activity(activity).await;
     fixture.backend.recipe.id = "synthetic.current-request-work".into();
     fixture.backend.recipe.selector = RecipeSelector::CurrentRequestWork;
     let RecipeAdmission::Measured(receipt) = &mut fixture.backend.recipe.admission else { panic!() };
@@ -358,3 +362,5 @@ async fn a_caller_cannot_commit_partial_current_work_as_a_completed_native_expla
     assert_eq!(revisions[0].episode.analysis, DiagnosticAnalysisStatus::Partial);
     assert!(matches!(revisions[0].episode.report, Some(DiagnosticReport::CurrentRequestWork { .. })));
 }
+
+mod mssql;

@@ -4,6 +4,7 @@ mod blocking;
 #[cfg(test)]
 mod native_tests;
 mod recipes;
+mod transaction_metadata;
 use crate::connect::Connector;
 use crate::native;
 use crate::native::metadata;

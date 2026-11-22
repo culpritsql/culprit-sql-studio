@@ -9,7 +9,11 @@ use ts_rs::TS;
 use crate::model::{Engine, Session};
 use crate::{format, t};
 mod activity;
+mod metadata_queue;
+mod native_lock;
 pub use activity::analyze_activity;
+pub use metadata_queue::*;
+pub use native_lock::*;
 
 /// The lock a waiting session asked for and didn't get.
 #[derive(Serialize, Deserialize, TS, Clone, Debug, PartialEq, Eq, Default)]
@@ -24,6 +28,8 @@ pub struct LockWait {
     /// `schema.table`, when the engine can tell.
     pub object: Option<String>,
     pub index: Option<String>,
+    /// Original native lock point, independent of object labels and of the SQL that acquired a holder's lock.
+    pub native: Option<Box<NativeLockEvidence>>,
 }
 
 #[derive(Serialize, Deserialize, TS, Clone, Copy, Debug, PartialEq, Eq)]
@@ -483,6 +489,7 @@ mod tests {
             resource: Some("KEY".into()),
             object: Some("shop.orders".into()),
             index: Some("PK_orders".into()),
+            native: None,
         }
     }
 
@@ -691,6 +698,7 @@ mod tests {
             resource: Some("RECORD".into()),
             object: Some("shop.orders".into()),
             index: Some("PRIMARY".into()),
+            native: None,
         };
         assert_eq!(lock_phrase(None, Some(&mysql)).unwrap(), "an exclusive row lock on shop.orders");
         assert_eq!(lock_phrase(Some("LCK_M_SCH_M"), None).unwrap(), "a schema-change lock");
@@ -702,6 +710,7 @@ mod tests {
             resource: Some("relation".into()),
             object: Some("public.orders".into()),
             index: None,
+            native: None,
         };
         assert_eq!(lock_phrase(None, Some(&ddl)).unwrap(), "a table-wide exclusive lock on public.orders");
         assert_eq!(lock_phrase(Some("PAGEIOLATCH_SH"), None).unwrap(), "PAGEIOLATCH_SH");
@@ -724,6 +733,7 @@ mod tests {
                         resource: Some(resource.into()),
                         object: None,
                         index: None,
+                        native: None,
                     };
                     out.push(format!("{mode}{scope} {resource}: {}", lock_kind(None, Some(&l)).unwrap()));
                 }
@@ -1142,6 +1152,7 @@ Culprit could not safely match this blocker to its session details. Refresh the 
             resource: Some("transactionid".into()),
             object: Some("public.orders".into()),
             index: None,
+            native: None,
         };
         assert_eq!(lock_phrase(Some("Lock: transactionid"), Some(&l)).unwrap(), "a row lock on public.orders");
     }

@@ -5,6 +5,7 @@ use culprit_core::{
 };
 use std::collections::BTreeMap;
 mod compilation;
+mod relational_inputs;
 mod temporary_resources;
 
 /// Authenticated callers supply the receipt for this exact revision body. Imported rows deliberately have none.
@@ -146,10 +147,11 @@ fn entry(
         followup_recipe_version: revision.investigation.as_ref().map(|event| event.intent.recipe_version),
         issue: episode.issue.clone(),
         reasons,
-        next_step: if episode.source_read.as_deref().is_some_and(|stage| {
-            stage.focus.question == SourceReadQuestion::TemporarySpaceContributors
-                && matches!(stage.state, SourceReadStageState::Answered { .. })
-        }) {
+        next_step: if episode
+            .source_reads
+            .get(SourceReadQuestion::TemporarySpaceContributors)
+            .is_some_and(|stage| matches!(stage.state, SourceReadStageState::Answered { .. }))
+        {
             t!("view.tempdb_question.next")
         } else if episode.analysis == DiagnosticAnalysisStatus::Analyzed {
             t!("view.incident_history.next.analyzed")
@@ -182,9 +184,7 @@ fn evidence_links(
             availability: availability.clone(),
         });
     }
-    if let Some(stage) = &episode.source_read
-        && let Some(capture) = stage.result()
-    {
+    for capture in episode.source_read_captures() {
         evidence.push(IncidentHistoryEvidence {
             label: t!("view.incident_history.evidence.followup"),
             capture: capture.clone(),
@@ -216,7 +216,7 @@ fn recorded_reasons(revision: &DiagnosticRevision, predecessor_selected: bool) -
     if !predecessor_selected {
         reasons.push(t!("view.incident_history.limit.predecessor"));
     }
-    if let Some(stage) = &episode.source_read {
+    for stage in episode.source_reads.iter() {
         reasons.push(t!(
             "view.incident_history.source_stage",
             state = match &stage.state {
@@ -229,8 +229,17 @@ fn recorded_reasons(revision: &DiagnosticRevision, predecessor_selected: bool) -
                 SourceReadStageState::Stopped { .. } => "stopped",
             }
         ));
+        if stage.focus.question == SourceReadQuestion::WorkerStarvation {
+            reasons.push(t!("view.worker_starvation.question"));
+        }
         if stage.focus.question == SourceReadQuestion::TemporarySpaceContributors {
             reasons.push(t!("view.tempdb_question.question"));
+        }
+        if stage.focus.question == SourceReadQuestion::RelationalInputContext {
+            reasons.push(t!("view.relational_input_question.question"));
+        }
+        if stage.focus.question == SourceReadQuestion::TransactionMetadata {
+            reasons.push(t!("view.transaction_metadata.title"));
         }
         if matches!(stage.focus.prerequisite, SourceReadPrerequisite::ObservedQueryHistoryFailure { .. }) {
             reasons.push(t!("view.incident_history.compilation.question"));
@@ -239,6 +248,14 @@ fn recorded_reasons(revision: &DiagnosticRevision, predecessor_selected: bool) -
             match answer.as_ref() {
                 SourceReadAnswer::TemporaryResources(answer) => reasons.extend(temporary_resources::explain(answer)),
                 SourceReadAnswer::QueryCompilation(answer) => compilation::append(answer, &mut reasons),
+                SourceReadAnswer::TransactionMetadata(answer) => {
+                    reasons.extend(super::transaction_metadata::answer_reasons(answer))
+                }
+                SourceReadAnswer::WorkerStarvation(answer) => {
+                    reasons.push(super::worker_starvation::summary(answer));
+                    reasons.extend(super::worker_starvation::limitations(&answer.evidence));
+                }
+                SourceReadAnswer::RelationalInputs(answer) => relational_inputs::append(answer, &mut reasons),
             }
         }
         match &stage.state {
@@ -295,6 +312,10 @@ fn question_label(signal: &DiagnosticSignal) -> String {
         return t!("view.tempdb_question.question");
     }
     let kind = match signal {
+        DiagnosticSignal::WorkerStarvation { .. }
+        | DiagnosticSignal::OriginalObservation { condition: DiagnosticOriginalCondition::MssqlWorkerQueue, .. } => {
+            return t!("view.worker_starvation.question");
+        }
         DiagnosticSignal::OriginalObservation { .. } => "other",
         DiagnosticSignal::Activity { condition: ActivityCondition::LongRunning, .. } => "long-running",
         DiagnosticSignal::Activity { condition: ActivityCondition::Blocked, .. } => "blocked",
@@ -303,6 +324,7 @@ fn question_label(signal: &DiagnosticSignal) -> String {
         DiagnosticSignal::RequestMemory { .. } => "memory",
         DiagnosticSignal::CompilationAdmission { .. } => "compilation",
         DiagnosticSignal::LogRateGovernance { .. } => "log",
+        DiagnosticSignal::TransactionMetadataWait { .. } => return t!("view.transaction_metadata.title"),
         DiagnosticSignal::PageWait { .. } => "page",
         DiagnosticSignal::PageTaskWait { .. } => "task-page",
     };

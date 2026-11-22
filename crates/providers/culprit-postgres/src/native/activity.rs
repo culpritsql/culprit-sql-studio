@@ -1,10 +1,12 @@
-//! One native activity reader for Live and persistent-issue capture. Lock-manager work is bounded and conditional.
+//! One native activity reader for Live and persistent-issue capture. Lock-manager work is conditional; retained
+//! lookup and output limits do not bound the native lock manager's internal work.
 use super::metadata::Metadata;
 use super::*;
 use culprit_core::{Engine, Session, telemetry::*};
 use std::collections::{BTreeMap, BTreeSet};
 mod blocking;
-pub(crate) use blocking::{BlockingReadOptions, blockers, observe_blocking, unqualified_owner_ids};
+pub(crate) mod transaction_metadata;
+pub(crate) use blocking::{BlockingReadOptions, LockProjection, blockers, observe_blocking, unqualified_owner_ids};
 pub struct ActivityRecord {
     pub facts: Option<ActivityObservation>,
     row: Row,

@@ -239,7 +239,7 @@ fn missing_index_candidates_share_current_parent_admission_with_the_advisor() {
 #[test]
 fn filtered_scan_and_advisor_groups_refuse_current_views_unknown_subjects_and_same_leaf_schema_borrowing() {
     let mut snapshot = current();
-    let mut plan = snapshot.queries().into_iter().find_map(|query| query.plan.clone()).expect("plan fixture");
+    let mut plan = snapshot.queries().iter().find_map(|query| query.plan.clone()).expect("plan fixture");
     plan.root.children.clear();
     plan.root.facts = Default::default();
     plan.root.props.clear();
@@ -257,7 +257,7 @@ fn filtered_scan_and_advisor_groups_refuse_current_views_unknown_subjects_and_sa
     plan.index_hints.clear();
     plan.raw = None;
     plan.insights = None;
-    let mut query = snapshot.queries().into_iter().next().unwrap().clone();
+    let mut query = snapshot.queries().first().unwrap().clone();
     query.text = "SELECT id FROM reporting.Revenue WHERE customer_id = 42".into();
     query.plan = Some(plan);
     query.total_time_ms = 1000.0;

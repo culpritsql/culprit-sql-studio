@@ -1,7 +1,7 @@
 //! Shared caller labels remain context across concurrent backends, request reuse and ended sessions.
 use super::{owned_fixture, retained_activity};
+use crate::native_test_support::actor as actors;
 use culprit_core::{SessionCensusReport, telemetry::*};
-mod actors;
 mod fixture;
 use fixture::Fixture;
 

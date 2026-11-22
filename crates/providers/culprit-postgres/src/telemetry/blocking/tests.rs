@@ -349,8 +349,9 @@ impl culprit_collector::capture::SourceFactory for Factory {
 
 #[tokio::test]
 async fn the_generic_capture_owner_requires_confirmed_close_and_never_publishes_a_failed_provisional_closure() {
-    use culprit_collector::capture::{CollectionCancellation, collect_once};
+    use culprit_collector::capture::collect_once;
     use culprit_read::admission::SourceGate;
+    use culprit_read::cancellation::CollectionCancellation;
     let requested = request(qualified_focus().await);
     let directory = tempfile::tempdir().unwrap();
     let gate = SourceGate::default();

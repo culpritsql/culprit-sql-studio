@@ -88,6 +88,7 @@ pub(super) fn families(dataset: SnapshotDataset) -> Result<Vec<Family>> {
         | SnapshotDataset::Indexes
         | SnapshotDataset::CheckConstraints
         | SnapshotDataset::QueryCompilation
+        | SnapshotDataset::WorkerStarvation
         | SnapshotDataset::CompilerAdmission
         | SnapshotDataset::MaintenanceProgress
         | SnapshotDataset::CurrentRequestWork
@@ -116,7 +117,8 @@ pub(super) fn families(dataset: SnapshotDataset) -> Result<Vec<Family>> {
         | SnapshotDataset::PageWaitTargets
         | SnapshotDataset::TaskSpace
         | SnapshotDataset::PageWaitWriters
-        | SnapshotDataset::PageTaskHolders => return Err(crate::read::invalid_data()),
+        | SnapshotDataset::PageTaskHolders
+        | SnapshotDataset::TransactionMetadata => return Err(crate::read::invalid_data()),
     })
 }
 

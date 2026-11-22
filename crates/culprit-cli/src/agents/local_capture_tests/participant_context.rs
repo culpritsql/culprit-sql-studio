@@ -169,11 +169,14 @@ async fn task_participant_context_requires_both_original_checks_and_preserves_ex
             assert_eq!(native["internal_allocated_pages"], json!(point.internal_allocated_pages));
             assert_eq!(native["internal_deallocated_pages"], json!(point.internal_deallocated_pages));
             assert_eq!(native["request_context"], json!(point.request_context()));
-            let context = &entry["participant_context"];
+            let context = &entry["current_request"];
+            assert!(entry.get("participant_context").is_none());
             if point.request_context() == TaskRequestContext::CheckedAtBounds {
                 let request = point.request.as_ref().unwrap();
-                assert_eq!(context["actor"], json!(request.key));
+                assert_eq!(context["request"], json!(request.key));
                 assert_eq!(context["client"], json!(request.client));
+                assert_eq!(context["request_check_bounds"]["from"], point.before_check.as_ref().unwrap().observed_at);
+                assert_eq!(context["request_check_bounds"]["until"], point.after_check.as_ref().unwrap().observed_at);
                 assert_eq!(context["statement"]["availability"], "available");
                 assert!(!context["statement"]["preview"].as_str().unwrap().contains("9264"));
             } else {
@@ -285,6 +288,42 @@ async fn reservation_demand_mcp_replays_canonical_original_waiter_advice_without
         assert!(!entry["explanation"].as_str().unwrap().contains("9007199254740993"));
         assert!(!entry["explanation"].as_str().unwrap().contains("9264"));
         assert!(!entry["participant_context"]["statement"]["preview"].as_str().unwrap().contains("9264"));
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+    }
+}
+
+#[tokio::test]
+async fn mssql_current_request_work_mcp_uses_canonical_words_and_no_database_reader_or_native_plan_authority() {
+    for (source, rows) in culprit_evidence::analytical::test_support::mssql_current_work_evidence_cases() {
+        let mut fixture = LocalCaptureFixture::snapshot(source, rows).await;
+        drop(fixture.outbox.take());
+        let calls = Arc::new(AtomicUsize::new(0));
+        let server = server(&fixture, calls.clone());
+        let (error, value) =
+            analyze(&server, &fixture.manifest.capture.observation_id, LocalCaptureAnalysisKind::CurrentRequestWork)
+                .await;
+        assert!(!error, "{value}");
+        let report = &value["current_request_work"];
+        assert!(
+            report["limitations"]
+                .as_array()
+                .unwrap()
+                .contains(&json!(culprit_core::t!("view.current_request_work.mssql.limit.plan")))
+        );
+        for entry in report["entries"].as_array().unwrap() {
+            let reads = entry["metrics"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|m| m["key"] == "view.current_request_work.mssql.metric.reads")
+                .unwrap();
+            assert_eq!(reads["text"], json!(culprit_core::format::digits("9007199254740993".into())));
+        }
+        for private in
+            ["private-current-request-secret", "plan_handle", "sql_handle", "native_database_id", "statement_identity"]
+        {
+            assert!(!value.to_string().contains(private), "{private}");
+        }
         assert_eq!(calls.load(Ordering::SeqCst), 0);
     }
 }

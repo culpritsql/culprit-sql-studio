@@ -2,7 +2,7 @@
 use culprit_core::{Result, telemetry::*};
 use serde_json::{Value, json};
 
-pub const PREPARATION_VERSION: u32 = 61;
+pub const PREPARATION_VERSION: u32 = 62;
 const MAX_PREVIEW_BYTES: usize = 1024;
 const MAX_INLINE_DETAIL_BYTES: usize = 128 * 1024;
 
@@ -80,6 +80,9 @@ fn fact(input: &mut Value, key: &str) -> Result<()> {
     detail(input, details)
 }
 fn operational(input: &mut Value, row: &OperationalObservation) -> Result<()> {
+    if let OperationalFact::MssqlWorkerStarvation(point) = &row.fact {
+        super::worker_contexts::project(input.pointer_mut("/record/data/fact/data").ok_or_else(invalid)?, point)?;
+    }
     if let OperationalFact::CounterSet(sample) = &row.fact
         && database_performance_candidate(sample)
     {
@@ -98,10 +101,13 @@ fn operational(input: &mut Value, row: &OperationalObservation) -> Result<()> {
         // preserves older replica epochs without duplicating private database or compute-member identity.
         *input.pointer_mut("/record/data/fact/data/episode/scope").ok_or_else(invalid)? =
             json!({"key": revision.episode.scope.key()?});
-        if let Some(stage) = &revision.episode.source_read {
-            *input.pointer_mut("/record/data/fact/data/episode/source_read").ok_or_else(invalid)? =
-                super::investigations::source_stage(stage)?;
-        }
+        let stages = revision
+            .episode
+            .source_reads
+            .iter()
+            .map(super::investigations::source_stage)
+            .collect::<Result<Vec<_>>>()?;
+        *input.pointer_mut("/record/data/fact/data/episode/source_reads").ok_or_else(invalid)? = Value::Array(stages);
         if let Some(investigation) = &revision.investigation {
             *input.pointer_mut("/record/data/fact/data/investigation").ok_or_else(invalid)? =
                 super::investigations::event(investigation)?;

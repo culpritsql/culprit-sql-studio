@@ -1,5 +1,6 @@
 use super::*;
 use culprit_evidence::analytical::test_support::shared_investigation_fixture;
+use culprit_evidence::delivery::heads::{DiagnosticHead, DiagnosticHeadPage};
 use culprit_evidence::delivery::mutations::Fence;
 use culprit_evidence::delivery::recovery::RecoveryRead;
 
@@ -83,7 +84,14 @@ impl SharedInvestigation {
             vec![fixture.owner_record.record],
             None,
         );
-        let (reference, source, row) = files.diagnostic_owner(&owner).unwrap().unwrap();
+        let canonical_owner = files.diagnostic_owner(&owner).unwrap().unwrap();
+        observe_owner_capture(&mut files, &owner);
+        assert_eq!(
+            files.diagnostic_owner(&owner).unwrap().as_ref(),
+            Some(&canonical_owner),
+            "observing the independent shared input must preserve its authenticated native owner evidence"
+        );
+        let (reference, source, row) = canonical_owner;
         // This structural fixture authenticates sealed bytes. Its synthetic cost receipt grants no native rights.
         let intent = DiagnosticInvestigationIntent::new_shared(
             &episode,
@@ -168,6 +176,52 @@ impl SharedInvestigation {
     fn captures(&self) -> u32 {
         self.files.journal.conn.query_row("SELECT count(*) FROM captures", [], |row| row.get(0)).unwrap()
     }
+}
+
+// This exact known shared Operational capture is a separate controller input, independent of the DB focus.
+// Its unrelated gauge (or a genuine empty native point) cannot manufacture a worker-pressure episode.
+fn observe_owner_capture(files: &mut Files, capture: &CaptureIdentity) {
+    let input = files.diagnostic_input(&capture.observation_id, DIAGNOSTIC_CONTROLLER_VERSION).unwrap();
+    assert_eq!(&input.parent.capture, capture);
+    assert!(matches!(input.source.target, CollectionTarget::Shared(_)));
+    assert_eq!(diagnostic_original_source_kind(&input.source), Some(DiagnosticSourceKind::WorkerQueues));
+    let rows = input
+        .rows
+        .iter()
+        .map(|row| DiagnosticOriginalRow { reference: &row.reference, record: &row.row.record })
+        .collect::<Vec<_>>();
+    let observed =
+        observe_diagnostic_original(&input.source, &input.parent, &rows, input.checkpoint.as_ref(), &[], ANALYZED_AT)
+            .unwrap();
+    assert!(observed.revisions.is_empty());
+    assert!(observed.checkpoint.episodes.is_empty());
+    assert_eq!(observed.checkpoint.target, input.source.target);
+    let step_id = digest(&serde_json::to_vec(&("observe-shared-owner-fixture", &input.parent)).unwrap());
+    files
+        .commit_diagnostics(
+            input,
+            DiagnosticUpdate {
+                historical_episodes: vec![],
+                step_id,
+                analyzed_at: ANALYZED_AT.into(),
+                revisions: observed.revisions,
+                checkpoint: observed.checkpoint,
+            },
+        )
+        .unwrap();
+    assert!(
+        files.next_diagnostic_input(DIAGNOSTIC_CONTROLLER_VERSION).unwrap().is_none(),
+        "only the explicitly identified owner input was pending at this fixture phase"
+    );
+}
+
+fn original_database_head(page: DiagnosticHeadPage, target: &CollectionTarget) -> DiagnosticHead {
+    assert!(page.next_cursor.is_none());
+    assert_eq!(page.heads.len(), 2, "database and shared-resource controllers retain independent heads");
+    let mut matches = page.heads.into_iter().filter(|head| &head.target == target);
+    let head = matches.next().expect("one exact original database checkpoint");
+    assert!(matches.next().is_none());
+    head
 }
 
 pub(super) fn seal(
@@ -364,6 +418,7 @@ fn zero_or_unknown_shared_native_owners_do_not_become_positive_admission_referen
     snapshot.sources[0] = StateSourceCoverage::collected(empty.source.clone(), 0);
     let capture = seal(&mut fixture.files, request.clone(), empty, vec![], None);
     assert!(fixture.files.diagnostic_owner(&capture).unwrap().is_none());
+    observe_owner_capture(&mut fixture.files, &capture);
 
     let mut unknown = model.owner_source;
     unknown.partition = SourcePartition::InstanceLocal { member: None, epoch: None };
@@ -372,6 +427,10 @@ fn zero_or_unknown_shared_native_owners_do_not_become_positive_admission_referen
     assert!(unknown.partition_is_consistent());
     let capture = seal(&mut fixture.files, request, unknown, vec![model.owner_record.record], None);
     assert!(fixture.files.diagnostic_owner(&capture).unwrap().is_none());
+    assert!(
+        fixture.files.diagnostic_input(&capture.observation_id, DIAGNOSTIC_CONTROLLER_VERSION).is_err(),
+        "an unknown native member does not enter the original-observation controller"
+    );
     assert!(fixture.files.next_diagnostic_input(DIAGNOSTIC_CONTROLLER_VERSION).unwrap().is_none());
     let mut foreign = fixture.owner.clone();
     foreign.revision.as_mut().unwrap().sequence = "999".into();
@@ -442,7 +501,7 @@ async fn cold_shared_inputs_authenticate_and_cache_both_originals_without_revivi
     let cold_path = fixture.root.path().join("cold");
     let mut cold = crate::outbox::Outbox::create_remote(&cold_path, OutboxLimits::default(), store.id()).unwrap();
     cold.recover().await.unwrap();
-    let head = store.diagnostic_heads(None, 10).await.unwrap().heads.remove(0);
+    let head = original_database_head(store.diagnostic_heads(None, 10).await.unwrap(), fixture.intent.focus.target());
     cold.restore_diagnostics(
         crate::delivery::diagnostic_recovery::load_diagnostic_checkpoint(&store, &head).await.unwrap(),
     )
@@ -514,7 +573,7 @@ async fn cold_shared_inputs_authenticate_and_cache_both_originals_without_revivi
     assert!(store.diagnostic_input_pending(&pending.parent, DIAGNOSTIC_CONTROLLER_VERSION).await.unwrap());
     std::fs::write(&owner_object, owner_bytes).unwrap();
     let committed = stage_and_commit(&store, ownership.fence(), previous.as_deref(), &prepared).await.unwrap();
-    let head = store.diagnostic_heads(None, 10).await.unwrap().heads.remove(0);
+    let head = original_database_head(store.diagnostic_heads(None, 10).await.unwrap(), fixture.intent.focus.target());
     let restored = crate::delivery::diagnostic_recovery::load_diagnostic_checkpoint(&store, &head).await.unwrap();
     assert_eq!(restored.checkpoint().target, fixture.intent.focus.target().clone());
     assert_eq!(restored.checkpoint().input.capture, focused);

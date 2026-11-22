@@ -1,6 +1,6 @@
 //! A finite COPY writer belongs only to the existing nonce-admitted disposable PostgreSQL fixture.
 use super::*;
-use crate::telemetry::native_tests::case;
+use crate::native_test_support::case;
 use crate::{
     connect::Connector,
     rows::{quote_ident, tagged},

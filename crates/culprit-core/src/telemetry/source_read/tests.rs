@@ -238,7 +238,7 @@ fn first_canonical_receipt_is_required_not_same_actor_in_another_capture_or_a_re
     let TelemetryRecord::Activity(actor) = &mut changed.record else { panic!() };
     actor.key.request.as_mut().unwrap().generation = "recycled-request".into();
     assert!(!original.focus.matches_basis(&original.source, &changed, &original.execution.clone().into()));
-    assert!(original.episode.plan_source_read_focus(&original.source, &changed).is_err());
+    assert!(original.episode.plan_source_read_focus(&original.focus, &original.source, &changed).is_err());
 }
 
 #[test]
@@ -274,17 +274,21 @@ fn a_completed_gateway_answer_and_quiet_symptom_keep_separate_finite_source_debt
     let enrolled = original.episode.enroll_source_read(original.focus.clone()).unwrap();
     assert_eq!(enrolled.report, original.episode.report);
     assert_eq!(enrolled.analysis, original.episode.analysis);
-    let collecting = enrolled.transition_source_read(SourceReadStageState::Collecting).unwrap();
+    let collecting = enrolled.transition_source_read(&original.focus, SourceReadStageState::Collecting).unwrap();
     let mut quiet = collecting.clone();
     quiet.lifecycle = DiagnosticLifecycle::Resolved;
     quiet.recovery = Some(DiagnosticRecoveryProof::CompleteScope { capture: original.focus.basis.capture_ref() });
     assert!(quiet.is_valid());
     assert!(quiet.retained_in_checkpoint());
     let result = result_capture(&original);
-    let captured = quiet.transition_source_read(SourceReadStageState::Captured { capture: result.clone() }).unwrap();
+    let captured = quiet
+        .transition_source_read(&original.focus, SourceReadStageState::Captured { capture: result.clone() })
+        .unwrap();
     assert!(!captured.retained_in_checkpoint());
-    assert_eq!(captured.source_read_capture(), Some(&result));
-    assert!(captured.transition_source_read(SourceReadStageState::Collecting).is_err());
+    assert_eq!(captured.source_read_captures().collect::<Vec<_>>(), vec![&result]);
+    assert_eq!(captured.source_read_capture(original.focus.question), Some(&result));
+    assert!(captured.source_read_capture(SourceReadQuestion::HyperscaleLogComponents).is_none());
+    assert!(captured.transition_source_read(&original.focus, SourceReadStageState::Collecting).is_err());
     assert_eq!(captured.report, original.episode.report);
 }
 
@@ -297,7 +301,7 @@ fn revision_keeps_basis_after_latest_changes_and_refuses_erasing_stage_or_replac
         .unwrap();
     assert!(revision.inputs.contains(&original.focus.basis));
     let mut removed = enrolled.clone();
-    removed.source_read = None;
+    removed.source_reads = SourceReadStages::new();
     assert!(DiagnosticRevision::between(Some(&enrolled), removed, "2020-01-01T12:00:03Z").is_err());
     let mut replaced = enrolled.clone();
     replaced.analysis = DiagnosticAnalysisStatus::Analyzed;
@@ -488,7 +492,10 @@ fn finite_source_admission_is_question_specific_and_requires_exact_native_cost_s
     assert!(intent.matches_admission(&enrolled, &recipe, &component, &CollectionBudget::default()));
     assert!(intent.matches_result_source(&description(&original, "2020-01-01T12:00:03Z")));
     let terminal = enrolled
-        .transition_source_read(SourceReadStageState::Stopped { issue: DiagnosticAnalysisIssue::SourceChanged })
+        .transition_source_read(
+            &original.focus,
+            SourceReadStageState::Stopped { issue: DiagnosticAnalysisIssue::SourceChanged },
+        )
         .unwrap();
     assert!(!intent.matches_admission(&terminal, &recipe, &component, &CollectionBudget::default()));
     for selector in [
@@ -522,11 +529,11 @@ fn source_completion_retains_one_actual_result_capture_and_never_completes_the_w
         &CollectionBudget::default(),
     )
     .unwrap();
-    let collecting = enrolled.transition_source_read(SourceReadStageState::Collecting).unwrap();
+    let collecting = enrolled.transition_source_read(&original.focus, SourceReadStageState::Collecting).unwrap();
     let result = result_capture(&original);
     let completed =
         collecting.complete_source_read(&intent, &description(&original, "2020-01-01T12:00:03Z"), &result).unwrap();
-    assert_eq!(completed.source_read_capture(), Some(&result));
+    assert_eq!(completed.source_read_captures().collect::<Vec<_>>(), vec![&result]);
     assert_eq!(completed.analysis, original.episode.analysis);
     assert_eq!(completed.report, original.episode.report);
     assert!(collecting.complete_source_read(&intent, &original.source, &original.focus.basis.capture_ref()).is_err());
@@ -649,7 +656,9 @@ fn exact_closed_gateway_prerequisite_cannot_be_missing_foreign_or_rebound_to_a_s
     ));
     let enrolled = original.episode.enroll_source_read(original.focus.clone()).unwrap();
     let mut replaced = enrolled.clone();
-    replaced.source_read.as_mut().unwrap().focus.prerequisite = changed.prerequisite;
+    replaced.source_reads =
+        SourceReadStages::from_stages(vec![SourceReadStage { focus: changed, state: SourceReadStageState::Pending }])
+            .unwrap();
     assert!(!replaced.is_valid(), "the flat prerequisite is byte-bound to the original gateway report");
 }
 
@@ -660,12 +669,12 @@ fn restored_admitted_debt_does_not_grant_a_replacement_source_read() {
         .episode
         .enroll_source_read(original.focus.clone())
         .unwrap()
-        .transition_source_read(SourceReadStageState::Collecting)
+        .transition_source_read(&original.focus, SourceReadStageState::Collecting)
         .unwrap();
     assert!(collecting.has_owed_question());
-    assert!(!collecting.source_read.as_ref().unwrap().needs_admission());
+    assert!(!collecting.source_reads.get(original.focus.question).unwrap().needs_admission());
     assert!(matches!(
-        collecting.plan_source_read_focus(&original.source, &original.row).unwrap(),
+        collecting.plan_source_read_focus(&original.focus, &original.source, &original.row).unwrap(),
         DiagnosticFocusPlan::NotRequired
     ));
 }
@@ -754,3 +763,5 @@ fn baseline_profile_refuses_unknown_role_foreign_native_owner_changed_epoch_and_
     value.as_object_mut().unwrap().remove("purpose");
     assert!(serde_json::from_value::<RecipeCostReceipt>(value).is_err());
 }
+
+mod stages;

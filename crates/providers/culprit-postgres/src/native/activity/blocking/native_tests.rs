@@ -178,6 +178,7 @@ impl Fixture {
                 version: before.version,
                 database_oid: &before.database_oid,
                 max_snapshot_rows: 2,
+                lock_projection: LockProjection::Labels,
             },
         )
         .await
@@ -223,6 +224,7 @@ impl Fixture {
                 version: before.version,
                 database_oid: &before.database_oid,
                 max_snapshot_rows: 2,
+                lock_projection: LockProjection::Labels,
             },
         )
         .await

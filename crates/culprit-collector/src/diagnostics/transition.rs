@@ -132,12 +132,14 @@ async fn update_analysis(
     }
     let previous = episode.clone();
     if source_read {
-        if event.is_none()
-            && matches!(
-                episode.source_read.as_deref().map(|stage| &stage.state),
-                Some(SourceReadStageState::Collecting)
-            )
-        {
+        let Some(DiagnosticFocus::SourceRead { focus }) = question else {
+            return Err(DeliveryProblem::Integrity.error());
+        };
+        let stage = episode.source_reads.get(focus.question).ok_or_else(|| DeliveryProblem::Integrity.error())?;
+        if stage.focus != **focus {
+            return Err(DeliveryProblem::Integrity.error());
+        }
+        if event.is_none() && matches!(stage.state, SourceReadStageState::Collecting) {
             // A metadata decision cannot rewind an admitted owner. Its attempt/result history settles this state.
             return Ok(());
         }
@@ -153,8 +155,8 @@ async fn update_analysis(
             },
             None => SourceReadStageState::Deferred { issue: issue.ok_or_else(|| DeliveryProblem::Integrity.error())? },
         };
-        *episode = episode.transition_source_read(state)?;
-    } else if episode.source_read.is_none() && episode.analysis.needs_work() {
+        *episode = episode.transition_source_read(focus, state)?;
+    } else if episode.source_reads.is_empty() && episode.analysis.needs_work() {
         episode.analysis = status;
         episode.issue = issue;
     }

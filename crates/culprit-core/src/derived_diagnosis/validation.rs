@@ -56,6 +56,14 @@ impl DerivedIncidentQuery {
                 DerivedQueryIdentity::Activity { actor, statement } => {
                     actor.is_valid() && statement.as_ref().is_none_or(NativeIdentity::is_valid)
                 }
+                DerivedQueryIdentity::SharedActivity { member_id, member_kind, actor, statement, database } => {
+                    valid_digest(member_id)
+                        && matches!(member_kind, SharedResourceKind::Instance | SharedResourceKind::Node)
+                        && actor.is_valid()
+                        && actor.request.is_some()
+                        && statement.as_ref().is_none_or(NativeIdentity::is_valid)
+                        && database.as_deref().is_none_or(|value| value.len() <= 512)
+                }
                 DerivedQueryIdentity::QueryHistory { query, plan } => {
                     query.is_valid() && plan.as_ref().is_none_or(|plan| plan.is_valid() && plan.query == *query)
                 }
@@ -65,25 +73,46 @@ impl DerivedIncidentQuery {
     }
     fn valid_causal_role(&self) -> bool {
         let Some(role) = &self.causal_role else { return true };
-        // These source verdicts establish actors/contributions, never the SQL that acquired the resource.
-        !self.sql.is_available()
-            && prose(role.explanation.text())
-            && match (&role.kind, &self.identity) {
-                (DerivedCausalRoleKind::NativeBlockingOwner, Some(DerivedQueryIdentity::NativeWaitOwner(owner))) => {
-                    match owner {
+        if !prose(role.explanation.text()) {
+            return false;
+        }
+        match (&role.kind, &self.identity) {
+            // This role owns the current pending request, unlike the SQL which acquired an existing lock.
+            (
+                DerivedCausalRoleKind::NativePendingRelationLockGatekeeper,
+                Some(DerivedQueryIdentity::Activity { actor, statement }),
+            ) => {
+                actor.request.is_some()
+                    && (!self.sql.is_available() || statement.is_some())
+                    && self
+                        .evidence
+                        .iter()
+                        .any(|reference| reference.native_key == NativeRecordIdentity::Activity(actor.clone()))
+            }
+            (
+                DerivedCausalRoleKind::NativeBlockingOwner | DerivedCausalRoleKind::NativeGrantedRelationLockHolder,
+                Some(DerivedQueryIdentity::NativeWaitOwner(owner)),
+            ) => {
+                !self.sql.is_available()
+                    && match owner {
                         ActivityWaitOwner::Session { generation, .. } => generation.is_some(),
                         ActivityWaitOwner::Transaction { native_id, .. } => native_id != "0",
                         ActivityWaitOwner::Unknown { .. } => false,
                     }
-                }
-                (
-                    DerivedCausalRoleKind::NativeReportedTaskHolder
-                    | DerivedCausalRoleKind::AdmissionReservationContributor,
-                    Some(DerivedQueryIdentity::Activity { actor, statement: None }),
-                ) => actor.request.is_some(),
-                _ => false,
             }
+            (
+                DerivedCausalRoleKind::NativeReportedTaskHolder
+                | DerivedCausalRoleKind::AdmissionReservationContributor,
+                Some(DerivedQueryIdentity::Activity { actor, statement: None }),
+            ) => !self.sql.is_available() && actor.request.is_some(),
+            (
+                DerivedCausalRoleKind::AssignedWorkerContributor,
+                Some(DerivedQueryIdentity::SharedActivity { actor, statement: None, .. }),
+            ) => !self.sql.is_available() && actor.request.is_some(),
+            _ => false,
+        }
     }
+
     fn fits_description(&self, description: &DerivedDiagnosisDescription) -> bool {
         self.evidence.iter().all(|reference| description.contains_capture_for(reference))
             && self.caller.as_ref().is_none_or(|caller| description.contains_capture_for(&caller.evidence))

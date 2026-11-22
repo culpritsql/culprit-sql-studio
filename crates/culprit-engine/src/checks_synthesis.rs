@@ -18,7 +18,7 @@ mod queries;
 
 // Advance this policy when retained interpretation changes, including builds sharing a package version.
 #[cfg(feature = "collector")]
-pub(crate) const BUILTIN_RULES_VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "/retained-diagnosis-2");
+pub(crate) const BUILTIN_RULES_VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "/retained-diagnosis-3");
 
 pub struct ChecksSynthesizer {
     pipeline: Arc<culprit_checks::Pipeline>,
@@ -263,3 +263,6 @@ mod catalog_tests;
 
 #[cfg(test)]
 mod job_execution_tests;
+
+#[cfg(test)]
+mod metadata_queue_tests;

@@ -113,10 +113,13 @@ pub fn observe_diagnostic_activity(
             observed.insert(episode.id.clone());
             match episode.plan_focus(source, row.observation, row.reference)? {
                 DiagnosticFocusPlan::Ready(focus) => focuses.push((episode.id.clone(), *focus)),
-                DiagnosticFocusPlan::Unavailable(issue) => {
+                DiagnosticFocusPlan::Unavailable(issue) if before.is_none() => {
                     episode.analysis = DiagnosticAnalysisStatus::Unresolved;
                     episode.issue = Some(issue);
                 }
+                // A later incomplete token cannot revoke an already owed question about the pinned original.
+                // The eventual native reader still verifies its original participant and current ownership.
+                DiagnosticFocusPlan::Unavailable(_) => (),
                 DiagnosticFocusPlan::NotRequired => (),
             }
             record_transition(&mut revisions, before.as_ref(), &mut episode, analyzed_at)?;
@@ -151,6 +154,9 @@ pub fn observe_diagnostic_activity(
             if matches!(&episode.signal, DiagnosticSignal::Activity { policy: original, .. } if original != policy) {
                 episode.issue = Some(DiagnosticAnalysisIssue::PolicyChanged);
             }
+        }
+        if episode.lifecycle == DiagnosticLifecycle::Resolved {
+            *episode = episode.recover_source_read_stages()?;
         }
         record_transition(&mut revisions, Some(&before), episode, analyzed_at)?;
     }
@@ -199,6 +205,14 @@ fn signals(
             statement_identity: row.statement_identity.clone(),
         });
     }
+    if row.scope == ActivityScopeBasis::RequestDatabase
+        && row.wait.as_ref().is_some_and(|wait| wait.class == Some(ActivityWaitClass::WorkerQueue))
+    {
+        signals.push(DiagnosticSignal::WorkerStarvation {
+            key: row.key.clone(),
+            statement_identity: row.statement_identity.clone(),
+        });
+    }
     if row.wait.as_ref().is_some_and(|wait| wait.class == Some(ActivityWaitClass::ExecutionGrant)) {
         signals.push(DiagnosticSignal::RequestMemory {
             key: row.key.clone(),
@@ -211,6 +225,16 @@ fn signals(
         signals.push(DiagnosticSignal::LogRateGovernance {
             key: row.key.clone(),
             statement_identity: row.statement_identity.clone(),
+        });
+    }
+    if matches!(row.scope, ActivityScopeBasis::RequestDatabase | ActivityScopeBasis::SessionDatabase)
+        && let Some(mechanism) =
+            row.wait.as_ref().and_then(|wait| wait.class).and_then(TransactionMetadataWait::from_class)
+    {
+        signals.push(DiagnosticSignal::TransactionMetadataWait {
+            key: row.key.clone(),
+            statement_identity: row.statement_identity.clone(),
+            mechanism,
         });
     }
     if row.waiting_on_lock == Some(true) {

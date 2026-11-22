@@ -1,5 +1,6 @@
 //! Project existing native causal roles. A relationship proves neither exclusive cause nor acquiring SQL.
 use super::*;
+mod metadata_queue;
 use culprit_core::page_wait_report::{PageTaskHolderExplanation, PageTaskHolderReport};
 
 #[derive(Default)]
@@ -12,7 +13,7 @@ pub(super) fn blocking(original: &dyn OriginalProjection, report: &BlockingRepor
     let SourceObservation::FocusedBlocking { result, .. } = &original.source().observation else {
         return Err(invalid());
     };
-    let mut actors = Actors::default();
+    let mut actors = metadata_queue::blocking(original, report)?;
     if result.binding != FocusedRequestBinding::Matched
         || result.membership != FocusedRequestMembership::Observed
         || !report.context.has_qualified_local_owner()
@@ -28,7 +29,10 @@ pub(super) fn blocking(original: &dyn OriginalProjection, report: &BlockingRepor
         return Err(invalid());
     };
     for relationship in &report.relationships {
-        if &relationship.waiter != waiter || relationship.reports_waiter_session_id() {
+        if &relationship.waiter != waiter
+            || relationship.reports_waiter_session_id()
+            || metadata_queue::already_qualified_gate(&actors, &relationship.owner)
+        {
             continue;
         }
         let known = match &relationship.owner {

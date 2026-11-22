@@ -2,6 +2,7 @@
 pub(crate) mod blocking;
 pub(crate) mod capture;
 pub(crate) mod compiler_admission;
+pub(crate) mod current_request_work;
 pub(crate) mod database_context;
 mod idle_connections;
 pub(crate) mod memory;
@@ -12,6 +13,7 @@ mod resources;
 mod rows;
 mod session_context;
 mod visibility;
+pub(crate) mod worker_starvation;
 pub(crate) use session_context::{ESTABLISHED_SESSION_SQL, established_login};
 pub(crate) mod sql;
 mod statement_identity;

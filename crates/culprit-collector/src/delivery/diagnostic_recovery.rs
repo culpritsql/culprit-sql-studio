@@ -269,7 +269,7 @@ pub(super) async fn validate_staged(
         {
             task_holders::authenticate_episode(store, &manifest.contract, episode).await?;
         }
-        if let Some(capture) = episode.source_read_capture() {
+        for capture in episode.source_read_captures() {
             let native = culprit_evidence::delivery::recovery::reopen(
                 store,
                 &range_id_for(&manifest.contract, &capture.capture)?,

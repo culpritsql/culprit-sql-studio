@@ -10,6 +10,7 @@ mod caller_context;
 mod copy;
 mod jobs;
 mod maintenance_waits;
+mod metadata_queue;
 mod normal_reads;
 mod owned_fixture;
 mod replication;

@@ -60,15 +60,22 @@ pub use activity::{
     activity_evidence_cases, activity_observation, assert_activity_capture, scalar_blocking_activity_evidence,
 };
 pub use compilation_definitions::{CompilationDefinitionCase, compilation_definition_evidence_cases};
+mod metadata_queue;
+pub use metadata_queue::{MetadataQueueCase, metadata_queue_evidence, metadata_queue_evidence_cases};
 mod blocking;
 pub use blocking::{BlockingCase, assert_blocking_capture, blocking_evidence, blocking_evidence_cases};
 pub use compilation_intervals::compilation_interval_evidence;
 mod diagnostics;
 mod query_compilation_followup;
+mod transaction_metadata;
 pub use diagnostics::{assert_diagnostic_capture, diagnostic_evidence_cases};
 pub use query_compilation_followup::{
     QueryCompilationFollowupCase, QueryCompilationOriginal, assert_query_compilation_followup_capture,
     query_compilation_followup_evidence, query_compilation_followup_original, query_compilation_followup_result,
+};
+pub use transaction_metadata::{
+    TransactionMetadataCase, TransactionMetadataOriginal, transaction_metadata_answer, transaction_metadata_evidence,
+    transaction_metadata_original, transaction_metadata_result,
 };
 mod source_overhead;
 pub use source_overhead::{
@@ -159,9 +166,16 @@ pub use page_task_holders::{
 pub use page_writers::{
     PageWriterCase, PageWriterFixture, page_writer_evidence, page_writer_evidence_cases, page_writer_fixture,
 };
+mod relational_input_question;
+pub use relational_input_question::{
+    RelationalInputQuestionFixture, relational_input_question_fixture, relational_input_question_fixture_for_owner,
+    relational_input_result_evidence_cases,
+};
 mod current_request_work;
 pub use current_request_work::{
-    assert_current_request_work_capture, current_request_work_evidence_cases, postgres_copy_evidence_cases,
+    MssqlWorkCase, assert_current_request_work_capture, current_request_work_evidence_cases,
+    mssql_current_work_evidence, mssql_current_work_evidence_cases, mssql_current_work_tamper_cases,
+    postgres_copy_evidence_cases,
 };
 mod statement_work;
 pub use statement_work::{
@@ -1019,7 +1033,7 @@ pub fn waits(destination: &str, schema: &str, sequence: u64, empty: bool, comple
         scope: culprit_core::MeasurementScope::Database,
         reset: culprit_core::ResetMarker::Unknown,
         waiting_tasks_count: "9007199254740993".into(),
-        wait_time_ms: "18446744073709551615".into(),
+        wait_time_ms: "9223372036854775807".into(),
         signal_wait_time_ms: "0".into(),
         max_wait_time_ms: "7".into(),
     });
@@ -1071,7 +1085,11 @@ mod diagnostic_originals;
 pub use diagnostic_originals::{DiagnosticOriginalCase, diagnostic_original_evidence};
 
 mod temporary_resources;
+mod worker_starvation;
 pub use temporary_resources::{temporary_resource_basis, temporary_resource_history, temporary_resource_result};
+pub use worker_starvation::{
+    assert_worker_starvation_capture, worker_starvation_basis, worker_starvation_evidence, worker_starvation_result,
+};
 
 mod baseline_profile;
 pub use baseline_profile::baseline_profile_expectation;

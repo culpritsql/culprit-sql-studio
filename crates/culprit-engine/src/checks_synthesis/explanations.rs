@@ -5,14 +5,27 @@ use crate::{LocalCaptureAnalysisKind as Kind, LocalSnapshotReport};
 use culprit_evidence::original_projection::OriginalProjection;
 #[derive(Default)]
 pub(super) struct Explanation {
+    pub victim_summary: Option<String>,
     pub mechanism: Option<String>,
     pub action: Option<String>,
     pub verify: Option<String>,
+    pub affected: Vec<DerivedIncidentQuery>,
     pub candidates: Vec<DerivedIncidentQuery>,
     pub culprits: Vec<DerivedIncidentQuery>,
     pub limitations: Vec<String>,
 }
 impl Explanation {
+    fn merge_followup(&mut self, followup: Self) {
+        append_paragraph(&mut self.victim_summary, followup.victim_summary);
+        append_paragraph(&mut self.mechanism, followup.mechanism);
+        append_paragraph(&mut self.action, followup.action);
+        append_paragraph(&mut self.verify, followup.verify);
+        self.affected.extend(followup.affected);
+        self.candidates.extend(followup.candidates);
+        self.culprits.extend(followup.culprits);
+        self.limitations.extend(followup.limitations);
+    }
+
     pub fn attribution_status(&self) -> DerivedAttributionStatus {
         if !self.culprits.is_empty() {
             DerivedAttributionStatus::Established
@@ -24,13 +37,26 @@ impl Explanation {
     }
     fn words(explanation: &str, action: &str, verify: &str) -> Self {
         Self {
+            victim_summary: None,
             mechanism: Some(explanation.into()),
             action: Some(action.into()),
             verify: Some(verify.into()),
+            affected: vec![],
             candidates: vec![],
             culprits: vec![],
             limitations: vec![],
         }
+    }
+}
+
+fn append_paragraph(existing: &mut Option<String>, additional: Option<String>) {
+    let Some(additional) = additional else { return };
+    match existing {
+        Some(existing) => {
+            existing.push_str("\n\n");
+            existing.push_str(&additional);
+        }
+        None => *existing = Some(additional),
     }
 }
 mod source_answers;
@@ -287,9 +313,24 @@ pub(super) fn blocking(original: &dyn OriginalProjection) -> Result<Explanation>
     let report = culprit_checks::focused_blocking::explain(original.source(), &rows, original.is_read_complete())?;
     let actors = super::causal_actors::blocking(original, &report)?;
     let mut explanation = Explanation::words(&report.summary, &report.investigation, &report.verify);
+    if let SourceObservation::FocusedBlocking { result, .. } = &original.source().observation
+        && let Some(case) = report
+            .metadata_queue
+            .evidence
+            .cascades
+            .iter()
+            .find(|case| case.affected.iter().any(|affected| affected.actor == result.focus.original.key))
+        && let Some(words) = report.metadata_queue.explanations.iter().find(|words| words.key == case.key)
+    {
+        explanation.victim_summary = Some(words.victim_summary.clone());
+        explanation.mechanism = Some(words.mechanism.clone());
+        explanation.action = Some(words.investigation.clone());
+        explanation.verify = Some(words.verify.clone());
+    }
     explanation.culprits = actors.culprits;
     explanation.candidates = actors.candidates;
     explanation.limitations = report.limitations;
+    explanation.limitations.extend(report.metadata_queue.limitations);
     Ok(explanation)
 }
 pub(super) fn original_observation(original: &dyn OriginalProjection, position: usize) -> Result<Explanation> {

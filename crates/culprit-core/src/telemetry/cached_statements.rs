@@ -76,6 +76,16 @@ pub struct CachedStatementContext {
     pub source_text_complete: bool,
 }
 impl CachedStatementContext {
+    /// Exact point-native selector. Neither token equality nor this comparison excludes removal and reuse.
+    pub fn matches_locator(&self, other: &Self) -> bool {
+        self.is_valid()
+            && other.is_valid()
+            && self.database_id == other.database_id
+            && self.identity.plan_handle.eq_ignore_ascii_case(&other.identity.plan_handle)
+            && self.identity.sql_handle.eq_ignore_ascii_case(&other.identity.sql_handle)
+            && self.identity.statement_start_bytes == other.identity.statement_start_bytes
+            && self.identity.statement_end_bytes == other.identity.statement_end_bytes
+    }
     pub fn is_valid(&self) -> bool {
         self.identity.is_valid()
             && self.database_id > 0

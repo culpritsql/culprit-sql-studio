@@ -39,8 +39,10 @@ pub(super) fn project(
             return Err(invalid());
         };
         let episode = &revision.episode;
-        let affected_queries = affected(originals, episode)?;
+        let mut affected_queries = affected(originals, episode)?;
         let explanation = explanations::for_episode(originals, episode)?;
+        affected_queries.extend(explanation.affected.iter().cloned());
+        let affected_queries = distinct(affected_queries)?;
         let original_interval = match (&episode.signal, &episode.scope.population) {
             (
                 DiagnosticSignal::OriginalObservation {
@@ -68,7 +70,7 @@ pub(super) fn project(
             database: database.clone(),
             display: description.display.clone(),
             revision_reference: primary.reference(position)?,
-            victim_summary: entry.title.clone(),
+            victim_summary: explanation.victim_summary.unwrap_or_else(|| entry.title.clone()),
             original_interval,
             affected_queries,
             culprit_queries: culprits,

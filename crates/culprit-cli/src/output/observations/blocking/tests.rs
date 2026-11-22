@@ -118,3 +118,29 @@ fn actual_archive_row_loss_and_native_unavailability_remain_unknown_with_indepen
     let ended = report(BlockingCase::RequestMissing);
     assert!(blocking(&ended).contains(&t!("view.blocking.limit.request_end")));
 }
+
+#[test]
+fn typed_native_queue_words_reach_the_existing_blocking_output_without_acquiring_sql_or_action_authority() {
+    let (source, records) = culprit_evidence::analytical::test_support::metadata_queue_evidence(
+        culprit_evidence::analytical::test_support::MetadataQueueCase::Observed,
+    );
+    let rows = records
+        .iter()
+        .map(|row| match row {
+            TelemetryRecord::Activity(point) => ActivityFrameRow { observation: point, reference: None },
+            _ => unreachable!(),
+        })
+        .collect::<Vec<_>>();
+    let report = culprit_engine::explain_blocking(&source, &rows, true).unwrap();
+    let text = blocking(&report);
+    assert!(text.contains(&report.metadata_queue.summary));
+    for case in &report.metadata_queue.explanations {
+        assert!(text.contains(&case.victim_summary));
+        assert!(text.contains(&case.mechanism));
+        assert!(text.contains(&case.investigation));
+        assert!(text.contains(&case.verify));
+    }
+    assert!(text.contains(&t!("view.metadata_queue.limit.sql")));
+    assert!(text.contains(&t!("view.metadata_queue.limit.point")));
+    assert!(!text.contains("unrelated_current_work"));
+}

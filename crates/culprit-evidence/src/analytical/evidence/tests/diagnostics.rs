@@ -84,7 +84,8 @@ async fn source_read_answers_publish_only_closed_consistency_metadata_and_requir
         let original = ExportedRecord::new(&source, &range.manifest().capture, records[0].clone()).unwrap();
         let original_bytes = serde_json::to_vec(&original).unwrap();
         let input = Envelope::committed(&range, &batch.batch_id).unwrap().input(1, &original).unwrap();
-        let public = &input["record"]["data"]["fact"]["data"]["episode"]["source_read"];
+        let stages = input["record"]["data"]["fact"]["data"]["episode"]["source_reads"].as_array().unwrap();
+        let [public] = stages.as_slice() else { panic!("one enrolled temporary-space question") };
         let keys = public.as_object().unwrap().keys().map(String::as_str).collect::<std::collections::BTreeSet<_>>();
         assert_eq!(keys, ["question", "focus_key", "state", "result", "content_sha256"].into_iter().collect());
         assert_eq!(public["state"], "answered");
@@ -111,7 +112,9 @@ async fn source_read_answers_publish_only_closed_consistency_metadata_and_requir
         else {
             panic!()
         };
-        let SourceReadStageState::Answered { answer } = &revision.episode.source_read.as_ref().unwrap().state else {
+        let SourceReadStageState::Answered { answer } =
+            &revision.episode.source_reads.get(SourceReadQuestion::TemporarySpaceContributors).unwrap().state
+        else {
             panic!()
         };
         let SourceReadAnswer::TemporaryResources(answer) = answer.as_ref() else {
@@ -123,7 +126,8 @@ async fn source_read_answers_publish_only_closed_consistency_metadata_and_requir
         // Both destination conformance readers separately exercise the real authenticated payload fallback.
         for key in ["focus_key", "content_sha256"] {
             let mut changed = values.clone();
-            changed.get_mut("Details").unwrap()["episode"]["source_read"][key] = json!(digest(b"forged public key"));
+            changed.get_mut("Details").unwrap()["episode"]["source_reads"][0][key] =
+                json!(digest(b"forged public key"));
             assert!(matches!(
                 decode::record(&range, batch.stream, &changed, &batch.rows[0]).unwrap(),
                 decode::Decoded::Unavailable(EvidenceGapReason::NativeRepresentationRequired)

@@ -156,7 +156,7 @@ pub use actual::{
 };
 pub use advice::*;
 pub use blocking::{BlockNode, Blocking, BlockingChain, HeadKind, LockWait};
-pub use blocking_report::BlockingReport;
+pub use blocking_report::{BlockingReport, MetadataQueueExplanation, MetadataQueueReport};
 pub use cache_entry_memory_report::{
     CacheEntryContextDifference, CacheEntryMemoryExplanation, CacheEntryMemoryReport, CacheEntryPopulationComparison,
     CacheEntryRetainedChange,

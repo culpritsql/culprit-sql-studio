@@ -3,4 +3,4 @@
 /**
  * The established native role is narrower than an exclusive cause or the statement that acquired a resource.
  */
-export type DerivedCausalRoleKind = "native-blocking-owner" | "native-reported-task-holder" | "admission-reservation-contributor";
+export type DerivedCausalRoleKind = "native-blocking-owner" | "native-pending-relation-lock-gatekeeper" | "native-granted-relation-lock-holder" | "native-reported-task-holder" | "admission-reservation-contributor" | "assigned-worker-contributor";

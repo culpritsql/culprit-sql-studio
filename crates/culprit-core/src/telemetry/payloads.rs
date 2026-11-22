@@ -125,6 +125,19 @@ impl OperationalFact {
                 .flatten()
                 .collect();
             }
+            Self::PostgresTransactionMetadata(value) => {
+                return value
+                    .caches
+                    .iter()
+                    .enumerate()
+                    .map(|(index, cache)| {
+                        reference(
+                            format!("/record/data/fact/data/caches/{index}/actor/statement"),
+                            &cache.actor.statement,
+                        )
+                    })
+                    .collect();
+            }
             Self::MssqlCacheEntryMemory(value) => {
                 return value
                     .statements
@@ -180,11 +193,32 @@ impl OperationalFact {
                 }
                 return fields;
             }
+            Self::MssqlWorkerStarvation(value) => {
+                return value
+                    .requests
+                    .iter()
+                    .enumerate()
+                    .map(|(index, request)| {
+                        reference(
+                            format!("/record/data/fact/data/requests/{index}/observation/statement"),
+                            &request.observation.statement,
+                        )
+                    })
+                    .collect();
+            }
             Self::CompilerWaiter(value) => {
                 Some(reference("/record/data/fact/data/request/statement", &value.request.statement))
             }
             Self::PostgresLog(value) => Some(reference("/record/data/fact/data/statement", &value.statement)),
-            Self::CurrentRequestWork(value) => Some(reference("/record/data/fact/data/statement", &value.statement)),
+            Self::CurrentRequestWork(value) => {
+                let mut fields = vec![reference("/record/data/fact/data/statement", &value.statement)];
+                if let CurrentRequestWorkNative::Mssql { work } = &value.native
+                    && let MssqlCurrentRequestPlan::Observed { plan, .. } = &work.current_plan
+                {
+                    fields.push(reference("/record/data/fact/data/native/work/current_plan/plan", plan));
+                }
+                return fields;
+            }
             Self::MssqlStatementGrants(value) => Some(reference("/record/data/fact/data/statement", &value.statement)),
             Self::MssqlQueryCompilation(value) => Some(reference("/record/data/fact/data/statement", &value.statement)),
             Self::MssqlInstanceResources(_)

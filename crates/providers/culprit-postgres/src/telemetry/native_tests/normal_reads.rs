@@ -1,7 +1,8 @@
 //! Genuine normal reads use the existing nonce admission and fixture lifecycle.
-use super::{case, owned_fixture};
+use super::owned_fixture;
 use crate::{
     connect::{COLLECTOR, Connector},
+    native_test_support::case,
     read::{ApplicationReadScope, NativeRead, QueryRead, ReadSession},
 };
 use culprit_core::{Provider, SnapshotOptions, telemetry::*};

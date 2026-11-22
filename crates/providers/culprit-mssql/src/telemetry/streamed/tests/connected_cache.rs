@@ -36,7 +36,7 @@ fn base_row(dataset: SnapshotDataset) -> Rec {
     }
 }
 
-fn frame_row(dataset: SnapshotDataset, writable: bool) -> Rec {
+pub(super) fn frame_row(dataset: SnapshotDataset, writable: bool) -> Rec {
     let row = base_row(dataset);
     let mut columns = row.columns().map(|(name, value)| (name, value.clone())).collect::<Vec<_>>();
     columns.push(("updateability", Val::Text(if writable { "READ_WRITE" } else { "READ_ONLY" }.into())));
@@ -268,7 +268,10 @@ fn native_frame_role_is_observed_once_and_does_not_change_the_existing_scan_sql(
     for (scan, frame) in [
         (crate::cached_runtime::select_sql(&runtime), crate::cached_runtime::acquisition_sql(&runtime)),
         (crate::cached_definitions::select_sql(&cached), crate::cached_definitions::acquisition_sql(&cached)),
-        (crate::retained_definitions::select_sql(&retained), crate::retained_definitions::acquisition_sql(&retained)),
+        (
+            crate::retained_definitions::select_sql(&retained),
+            crate::retained_definitions::acquisition_sql_for(&retained, false),
+        ),
     ] {
         assert!(!scan.contains("@culprit_cache_updateability"));
         assert!(!scan.contains("N'Updateability'"));
@@ -357,7 +360,7 @@ async fn unsupported_native_platform_still_refuses_before_cache_work() {
 fn retained_source_budget_is_bounded_and_preserves_stricter_caller_limits() {
     let ceiling = bounded_budget(&CollectionBudget::upper_limits());
     ceiling.validate().unwrap();
-    assert_eq!((ceiling.page_rows, ceiling.max_snapshot_rows, ceiling.max_queries), (64, 64, 12));
+    assert_eq!((ceiling.page_rows, ceiling.max_snapshot_rows, ceiling.max_queries), (64, 64, 13));
     assert_eq!((ceiling.statement_timeout_ms, ceiling.total_timeout_ms), (1_000, 5_000));
     let strict = CollectionBudget {
         page_rows: 1,

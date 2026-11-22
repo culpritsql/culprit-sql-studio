@@ -31,7 +31,10 @@ pub(super) fn qualify_questions(
     if diagnostic_original_source_kind(&input.source).is_some() {
         return source_read::qualify(input, assignment, update);
     }
-    if matches!(input.source.observation, SourceObservation::FocusedCompilationAdmission { .. }) {
+    if matches!(
+        input.source.observation,
+        SourceObservation::FocusedCompilationAdmission { .. } | SourceObservation::CurrentRequestWork { .. }
+    ) {
         return source_read::qualify(input, assignment, update);
     }
     let Some(recipes) = &assignment.recipes else {

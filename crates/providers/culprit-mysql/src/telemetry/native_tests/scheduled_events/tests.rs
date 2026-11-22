@@ -2,6 +2,7 @@
 use super::*;
 use crate::read::test_support::Read;
 use crate::rows::Rec;
+use mysql_async::Value;
 
 const NONCE: &str = "0123456789abcdef01234567";
 fn guard() -> Rec {

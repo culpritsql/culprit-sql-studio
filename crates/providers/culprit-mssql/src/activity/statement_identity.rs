@@ -3,21 +3,16 @@ use super::RequestLocator;
 use culprit_core::telemetry::NativeIdentity;
 
 const OBJECT: &str = "sys.dm_exec_requests.sql_handle";
-const MAX_HANDLE_LENGTH: usize = 128;
 
 impl RequestLocator {
     pub(super) fn from_native(handle: String, start: i32, end: i32, database: i32) -> Option<Self> {
-        let valid_handle = !handle.is_empty()
-            && handle.len() <= MAX_HANDLE_LENGTH
-            && handle.len().is_multiple_of(2)
-            && handle.bytes().all(|value| value.is_ascii_hexdigit())
-            && !handle.bytes().all(|value| value == b'0');
-        (valid_handle
-            && start >= 0
-            && start % 2 == 0
-            && (end == -1 || end >= start && end % 2 == 0)
-            && (1..=i16::MAX as i32).contains(&database))
-        .then(|| Self { handle: handle.to_ascii_uppercase(), start, end, database })
+        culprit_core::telemetry::mssql_request_statement_identity(
+            &handle,
+            u32::try_from(start).ok()?,
+            end,
+            u32::try_from(database).ok()?,
+        )?;
+        Some(Self { handle: handle.to_ascii_uppercase(), start, end, database })
     }
 
     pub(super) fn identity(&self) -> NativeIdentity {

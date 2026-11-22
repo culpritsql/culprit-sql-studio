@@ -136,7 +136,9 @@ pub(crate) fn eligible_source(
     }
     Ok(match (&source.observation, &source.target) {
         (SourceObservation::Activity(_), CollectionTarget::Database(_)) => true,
-        (SourceObservation::SourceRead { .. }, CollectionTarget::Database(_)) => {
+        // The authenticated intent/Core scope already binds the exact target/member/epoch and supported
+        // question. A shared Worker source result must enter the same durable input owner as a DB result.
+        (SourceObservation::SourceRead { .. }, _) => {
             source.observation.covers_request()
                 && intent.as_ref().is_some_and(|intent| matches!(intent.focus, DiagnosticFocus::SourceRead { .. }))
         }

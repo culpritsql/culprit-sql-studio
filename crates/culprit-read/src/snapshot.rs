@@ -234,7 +234,8 @@ impl<R: SnapshotReader> TelemetrySource for SnapshotSource<R> {
         let completion = match (&description.observation, recheck.execution) {
             (SourceObservation::PagedSnapshot(_), None) => SourceCompletion::Snapshot(snapshot),
             (SourceObservation::PagedSourceRead { execution: initial, .. }, Some(execution)) => {
-                if !NativeSourceReadScope::from_context(initial)?.matches_context(&execution) {
+                let question = SourceReadQuestion::for_dataset(declared.dataset).ok_or_else(invalid_source)?;
+                if !SourceReadExecutionScope::from_context(question, initial)?.matches_context(&execution) {
                     return Ok(SourceCompletion::Changed);
                 }
                 SourceCompletion::SourceRead { snapshot, execution }

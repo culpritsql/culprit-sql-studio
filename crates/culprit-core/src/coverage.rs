@@ -99,6 +99,7 @@ pub mod source_id {
     pub const SHARED_RESOURCE_DETAILS: &str = "shared-resource-details";
     pub const CURRENT_REQUEST_MEMORY: &str = "current request memory";
     pub const CURRENT_REQUEST_WORK: &str = "mysql-current-request-work";
+    pub const MSSQL_CURRENT_REQUEST_WORK: &str = "mssql-current-request-work";
     pub const CACHE_ENTRY_MEMORY: &str = "cache entry memory";
     pub const SESSION_MEMORY: &str = "session memory";
     pub const PAGE_WAIT_TARGETS: &str = "page wait targets";
@@ -218,6 +219,7 @@ pub mod source_id {
         SHARED_RESOURCE_DETAILS,
         CURRENT_REQUEST_MEMORY,
         CURRENT_REQUEST_WORK,
+        MSSQL_CURRENT_REQUEST_WORK,
         CACHE_ENTRY_MEMORY,
         SESSION_MEMORY,
         PAGE_WAIT_TARGETS,

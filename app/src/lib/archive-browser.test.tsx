@@ -38,3 +38,18 @@ test("the same incident fields preserve affected/culprit/candidate roles, caller
   value.report.incidents[0]!.culprit_queries = []; value.report.incidents[0]!.mechanism = null;
   const unknown = renderToStaticMarkup(<ArchiveIncident value={value} />); expect(unknown).toContain(t("ui.archives.culprit_unknown")); expect(unknown).toContain(t("ui.archives.mechanism_unknown"));
 });
+
+test("shared native worker identities retain foreign or unknown database labels and escape them as text", () => {
+  const value = warehouseIncidentCase();
+  const query = value.report.incidents[0]!.candidate_queries[0]!;
+  query.identity = { kind: "shared-activity", data: {
+    member_id: "a".repeat(64), member_kind: "instance",
+    actor: { session: { id: "42", generation: "native-login" }, request: { id: "0", generation: "native-request" }, transaction: null },
+    statement: null, database: "foreign <script>database</script>",
+  } };
+  const html = renderToStaticMarkup(<ArchiveIncident value={structuredClone(value)} />);
+  expect(html).toContain("foreign &lt;script&gt;database&lt;/script&gt;"); expect(html).not.toContain("<script>");
+  query.identity.data.database = null;
+  const unknown = renderToStaticMarkup(<ArchiveIncident value={value} />);
+  expect(unknown).toContain(t("view.synthesis.shared_database_unknown"));
+});

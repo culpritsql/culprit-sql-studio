@@ -15,7 +15,15 @@ async fn unqualified_or_refused_native_history_cost_never_constructs_a_source() 
         let before = runtime.native_calls();
         assert!(!runtime.enroll().await);
         assert_eq!(runtime.native_calls(), before);
-        assert!(episode(&mut runtime).await.source_read.unwrap().needs_work());
+        assert!(
+            episode(&mut runtime)
+                .await
+                .source_reads
+                .get(SourceReadQuestion::CompilationHistory)
+                .unwrap()
+                .clone()
+                .needs_work()
+        );
     }
 }
 
@@ -26,7 +34,7 @@ async fn quiet_original_wait_retains_owed_context_and_does_not_reopen_the_gatewa
     runtime.complete_empty_baseline().await;
     let quiet = episode(&mut runtime).await;
     assert_eq!(quiet.lifecycle, DiagnosticLifecycle::Resolved);
-    assert!(quiet.source_read.as_ref().unwrap().needs_work());
+    assert!(quiet.source_reads.get(SourceReadQuestion::CompilationHistory).unwrap().needs_work());
     assert_eq!(quiet.report, original.report);
     assert!(runtime.enroll().await);
     let intents = runtime.fixture.journal.focused_intents().await.unwrap();
@@ -89,8 +97,11 @@ async fn cancelled_or_unconfirmed_history_preserves_owner_debt_and_never_enrolls
         let current = episode(&mut runtime).await;
         assert_eq!(current.report, original.report);
         assert_eq!(current.analysis, original.analysis);
-        assert!(current.source_read_capture().is_none());
-        assert!(matches!(current.source_read.unwrap().state, SourceReadStageState::Stopped { .. }));
+        assert!(current.source_read_capture(SourceReadQuestion::CompilationHistory).is_none());
+        assert!(matches!(
+            current.source_reads.get(SourceReadQuestion::CompilationHistory).unwrap().clone().state,
+            SourceReadStageState::Stopped { .. }
+        ));
         assert!(runtime.fixture.outbox.next_diagnostic_input(DIAGNOSTIC_CONTROLLER_VERSION).await.unwrap().is_none());
     }
 }
@@ -176,7 +187,7 @@ async fn flat_history_intent_obeys_existing_request_and_manifest_bytes_before_co
     let result = runtime.execute(&job).await;
     assert_ne!(result.event.status, CollectionStatus::Complete);
     assert_eq!(&runtime.native_calls()[1..], &before[1..], "manifest refusal precedes factory open/describe");
-    assert!(episode(&mut runtime).await.source_read_capture().is_none());
+    assert!(episode(&mut runtime).await.source_read_capture(SourceReadQuestion::CompilationHistory).is_none());
 }
 
 #[tokio::test]

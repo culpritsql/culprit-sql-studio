@@ -1,11 +1,18 @@
 //! Follow only native blocker identities reached from this database's observed waiters.
 use super::*;
+mod relation_locks;
+#[derive(Clone, Copy)]
+pub(crate) enum LockProjection {
+    Labels,
+    FocusedRelations,
+}
 
 pub(crate) struct BlockingReadOptions<'a> {
     pub minimum_request_age_ms: u32,
     pub version: u32,
     pub database_oid: &'a str,
     pub max_snapshot_rows: usize,
+    pub lock_projection: LockProjection,
 }
 
 struct Closure {
@@ -191,7 +198,14 @@ pub(crate) async fn observe_blocking<R: QueryRead>(
     }
     ActivityEvidence::validate(&frame.observations())?;
     if status == BlockingClosureStatus::Observed && !closure.visited.is_empty() && options.version >= 140_000 {
-        lock_resources(reader, frame, &closure.by_pid, &closure.visited).await?;
+        match options.lock_projection {
+            LockProjection::FocusedRelations => {
+                if relation_locks::read(reader, frame, &closure.by_pid, &closure.visited).await? {
+                    status = BlockingClosureStatus::LockEvidenceLimit;
+                }
+            }
+            LockProjection::Labels => lock_resources(reader, frame, &closure.by_pid, &closure.visited).await?,
+        }
     }
     Ok(status)
 }
@@ -292,6 +306,7 @@ async fn lock_resources<R: QueryRead>(
             resource: row.text("locktype"),
             object: row.text("object"),
             index: row.text("index_name"),
+            native: None,
         };
         if let Some(wait) = frame.records[index].facts.as_mut().and_then(|facts| facts.wait.as_mut()) {
             wait.elapsed_ms = optional_counter(&row, "elapsed_ms")?;

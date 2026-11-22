@@ -15,6 +15,7 @@ pub(crate) mod sequences;
 pub(crate) mod sessions;
 pub(crate) mod settings;
 pub(crate) mod statements;
+pub(crate) mod transaction_metadata;
 use crate::{read::QueryRead, rows::Row};
 use culprit_core::{Result, telemetry::CollectionStop};
 

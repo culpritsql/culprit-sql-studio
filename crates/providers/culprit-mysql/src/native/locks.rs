@@ -20,6 +20,7 @@ impl LockPair {
             resource: self.resource.clone(),
             object: self.object.clone(),
             index: self.index.clone(),
+            native: None,
         }
     }
 }

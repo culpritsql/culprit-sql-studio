@@ -50,6 +50,36 @@ impl LocalResourceReadScope {
     }
 }
 
+/// Shared worker resources have no database updateability role. Their exact native member/process must
+/// match the original shared observation; neither a database name nor a local route establishes this owner.
+#[derive(Serialize, Deserialize, TS, Clone, Debug, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+#[ts(export)]
+pub struct SharedResourceReadScope {
+    pub target: SharedResourceIdentity,
+    pub partition: SourcePartition,
+}
+impl SharedResourceReadScope {
+    pub fn from_context(context: &NativeReadContext) -> Result<Self> {
+        if !shared_worker_context(context) {
+            return Err(invalid());
+        }
+        let CollectionTarget::Shared(target) = &context.target else { return Err(invalid()) };
+        Ok(Self { target: target.clone(), partition: context.partition.clone() })
+    }
+    pub fn is_valid(&self) -> bool {
+        self.target.is_valid()
+            && self.target.engine == crate::Engine::Mssql
+            && matches!(self.target.kind, SharedResourceKind::Instance | SharedResourceKind::Node)
+            && self.partition.is_valid_for(&CollectionTarget::Shared(self.target.clone()))
+            && matches!(&self.partition,
+                SourcePartition::InstanceLocal { member: Some(member), epoch: Some(_) } if member == &self.target)
+    }
+    pub fn matches_context(&self, context: &NativeReadContext) -> bool {
+        self.is_valid() && Self::from_context(context).is_ok_and(|actual| actual == *self)
+    }
+}
+
 /// Closed native authority choices. Adding a question never weakens another family's identity requirement.
 #[derive(Serialize, Deserialize, TS, Clone, Debug, PartialEq, Eq)]
 #[serde(tag = "kind", content = "scope", rename_all = "kebab-case", deny_unknown_fields)]
@@ -57,6 +87,7 @@ impl LocalResourceReadScope {
 pub enum SourceReadExecutionScope {
     Logical(NativeSourceReadScope),
     Local(LocalResourceReadScope),
+    Shared(SharedResourceReadScope),
 }
 impl From<NativeSourceReadScope> for SourceReadExecutionScope {
     fn from(scope: NativeSourceReadScope) -> Self {
@@ -86,15 +117,20 @@ impl SourceReadExecutionScope {
             SourceReadQuestion::CompilationHistory | SourceReadQuestion::HyperscaleLogComponents => {
                 NativeSourceReadScope::from_context(context).map(Self::Logical)
             }
-            SourceReadQuestion::TemporarySpaceContributors => {
-                LocalResourceReadScope::from_context(context).map(Self::Local)
+            SourceReadQuestion::WorkerStarvation if matches!(context.target, CollectionTarget::Shared(_)) => {
+                SharedResourceReadScope::from_context(context).map(Self::Shared)
             }
+            SourceReadQuestion::TemporarySpaceContributors
+            | SourceReadQuestion::WorkerStarvation
+            | SourceReadQuestion::RelationalInputContext
+            | SourceReadQuestion::TransactionMetadata => LocalResourceReadScope::from_context(context).map(Self::Local),
         }
     }
     pub fn is_valid(&self) -> bool {
         match self {
             Self::Logical(scope) => scope.is_valid(),
             Self::Local(scope) => scope.is_valid(),
+            Self::Shared(scope) => scope.is_valid(),
         }
     }
     pub fn accepts_question(&self, question: SourceReadQuestion) -> bool {
@@ -104,31 +140,46 @@ impl SourceReadExecutionScope {
                 (
                     Self::Logical(_),
                     SourceReadQuestion::CompilationHistory | SourceReadQuestion::HyperscaleLogComponents
-                ) | (Self::Local(_), SourceReadQuestion::TemporarySpaceContributors)
+                ) | (
+                    Self::Local(_),
+                    SourceReadQuestion::TemporarySpaceContributors
+                        | SourceReadQuestion::WorkerStarvation
+                        | SourceReadQuestion::RelationalInputContext
+                        | SourceReadQuestion::TransactionMetadata
+                ) | (Self::Shared(_), SourceReadQuestion::WorkerStarvation)
             )
     }
     pub fn logical(&self) -> Option<&NativeSourceReadScope> {
         match self {
             Self::Logical(scope) => Some(scope),
-            Self::Local(_) => None,
+            Self::Local(_) | Self::Shared(_) => None,
         }
     }
-    pub fn target(&self) -> &crate::DatabaseIdentity {
+    pub fn target(&self) -> CollectionTarget {
         match self {
-            Self::Logical(scope) => &scope.target,
-            Self::Local(scope) => &scope.target,
+            Self::Logical(scope) => CollectionTarget::Database(scope.target.clone()),
+            Self::Local(scope) => CollectionTarget::Database(scope.target.clone()),
+            Self::Shared(scope) => CollectionTarget::Shared(scope.target.clone()),
+        }
+    }
+    pub fn subject(&self) -> CollectionSubject {
+        match self.target() {
+            CollectionTarget::Database(_) => CollectionSubject::Database,
+            CollectionTarget::Shared(resource) => CollectionSubject::Shared { resource },
         }
     }
     pub fn partition(&self) -> &SourcePartition {
         match self {
             Self::Logical(scope) => &scope.partition,
             Self::Local(scope) => &scope.partition,
+            Self::Shared(scope) => &scope.partition,
         }
     }
-    pub fn database_writable(&self) -> bool {
+    pub fn database_writable(&self) -> Option<bool> {
         match self {
-            Self::Logical(scope) => scope.database_writable,
-            Self::Local(scope) => scope.database_writable,
+            Self::Logical(scope) => Some(scope.database_writable),
+            Self::Local(scope) => Some(scope.database_writable),
+            Self::Shared(_) => None,
         }
     }
     pub fn key(&self) -> Result<String> {
@@ -141,12 +192,14 @@ impl SourceReadExecutionScope {
         match self {
             Self::Logical(scope) => scope.matches_context(context),
             Self::Local(scope) => scope.matches_context(context),
+            Self::Shared(scope) => scope.matches_context(context),
         }
     }
     pub fn matches_original_context(&self, context: &NativeReadContext) -> bool {
         match self {
             Self::Logical(scope) => scope.matches_context(context),
             Self::Local(scope) => scope.matches_original_context(context),
+            Self::Shared(scope) => scope.matches_context(context),
         }
     }
     pub fn matches_target(&self, target: &CollectionTarget) -> bool {

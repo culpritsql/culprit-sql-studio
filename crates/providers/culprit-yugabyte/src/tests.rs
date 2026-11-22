@@ -317,7 +317,7 @@ async fn live_node_resources_are_shared_native_samples_with_their_own_admin_perm
         culprit_core::format::epoch_seconds(&resources.observed_until)
             >= culprit_core::format::epoch_seconds(&resources.observed_from)
     );
-    assert!(resources.notes.iter().any(|n| n.contains("container")));
+    assert!(resources.notes.iter().any(|n| n.text().contains("container")));
     let pid = query_one(&admin.client, "SELECT pg_backend_pid()::text AS pid").await.unwrap().unwrap().string("pid");
     let role = format!("culprit_resource_reader_{pid}");
     admin.client.batch_execute(&tagged("SET default_transaction_read_only=off")).await.unwrap();
@@ -482,7 +482,7 @@ async fn live_terminations_preserve_visibility_period_nodes_and_omit_raw_sql() {
     let (before, retained, monitored, widened, narrowed) = own.unwrap();
     assert!(before.events.is_empty(), "foreign roles' records entered a new login's native visibility");
     assert_eq!(before.scope, culprit_core::CounterScope::Node);
-    assert!(before.notes.iter().any(|n| n.contains("Global termination reads require")));
+    assert!(before.notes.iter().any(|n| n.text().contains("Global termination reads require")));
     assert_eq!(retained.unwrap().events.len(), 1);
     assert!(
         monitored.events.len() > local.events.len(),
@@ -587,7 +587,7 @@ async fn live_qpm_history_retains_independent_periods_and_redacted_plans() {
     session.client.batch_execute(&tagged("SET yb_enable_global_views=on")).await.unwrap();
     let global_probe = crate::probe::read(&session.client).await.unwrap();
     crate::history::collect(&mut BorrowedRead::new(&session), &global_probe, &mut workload, &mut coverage).await;
-    assert!(workload.queries[0].plan_history.as_ref().unwrap().source.contains("cluster"));
+    assert!(workload.queries[0].plan_history.as_ref().unwrap().source.text().contains("cluster"));
     let local: std::collections::BTreeMap<_, _> = q.plans.iter().map(|p| (&p.id, p.executions)).collect();
     let global: std::collections::BTreeMap<_, _> =
         workload.queries[0].plans.iter().map(|p| (&p.id, p.executions)).collect();

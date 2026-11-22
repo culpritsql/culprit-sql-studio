@@ -1,5 +1,9 @@
 //! Prepare bounded questions from retained native evidence. This module never opens a source or grants admission.
-use super::{RouteBindings, evidence::resolve_optional_evidence, routes::RouteBinding};
+use super::{
+    RouteBindings,
+    evidence::resolve_optional_evidence,
+    routes::{PlanningPosition, RouteBinding},
+};
 use crate::delivery::recovery::RecoveryStore;
 use crate::fleet::FleetBackend;
 use crate::fleet::FleetJournal;
@@ -43,6 +47,21 @@ struct SelectedRoute {
     recipe: RecipeDescriptor,
     component: ComponentVersion,
     revision: String,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum EpisodeQuestion<'a> {
+    Primary(RecipeSelector),
+    Followup(&'a SourceReadStage),
+}
+
+impl EpisodeQuestion<'_> {
+    fn selector(self) -> RecipeSelector {
+        match self {
+            Self::Primary(selector) => selector,
+            Self::Followup(stage) => stage.focus.question.selector(),
+        }
+    }
 }
 
 pub(super) async fn prepare(
@@ -96,7 +115,11 @@ async fn bounded(
     let mut seen = BTreeSet::new();
     let mut populations = BTreeSet::new();
     let mut routes = BTreeMap::new();
-    let (mut cursor, mut offset) = bindings.planning_position();
+    let position = bindings.planning_position();
+    let mut cursor = position.checkpoint;
+    let mut offset = position.episode;
+    let mut resume_target = position.target;
+    let mut resume_question = position.question;
     let mut scanned = 0;
     let mut questions = 0;
     let mut evidence = EvidencePlanner {
@@ -113,7 +136,7 @@ async fn bounded(
         }
         let page = outbox.diagnostic_checkpoints(DIAGNOSTIC_CONTROLLER_VERSION, cursor.as_deref(), 1).await?;
         let Some(checkpoint) = page.checkpoints.first() else {
-            bindings.set_planning_position(None, 0);
+            bindings.set_planning_position(PlanningPosition::default());
             break;
         };
         while offset < checkpoint.episodes.len() {
@@ -131,6 +154,12 @@ async fn bounded(
                         | DiagnosticSignal::RequestMemory { .. }
                         | DiagnosticSignal::CompilationAdmission { .. }
                         | DiagnosticSignal::LogRateGovernance { .. }
+                        | DiagnosticSignal::TransactionMetadataWait { .. }
+                        | DiagnosticSignal::WorkerStarvation { .. }
+                        | DiagnosticSignal::OriginalObservation {
+                            condition: DiagnosticOriginalCondition::MssqlWorkerQueue,
+                            ..
+                        }
                         | DiagnosticSignal::OriginalObservation {
                             condition: DiagnosticOriginalCondition::MssqlQueryHistory { .. },
                             ..
@@ -143,7 +172,7 @@ async fn bounded(
                 )
             {
                 let mut selected_resources = BTreeSet::new();
-                for target in targets {
+                'targets: for (target_index, target) in targets.iter().enumerate().skip(resume_target) {
                     if cancellation.is_cancelled() || questions == MAX_QUESTIONS_PER_PASS {
                         return Ok(prepared);
                     }
@@ -158,82 +187,104 @@ async fn bounded(
                     if !selected_resources.insert(binding.source.target.telemetry_id()?) {
                         continue;
                     }
-                    // Charge attempts before metadata or archive work, including withheld/absent questions.
-                    questions += 1;
-                    let mut available = Vec::new();
-                    for selector in possible_questions(episode) {
-                        let route_key = (
-                            target.id.clone(),
-                            serde_json::to_vec(&selector).map_err(|_| CollectionStop::InvalidPage.error())?,
-                        );
-                        if !routes.contains_key(&route_key) {
-                            routes
-                                .insert(route_key.clone(), select_route(backend, target, &binding.revision, selector)?);
-                        }
-                        if routes.get(&route_key).is_some_and(Option::is_some) {
-                            available.push((selector, route_key));
-                        }
-                    }
-                    if available.is_empty() {
-                        continue;
-                    }
-                    let requested = available[0].0;
-                    if let Some(stage) = &episode.source_read
-                        && matches!(
-                            journal.focused_stage(&stage.key(&episode.id)?).await?,
-                            Some(FocusedStage::Outstanding | FocusedStage::Completed)
-                        )
+                    let question_offset = if target_index == resume_target { resume_question } else { 0 };
+                    for (question_index, question) in
+                        possible_questions(episode).into_iter().enumerate().skip(question_offset)
                     {
-                        continue;
-                    }
-                    let population_stage = if requested == RecipeSelector::PageWaitTasks {
-                        let stage = page_wait_tasks_stage_key(&episode.first.capture_ref(), &binding.source.target)?;
-                        if populations.contains(&stage)
-                            || matches!(
-                                journal.focused_stage(&stage).await?,
+                        if cancellation.is_cancelled() || questions == MAX_QUESTIONS_PER_PASS {
+                            return Ok(prepared);
+                        }
+                        // Each inspected question pays before metadata or recovery work. The cursor only ensures
+                        // fairness; native identity and admission are always checked again through their owners.
+                        questions += 1;
+                        bindings.set_planning_position(PlanningPosition {
+                            checkpoint: cursor.clone(),
+                            episode: offset,
+                            target: target_index,
+                            question: question_index + 1,
+                        });
+                        let requested = question.selector();
+                        let requested_key = route_key(target, requested)?;
+                        if !routes.contains_key(&requested_key) {
+                            routes.insert(
+                                requested_key.clone(),
+                                select_route(backend, target, &binding.revision, requested)?,
+                            );
+                        }
+                        if routes.get(&requested_key).is_none_or(Option::is_none) {
+                            continue;
+                        }
+                        if let EpisodeQuestion::Followup(stage) = question
+                            && matches!(
+                                journal.focused_stage(&stage.key(&episode.id)?).await?,
                                 Some(FocusedStage::Outstanding | FocusedStage::Completed)
                             )
                         {
                             continue;
                         }
-                        Some(stage)
-                    } else {
-                        None
-                    };
-                    let Some(focus) = evidence.focus(outbox, target, episode, binding, requested).await? else {
-                        continue;
-                    };
-                    // A trigger without its own original token cannot consume a valid sibling's population.
-                    if let Some(stage) = population_stage {
-                        populations.insert(stage);
+                        let population_stage = if requested == RecipeSelector::PageWaitTasks {
+                            let stage =
+                                page_wait_tasks_stage_key(&episode.first.capture_ref(), &binding.source.target)?;
+                            if populations.contains(&stage)
+                                || matches!(
+                                    journal.focused_stage(&stage).await?,
+                                    Some(FocusedStage::Outstanding | FocusedStage::Completed)
+                                )
+                            {
+                                continue;
+                            }
+                            Some(stage)
+                        } else {
+                            None
+                        };
+                        let Some(focus) = evidence.focus(outbox, target, episode, binding, question).await? else {
+                            continue;
+                        };
+                        // A trigger without its own original token cannot consume a valid sibling's population.
+                        if let Some(stage) = population_stage {
+                            populations.insert(stage);
+                        }
+                        let selected_key = route_key(target, focus.selector())?;
+                        if !routes.contains_key(&selected_key) {
+                            routes.insert(
+                                selected_key.clone(),
+                                select_route(backend, target, &binding.revision, focus.selector())?,
+                            );
+                        }
+                        let Some(route) = routes.get(&selected_key).and_then(Option::as_ref) else {
+                            continue;
+                        };
+                        if let Some(candidate) =
+                            evidence.question(outbox, target, route, episode, binding, *focus).await?
+                            && seen.insert(candidate.intent.episode_stage_key()?)
+                        {
+                            prepared.push(candidate);
+                            break 'targets;
+                        }
                     }
-                    let Some((_, route_key)) = available.iter().find(|(selector, _)| *selector == focus.selector())
-                    else {
-                        continue;
-                    };
-                    let Some(route) = routes.get(route_key).and_then(Option::as_ref) else {
-                        continue;
-                    };
-                    if let Some(candidate) = evidence.question(outbox, target, route, episode, binding, *focus).await?
-                        && seen.insert(candidate.intent.episode_stage_key()?)
-                    {
-                        prepared.push(candidate);
-                        break;
-                    }
-                    // One saved route owns each physical resource question. A completed database stage may still
-                    // need a distinct, explicitly assigned shared owner; refusal never probes that owner's aliases.
+                    bindings.set_planning_position(PlanningPosition {
+                        checkpoint: cursor.clone(),
+                        episode: offset,
+                        target: target_index + 1,
+                        question: 0,
+                    });
+                    // One saved route owns each physical resource question. Refusal never probes its aliases.
                 }
             }
             if cancellation.is_cancelled() {
                 return Ok(prepared);
             }
             offset += 1;
-            bindings.set_planning_position(cursor.clone(), offset);
+            resume_target = 0;
+            resume_question = 0;
+            bindings.set_planning_position(PlanningPosition::at_episode(cursor.clone(), offset));
             tokio::task::yield_now().await;
         }
         cursor = page.next_cursor;
         offset = 0;
-        bindings.set_planning_position(cursor.clone(), 0);
+        resume_target = 0;
+        resume_question = 0;
+        bindings.set_planning_position(PlanningPosition::at_episode(cursor.clone(), 0));
         if cursor.is_none() {
             break;
         }
@@ -241,11 +292,16 @@ async fn bounded(
     Ok(prepared)
 }
 
-fn possible_questions(episode: &DiagnosticEpisode) -> Vec<RecipeSelector> {
-    if let Some(stage) = &episode.source_read {
-        return if stage.needs_work() { vec![stage.focus.question.selector()] } else { vec![] };
+fn possible_questions(episode: &DiagnosticEpisode) -> Vec<EpisodeQuestion<'_>> {
+    if !episode.source_reads.is_empty() {
+        return episode
+            .source_reads
+            .iter()
+            .filter(|stage| stage.needs_admission())
+            .map(EpisodeQuestion::Followup)
+            .collect();
     }
-    match &episode.signal {
+    let primary = match &episode.signal {
         DiagnosticSignal::LockWait { .. } => vec![RecipeSelector::FocusedBlocking],
         DiagnosticSignal::PageTaskWait { .. } => vec![RecipeSelector::FocusedPageTaskHolders],
         DiagnosticSignal::Activity { condition: ActivityCondition::LongRunning, .. } => {
@@ -260,7 +316,12 @@ fn possible_questions(episode: &DiagnosticEpisode) -> Vec<RecipeSelector> {
         }
         DiagnosticSignal::PageWait { .. } => vec![RecipeSelector::FocusedPageWait],
         _ => vec![],
-    }
+    };
+    primary.into_iter().map(EpisodeQuestion::Primary).collect()
+}
+
+fn route_key(target: &FleetTarget, selector: RecipeSelector) -> Result<(String, Vec<u8>)> {
+    Ok((target.id.clone(), serde_json::to_vec(&selector).map_err(|_| CollectionStop::InvalidPage.error())?))
 }
 
 fn select_route(

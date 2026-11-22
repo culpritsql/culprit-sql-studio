@@ -9,7 +9,7 @@ mod transition;
 
 pub const MAX_DIAGNOSTIC_EPISODES: usize = 4_096;
 pub const MAX_DIAGNOSTIC_INPUTS: usize = 256;
-pub const DIAGNOSTIC_CONTROLLER_VERSION: u32 = 18;
+pub const DIAGNOSTIC_CONTROLLER_VERSION: u32 = 19;
 pub const DIAGNOSTICS_SOURCE: &str = "culprit-diagnostics";
 
 #[derive(Serialize, Deserialize, TS, Clone, Debug, PartialEq, Eq)]
@@ -356,10 +356,19 @@ pub enum DiagnosticSignal {
         key: ActivityKey,
         statement_identity: Option<NativeIdentity>,
     },
+    WorkerStarvation {
+        key: ActivityKey,
+        statement_identity: Option<NativeIdentity>,
+    },
     /// An affected native request, not proof that this query caused the service's log-rate limit.
     LogRateGovernance {
         key: ActivityKey,
         statement_identity: Option<NativeIdentity>,
+    },
+    TransactionMetadataWait {
+        key: ActivityKey,
+        statement_identity: Option<NativeIdentity>,
+        mechanism: TransactionMetadataWait,
     },
     PageWait {
         key: ActivityKey,
@@ -385,7 +394,9 @@ impl DiagnosticSignal {
                 Self::LockWait { key } => key.request.is_some(),
                 Self::RequestMemory { key, statement_identity }
                 | Self::LogRateGovernance { key, statement_identity }
-                | Self::CompilationAdmission { key, statement_identity } => {
+                | Self::TransactionMetadataWait { key, statement_identity, .. }
+                | Self::CompilationAdmission { key, statement_identity }
+                | Self::WorkerStarvation { key, statement_identity } => {
                     key.request.is_some() && statement_identity.as_ref().is_none_or(NativeIdentity::is_valid)
                 }
                 Self::PageTaskWait { .. } => self.is_valid_task_wait(),
@@ -421,7 +432,9 @@ impl DiagnosticSignal {
             | Self::PageTaskWait { key, .. }
             | Self::RequestMemory { key, .. }
             | Self::LogRateGovernance { key, .. }
-            | Self::CompilationAdmission { key, .. } => Some(key),
+            | Self::TransactionMetadataWait { key, .. }
+            | Self::CompilationAdmission { key, .. }
+            | Self::WorkerStarvation { key, .. } => Some(key),
         }
     }
     fn matches_reference(&self, reference: &DiagnosticEvidenceRef) -> bool {
@@ -451,10 +464,8 @@ pub struct DiagnosticEpisode {
     pub lifecycle: DiagnosticLifecycle,
     pub analysis: DiagnosticAnalysisStatus,
     pub report: Option<DiagnosticReport>,
-    /// A separately owed historical question never replaces the completed waiter/gateway answer.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub source_read: Option<Box<SourceReadStage>>,
+    /// Finite independently owed questions never replace the completed waiter/gateway answer.
+    pub source_reads: SourceReadStages,
     pub issue: Option<DiagnosticAnalysisIssue>,
     pub first_seen_at: String,
     pub last_seen_at: String,
@@ -476,7 +487,8 @@ impl DiagnosticEpisode {
             && self.signal.is_valid()
             && self.task_point_is_consistent()
             && self.original_point_is_consistent()
-            && self.source_read.as_deref().is_none_or(|stage| stage.matches_episode(self))
+            && self.source_reads.is_valid()
+            && self.source_reads.iter().all(|stage| stage.matches_episode(self))
             && [&self.first, &self.latest]
                 .into_iter()
                 .chain(self.peak.iter())
@@ -537,7 +549,7 @@ impl DiagnosticEpisode {
             lifecycle,
             analysis: DiagnosticAnalysisStatus::Pending,
             report: None,
-            source_read: None,
+            source_reads: SourceReadStages::new(),
             issue: None,
             first_seen_at: observed_at.clone(),
             last_seen_at: observed_at,
@@ -577,8 +589,8 @@ impl DiagnosticEpisode {
             DiagnosticFocus::SourceRead { focus } => {
                 self.is_valid()
                     && self
-                        .source_read
-                        .as_deref()
+                        .source_reads
+                        .get(focus.question)
                         .is_some_and(|stage| stage.focus == **focus && stage.matches_episode(self))
             }
             DiagnosticFocus::Blocking { focus } => self.matches_blocking_focus(focus),
@@ -1063,7 +1075,15 @@ impl DiagnosticRevision {
             && self.inputs.len() <= MAX_DIAGNOSTIC_INPUTS
             && self.inputs.iter().all(|reference| reference.key().is_ok_and(|key| unique.insert(key)))
             && self.episode.signal.references().all(|reference| self.inputs.contains(reference))
-            && self.episode.source_read.as_deref().is_none_or(|stage| self.inputs.contains(&stage.focus.basis))
+            && self.episode.source_reads.iter().all(|stage| {
+                stage.focus.references().all(|reference| self.inputs.contains(reference))
+                    && match &stage.state {
+                        SourceReadStageState::Answered { answer } => {
+                            answer.references().all(|reference| self.inputs.contains(reference))
+                        }
+                        _ => true,
+                    }
+            })
             && self.investigation.as_ref().is_none_or(|event| {
                 event.matches_episode(&self.episode)
                     && event.key().ok().as_deref() == self.episode.investigation_event.as_deref()

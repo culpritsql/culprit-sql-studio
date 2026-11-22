@@ -113,7 +113,7 @@ fn protected_captures(conn: &Connection) -> Result<BTreeSet<String>> {
             protected.insert(reference.capture.observation_id.clone());
         }
         for episode in &checkpoint.episodes {
-            if let Some(result) = episode.source_read_capture() {
+            for result in episode.source_read_captures() {
                 protected.insert(result.capture.observation_id.clone());
             }
             if let Some(recovery) = &episode.recovery {

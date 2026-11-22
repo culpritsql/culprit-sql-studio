@@ -98,7 +98,10 @@ async fn retired_episode(
 async fn failed_query_history_automatically_captures_one_existing_compilation_reader_and_persists_exact_answer() {
     let mut runtime = Runtime::from_captured_fixture(fixture().await).await;
     let original = working_episode(&runtime).await;
-    assert!(matches!(original.source_read.as_ref().unwrap().state, SourceReadStageState::Deferred { .. }));
+    assert!(matches!(
+        original.source_reads.get(SourceReadQuestion::CompilationHistory).unwrap().state,
+        SourceReadStageState::Deferred { .. }
+    ));
     assert!(runtime.enroll().await);
     let job = runtime.take_focus().await;
     let result = runtime.execute(&job).await;
@@ -121,7 +124,11 @@ async fn failed_query_history_automatically_captures_one_existing_compilation_re
         1
     );
     let (_, answered) = retired_episode(&runtime.fixture.outbox, &original).await;
-    let SourceReadStageState::Answered { answer } = &answered.source_read.as_ref().unwrap().state else { panic!() };
+    let SourceReadStageState::Answered { answer } =
+        &answered.source_reads.get(SourceReadQuestion::CompilationHistory).unwrap().state
+    else {
+        panic!()
+    };
     let SourceReadAnswer::QueryCompilation(answer) = answer.as_ref() else { panic!() };
     assert!(matches!(answer.selection, QueryCompilationSelection::Observed { .. }));
     assert_eq!(answer.unresolved, QueryCompilationGap::ALL);
@@ -162,7 +169,7 @@ async fn completed_question_survives_later_fragments_and_empty_history_without_r
             .unwrap();
         runtime.investigations.bindings.observe("target", &source, &runtime.fixture.backend.revision).unwrap();
         let (_, after) = retired_episode(&runtime.fixture.outbox, &original).await;
-        assert_eq!(after.source_read, before.source_read);
+        assert_eq!(after.source_reads, before.source_reads);
         assert_eq!(after.first, before.first);
         assert_eq!(after.lifecycle, DiagnosticLifecycle::Uncertain);
         assert!(after.recovery.is_none());
@@ -348,7 +355,11 @@ async fn large_pending_original_cold_restore_keeps_selected_ordinal_and_cancelle
     let (_, answered) = retired_episode(&cold, &original).await;
     assert_eq!(answered.first, original.first);
     assert_eq!(answered.report, original.report);
-    let SourceReadStageState::Answered { answer } = answered.source_read.unwrap().state else { panic!() };
+    let SourceReadStageState::Answered { answer } =
+        answered.source_reads.get(SourceReadQuestion::CompilationHistory).unwrap().clone().state
+    else {
+        panic!()
+    };
     let SourceReadAnswer::QueryCompilation(answer) = *answer else { panic!() };
     let QueryCompilationSelection::Observed { observation, .. } = answer.selection else { panic!() };
     assert_eq!(*observation, expected);

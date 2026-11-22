@@ -3,6 +3,7 @@ use culprit_core::{
     CurrentRequestWorkEntry, CurrentRequestWorkReport, Error, Metric, Result, format, key, t, telemetry::*,
 };
 
+mod mssql;
 mod postgres;
 
 pub fn explain(snapshot: &CurrentRequestWorkSnapshot, read_complete: bool) -> Result<CurrentRequestWorkReport> {
@@ -15,6 +16,9 @@ pub fn explain(snapshot: &CurrentRequestWorkSnapshot, read_complete: bool) -> Re
             .extend([t!("view.current_request_work.limit.temporary"), t!("view.current_request_work.limit.timers")]);
     }
     limitations.push(t!("view.current_request_work.limit.disappearance"));
+    if snapshot.profile == CurrentRequestWorkProfile::MssqlRequest {
+        limitations.extend(mssql::limitations());
+    }
     if snapshot.profile == CurrentRequestWorkProfile::PostgresCopy {
         limitations.extend(postgres::limitations());
     }
@@ -77,6 +81,7 @@ fn summary(snapshot: &CurrentRequestWorkSnapshot) -> String {
             FocusedRequestMembership::NotObserved => match snapshot.profile {
                 CurrentRequestWorkProfile::MysqlStatementEvent => t!("view.current_request_work.summary.not_observed"),
                 CurrentRequestWorkProfile::PostgresCopy => t!("view.current_request_work.copy.summary.not_observed"),
+                CurrentRequestWorkProfile::MssqlRequest => t!("view.current_request_work.mssql.not_observed"),
             },
             FocusedRequestMembership::Observed if snapshot.observations.is_empty() => {
                 t!("view.current_request_work.summary.read_gap")
@@ -94,6 +99,7 @@ fn entry(row: &CurrentRequestWorkObservation) -> Result<CurrentRequestWorkEntry>
     let details = match &row.native {
         CurrentRequestWorkNative::Mysql { work } => mysql_details(work),
         CurrentRequestWorkNative::PostgresCopy { progress } => postgres::details(progress),
+        CurrentRequestWorkNative::Mssql { work } => mssql::details(work),
     };
     Ok(CurrentRequestWorkEntry {
         observation_key: row.key()?,

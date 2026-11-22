@@ -1,10 +1,11 @@
 //! A nonce-admitted catalog observer and two fixture backends; no business rows or persistent objects.
 use super::{
-    super::{case, owned_fixture},
+    super::owned_fixture,
     actors::{Actor, SHARED_APPLICATION},
 };
 use crate::{
     connect::Connector,
+    native_test_support::case,
     read::{NativeRead, QueryRead, ReadSession},
     rows::Row,
 };

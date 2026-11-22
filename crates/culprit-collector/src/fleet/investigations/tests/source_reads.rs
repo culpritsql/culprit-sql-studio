@@ -15,8 +15,9 @@ use culprit_read::cancellation::CollectionCancellation;
 mod failures;
 pub(super) mod log_rates;
 pub(super) mod query_history;
-mod recovery;
+pub(super) mod recovery;
 pub(super) mod temporary;
+pub(super) mod workers;
 
 pub(super) fn frame(focus: &SourceReadFocus, execution: &NativeSourceReadScope) -> Frame {
     let (_, records) = query_compilation_evidence();
@@ -129,7 +130,7 @@ async fn episode(runtime: &mut Runtime) -> DiagnosticEpisode {
 async fn finite_native_history_question_preserves_gateway_answer_and_retains_one_control_capture_not_rows() {
     let mut runtime = Runtime::from_fixture(fixture().await).await;
     let original = gateway_answer(&mut runtime).await;
-    assert!(original.source_read.as_ref().unwrap().needs_work());
+    assert!(original.source_reads.get(SourceReadQuestion::CompilationHistory).unwrap().needs_work());
     assert_eq!(original.analysis, DiagnosticAnalysisStatus::Analyzed);
     assert!(runtime.enroll().await);
     let intents = runtime.fixture.journal.focused_intents().await.unwrap();
@@ -152,7 +153,10 @@ async fn finite_native_history_question_preserves_gateway_answer_and_retains_one
     let context = NativeReadContext::from_snapshot(&control.source).unwrap();
     assert_eq!(context.partition, SourcePartition::Target);
     assert_eq!(context.database_writable, None);
-    assert_eq!(episode(&mut runtime).await.source_read.unwrap().state, SourceReadStageState::Collecting);
+    assert_eq!(
+        episode(&mut runtime).await.source_reads.get(SourceReadQuestion::CompilationHistory).unwrap().clone().state,
+        SourceReadStageState::Collecting
+    );
     runtime.finish(Outcome::FocusedComplete { result: capture.clone() }).await;
     let policies = runtime.policies();
     assert_eq!(
@@ -165,7 +169,7 @@ async fn finite_native_history_question_preserves_gateway_answer_and_retains_one
     assert_eq!(answered.report, original.report);
     assert_eq!(answered.analysis, original.analysis);
     assert_eq!(answered.first, original.first);
-    assert_eq!(answered.source_read_capture(), Some(&capture));
+    assert_eq!(answered.source_read_capture(SourceReadQuestion::CompilationHistory), Some(&capture));
     assert_eq!(
         runtime.fixture.outbox.diagnostic_input_state(&capture, DIAGNOSTIC_CONTROLLER_VERSION).await.unwrap(),
         DiagnosticInputState::Consumed

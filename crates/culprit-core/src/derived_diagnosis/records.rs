@@ -120,6 +120,16 @@ pub enum DerivedQueryIdentity {
         actor: ActivityKey,
         statement: Option<NativeIdentity>,
     },
+    /// Exact shared native member, not the incident database's query population. The optional database is
+    /// a DB-reported display label only; it grants neither incarnation nor business ownership.
+    SharedActivity {
+        /// Exact original SharedResourceIdentity::telemetry_id(); an opaque locator, never native authority.
+        member_id: String,
+        member_kind: SharedResourceKind,
+        actor: ActivityKey,
+        statement: Option<NativeIdentity>,
+        database: Option<String>,
+    },
     QueryHistory {
         query: NativeQueryIdentity,
         plan: Option<NativePlanIdentity>,
@@ -127,6 +137,15 @@ pub enum DerivedQueryIdentity {
     CachedStatement(CachedStatementContext),
     /// Point-native owner of a recorded wait; this is not a query identity or historical continuity.
     NativeWaitOwner(ActivityWaitOwner),
+}
+impl DerivedQueryIdentity {
+    pub fn shared_scope_label(&self) -> Option<String> {
+        let Self::SharedActivity { database, .. } = self else { return None };
+        Some(match database {
+            Some(database) => crate::t!("view.synthesis.shared_database", database = database),
+            None => crate::t!("view.synthesis.shared_database_unknown"),
+        })
+    }
 }
 #[derive(Serialize, Deserialize, TS, Clone, Debug, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
@@ -175,8 +194,11 @@ impl DerivedCaller {
 #[ts(export)]
 pub enum DerivedCausalRoleKind {
     NativeBlockingOwner,
+    NativePendingRelationLockGatekeeper,
+    NativeGrantedRelationLockHolder,
     NativeReportedTaskHolder,
     AdmissionReservationContributor,
+    AssignedWorkerContributor,
 }
 #[derive(Serialize, Deserialize, TS, Clone, Debug, PartialEq)]
 #[serde(deny_unknown_fields)]
@@ -189,7 +211,16 @@ impl DerivedCausalRole {
     pub fn new(kind: DerivedCausalRoleKind) -> Self {
         let explanation = match kind {
             DerivedCausalRoleKind::NativeBlockingOwner => crate::message!("view.synthesis.cause.blocking_owner"),
+            DerivedCausalRoleKind::NativePendingRelationLockGatekeeper => {
+                crate::message!("view.synthesis.cause.pending_relation_gate")
+            }
+            DerivedCausalRoleKind::NativeGrantedRelationLockHolder => {
+                crate::message!("view.synthesis.cause.granted_relation_holder")
+            }
             DerivedCausalRoleKind::NativeReportedTaskHolder => crate::message!("view.synthesis.cause.task_holder"),
+            DerivedCausalRoleKind::AssignedWorkerContributor => {
+                crate::message!("view.worker_starvation.cause.assignment")
+            }
             DerivedCausalRoleKind::AdmissionReservationContributor => {
                 crate::message!("view.synthesis.cause.grant_contributor")
             }

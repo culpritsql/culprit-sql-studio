@@ -69,6 +69,9 @@ fn query_text(query: &DerivedIncidentQuery) -> String {
 
 fn append_query(output: &mut String, label: String, query: &DerivedIncidentQuery) {
     append(output, label);
+    if let Some(scope) = query.identity.as_ref().and_then(culprit_core::DerivedQueryIdentity::shared_scope_label) {
+        append(output, preview(&scope));
+    }
     if let Some(role) = &query.causal_role {
         append(output, t!("incident.cli.causal_role", explanation = preview(&role.explanation.message().render())));
     }
@@ -92,4 +95,42 @@ fn append_caller(output: &mut String, caller: Option<&DerivedCaller>) {
 }
 fn preview(text: &str) -> String {
     culprit_core::format::escaped_preview(text, OBSERVATION_DETAIL_CHARS).text
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use culprit_core::telemetry::*;
+    #[test]
+    fn shared_member_query_labels_are_bounded_escaped_and_never_replaced_by_an_incident_database() {
+        let mut query = DerivedIncidentQuery {
+            causal_role: None,
+            identity: Some(culprit_core::DerivedQueryIdentity::SharedActivity {
+                member_id: digest(b"native-instance"),
+                member_kind: SharedResourceKind::Instance,
+                actor: ActivityKey {
+                    session: NativeActivityIdentity { id: "42".into(), generation: "native-login".into() },
+                    request: Some(NativeActivityIdentity { id: "0".into(), generation: "native-request".into() }),
+                    transaction: None,
+                },
+                statement: None,
+                database: Some(format!("foreign\n\u{1b}[31m{}", "x".repeat(2000))),
+            }),
+            sql: DefinitionPayload::Unavailable { reason: PayloadUnavailable::Missing },
+            caller: None,
+            evidence: vec![],
+        };
+        let mut output = String::new();
+        append_query(&mut output, "query".into(), &query);
+        assert!(output.contains("foreign"));
+        assert!(!output.contains('\u{1b}'));
+        assert!(output.len() < 1400);
+        let Some(culprit_core::DerivedQueryIdentity::SharedActivity { database, .. }) = &mut query.identity else {
+            panic!()
+        };
+        *database = None;
+        let mut output = String::new();
+        append_query(&mut output, "query".into(), &query);
+        assert!(output.contains(&t!("view.synthesis.shared_database_unknown")));
+    }
 }

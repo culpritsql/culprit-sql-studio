@@ -1,5 +1,6 @@
 mod connected_cache;
 mod hyperscale_log_components;
+mod selected_retained;
 mod source_read;
 use super::*;
 use crate::telemetry::grants::Grants;

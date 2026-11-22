@@ -273,3 +273,34 @@ async fn public_copy_profile_is_explicit_authenticated_semantics_even_without_a_
         assert_eq!(fixture.recovery.object_reads.load(Ordering::SeqCst), opens);
     }
 }
+
+#[tokio::test]
+async fn mssql_current_request_and_cache_generation_share_the_canonical_reader_without_public_repair() {
+    for (source, records) in test_support::mssql_current_work_evidence_cases() {
+        let fixture = Fixture::new(source.clone(), records.clone()).await;
+        let opens = fixture.recovery.object_reads.load(Ordering::SeqCst);
+        fixture.replies(vec![fixture.rows.clone()]);
+        let capture = read(&fixture, false).await.unwrap();
+        test_support::assert_current_request_work_capture(&capture, &source, &records);
+        assert_eq!(fixture.recovery.object_reads.load(Ordering::SeqCst), opens);
+        assert!(!serde_json::to_string(&fixture.publication).unwrap().contains("private-current-request-secret"));
+    }
+    let (source, records) = test_support::mssql_current_work_evidence(test_support::MssqlWorkCase::Observed);
+    let fixture = Fixture::new(source, records).await;
+    let opens = fixture.recovery.object_reads.load(Ordering::SeqCst);
+    let schema = fixture.catalog.get(TelemetryStream::OperationalSamples).unwrap();
+    let details = schema.columns().iter().position(|c| c.name == "Details").unwrap();
+    for (pointer, value) in test_support::mssql_current_work_tamper_cases() {
+        let mut rows = fixture.rows.clone();
+        let mut body: Value = serde_json::from_str(rows[0][details].as_str().unwrap()).unwrap();
+        *body.pointer_mut(pointer).unwrap() = value;
+        rows[0][details] = json!(serde_json::to_string(&body).unwrap());
+        fixture.replies(vec![rows]);
+        assert_eq!(
+            read(&fixture, true).await.unwrap_err().detail,
+            Some(culprit_core::ErrorDetail::Delivery(DeliveryProblem::Integrity)),
+            "{pointer}"
+        );
+        assert_eq!(fixture.recovery.object_reads.load(Ordering::SeqCst), opens);
+    }
+}

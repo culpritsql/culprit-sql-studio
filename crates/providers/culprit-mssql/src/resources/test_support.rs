@@ -16,6 +16,8 @@ pub(crate) struct FakeRead {
     pub shutdown: SourceShutdown,
     pause_at: Option<usize>,
     query_limit: Option<u32>,
+    generation: Option<u64>,
+    generation_change_at: Option<u32>,
 }
 impl FakeRead {
     pub(crate) fn new(replies: Vec<ReadResult<Vec<Rec>>>) -> Self {
@@ -26,11 +28,21 @@ impl FakeRead {
             shutdown: SourceShutdown::Quiescent,
             pause_at: None,
             query_limit: None,
+            generation: None,
+            generation_change_at: None,
         }
     }
     pub(crate) fn pause_on_query(mut self, position: usize) -> Self {
         assert!(position > 0);
         self.pause_at = Some(position);
+        self
+    }
+    pub(crate) fn with_generation(mut self, generation: u64) -> Self {
+        self.generation = Some(generation);
+        self
+    }
+    pub(crate) fn change_generation_at(mut self, query: u32) -> Self {
+        self.generation_change_at = Some(query);
         self
     }
     pub(crate) fn with_query_limit(mut self, limit: u32) -> Self {
@@ -52,6 +64,9 @@ impl NativeRead for FakeRead {
     }
     fn queries(&self) -> u32 {
         self.calls.len() as u32
+    }
+    fn connection_generation(&self) -> Option<u64> {
+        self.generation.map(|value| value + u64::from(self.generation_change_at.is_some_and(|at| self.queries() >= at)))
     }
     async fn close(&mut self) -> SourceShutdown {
         self.closed += 1;

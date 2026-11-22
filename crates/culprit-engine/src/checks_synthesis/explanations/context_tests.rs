@@ -1,3 +1,4 @@
+mod transaction_metadata;
 use super::*;
 use crate::collected_evidence::RetainedEvidenceFixture as Fixture;
 use culprit_evidence::analytical::{
@@ -43,16 +44,7 @@ async fn retained(source: CollectionDescription, records: Vec<TelemetryRecord>, 
 async fn history(episode: DiagnosticEpisode, sequence: u64) -> EvidenceCapture {
     let parent = episode.latest.capture_ref();
     let revision = DiagnosticRevision::between(None, episode, "2020-01-01T12:00:20Z").unwrap().unwrap();
-    let mut checkpoint = DiagnosticCheckpointPart {
-        id: String::new(),
-        controller_version: DIAGNOSTIC_CONTROLLER_VERSION,
-        target: revision.episode.scope.target.clone(),
-        input: parent.clone(),
-        part: 0,
-        parts: 1,
-        episodes: vec![revision.episode.clone()],
-    };
-    checkpoint.id = checkpoint.expected_id().unwrap();
+    let checkpoint = active_checkpoint(&revision);
     let source = CollectionDescription {
         target: revision.episode.scope.target.clone(),
         partition: SourcePartition::Target,
@@ -81,6 +73,21 @@ async fn history(episode: DiagnosticEpisode, sequence: u64) -> EvidenceCapture {
         sequence,
     )
     .await
+}
+// The immutable revision is history; only the model's current working episodes belong in the private checkpoint.
+fn active_checkpoint(revision: &DiagnosticRevision) -> DiagnosticCheckpointPart {
+    let mut checkpoint = DiagnosticCheckpointPart {
+        id: String::new(),
+        controller_version: DIAGNOSTIC_CONTROLLER_VERSION,
+        target: revision.episode.scope.target.clone(),
+        input: revision.episode.latest.capture_ref(),
+        part: 0,
+        parts: 1,
+        episodes: std::iter::once(revision.episode.clone()).filter(DiagnosticEpisode::retained_in_checkpoint).collect(),
+    };
+    checkpoint.id = checkpoint.expected_id().unwrap();
+    assert!(checkpoint.is_valid(), "the canonical fixture must respect working-set retirement");
+    checkpoint
 }
 fn project(captures: &[&EvidenceCapture], issues: Vec<DerivedContextIssue>) -> Result<DerivedDiagnosis> {
     let originals = captures.iter().map(|capture| capture.verified_original()).collect::<Result<Vec<_>>>()?;
@@ -180,7 +187,7 @@ async fn temporary(
             .unwrap();
     let episode =
         observed.checkpoint.episodes.into_iter().next().unwrap().finish_original_observation_planning().unwrap();
-    let focus = episode.source_read_focus().unwrap().unwrap();
+    let focus = episode.source_read_focus(SourceReadQuestion::TemporarySpaceContributors).unwrap().unwrap();
     let execution = SourceReadExecutionScope::from_context(
         focus.question,
         &NativeReadContext::from_snapshot(original.source()).unwrap(),
@@ -212,15 +219,20 @@ async fn temporary(
         &rows,
     )
     .unwrap();
-    let episode =
-        episode.enroll_source_read(focus).unwrap().transition_source_read(SourceReadStageState::Collecting).unwrap();
+    let episode = episode
+        .enroll_source_read(focus.clone())
+        .unwrap()
+        .transition_source_read(&focus, SourceReadStageState::Collecting)
+        .unwrap();
     (basis, result, episode, answer)
 }
 fn answered(episode: DiagnosticEpisode, answer: TemporaryResourceAnswer) -> DiagnosticEpisode {
+    let focus = episode.source_read_focus(SourceReadQuestion::TemporarySpaceContributors).unwrap().unwrap();
     episode
-        .transition_source_read(SourceReadStageState::Answered {
-            answer: Box::new(SourceReadAnswer::TemporaryResources(Box::new(answer))),
-        })
+        .transition_source_read(
+            &focus,
+            SourceReadStageState::Answered { answer: Box::new(SourceReadAnswer::TemporaryResources(Box::new(answer))) },
+        )
         .unwrap()
 }
 
@@ -418,3 +430,5 @@ async fn current_request_work_preserves_native_coverage_limits_without_inventing
     assert!(explanation.culprits.is_empty());
     assert_eq!(explanation.attribution_status(), DerivedAttributionStatus::Unestablished);
 }
+
+mod workers;

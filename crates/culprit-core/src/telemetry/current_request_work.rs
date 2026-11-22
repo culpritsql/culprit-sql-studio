@@ -2,7 +2,9 @@
 use super::*;
 use crate::Engine;
 
+mod mssql;
 mod native;
+pub use mssql::*;
 mod postgres;
 pub use native::{CurrentRequestWorkNative, CurrentRequestWorkProfile};
 pub use postgres::{PostgresCopyCommand, PostgresCopyIo, PostgresCopyProgress};
@@ -140,6 +142,7 @@ impl CurrentRequestWorkObservation {
             && matches!(self.scope, ActivityScopeBasis::RequestDatabase | ActivityScopeBasis::SessionDatabase)
             && self.native.is_valid()
             && self.native.matches_embedded_actor(&self.actor)
+            && self.native.fits_point(&self.observed_at, &self.statement_identity)
             && self.native.profile().matches_identity(&self.actor, self.scope, &self.statement_identity)
             && self.statement.is_valid()
             && match &self.statement {
@@ -168,12 +171,19 @@ impl CurrentRequestWorkObservation {
 
     fn matches_result(&self, context: &NativeReadContext, result: &FocusedRequestResult) -> bool {
         self.is_valid()
+            && self.native.fits_context(context)
             && context.target.engine() == self.native.engine()
             && context.target.database().is_some_and(|database| database.database == self.database)
             && result.matches_point(context, &self.actor, Some(&self.statement_identity), &self.observed_at)
     }
 
     pub fn redact(&mut self) {
+        if let CurrentRequestWorkNative::Mssql { work } = &mut self.native
+            && let MssqlCurrentRequestPlan::Observed { plan, .. } = &mut work.current_plan
+            && let DefinitionPayload::Available { text, .. } = plan
+        {
+            *plan = DefinitionPayload::plan(text, Engine::Mssql);
+        }
         if let DefinitionPayload::Available { text, .. } = &self.statement {
             self.statement = DefinitionPayload::sql(text, self.native.engine());
         }

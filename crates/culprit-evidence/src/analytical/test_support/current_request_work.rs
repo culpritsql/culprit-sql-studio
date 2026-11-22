@@ -2,7 +2,11 @@
 use super::*;
 use culprit_core::{Engine, MeasurementScope, SourceState};
 
+mod mssql;
 mod postgres_copy;
+pub use mssql::{
+    MssqlWorkCase, mssql_current_work_evidence, mssql_current_work_evidence_cases, mssql_current_work_tamper_cases,
+};
 pub use postgres_copy::postgres_copy_evidence_cases;
 
 const SOURCE: &str = "mysql-current-request-work";
@@ -309,6 +313,12 @@ pub fn assert_current_request_work_capture(
                 assert!(
                     work.stage != MysqlStageObservation::Unlinked || snapshot.sources[0].state == SourceState::Partial
                 );
+            }
+            CurrentRequestWorkNative::Mssql { work } => {
+                assert_eq!(work.reads.as_deref(), Some("9007199254740993"));
+                assert_eq!(work.writes.as_deref(), Some("0"));
+                assert_eq!(work.logical_reads, None);
+                assert!(work.is_valid());
             }
             CurrentRequestWorkNative::PostgresCopy { progress } => {
                 assert_eq!(progress.bytes_processed.as_deref(), Some("9007199254740993"));

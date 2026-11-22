@@ -5,10 +5,22 @@ mod scope;
 pub use scope::*;
 mod answer;
 pub use answer::*;
+mod stage;
+pub use stage::*;
+mod stages;
+pub use stages::SourceReadStages;
+mod followup;
+mod lifecycle;
 mod temporary;
 pub use temporary::*;
+mod transaction_metadata;
+pub use transaction_metadata::*;
+mod workers;
+pub use workers::*;
 mod query_compilation;
 pub use query_compilation::*;
+mod relational_input;
+pub use relational_input::*;
 
 /// Native updateability qualifies this exact execution expectation. It names neither a replica role nor a
 /// query/execution population, and cannot supply a member or process identity that the source did not report.
@@ -64,20 +76,35 @@ pub enum SourceReadQuestion {
     CompilationHistory,
     HyperscaleLogComponents,
     TemporarySpaceContributors,
+    TransactionMetadata,
+    WorkerStarvation,
+    RelationalInputContext,
 }
 impl SourceReadQuestion {
-    pub const ALL: &'static [Self] =
-        &[Self::CompilationHistory, Self::HyperscaleLogComponents, Self::TemporarySpaceContributors];
+    pub const ALL: &'static [Self] = &[
+        Self::CompilationHistory,
+        Self::HyperscaleLogComponents,
+        Self::TemporarySpaceContributors,
+        Self::TransactionMetadata,
+        Self::WorkerStarvation,
+        Self::RelationalInputContext,
+    ];
 
     pub const fn dataset(self) -> SnapshotDataset {
         match self {
             Self::CompilationHistory => SnapshotDataset::QueryCompilation,
             Self::HyperscaleLogComponents => SnapshotDataset::HyperscaleLogComponents,
             Self::TemporarySpaceContributors => SnapshotDataset::TaskSpace,
+            Self::TransactionMetadata => SnapshotDataset::TransactionMetadata,
+            Self::WorkerStarvation => SnapshotDataset::WorkerStarvation,
+            Self::RelationalInputContext => SnapshotDataset::RetainedPlans,
         }
     }
     pub const fn selector(self) -> RecipeSelector {
-        RecipeSelector::Collection(TelemetryCollection::Snapshot(self.dataset()))
+        match self {
+            Self::WorkerStarvation => RecipeSelector::WorkerStarvation,
+            _ => RecipeSelector::Collection(TelemetryCollection::Snapshot(self.dataset())),
+        }
     }
     pub fn accepts_dataset(self, dataset: SnapshotDataset) -> bool {
         self.dataset() == dataset
@@ -93,22 +120,59 @@ impl SourceReadQuestion {
 #[serde(tag = "kind", rename_all = "kebab-case", deny_unknown_fields)]
 #[ts(export)]
 pub enum SourceReadPrerequisite {
-    CompilationAdmission { report: Box<CompilationAdmissionReport> },
+    CompilationAdmission {
+        report: Box<CompilationAdmissionReport>,
+    },
     ObservedLogRateWait,
-    ObservedCleanupBoundary { session: NativeActivityIdentity, transaction: NativeActivityIdentity },
-    ObservedQueryHistoryFailure { query: NativeQueryIdentity },
+    ObservedTransactionMetadataWait {
+        key: ActivityKey,
+        statement_identity: NativeIdentity,
+        mechanism: TransactionMetadataWait,
+    },
+    ObservedCleanupBoundary {
+        session: NativeActivityIdentity,
+        transaction: NativeActivityIdentity,
+    },
+    ObservedQueryHistoryFailure {
+        query: NativeQueryIdentity,
+    },
+    ObservedWorkerQueue,
+    /// A later current-cache point, not an execution-plan or runtime-input attestation for the adverse parent.
+    ObservedCurrentRequestPlan {
+        observation: Box<DiagnosticEvidenceRef>,
+        context: Box<CachedStatementContext>,
+        observed_from: String,
+        observed_until: String,
+    },
 }
 impl SourceReadPrerequisite {
     pub fn references(&self) -> impl Iterator<Item = &DiagnosticEvidenceRef> {
-        self.compilation_admission().into_iter().flat_map(CompilationAdmissionReport::references)
+        let references: Vec<_> = match self {
+            Self::CompilationAdmission { report } => report.references().collect(),
+            Self::ObservedCurrentRequestPlan { observation, .. } => vec![observation.as_ref()],
+            _ => Vec::new(),
+        };
+        references.into_iter()
+    }
+
+    /// The same canonical parent owner authenticates either implemented detail prerequisite.
+    pub fn observation(&self) -> Option<&DiagnosticEvidenceRef> {
+        match self {
+            Self::CompilationAdmission { report } => Some(&report.observation),
+            Self::ObservedCurrentRequestPlan { observation, .. } => Some(observation),
+            _ => None,
+        }
     }
 
     pub fn compilation_admission(&self) -> Option<&CompilationAdmissionReport> {
         match self {
             Self::CompilationAdmission { report } => Some(report),
-            Self::ObservedLogRateWait
+            Self::ObservedTransactionMetadataWait { .. }
+            | Self::ObservedLogRateWait
+            | Self::ObservedWorkerQueue
             | Self::ObservedCleanupBoundary { .. }
-            | Self::ObservedQueryHistoryFailure { .. } => None,
+            | Self::ObservedQueryHistoryFailure { .. }
+            | Self::ObservedCurrentRequestPlan { .. } => None,
         }
     }
     fn matches_cleanup_condition(&self, condition: &DiagnosticOriginalCondition) -> bool {
@@ -130,6 +194,24 @@ impl SourceReadPrerequisite {
                 query_store_query_identity_is_complete(query)
             }
             (Self::ObservedLogRateWait, SourceReadQuestion::HyperscaleLogComponents) => true,
+            (Self::ObservedWorkerQueue, SourceReadQuestion::WorkerStarvation) => true,
+            (
+                Self::ObservedCurrentRequestPlan { observation, context, observed_from, observed_until },
+                SourceReadQuestion::RelationalInputContext,
+            ) => {
+                observation.is_valid()
+                    && matches!(&observation.native_key, NativeRecordIdentity::Operational { source, .. } if source == crate::source_id::MSSQL_CURRENT_REQUEST_WORK)
+                    && observation.stream == TelemetryStream::OperationalSamples
+                    && context.is_valid()
+                    && context.identity.has_plan_handle()
+                    && context.identity.has_sql_handle()
+                    && context.origin == StatementOrigin::Application
+                    && ObservationBounds::new(observed_from, observed_until).is_some()
+            }
+            (
+                Self::ObservedTransactionMetadataWait { key, statement_identity, .. },
+                SourceReadQuestion::TransactionMetadata,
+            ) => key.is_valid() && key.request.is_some() && statement_identity.is_valid(),
             (
                 Self::ObservedCleanupBoundary { session, transaction },
                 SourceReadQuestion::TemporarySpaceContributors,
@@ -157,6 +239,10 @@ pub struct SourceReadFocus {
     pub prerequisite: SourceReadPrerequisite,
 }
 impl SourceReadFocus {
+    pub fn references(&self) -> impl Iterator<Item = &DiagnosticEvidenceRef> {
+        std::iter::once(self.basis.as_ref()).chain(self.prerequisite.references())
+    }
+
     pub fn is_valid(&self) -> bool {
         self.basis.is_valid()
             && self.prerequisite.is_valid_for(self.question)
@@ -168,6 +254,13 @@ impl SourceReadFocus {
                     self.basis.stream == TelemetryStream::QueryRuntime
                         && matches!(self.basis.native_key, NativeRecordIdentity::Runtime(_))
                 }
+                (SourceReadPrerequisite::ObservedWorkerQueue, SourceReadQuestion::WorkerStarvation) => {
+                    matches!(
+                        (&self.basis.stream, &self.basis.native_key),
+                        (TelemetryStream::OperationalSamples, NativeRecordIdentity::Operational { .. })
+                            | (TelemetryStream::ActivityObservations, NativeRecordIdentity::Activity(_))
+                    )
+                }
                 (_, SourceReadQuestion::TemporarySpaceContributors) => {
                     self.basis.stream == TelemetryStream::OperationalSamples
                         && matches!(self.basis.native_key, NativeRecordIdentity::Operational { .. })
@@ -178,7 +271,10 @@ impl SourceReadFocus {
                 }
             }
             && self.target.is_valid()
-            && self.target.database().is_some()
+            && (self.target.database().is_some()
+                || self.question == SourceReadQuestion::WorkerStarvation
+                    && matches!(&self.target, CollectionTarget::Shared(resource)
+                        if matches!(resource.kind, SharedResourceKind::Instance|SharedResourceKind::Node)))
     }
     pub fn key(&self) -> Result<String> {
         if !self.is_valid() {
@@ -195,6 +291,9 @@ impl SourceReadFocus {
         source: &CollectionDescription,
         rows: impl IntoIterator<Item = (&'a DiagnosticEvidenceRef, &'a OperationalObservation)>,
     ) -> bool {
+        if matches!(self.prerequisite, SourceReadPrerequisite::ObservedCurrentRequestPlan { .. }) {
+            return self.matches_current_plan_input(original_source, original_row, source, rows);
+        }
         let Some(prerequisite) = self.prerequisite.compilation_admission() else { return false };
         let (
             Ok(original),
@@ -229,6 +328,9 @@ impl SourceReadFocus {
             self.prerequisite,
             SourceReadPrerequisite::ObservedCleanupBoundary { .. }
                 | SourceReadPrerequisite::ObservedQueryHistoryFailure { .. }
+                | SourceReadPrerequisite::ObservedTransactionMetadataWait { .. }
+                | SourceReadPrerequisite::ObservedWorkerQueue
+                | SourceReadPrerequisite::ObservedCurrentRequestPlan { .. }
         )
     }
     /// The existing canonical reader verifies every original row and byte before retaining this selection.
@@ -251,7 +353,10 @@ impl SourceReadFocus {
         matches!(self.prerequisite, SourceReadPrerequisite::ObservedQueryHistoryFailure { .. })
     }
     pub fn original_context(&self, source: &CollectionDescription) -> Result<NativeReadContext> {
-        if matches!(self.prerequisite, SourceReadPrerequisite::ObservedQueryHistoryFailure { .. }) {
+        if matches!(
+            self.prerequisite,
+            SourceReadPrerequisite::ObservedQueryHistoryFailure { .. } | SourceReadPrerequisite::ObservedWorkerQueue
+        ) {
             return SourceReadExecutionScope::context_from_source(source);
         }
         match self.question {
@@ -273,7 +378,27 @@ impl SourceReadFocus {
                 })
                 .ok();
         }
+        if self.question == SourceReadQuestion::WorkerStarvation {
+            return worker_starvation::original_worker_queue_matches(source, row);
+        }
         match self.question {
+            SourceReadQuestion::RelationalInputContext => matches!(row, TelemetryRecord::Activity(original)
+                if original.has_session_generation_authority()
+                    && original.scope == ActivityScopeBasis::RequestDatabase
+                    && original.key.request.is_some()
+                    && original.statement_identity.as_ref().is_some_and(mssql_request_statement_identity_is_valid)),
+            SourceReadQuestion::TransactionMetadata => {
+                let SourceReadPrerequisite::ObservedTransactionMetadataWait { key, statement_identity, mechanism } =
+                    &self.prerequisite
+                else {
+                    return false;
+                };
+                matches!(row, TelemetryRecord::Activity(original)
+                    if original.has_session_generation_authority()
+                        && matches!(original.scope, ActivityScopeBasis::RequestDatabase | ActivityScopeBasis::SessionDatabase)
+                        && original.key == *key && original.statement_identity.as_ref() == Some(statement_identity)
+                        && original.wait.as_ref().is_some_and(|wait| wait.class == Some(mechanism.class())))
+            }
             SourceReadQuestion::TemporarySpaceContributors => {
                 let Some(condition) = DiagnosticOriginalCondition::from_record(source, row) else {
                     return false;
@@ -286,7 +411,7 @@ impl SourceReadFocus {
                 && original.wait.as_ref().is_some_and(|wait| wait.class == Some(match question {
                     SourceReadQuestion::CompilationHistory => ActivityWaitClass::CompilationAdmission,
                     SourceReadQuestion::HyperscaleLogComponents => ActivityWaitClass::LogRateGovernance,
-                    SourceReadQuestion::TemporarySpaceContributors => return false,
+                    SourceReadQuestion::TemporarySpaceContributors | SourceReadQuestion::WorkerStarvation | SourceReadQuestion::RelationalInputContext | SourceReadQuestion::TransactionMetadata => return false,
                 }))),
         }
     }
@@ -315,386 +440,6 @@ impl SourceReadFocus {
 
 /// The completed waiter/gateway answer stays immutable. This separately owed question transitions only through
 /// revision/event history, and retains one successful capture rather than a per-row compiler roster.
-#[derive(Serialize, Deserialize, TS, Clone, Debug, PartialEq)]
-#[serde(deny_unknown_fields)]
-#[ts(export)]
-pub struct SourceReadStage {
-    pub focus: SourceReadFocus,
-    pub state: SourceReadStageState,
-}
-#[derive(Serialize, Deserialize, TS, Clone, Debug, PartialEq)]
-#[serde(tag = "kind", rename_all = "kebab-case", deny_unknown_fields)]
-#[ts(export)]
-pub enum SourceReadStageState {
-    Pending,
-    Deferred { issue: DiagnosticAnalysisIssue },
-    Collecting,
-    Captured { capture: DiagnosticCaptureRef },
-    Answered { answer: Box<SourceReadAnswer> },
-    Recovered,
-    Stopped { issue: DiagnosticAnalysisIssue },
-}
-impl SourceReadStage {
-    pub fn is_valid(&self) -> bool {
-        self.focus.is_valid()
-            && match &self.state {
-                SourceReadStageState::Answered { answer } => {
-                    self.focus.question == answer.question()
-                        && answer.is_valid()
-                        && answer.basis() == self.focus.basis.as_ref()
-                }
-                SourceReadStageState::Captured { capture } => {
-                    !self.focus.retains_result_rows()
-                        && capture.is_valid()
-                        && capture.capture != self.focus.basis.capture
-                        && capture.source_scope_id != self.focus.basis.source_scope_id
-                }
-                _ => true,
-            }
-    }
-    /// Stable finite-stage identity can be checked before recovering original bodies or cost artifacts.
-    pub fn key(&self, episode_id: &str) -> Result<String> {
-        if !self.is_valid() {
-            return Err(invalid());
-        }
-        super::investigations::question_stage_key(episode_id, self.focus.question.selector(), &self.focus.target)
-    }
-    pub fn needs_work(&self) -> bool {
-        matches!(
-            self.state,
-            SourceReadStageState::Pending | SourceReadStageState::Deferred { .. } | SourceReadStageState::Collecting
-        )
-    }
-    /// An admitted owner remains owed without granting a replacement admission after a cold restore.
-    pub fn needs_admission(&self) -> bool {
-        matches!(self.state, SourceReadStageState::Pending | SourceReadStageState::Deferred { .. })
-    }
-    pub fn result(&self) -> Option<&DiagnosticCaptureRef> {
-        match &self.state {
-            SourceReadStageState::Captured { capture } => Some(capture),
-            SourceReadStageState::Answered { answer } => Some(answer.result()),
-            _ => None,
-        }
-    }
-    pub fn matches_episode(&self, episode: &DiagnosticEpisode) -> bool {
-        self.is_valid()
-            && self.basis_matches_episode(episode)
-            && self.focus.target.telemetry_id().ok() == episode.scope.target.telemetry_id().ok()
-            && (!matches!(self.state, SourceReadStageState::Recovered)
-                || self.focus.question == SourceReadQuestion::TemporarySpaceContributors
-                    && episode.lifecycle == DiagnosticLifecycle::Resolved)
-            && match (&episode.signal, &self.focus.prerequisite, &episode.report) {
-                (
-                    DiagnosticSignal::CompilationAdmission { .. },
-                    SourceReadPrerequisite::CompilationAdmission { report },
-                    Some(DiagnosticReport::CompilationAdmission { report: original }),
-                ) => report == original,
-                (
-                    DiagnosticSignal::OriginalObservation {
-                        condition: DiagnosticOriginalCondition::MssqlQueryHistory { query: original, .. },
-                        ..
-                    },
-                    SourceReadPrerequisite::ObservedQueryHistoryFailure { query },
-                    Some(DiagnosticReport::OriginalObservation { .. }),
-                ) => query.native() == *original,
-                (DiagnosticSignal::LogRateGovernance { .. }, SourceReadPrerequisite::ObservedLogRateWait, None) => true,
-                (
-                    DiagnosticSignal::OriginalObservation {
-                        condition: DiagnosticOriginalCondition::MssqlCleanupBoundary { session, transaction },
-                        ..
-                    },
-                    SourceReadPrerequisite::ObservedCleanupBoundary {
-                        session: expected_session,
-                        transaction: expected_transaction,
-                    },
-                    Some(DiagnosticReport::OriginalObservation { .. }),
-                ) => session == expected_session && transaction == expected_transaction,
-                _ => false,
-            }
-    }
-    fn basis_matches_episode(&self, episode: &DiagnosticEpisode) -> bool {
-        if self.focus.question == SourceReadQuestion::TemporarySpaceContributors {
-            self.focus.basis.source_scope_id == episode.first.source_scope_id
-                && self.focus.basis.native_key == episode.first.native_key
-        } else {
-            self.focus.basis.as_ref() == &episode.first
-        }
-    }
-    pub fn transition(&self, state: SourceReadStageState) -> Result<Self> {
-        if !self.is_valid() {
-            return Err(invalid());
-        }
-        if self.state == state {
-            return Ok(self.clone());
-        }
-        let permitted = match self.state {
-            SourceReadStageState::Pending => matches!(
-                state,
-                SourceReadStageState::Deferred { .. }
-                    | SourceReadStageState::Collecting
-                    | SourceReadStageState::Recovered
-                    | SourceReadStageState::Stopped { .. }
-            ),
-            SourceReadStageState::Deferred { .. } => matches!(
-                state,
-                SourceReadStageState::Deferred { .. }
-                    | SourceReadStageState::Collecting
-                    | SourceReadStageState::Recovered
-                    | SourceReadStageState::Stopped { .. }
-            ),
-            SourceReadStageState::Collecting => {
-                matches!(
-                    state,
-                    SourceReadStageState::Captured { .. }
-                        | SourceReadStageState::Answered { .. }
-                        | SourceReadStageState::Stopped { .. }
-                )
-            }
-            SourceReadStageState::Captured { .. }
-            | SourceReadStageState::Answered { .. }
-            | SourceReadStageState::Recovered
-            | SourceReadStageState::Stopped { .. } => false,
-        };
-        let next = Self { focus: self.focus.clone(), state };
-        if !permitted || !next.is_valid() {
-            return Err(invalid());
-        }
-        Ok(next)
-    }
-}
-impl DiagnosticEpisode {
-    /// Construct only the logical question justified by this incident. Original-body authentication, native
-    /// execution scope and source-issued cost approval are separate mandatory admission checks.
-    pub fn source_read_focus(&self) -> Result<Option<SourceReadFocus>> {
-        if !self.is_valid() {
-            return Err(invalid());
-        }
-        if let Some(stage) = &self.source_read {
-            return Ok(Some(stage.focus.clone()));
-        }
-        let (question, prerequisite) = match (&self.signal, &self.report) {
-            (
-                DiagnosticSignal::CompilationAdmission { .. },
-                Some(DiagnosticReport::CompilationAdmission { report }),
-            ) => (
-                SourceReadQuestion::CompilationHistory,
-                SourceReadPrerequisite::CompilationAdmission { report: report.clone() },
-            ),
-            (
-                DiagnosticSignal::OriginalObservation {
-                    condition: DiagnosticOriginalCondition::MssqlQueryHistory { query, .. },
-                    ..
-                },
-                Some(DiagnosticReport::OriginalObservation { .. }),
-            ) => (
-                SourceReadQuestion::CompilationHistory,
-                SourceReadPrerequisite::ObservedQueryHistoryFailure {
-                    query: NativeQueryIdentity { query_id: query.id.clone(), qualifiers: query.qualifiers.clone() },
-                },
-            ),
-            (DiagnosticSignal::LogRateGovernance { .. }, None) => {
-                (SourceReadQuestion::HyperscaleLogComponents, SourceReadPrerequisite::ObservedLogRateWait)
-            }
-            (
-                DiagnosticSignal::OriginalObservation {
-                    condition: DiagnosticOriginalCondition::MssqlCleanupBoundary { session, transaction },
-                    ..
-                },
-                Some(DiagnosticReport::OriginalObservation { .. }),
-            ) => (
-                SourceReadQuestion::TemporarySpaceContributors,
-                SourceReadPrerequisite::ObservedCleanupBoundary {
-                    session: session.clone(),
-                    transaction: transaction.clone(),
-                },
-            ),
-            _ => return Ok(None),
-        };
-        Ok(Some(SourceReadFocus {
-            basis: Box::new(if question == SourceReadQuestion::TemporarySpaceContributors {
-                self.latest.clone()
-            } else {
-                self.first.clone()
-            }),
-            target: self.scope.target.clone(),
-            question,
-            prerequisite,
-        }))
-    }
-
-    pub fn has_owed_question(&self) -> bool {
-        if self.lifecycle == DiagnosticLifecycle::Resolved
-            && self.source_read.as_deref().is_some_and(|stage| {
-                stage.focus.question == SourceReadQuestion::TemporarySpaceContributors && stage.needs_admission()
-            })
-        {
-            return false;
-        }
-        self.source_read.as_deref().map_or_else(|| self.analysis.needs_work(), SourceReadStage::needs_work)
-    }
-
-    /// Only the separately enrolled question owes work after the original gateway answer completes.
-    pub fn needs_question(&self, focus: &DiagnosticFocus) -> bool {
-        self.matches_focus(focus)
-            && match focus {
-                DiagnosticFocus::SourceRead { .. } => {
-                    self.source_read.as_deref().is_some_and(SourceReadStage::needs_work)
-                }
-                _ => self.source_read.is_none() && self.analysis.needs_work(),
-            }
-    }
-
-    /// Reuse the exact first, caller-authenticated receipt. A later same-key request or source cannot
-    /// supply the missing original member, native process, database incarnation or updateability.
-    pub fn plan_source_read_focus(
-        &self,
-        source: &CollectionDescription,
-        row: &ExportedRecord,
-    ) -> Result<DiagnosticFocusPlan> {
-        if !self.is_valid() {
-            return Err(invalid());
-        }
-        if self.source_read.as_deref().is_some_and(|stage| !stage.needs_admission()) {
-            return Ok(DiagnosticFocusPlan::NotRequired);
-        }
-        let Some(focus) = self.source_read_focus()? else { return Ok(DiagnosticFocusPlan::NotRequired) };
-        let context = focus.original_context(source)?;
-        let Ok(execution) = SourceReadExecutionScope::from_context(focus.question, &context) else {
-            return Ok(DiagnosticFocusPlan::Unavailable(DiagnosticAnalysisIssue::MissingNativeIdentity));
-        };
-        self.plan_source_read_for_execution(source, row, &execution)
-    }
-
-    /// Execution authority is separately authenticated by the existing route/cost owner. It may record a newer
-    /// known role without changing the original role, clocks, native member or local database/process epoch.
-    pub fn plan_source_read_for_execution(
-        &self,
-        source: &CollectionDescription,
-        row: &ExportedRecord,
-        execution: &SourceReadExecutionScope,
-    ) -> Result<DiagnosticFocusPlan> {
-        if !self.is_valid() {
-            return Err(invalid());
-        }
-        if self.source_read.as_deref().is_some_and(|stage| !stage.needs_admission()) {
-            return Ok(DiagnosticFocusPlan::NotRequired);
-        }
-        let Some(focus) = self.source_read_focus()? else { return Ok(DiagnosticFocusPlan::NotRequired) };
-        if focus.question == SourceReadQuestion::TemporarySpaceContributors
-            && self.lifecycle == DiagnosticLifecycle::Resolved
-        {
-            return Ok(DiagnosticFocusPlan::NotRequired);
-        }
-        focus.basis.validate_canonical_record(source, &row.record)?;
-        if !focus.matches_basis(source, row, execution)
-            || self.source_read.as_deref().is_some_and(|stage| stage.focus != focus)
-        {
-            return Ok(DiagnosticFocusPlan::Unavailable(DiagnosticAnalysisIssue::MissingNativeIdentity));
-        }
-        Ok(DiagnosticFocusPlan::Ready(Box::new(DiagnosticFocus::SourceRead { focus: Box::new(focus) })))
-    }
-
-    pub fn enroll_source_read(&self, focus: SourceReadFocus) -> Result<Self> {
-        if !self.is_valid() {
-            return Err(invalid());
-        }
-        let stage = SourceReadStage { focus, state: SourceReadStageState::Pending };
-        if !stage.matches_episode(self)
-            || (self.source_read.is_none()
-                && stage.focus.question == SourceReadQuestion::TemporarySpaceContributors
-                && stage.focus.basis.as_ref() != &self.latest)
-        {
-            return Err(invalid());
-        }
-        if let Some(existing) = &self.source_read {
-            if existing.focus != stage.focus {
-                return Err(invalid());
-            }
-            return Ok(self.clone());
-        }
-        let mut next = self.clone();
-        next.source_read = Some(Box::new(stage));
-        if !next.is_valid() {
-            return Err(invalid());
-        }
-        Ok(next)
-    }
-
-    pub fn transition_source_read(&self, state: SourceReadStageState) -> Result<Self> {
-        if !self.is_valid() {
-            return Err(invalid());
-        }
-        let mut next = self.clone();
-        next.source_read = Some(Box::new(self.source_read.as_deref().ok_or_else(invalid)?.transition(state)?));
-        if !next.is_valid() {
-            return Err(invalid());
-        }
-        Ok(next)
-    }
-
-    /// The caller authenticates the completed, settled capture. Only its original typed descriptor can
-    /// answer this stage; zero rows, partial coverage and unavailable sources retain their own native meaning.
-    pub fn complete_source_read(
-        &self,
-        intent: &DiagnosticInvestigationIntent,
-        source: &CollectionDescription,
-        capture: &DiagnosticCaptureRef,
-    ) -> Result<Self> {
-        if !self.is_valid()
-            || !self.needs_question(&intent.focus)
-            || !intent.matches_episode(self)
-            || !intent.matches_result_source(source)
-            || !matches!(source.observation, SourceObservation::SourceRead { .. })
-            || !source.observation.covers_request()
-            || !capture.is_valid()
-            || source.captured_range()?.scope_id != capture.source_scope_id
-        {
-            return Err(invalid());
-        }
-        if self
-            .source_read
-            .as_deref()
-            .is_some_and(|stage| stage.focus.question == SourceReadQuestion::TemporarySpaceContributors)
-        {
-            return Err(invalid());
-        }
-        self.transition_source_read(SourceReadStageState::Captured { capture: capture.clone() })
-    }
-
-    /// One successful completed capture is retained independently of its potentially large row population.
-    pub fn source_read_capture(&self) -> Option<&DiagnosticCaptureRef> {
-        self.source_read.as_deref().and_then(SourceReadStage::result)
-    }
-
-    pub fn accepts_source_read_transition(&self, next: &Self) -> bool {
-        match (&self.source_read, &next.source_read) {
-            (None, None) => true,
-            (None, Some(stage)) => {
-                matches!(stage.state, SourceReadStageState::Pending | SourceReadStageState::Deferred { .. })
-                    && self.report.as_ref().is_none_or(|report| {
-                        next.report.as_ref() == Some(report)
-                            && self.analysis == next.analysis
-                            && self.issue == next.issue
-                    })
-            }
-            (Some(before), Some(after)) => {
-                before.focus == after.focus
-                    && before.transition(after.state.clone()).is_ok()
-                    && self.analysis == next.analysis
-                    && match (&self.signal, &self.report, &next.report) {
-                        (
-                            DiagnosticSignal::OriginalObservation { .. },
-                            Some(DiagnosticReport::OriginalObservation { .. }),
-                            Some(DiagnosticReport::OriginalObservation { .. }),
-                        ) => self.issue == next.issue,
-                        _ => self.report == next.report,
-                    }
-            }
-            (Some(_), None) => false,
-        }
-    }
-}
-
 impl SourceObservation {
     pub fn execution_context(&self) -> Option<&NativeReadContext> {
         match self {

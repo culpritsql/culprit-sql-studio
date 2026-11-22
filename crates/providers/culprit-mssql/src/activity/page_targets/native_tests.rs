@@ -1,5 +1,6 @@
 //! Native qualification only on owned loopback databases. Workloads exist solely inside nonce fixture databases.
 mod contention;
+mod current_request_work;
 mod durable_capture;
 pub(crate) mod fixture;
 mod focused;

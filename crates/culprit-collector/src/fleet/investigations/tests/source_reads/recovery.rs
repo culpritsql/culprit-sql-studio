@@ -78,7 +78,7 @@ async fn ready_before_completion_survives_restart_and_settles_only_after_exact_o
         let [revision] = revisions.as_slice() else { panic!() };
         assert_eq!(revision.episode.report, original.report);
         assert_eq!(revision.episode.analysis, original.analysis);
-        assert_eq!(revision.episode.source_read_capture(), Some(&capture));
+        assert_eq!(revision.episode.source_read_capture(SourceReadQuestion::CompilationHistory), Some(&capture));
         runtime.reconcile().await;
         assert!(matches!(runtime.scheduler.focused_state(&job.key).unwrap().status, FocusStatus::Completed { .. }));
         runtime.reconcile().await;
@@ -151,11 +151,11 @@ async fn cold_pending_control_replays_exact_original_and_gateway_proofs_with_no_
     assert_eq!(answer.first, original.first);
     assert_eq!(answer.report, original.report);
     assert_eq!(answer.analysis, original.analysis);
-    assert_eq!(answer.source_read_capture(), Some(&capture));
+    assert_eq!(answer.source_read_capture(SourceReadQuestion::CompilationHistory), Some(&capture));
     assert_eq!(runtime.native_calls(), before);
 }
 
-pub(super) async fn archive_ready(
+pub(in crate::fleet::investigations::tests) async fn archive_ready(
     runtime: &mut Runtime,
     store: &FileRecoveryStore,
     fence: &Fence,

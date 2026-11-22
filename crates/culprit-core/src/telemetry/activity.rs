@@ -161,6 +161,12 @@ pub enum ActivityWaitClass {
     ExecutionGrant,
     /// A native optimizer admission wait. It identifies an affected request, not a memory holder.
     CompilationAdmission,
+    /// A source-native Subtrans cache/buffer wait, not proof of a SAVEPOINT workload.
+    SubtransactionMetadata,
+    /// A source-native MultiXact cache/generation/truncation wait, without an attributed row locker.
+    MultiTransactionMetadata,
+    /// Native THREADPOOL wait: affected work waiting to acquire a worker.
+    WorkerQueue,
 }
 
 #[derive(Serialize, Deserialize, TS, Clone, Debug, PartialEq, Eq)]
@@ -280,6 +286,10 @@ impl ActivityObservation {
                         resources.len() <= 64
                             && resources.iter().all(|resource| {
                                 resource.session == self.key.session.id
+                                    && resource
+                                        .native
+                                        .as_deref()
+                                        .is_none_or(|native| native.is_valid_for_lock(&self.key, resource))
                                     && [&resource.mode, &resource.resource]
                                         .into_iter()
                                         .flatten()
@@ -295,6 +305,14 @@ impl ActivityObservation {
             && self.statement_identity.as_ref().is_none_or(|identity| self.key.request.is_some() && identity.is_valid())
             && self.client.as_ref().is_none_or(ActivityClient::is_valid)
             && self.statement.is_valid()
+    }
+    /// Canonical publication and retained frames use the same source/clock guard for optional native points.
+    pub(crate) fn native_locks_fit_source(&self, source: &CollectionDescription) -> bool {
+        self.wait.as_ref().and_then(|wait| wait.resources.as_ref()).is_none_or(|resources| {
+            resources
+                .iter()
+                .all(|resource| resource.native.as_deref().is_none_or(|native| native.accepts_source(source)))
+        })
     }
     pub fn redact(&mut self, engine: crate::Engine) {
         if let DefinitionPayload::Available { text, .. } = &self.statement {

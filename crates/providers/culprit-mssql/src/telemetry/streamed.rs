@@ -218,48 +218,55 @@ impl<D: SnapshotRecipe, R: NativeStreamRead> culprit_read::SnapshotReader for Na
         D::SOURCE_READ == Some(question)
     }
     async fn describe(&mut self, request: &CollectionRequest) -> Result<CollectionDescription> {
-        let (target, partition, observed_from, metadata_visible) =
-            if self.source_read.is_some() || self.purpose == SnapshotPurpose::NativeCostMeasurement {
-                description::ensure_supported(&mut self.io).await?;
-                // Replace the existing Azure identity projection with the held reader's native authority projection.
-                // This does not add a query or turn updateability into Primary/Secondary identity.
-                let (context, _) = crate::local_source::read_initial(
-                    &mut self.io,
-                    &self.host,
-                    self.port,
-                    crate::activity::IdentityDetail::AzureDatabase,
-                    crate::local_source::Detail::Authority,
-                )
-                .await?;
-                let actual = context.completed(&context)?;
-                if self.purpose == SnapshotPurpose::NativeCostMeasurement && self.source_read.is_none() {
-                    NativeSourceReadScope::from_context(&actual)?;
-                }
-                if self.source_read.as_ref().is_some_and(|expected| !expected.execution.matches_context(&actual)) {
-                    return Err(CollectionStop::SourceChanged.error());
-                }
-                let visible = state::clock(&mut self.io).await?.1;
-                let target = actual.target.clone();
-                let observed_from = actual.observed_from.clone();
-                self.authority = SnapshotAuthority::Local(Box::new(context));
-                (target, SourcePartition::Target, observed_from, visible)
-            } else if D::ACQUISITION.uses_local_authority() {
-                let context = crate::local_source::Context::read(&mut self.io, &self.host, self.port).await?;
-                D::ACQUISITION.require_cache_owner(&context)?;
-                self.recipe.require_platform(&context)?;
-                let partition = context.source_partition()?;
-                let observed_from = context.activity.at.clone();
-                let target = context.activity.database.clone().into();
-                let visible = if D::REQUIRES_FULL_METADATA { state::clock(&mut self.io).await?.1 } else { true };
-                self.authority = SnapshotAuthority::Local(Box::new(context));
-                (target, partition, observed_from, visible)
-            } else {
-                description::ensure_supported(&mut self.io).await?;
-                let (database, physical) = description::identity(&mut self.io, &self.host, self.port).await?;
-                let (at, visible) = state::clock(&mut self.io).await?;
-                self.authority = SnapshotAuthority::AzureLogical { physical_incarnation: physical };
-                (database.into(), SourcePartition::Target, at, visible)
-            };
+        let (target, partition, observed_from, metadata_visible) = if self.source_read.is_some()
+            && !D::ACQUISITION.uses_local_authority()
+            || self.purpose == SnapshotPurpose::NativeCostMeasurement
+        {
+            description::ensure_supported(&mut self.io).await?;
+            // Replace the existing Azure identity projection with the held reader's native authority projection.
+            // This does not add a query or turn updateability into Primary/Secondary identity.
+            let (context, _) = crate::local_source::read_initial(
+                &mut self.io,
+                &self.host,
+                self.port,
+                crate::activity::IdentityDetail::AzureDatabase,
+                crate::local_source::Detail::Authority,
+            )
+            .await?;
+            let actual = context.completed(&context)?;
+            if self.purpose == SnapshotPurpose::NativeCostMeasurement && self.source_read.is_none() {
+                NativeSourceReadScope::from_context(&actual)?;
+            }
+            if self.source_read.as_ref().is_some_and(|expected| !expected.execution.matches_context(&actual)) {
+                return Err(CollectionStop::SourceChanged.error());
+            }
+            let visible = state::clock(&mut self.io).await?.1;
+            let target = actual.target.clone();
+            let observed_from = actual.observed_from.clone();
+            self.authority = SnapshotAuthority::Local(Box::new(context));
+            (target, SourcePartition::Target, observed_from, visible)
+        } else if D::ACQUISITION.uses_local_authority() {
+            let context = crate::local_source::Context::read(&mut self.io, &self.host, self.port).await?;
+            D::ACQUISITION.require_cache_owner(&context)?;
+            self.recipe.require_platform(&context)?;
+            let actual = context.completed(&context)?;
+            if self.source_read.as_ref().is_some_and(|expected| !expected.execution.matches_context(&actual)) {
+                return Err(CollectionStop::SourceChanged.error());
+            }
+            let partition =
+                if self.source_read.is_some() { SourcePartition::Target } else { context.source_partition()? };
+            let observed_from = context.activity.at.clone();
+            let target = context.activity.database.clone().into();
+            let visible = if D::REQUIRES_FULL_METADATA { state::clock(&mut self.io).await?.1 } else { true };
+            self.authority = SnapshotAuthority::Local(Box::new(context));
+            (target, partition, observed_from, visible)
+        } else {
+            description::ensure_supported(&mut self.io).await?;
+            let (database, physical) = description::identity(&mut self.io, &self.host, self.port).await?;
+            let (at, visible) = state::clock(&mut self.io).await?;
+            self.authority = SnapshotAuthority::AzureLogical { physical_incarnation: physical };
+            (database.into(), SourcePartition::Target, at, visible)
+        };
         if D::REQUIRES_FULL_METADATA && !metadata_visible {
             return Err(crate::catalog_visibility::unavailable());
         }
@@ -322,12 +329,13 @@ impl<D: SnapshotRecipe, R: NativeStreamRead> culprit_read::SnapshotReader for Na
             self.recipe.recheck(&mut self.io, layout).await?;
         }
         if let SnapshotAuthority::Local(before) = &self.authority {
-            let source_visibility =
-                if self.source_read.is_some() || self.purpose == SnapshotPurpose::NativeCostMeasurement {
-                    Some(state::clock(&mut self.io).await?.1)
-                } else {
-                    None
-                };
+            let source_visibility = if self.source_read.is_some() && !D::ACQUISITION.uses_local_authority()
+                || self.purpose == SnapshotPurpose::NativeCostMeasurement
+            {
+                Some(state::clock(&mut self.io).await?.1)
+            } else {
+                None
+            };
             let after = before.recheck(&mut self.io, &self.host, self.port).await?;
             if matches!(D::ACQUISITION, SnapshotAcquisition::KnownReadableDatabaseCache) && !before.same_source(&after)
             {

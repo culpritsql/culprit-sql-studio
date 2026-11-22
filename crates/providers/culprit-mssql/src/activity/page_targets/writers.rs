@@ -243,8 +243,8 @@ impl<R: NativeRead> ActivityReader<R> {
             {
                 return Err(invalid_data());
             }
-            let statement = crate::cached_payload::read(row, "statement_bytes", "statement", cap.statement)?.0;
-            let plan = crate::cached_payload::read(row, "plan_bytes", "plan", cap.plan)?.0;
+            let bodies = crate::activity::participants::payloads::decode(row, cap.statement, cap.plan)?;
+            let (statement, plan) = (bodies.statement, bodies.plan);
             if payloads.insert(ordinal, (statement, plan)).is_some() {
                 return Err(invalid_data());
             }

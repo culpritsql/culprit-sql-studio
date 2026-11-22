@@ -134,13 +134,14 @@ async fn capture_with_profile<R: crate::read::QueryRead>(
         let owner = owner.as_ref().ok_or_else(|| CollectionStop::SourceChanged.error())?;
         profile.bind_native(&owner.read_context()?, reader.connection_generation())?;
     }
-    let read = activity::observe_baseline_rows(
+    let mut read = activity::observe_baseline_rows(
         reader,
         &activity::query(before.version, request.budget.max_snapshot_rows as usize + 1),
         &before.database_oid,
         &request.budget,
     )
     .await?;
+    activity::transaction_metadata::classify(&mut read.frame);
     if read.frame.records.iter().any(|row| {
         row.native_text("backend_type").as_deref() != Some("client backend")
             || row.native_text("database_oid").as_deref() != Some(before.database_oid.as_str())

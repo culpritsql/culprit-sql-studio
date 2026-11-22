@@ -1,6 +1,7 @@
-use super::super::{case, owned_fixture};
+use super::super::owned_fixture;
 use crate::{
     connect::Connector,
+    native_test_support::case,
     read::{NativeRead, QueryRead, ReadSession},
 };
 use culprit_core::{ConnectionSpec, SourceState, telemetry::*};

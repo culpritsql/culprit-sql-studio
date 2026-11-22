@@ -165,3 +165,37 @@ async fn automatic_query_compilation_answers_require_original_recovery_and_prese
         assert_eq!(restored.metrics().recovery_objects, 1);
     }
 }
+
+#[tokio::test]
+async fn worker_point_requires_exact_original_recovery_and_preserves_shared_scope_native_unknowns_and_foreign_queries()
+{
+    for shared in [false, true] {
+        let (source, records) = test_support::worker_starvation_evidence(shared);
+        let fixture = Fixture::new(source.clone(), records.clone()).await;
+        fixture.replies(vec![fixture.rows.clone()]);
+        let preview = fixture
+            .reader
+            .read_capture(&fixture.range, &[EvidenceFamily::OperationalSamples], EvidenceReadBudget::default(), None)
+            .await
+            .unwrap();
+        assert!(!preview.is_read_complete());
+        assert!(preview.records().is_empty());
+        assert!(preview.gaps().iter().any(|gap| gap.reason == EvidenceGapReason::NativeRepresentationRequired));
+        *fixture.recovery.fault.lock().unwrap() = Fault::None;
+        fixture.replies(vec![fixture.rows.clone()]);
+        let restored = fixture
+            .reader
+            .read_capture(
+                &fixture.range,
+                &[EvidenceFamily::OperationalSamples],
+                EvidenceReadBudget {
+                    recovery_payloads: Some(RecoveryPayloadBudget::default()),
+                    ..EvidenceReadBudget::default()
+                },
+                Some(fixture.recovery.as_ref()),
+            )
+            .await
+            .unwrap();
+        test_support::assert_worker_starvation_capture(&restored, &source, &records);
+    }
+}

@@ -19,10 +19,9 @@ async fn fixture_with_age(qualified: bool, boundary: bool, age: Option<&str>) ->
             fact: OperationalFact::MssqlCleanupHorizon(horizon),
             ..
         }) = record
+            && let Some(transaction) = &mut horizon.oldest_confirmed
         {
-            if let Some(transaction) = &mut horizon.oldest_confirmed {
-                transaction.age_seconds = age.map(str::to_owned);
-            }
+            transaction.age_seconds = age.map(str::to_owned);
         }
     }
     if !boundary {
@@ -84,7 +83,10 @@ async fn episode(runtime: &Runtime) -> DiagnosticEpisode {
         .unwrap()
 }
 
-async fn latest_history_episode(runtime: &Runtime, episode_id: &str) -> DiagnosticEpisode {
+pub(in crate::fleet::investigations) async fn latest_history_episode(
+    runtime: &Runtime,
+    episode_id: &str,
+) -> DiagnosticEpisode {
     use crate::outbox::{CompletedCaptureBudget, CompletedCaptureLookup};
     let status = runtime.fixture.outbox.status(100, None).await.unwrap();
     assert!(status.next_cursor.is_none(), "the controlled retained history fits this complete selection");
@@ -184,9 +186,13 @@ async fn recover(runtime: &mut Runtime) {
 async fn cleanup_signal_enrolls_one_qualified_question_and_retains_multiple_nonexclusive_native_contexts() {
     let mut runtime = Runtime::from_fixture(fixture(true, true).await).await;
     let original = episode(&runtime).await;
-    assert!(original.source_read.as_ref().unwrap().needs_admission());
+    assert!(original.source_reads.get(SourceReadQuestion::TemporarySpaceContributors).unwrap().needs_admission());
     let (capture, answered) = complete(&mut runtime).await;
-    let SourceReadStageState::Answered { answer } = &answered.source_read.as_ref().unwrap().state else { panic!() };
+    let SourceReadStageState::Answered { answer } =
+        &answered.source_reads.get(SourceReadQuestion::TemporarySpaceContributors).unwrap().state
+    else {
+        panic!()
+    };
     let SourceReadAnswer::TemporaryResources(answer) = answer.as_ref() else { panic!("temporary resource answer") };
     assert_eq!(answer.basis, original.first);
     assert_eq!(answer.result, capture);
@@ -215,7 +221,7 @@ async fn unqualified_and_healthy_originals_open_no_competing_source_and_keep_exp
     let mut unqualified = Runtime::from_fixture(fixture(false, true).await).await;
     let original = episode(&unqualified).await;
     assert!(matches!(
-        original.source_read.as_ref().unwrap().state,
+        original.source_reads.get(SourceReadQuestion::TemporarySpaceContributors).unwrap().state,
         SourceReadStageState::Deferred { issue: DiagnosticAnalysisIssue::CostUnqualified }
     ));
     assert!(!unqualified.enroll().await);
@@ -229,7 +235,7 @@ async fn unqualified_and_healthy_originals_open_no_competing_source_and_keep_exp
 async fn partial_native_allocations_answer_only_context_and_preserve_missing_competing_mechanisms() {
     let mut runtime = Runtime::from_fixture(fixture(true, true).await).await;
     let original = episode(&runtime).await;
-    let focus = &original.source_read.as_ref().unwrap().focus;
+    let focus = &original.source_reads.get(SourceReadQuestion::TemporarySpaceContributors).unwrap().focus;
     let execution = SourceReadExecutionScope::from_context(
         focus.question,
         &NativeReadContext::from_snapshot(&runtime.fixture.backend.activity.source).unwrap(),
@@ -238,7 +244,11 @@ async fn partial_native_allocations_answer_only_context_and_preserve_missing_com
     let (source, records) = temporary_resource_result(focus, &execution, culprit_core::SourceState::Partial);
     runtime.fixture.backend.source_read_result = Some(Frame { source, records });
     let (_, answered) = complete(&mut runtime).await;
-    let SourceReadStageState::Answered { answer } = &answered.source_read.as_ref().unwrap().state else { panic!() };
+    let SourceReadStageState::Answered { answer } =
+        &answered.source_reads.get(SourceReadQuestion::TemporarySpaceContributors).unwrap().state
+    else {
+        panic!()
+    };
     let SourceReadAnswer::TemporaryResources(answer) = answer.as_ref() else { panic!("temporary resource answer") };
     assert_eq!(answer.source_state, culprit_core::SourceState::Partial);
     assert_eq!(answer.observed_tasks, 5);
@@ -265,8 +275,11 @@ async fn source_failure_and_cancellation_keep_attempt_original_and_native_retire
         }
         let stopped = episode(&runtime).await;
         assert_eq!(stopped.first, original.first);
-        assert!(matches!(stopped.source_read.as_ref().unwrap().state, SourceReadStageState::Stopped { .. }));
-        assert!(stopped.source_read_capture().is_none());
+        assert!(matches!(
+            stopped.source_reads.get(SourceReadQuestion::TemporarySpaceContributors).unwrap().state,
+            SourceReadStageState::Stopped { .. }
+        ));
+        assert!(stopped.source_read_capture(SourceReadQuestion::TemporarySpaceContributors).is_none());
         assert_eq!(runtime.native_calls()[3], 1, "failed source is not verified after failure");
         assert_eq!(runtime.native_calls()[4], 2, "same admitted reader retains close ownership");
         if stop != CollectionStop::CancellationUnconfirmed {
@@ -282,7 +295,10 @@ async fn qualified_recovery_stops_new_question_but_preserves_prior_answer_and_ne
     let recovered = latest_history_episode(&pending, &before.id).await;
     assert_eq!(recovered.lifecycle, DiagnosticLifecycle::Resolved);
     assert_eq!(recovered.first, before.first);
-    assert_eq!(recovered.source_read.as_ref().unwrap().state, SourceReadStageState::Recovered);
+    assert_eq!(
+        recovered.source_reads.get(SourceReadQuestion::TemporarySpaceContributors).unwrap().state,
+        SourceReadStageState::Recovered
+    );
     assert!(episodes(&pending).await.is_empty(), "terminal cleanup work leaves the live working set");
     assert!(!pending.enroll().await);
     assert_eq!(pending.native_calls(), [1; 5], "offline recovery never opens the competing source");
@@ -292,7 +308,7 @@ async fn qualified_recovery_stops_new_question_but_preserves_prior_answer_and_ne
     recover(&mut answered).await;
     let recovered = latest_history_episode(&answered, &before.id).await;
     assert_eq!(recovered.lifecycle, DiagnosticLifecycle::Resolved);
-    assert_eq!(recovered.source_read, before.source_read);
+    assert_eq!(recovered.source_reads, before.source_reads);
     assert_eq!(recovered.first, before.first);
     assert!(episodes(&answered).await.is_empty());
     assert!(!answered.enroll().await);
@@ -306,7 +322,7 @@ async fn ordinary_or_unknown_age_boundaries_remain_visible_without_taskspace_enr
         let original = episode(&runtime).await;
         assert!(matches!(original.report, Some(DiagnosticReport::OriginalObservation { .. })));
         assert_eq!(original.lifecycle, DiagnosticLifecycle::Active);
-        assert!(original.source_read.is_none(), "{age:?}");
+        assert!(original.source_reads.is_empty(), "{age:?}");
         assert!(!runtime.enroll().await);
         assert_eq!(runtime.native_calls(), [1; 5], "cost-qualified healthy context opens no follow-up");
     }
@@ -316,11 +332,14 @@ async fn ordinary_or_unknown_age_boundaries_remain_visible_without_taskspace_enr
 async fn the_existing_attention_boundary_enrolls_only_with_its_exact_native_original_and_cost_gate() {
     let mut runtime = Runtime::from_fixture(fixture_with_age(true, true, Some("1800")).await).await;
     let original = episode(&runtime).await;
-    let stage = original.source_read.as_ref().unwrap();
+    let stage = original.source_reads.get(SourceReadQuestion::TemporarySpaceContributors).unwrap();
     assert_eq!(*stage.focus.basis, original.first);
     assert_ne!(*stage.focus.basis, original.latest, "a later baseline cannot replace the first adverse receipt");
     assert!(matches!(stage.focus.prerequisite, SourceReadPrerequisite::ObservedCleanupBoundary { .. }));
     let (_, answered) = complete(&mut runtime).await;
-    assert!(matches!(answered.source_read.as_ref().unwrap().state, SourceReadStageState::Answered { .. }));
+    assert!(matches!(
+        answered.source_reads.get(SourceReadQuestion::TemporarySpaceContributors).unwrap().state,
+        SourceReadStageState::Answered { .. }
+    ));
     assert_eq!(runtime.native_calls(), [2; 5]);
 }

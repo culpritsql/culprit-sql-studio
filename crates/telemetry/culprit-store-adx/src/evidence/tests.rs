@@ -549,3 +549,5 @@ mod incident_discovery;
 mod derived_outputs;
 
 mod resource_discovery;
+
+mod transaction_metadata;

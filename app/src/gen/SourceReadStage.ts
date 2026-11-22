@@ -2,8 +2,4 @@
 import type { SourceReadFocus } from "./SourceReadFocus";
 import type { SourceReadStageState } from "./SourceReadStageState";
 
-/**
- * The completed waiter/gateway answer stays immutable. This separately owed question transitions only through
- * revision/event history, and retains one successful capture rather than a per-row compiler roster.
- */
 export type SourceReadStage = { focus: SourceReadFocus, state: SourceReadStageState, };

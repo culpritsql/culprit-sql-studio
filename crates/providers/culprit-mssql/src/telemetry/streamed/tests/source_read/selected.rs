@@ -31,7 +31,7 @@ fn original_query(query_id: &str) -> OriginalQuery {
             acquisition_owner: Some(Box::new(NativeReadContext {
                 target: focus.target.clone(),
                 partition: execution.partition().clone(),
-                database_writable: Some(execution.database_writable()),
+                database_writable: execution.database_writable(),
                 observed_from: "2020-01-01T08:00:00Z".into(),
                 observed_until: FIRST.into(),
             })),

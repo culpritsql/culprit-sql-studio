@@ -54,11 +54,20 @@ pub(crate) fn statement_plan_relation(cache: &str, plan: &str) -> String {
 
 /// Select the bounded native statement set before optional plan payload functions are requested.
 pub(crate) fn selected_statements() -> String {
-    format!(
+    selected_statements_for(false)
+}
+pub(crate) fn selected_statements_for(selected: bool) -> String {
+    let mut sql = format!(
         "SELECT TOP (@P1) qs.plan_handle,qs.sql_handle,qs.statement_start_offset,qs.statement_end_offset,qs.creation_time,qs.plan_generation_num,qs.query_hash,qs.query_plan_hash,qs.execution_count,qs.last_execution_time,CAST(pa.value AS int) AS compilation_database_id,st.text,st.dbid,st.objectid,st.number,st.encrypted {} WHERE {}",
         relation(),
         DATABASE_PREDICATE
-    )
+    );
+    if selected {
+        // Known native handle/offset tokens only. Keep creation/generation in the returned original so a
+        // different incarnation remains an explicit answer gap instead of being filtered into absence.
+        sql.push_str(" AND qs.plan_handle=CONVERT(varbinary(64),@P2,1) AND qs.sql_handle=CONVERT(varbinary(64),@P3,1) AND qs.statement_start_offset=@P4 AND qs.statement_end_offset=@P5");
+    }
+    sql
 }
 pub(crate) fn context(row: &Rec) -> Result<CachedStatementContext> {
     let prefix = optional_text(row, "text_prefix")?;

@@ -41,7 +41,7 @@ pub fn analyze_diagnostic_compilation_admission(
     let mut episodes = Vec::new();
     for before in &previous.episodes {
         let mut next = before.clone();
-        if before.source_read.is_none()
+        if before.source_reads.is_empty()
             && before.analysis.needs_work()
             && before.matches_compilation_admission_focus(&result.focus)
             && intent.is_none_or(|intent| intent.matches_episode(before))

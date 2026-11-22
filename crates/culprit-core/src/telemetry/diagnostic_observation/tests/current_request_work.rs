@@ -59,6 +59,29 @@ fn original() -> (DiagnosticObservationUpdate, ActivityRequestFocus) {
     (update, focus)
 }
 
+#[test]
+fn later_token_loss_preserves_the_pinned_original_question_without_borrowing_a_replacement() {
+    let first = current_frame(1, vec![current_actor()], true);
+    let observed = observe(&first, None);
+    let mut missing = current_actor();
+    missing.statement_identity = None;
+    let later = current_frame(2, vec![missing], true);
+    let updated = observe(&later, Some(&observed.checkpoint));
+    let episode = &updated.checkpoint.episodes[0];
+    assert_eq!(episode.first, first.2[0].0);
+    assert_eq!(episode.latest, later.2[0].0);
+    assert_eq!(episode.analysis, DiagnosticAnalysisStatus::Pending);
+    assert!(episode.issue.is_none() && updated.focuses.is_empty());
+    assert!(matches!(
+        episode.plan_focus(&first.0, &first.2[0].1, &first.2[0].0).unwrap(),
+        DiagnosticFocusPlan::Ready(_)
+    ));
+    assert_eq!(
+        episode.plan_focus(&later.0, &later.2[0].1, &later.2[0].0).unwrap(),
+        DiagnosticFocusPlan::Unavailable(DiagnosticAnalysisIssue::MissingNativeIdentity)
+    );
+}
+
 fn result(
     focus: &ActivityRequestFocus,
     binding: FocusedRequestBinding,

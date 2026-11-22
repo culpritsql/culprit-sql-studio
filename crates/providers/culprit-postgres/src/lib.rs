@@ -446,6 +446,7 @@ impl Provider for PostgresProvider {
                     version: meta.version,
                     database_oid: &meta.database_oid,
                     max_snapshot_rows: budget.max_snapshot_rows as usize,
+                    lock_projection: crate::native::activity::LockProjection::Labels,
                 },
             )
             .await?;

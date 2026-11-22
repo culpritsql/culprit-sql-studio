@@ -7,7 +7,7 @@ import type { DiagnosticRecoveryProof } from "./DiagnosticRecoveryProof";
 import type { DiagnosticReport } from "./DiagnosticReport";
 import type { DiagnosticScope } from "./DiagnosticScope";
 import type { DiagnosticSignal } from "./DiagnosticSignal";
-import type { SourceReadStage } from "./SourceReadStage";
+import type { SourceReadStages } from "./SourceReadStages";
 
 export type DiagnosticEpisode = { id: string, scope: DiagnosticScope, signal: DiagnosticSignal, 
 /**
@@ -15,9 +15,9 @@ export type DiagnosticEpisode = { id: string, scope: DiagnosticScope, signal: Di
  */
 revision: string, lifecycle: DiagnosticLifecycle, analysis: DiagnosticAnalysisStatus, report: DiagnosticReport | null, 
 /**
- * A separately owed historical question never replaces the completed waiter/gateway answer.
+ * Finite independently owed questions never replace the completed waiter/gateway answer.
  */
-source_read?: SourceReadStage, issue: DiagnosticAnalysisIssue | null, first_seen_at: string, last_seen_at: string, first: DiagnosticEvidenceRef, peak: DiagnosticEvidenceRef | null, latest: DiagnosticEvidenceRef, 
+source_reads: SourceReadStages, issue: DiagnosticAnalysisIssue | null, first_seen_at: string, last_seen_at: string, first: DiagnosticEvidenceRef, peak: DiagnosticEvidenceRef | null, latest: DiagnosticEvidenceRef, 
 /**
  * Recovery is a qualified complete capture; absence does not have a native row receipt.
  */

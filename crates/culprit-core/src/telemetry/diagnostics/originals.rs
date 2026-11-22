@@ -12,6 +12,7 @@ pub enum DiagnosticSourceKind {
     Cleanup,
     TaskSpace,
     QueryHistory,
+    WorkerQueues,
 }
 impl DiagnosticSourceKind {
     /// Eligible collection families only; native original headers/rows still establish actual applicability.
@@ -20,7 +21,8 @@ impl DiagnosticSourceKind {
             collection,
             TelemetryCollection::QueryHistory
                 | TelemetryCollection::Snapshot(
-                    SnapshotDataset::Cleanup
+                    SnapshotDataset::Operational
+                        | SnapshotDataset::Cleanup
                         | SnapshotDataset::TaskSpace
                         | SnapshotDataset::MemoryFailures
                         | SnapshotDataset::NativeFailures
@@ -56,6 +58,8 @@ impl DiagnosticPopulation {
 #[ts(export)]
 pub enum DiagnosticOriginalCondition {
     MssqlOutOfMemory,
+    /// Positive native worker wait/work queue only; no actor or selected-database ownership is invented.
+    MssqlWorkerQueue,
     MysqlError,
     PostgresFailure,
     MssqlCleanupBoundary {
@@ -79,6 +83,7 @@ impl DiagnosticOriginalCondition {
     fn source_kind(&self) -> DiagnosticSourceKind {
         match self {
             Self::MssqlOutOfMemory => DiagnosticSourceKind::MemoryFailures,
+            Self::MssqlWorkerQueue => DiagnosticSourceKind::WorkerQueues,
             Self::MysqlError | Self::PostgresFailure => DiagnosticSourceKind::NativeFailures,
             Self::MssqlCleanupBoundary { .. } => DiagnosticSourceKind::Cleanup,
             Self::MssqlTemporarySpace { .. } => DiagnosticSourceKind::TaskSpace,
@@ -108,7 +113,7 @@ impl DiagnosticOriginalCondition {
                     && cohort.is_valid()
                     && cohort.qualifiers.get("execution_type") == Some(&execution_type.to_string())
             }
-            Self::MssqlOutOfMemory | Self::MysqlError | Self::PostgresFailure => true,
+            Self::MssqlOutOfMemory | Self::MssqlWorkerQueue | Self::MysqlError | Self::PostgresFailure => true,
         }
     }
     pub(super) fn accepts_identity(&self, key: &NativeRecordIdentity) -> bool {
@@ -123,6 +128,7 @@ impl DiagnosticOriginalCondition {
             }
             (
                 Self::MssqlOutOfMemory
+                | Self::MssqlWorkerQueue
                 | Self::MysqlError
                 | Self::PostgresFailure
                 | Self::MssqlCleanupBoundary { .. }
@@ -140,6 +146,11 @@ impl DiagnosticOriginalCondition {
     pub fn from_record(source: &CollectionDescription, record: &TelemetryRecord) -> Option<Self> {
         let source_kind = diagnostic_original_source_kind(source)?;
         let condition = match (source_kind, record) {
+            (DiagnosticSourceKind::WorkerQueues, TelemetryRecord::Operational(row))
+                if worker_starvation::positive_worker_queue(row) =>
+            {
+                Self::MssqlWorkerQueue
+            }
             (
                 DiagnosticSourceKind::MemoryFailures,
                 TelemetryRecord::Operational(OperationalObservation {
@@ -237,9 +248,9 @@ pub(super) fn scope(source: &CollectionDescription) -> Result<DiagnosticScope> {
         source: source.source.clone(),
         population: DiagnosticPopulation::Source { source: kind, range: source.observation.range()?.canonical()? },
         measurement_scope: match kind {
-            DiagnosticSourceKind::MemoryFailures | DiagnosticSourceKind::NativeFailures => {
-                crate::MeasurementScope::Server
-            }
+            DiagnosticSourceKind::MemoryFailures
+            | DiagnosticSourceKind::NativeFailures
+            | DiagnosticSourceKind::WorkerQueues => crate::MeasurementScope::Server,
             _ => crate::MeasurementScope::Database,
         },
         // Query history remains in its data namespace. The present acquisition process is not a historical executor.
@@ -294,10 +305,14 @@ impl DiagnosticEpisode {
                 (
                     CollectionTarget::Shared(owner),
                     SourcePartition::InstanceLocal { member: Some(member), epoch: Some(_) },
-                    DiagnosticSourceKind::MemoryFailures | DiagnosticSourceKind::NativeFailures,
+                    DiagnosticSourceKind::MemoryFailures
+                    | DiagnosticSourceKind::NativeFailures
+                    | DiagnosticSourceKind::WorkerQueues,
                 ) => {
                     owner == member
-                        && owner.kind == SharedResourceKind::Instance
+                        && (owner.kind == SharedResourceKind::Instance
+                            || condition.source_kind() == DiagnosticSourceKind::WorkerQueues
+                                && owner.kind == SharedResourceKind::Node)
                         && self.scope.measurement_scope == crate::MeasurementScope::Server
                 }
                 (
@@ -305,7 +320,8 @@ impl DiagnosticEpisode {
                     _,
                     DiagnosticSourceKind::Cleanup
                     | DiagnosticSourceKind::TaskSpace
-                    | DiagnosticSourceKind::QueryHistory,
+                    | DiagnosticSourceKind::QueryHistory
+                    | DiagnosticSourceKind::WorkerQueues,
                 ) => true,
                 _ => false,
             }

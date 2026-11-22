@@ -272,26 +272,38 @@ impl FleetBackend for Backend {
                     let intent =
                         admission.investigation.as_ref().expect("source history retains its exact admitted question");
                     assert_eq!(intent.selection().unwrap(), request.selection);
-                    self.source_read_result.clone().unwrap_or_else(|| match focus.question {
-                        SourceReadQuestion::CompilationHistory => {
-                            if matches!(focus.prerequisite, SourceReadPrerequisite::ObservedQueryHistoryFailure { .. })
-                            {
-                                super::source_reads::query_history::frame(&self.activity, focus, execution)
-                            } else {
-                                super::source_reads::frame(
-                                    focus,
-                                    execution.logical().expect("logical compilation owner"),
-                                )
+                    if let Some(frame) = &self.source_read_result {
+                        frame.clone()
+                    } else {
+                        match focus.question {
+                            SourceReadQuestion::CompilationHistory => {
+                                if matches!(
+                                    focus.prerequisite,
+                                    SourceReadPrerequisite::ObservedQueryHistoryFailure { .. }
+                                ) {
+                                    super::source_reads::query_history::frame(&self.activity, focus, execution)
+                                } else {
+                                    super::source_reads::frame(
+                                        focus,
+                                        execution.logical().expect("logical compilation owner"),
+                                    )
+                                }
+                            }
+                            SourceReadQuestion::HyperscaleLogComponents => super::source_reads::log_rates::frame(
+                                focus,
+                                execution.logical().expect("logical log owner"),
+                            ),
+                            SourceReadQuestion::RelationalInputContext | SourceReadQuestion::TransactionMetadata => {
+                                return Err(DeliveryProblem::Integrity.error());
+                            }
+                            SourceReadQuestion::TemporarySpaceContributors => {
+                                super::source_reads::temporary::frame(focus, execution)
+                            }
+                            SourceReadQuestion::WorkerStarvation => {
+                                super::source_reads::workers::frame(focus, execution)
                             }
                         }
-                        SourceReadQuestion::HyperscaleLogComponents => super::source_reads::log_rates::frame(
-                            focus,
-                            execution.logical().expect("logical log owner"),
-                        ),
-                        SourceReadQuestion::TemporarySpaceContributors => {
-                            super::source_reads::temporary::frame(focus, execution)
-                        }
-                    })
+                    }
                 }
                 CollectionSelection::FocusedCompilationAdmission { focus } => {
                     let intent =
@@ -401,6 +413,10 @@ impl Harness {
         Self::build(0, Some(fence), FixtureRoutes::Database, Some(activity)).await
     }
 
+    pub(in crate::fleet::investigations) async fn with_shared_original(original: Frame) -> Self {
+        assert!(matches!(original.source.target, CollectionTarget::Shared(_)));
+        Self::build(0, None, FixtureRoutes::Shared, Some(original)).await
+    }
     pub(in crate::fleet::investigations) async fn shared() -> Self {
         Self::build(1, None, FixtureRoutes::Shared, None).await
     }
@@ -439,7 +455,13 @@ impl Harness {
             outbox.begin_remote_epoch(fence, 0).await.unwrap();
         }
         let mut source = fixture.baseline_source.clone();
-        let shared = (!matches!(routes, FixtureRoutes::Database)).then(shared_frame);
+        let shared = (!matches!(routes, FixtureRoutes::Database)).then(|| {
+            supplied
+                .as_ref()
+                .filter(|frame| matches!(frame.source.target, CollectionTarget::Shared(_)))
+                .cloned()
+                .unwrap_or_else(shared_frame)
+        });
         if let Some(shared) = &shared {
             let CollectionTarget::Shared(member) = &shared.source.target else { panic!() };
             source.partition = SourcePartition::InstanceLocal {

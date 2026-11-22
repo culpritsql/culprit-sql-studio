@@ -1,5 +1,5 @@
 //! One fixture backend owns its original query until completion; labels never select a native participant.
-use super::super::case;
+use super::case;
 use crate::{
     connect::{Connector, map_error},
     rows::tagged,
@@ -13,12 +13,13 @@ use std::time::Duration;
 use tokio::{task::JoinHandle, time::timeout};
 use tokio_postgres::{CancelToken, Client};
 
-pub(super) const CONTROL_TIMEOUT: Duration = Duration::from_secs(3);
-pub(super) const SHARED_APPLICATION: &str = "fixture-shared-pooled-driver";
+pub(crate) const CONTROL_TIMEOUT: Duration = Duration::from_secs(3);
+#[cfg(test)]
+pub(crate) const SHARED_APPLICATION: &str = "fixture-shared-pooled-driver";
 const ACTOR_STATEMENT_TIMEOUT: &str = "50s";
 type Completed = (Client, Result<()>);
 
-pub(super) struct Actor {
+pub(crate) struct Actor {
     pub identity: NativeActivityIdentity,
     client: Option<Client>,
     task: Option<JoinHandle<Completed>>,
@@ -26,6 +27,7 @@ pub(super) struct Actor {
     connector: Connector,
     cancellation: CollectionCancellation,
     pub queries: u32,
+    pub cancellation_attempts: u32,
     settlement_failed: bool,
 }
 impl Actor {
@@ -70,9 +72,11 @@ impl Actor {
             connector: connector.clone(),
             cancellation: cancellation.clone(),
             queries: 2,
+            cancellation_attempts: 0,
             settlement_failed: false,
         })
     }
+    #[cfg(test)]
     pub async fn hold_gate(&mut self, key: i64) -> Result<()> {
         if self.settlement_failed {
             return Err(unconfirmed());
@@ -89,6 +93,7 @@ impl Actor {
         })
         .await
     }
+    #[cfg(test)]
     pub fn wait_on_gate(&mut self, key: i64) -> Result<()> {
         case::require_active(&self.cancellation)?;
         if self.task.is_some() || self.settlement_failed {
@@ -110,9 +115,47 @@ impl Actor {
         }));
         Ok(())
     }
+    /// Explicit fixture control on this same idle backend. Any lost acknowledgement fences this owner.
+    pub async fn execute(&mut self, sql: &str) -> Result<()> {
+        case::require_active(&self.cancellation)?;
+        if self.task.is_some() || self.settlement_failed {
+            return Err(unconfirmed());
+        }
+        let client = self.client.as_ref().ok_or_else(unconfirmed)?;
+        self.queries += 1;
+        self.settlement_failed = true;
+        let result = timeout(CONTROL_TIMEOUT, client.batch_execute(&tagged(sql)))
+            .await
+            .map_err(|_| unconfirmed())?
+            .map_err(map_error);
+        if result.is_ok() {
+            self.settlement_failed = false;
+        }
+        result
+    }
+    /// The task owns the original command and Client until its complete native response is joined.
+    pub fn start(&mut self, sql: String) -> Result<()> {
+        case::require_active(&self.cancellation)?;
+        if self.task.is_some() || self.settlement_failed {
+            return Err(unconfirmed());
+        }
+        let client = self.client.take().ok_or_else(unconfirmed)?;
+        let cancellation = self.cancellation.clone();
+        self.queries += 1;
+        self.task = Some(tokio::spawn(async move {
+            let result =
+                case::admitted(&cancellation, async { client.batch_execute(&tagged(&sql)).await.map_err(map_error) })
+                    .await;
+            (client, result)
+        }));
+        Ok(())
+    }
     pub async fn settle(&mut self) -> Result<()> {
+        self.settle_for(CONTROL_TIMEOUT).await
+    }
+    pub async fn settle_for(&mut self, allowance: Duration) -> Result<()> {
         let task = self.task.as_mut().ok_or_else(unconfirmed)?;
-        let joined = match timeout(CONTROL_TIMEOUT, task).await {
+        let joined = match timeout(allowance, task).await {
             Ok(joined) => joined,
             Err(_) => {
                 self.settlement_failed = true;
@@ -131,6 +174,7 @@ impl Actor {
         self.settlement_failed |= result.is_err();
         result
     }
+    #[cfg(test)]
     pub fn close_idle(&mut self) -> Result<()> {
         if self.task.is_some() {
             return Err(unconfirmed());
@@ -143,6 +187,7 @@ impl Actor {
         let mut settled = !self.settlement_failed;
         if self.task.is_some() {
             // Cancellation is cleanup of the original backend; acknowledgement alone never proves settlement.
+            self.cancellation_attempts += 1;
             let _ = timeout(CONTROL_TIMEOUT, self.connector.cancel(&self.cancel)).await;
             settled &= self.settle().await.is_ok();
             self.client.take();

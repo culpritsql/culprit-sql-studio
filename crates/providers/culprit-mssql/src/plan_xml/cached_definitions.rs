@@ -68,6 +68,16 @@ fn require_source(source: &CollectionDescription, dataset: SnapshotDataset) -> R
     let matching = match &source.observation {
         SourceObservation::Snapshot(snapshot) => snapshot.dataset == dataset,
         SourceObservation::PagedSnapshot(snapshot) => snapshot.dataset == dataset,
+        SourceObservation::SourceRead { snapshot, execution, .. } if dataset == SnapshotDataset::RetainedPlans => {
+            snapshot.dataset == dataset
+                && source.partition_is_consistent()
+                && SourceReadExecutionScope::from_context(SourceReadQuestion::RelationalInputContext, execution).is_ok()
+        }
+        SourceObservation::PagedSourceRead { snapshot, execution, .. } if dataset == SnapshotDataset::RetainedPlans => {
+            snapshot.dataset == dataset
+                && source.partition_is_consistent()
+                && SourceReadExecutionScope::from_context(SourceReadQuestion::RelationalInputContext, execution).is_ok()
+        }
         _ => false,
     };
     if !matching

@@ -5,7 +5,21 @@ use std::{collections::BTreeMap, sync::Mutex};
 #[derive(Default)]
 pub(in crate::fleet) struct RouteBindings {
     routes: BTreeMap<String, RouteBinding>,
-    planning: Mutex<(Option<String>, usize)>,
+    planning: Mutex<PlanningPosition>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(in crate::fleet) struct PlanningPosition {
+    pub checkpoint: Option<String>,
+    pub episode: usize,
+    pub target: usize,
+    pub question: usize,
+}
+
+impl PlanningPosition {
+    pub fn at_episode(checkpoint: Option<String>, episode: usize) -> Self {
+        Self { checkpoint, episode, target: 0, question: 0 }
+    }
 }
 
 pub(in crate::fleet) struct RouteBinding {
@@ -147,12 +161,12 @@ impl RouteBindings {
         Ok(())
     }
 
-    pub fn planning_position(&self) -> (Option<String>, usize) {
+    pub fn planning_position(&self) -> PlanningPosition {
         self.planning.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
     }
 
-    pub fn set_planning_position(&self, head: Option<String>, episode: usize) {
+    pub fn set_planning_position(&self, position: PlanningPosition) {
         // This cursor supplies fairness only. It never supplies route identity, qualification or native permission.
-        *self.planning.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = (head, episode);
+        *self.planning.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = position;
     }
 }

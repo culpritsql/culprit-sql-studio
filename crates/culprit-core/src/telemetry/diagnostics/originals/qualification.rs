@@ -81,6 +81,9 @@ fn qualify(source: &CollectionDescription) -> std::result::Result<DiagnosticSour
     }
     let snapshot = source.observation.snapshot().ok_or(Issue::UnsupportedSource)?;
     let kind = match snapshot.dataset {
+        SnapshotDataset::Operational if source.target.engine() == crate::Engine::Mssql => {
+            DiagnosticSourceKind::WorkerQueues
+        }
         SnapshotDataset::MemoryFailures if source.target.engine() == crate::Engine::Mssql => {
             DiagnosticSourceKind::MemoryFailures
         }
@@ -99,11 +102,15 @@ fn qualify(source: &CollectionDescription) -> std::result::Result<DiagnosticSour
     match (&source.target, kind) {
         (
             CollectionTarget::Shared(owner),
-            DiagnosticSourceKind::MemoryFailures | DiagnosticSourceKind::NativeFailures,
+            DiagnosticSourceKind::MemoryFailures
+            | DiagnosticSourceKind::NativeFailures
+            | DiagnosticSourceKind::WorkerQueues,
         ) => {
             // The existing pool header has no member/process binding. Its native rows remain useful, but a pool
             // name, target-only namespace or instance member does not fill that missing pool authority.
-            if owner.kind != SharedResourceKind::Instance {
+            if owner.kind != SharedResourceKind::Instance
+                && !(kind == DiagnosticSourceKind::WorkerQueues && owner.kind == SharedResourceKind::Node)
+            {
                 return Err(Issue::SharedOwnershipUnavailable);
             }
             let SourcePartition::InstanceLocal { member, epoch } = &source.partition else {
@@ -117,11 +124,16 @@ fn qualify(source: &CollectionDescription) -> std::result::Result<DiagnosticSour
                 return Err(Issue::NativeEpochUnavailable);
             }
         }
-        (CollectionTarget::Database(_), DiagnosticSourceKind::Cleanup | DiagnosticSourceKind::TaskSpace) => {
+        (
+            CollectionTarget::Database(_),
+            DiagnosticSourceKind::Cleanup | DiagnosticSourceKind::TaskSpace | DiagnosticSourceKind::WorkerQueues,
+        ) => {
             let SourcePartition::InstanceLocal { member: Some(member), epoch } = &source.partition else {
                 return Err(Issue::DatabaseReadOwnerUnavailable);
             };
-            if member.kind != SharedResourceKind::Instance {
+            if member.kind != SharedResourceKind::Instance
+                && !(kind == DiagnosticSourceKind::WorkerQueues && member.kind == SharedResourceKind::Node)
+            {
                 return Err(Issue::DatabaseReadOwnerUnavailable);
             }
             if epoch.is_none() {

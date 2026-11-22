@@ -323,6 +323,11 @@ pub const PENDING_GRANTS: Source = Source {
     reads: culprit_core::key!("provider.mssql.source.pending_grants"),
     delivers: &[],
 };
+pub const CURRENT_REQUEST_WORK: Source = Source {
+    name: source_id::MSSQL_CURRENT_REQUEST_WORK,
+    reads: culprit_core::key!("provider.mssql.source.current_request_work"),
+    delivers: &[],
+};
 pub const CURRENT_REQUEST_MEMORY: Source = Source {
     name: source_id::CURRENT_REQUEST_MEMORY,
     reads: culprit_core::key!("provider.mssql.source.current_request_memory"),
@@ -510,6 +515,7 @@ pub const ALL: &[Source] = &[
     CONFIGURED_LOG_RATES,
     MEMORY_FAILURES,
     CURRENT_REQUEST_MEMORY,
+    CURRENT_REQUEST_WORK,
     CACHE_ENTRY_MEMORY,
     PAGE_WAIT_TARGETS,
     TASK_SPACE,

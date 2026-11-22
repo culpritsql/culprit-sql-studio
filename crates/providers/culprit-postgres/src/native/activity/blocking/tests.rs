@@ -5,12 +5,12 @@ const AT: &str = "2020-01-01T06:00:00Z";
 const STARTED: &str = "2020-01-01T05:00:00Z";
 const QUERY: &str = "2020-01-01T05:59:00Z";
 
-struct Reader {
+pub(super) struct Reader {
     replies: VecDeque<Result<Vec<Row>>>,
-    calls: Vec<(String, usize)>,
+    pub(super) calls: Vec<(String, usize)>,
 }
 impl Reader {
-    fn new(replies: Vec<Result<Vec<Row>>>) -> Self {
+    pub(super) fn new(replies: Vec<Result<Vec<Row>>>) -> Self {
         Self { replies: replies.into(), calls: Vec::new() }
     }
 }
@@ -21,7 +21,7 @@ impl QueryRead for Reader {
         self.replies.pop_front().expect("only the planned bounded native reads")
     }
 }
-fn metadata(pid: u32, database: &str, waiting: bool) -> Row {
+pub(super) fn metadata(pid: u32, database: &str, waiting: bool) -> Row {
     Row::from_fields(
         [
             ("observed_at", Some(AT.to_owned())),
@@ -94,7 +94,7 @@ fn lock(pid: u32) -> Row {
         ("mode".into(), Some("ShareLock".into())),
     ])
 }
-fn activity_frame(rows: Vec<Row>) -> ActivityFrame {
+pub(super) fn activity_frame(rows: Vec<Row>) -> ActivityFrame {
     ActivityFrame {
         at: AT.into(),
         records: rows.into_iter().map(|row| decode_row(row, "42").unwrap()).collect(),
@@ -102,7 +102,13 @@ fn activity_frame(rows: Vec<Row>) -> ActivityFrame {
     }
 }
 fn options() -> BlockingReadOptions<'static> {
-    BlockingReadOptions { minimum_request_age_ms: 30_000, version: 180_000, database_oid: "42", max_snapshot_rows: 500 }
+    BlockingReadOptions {
+        minimum_request_age_ms: 30_000,
+        version: 180_000,
+        database_oid: "42",
+        max_snapshot_rows: 500,
+        lock_projection: LockProjection::Labels,
+    }
 }
 fn owners(frame: &ActivityFrame, index: usize) -> &[ActivityWaitOwner] {
     &frame.records[index].facts.as_ref().unwrap().wait.as_ref().unwrap().owners
@@ -381,4 +387,20 @@ async fn closure_depth_is_bounded_and_prepared_owners_need_no_backend_lookup() {
         &[ActivityWaitOwner::Transaction { native_id: "0".into(), owner: TransactionWaitOwner::Prepared }]
     );
     assert_eq!(reader.calls.len(), 2);
+}
+
+#[tokio::test]
+async fn focused_pg12_and_pg13_keep_the_graph_without_dispatching_a_newer_native_resource_layout() {
+    for version in [120_000, 130_000] {
+        let mut frame = activity_frame(vec![metadata(10, "42", true)]);
+        let mut reader =
+            Reader::new(vec![Ok(vec![edges(10, &[20])]), Ok(vec![context(metadata(20, "42", false), &[10])])]);
+        let mut options = options();
+        options.version = version;
+        options.lock_projection = LockProjection::FocusedRelations;
+        assert_eq!(observe_blocking(&mut reader, &mut frame, options).await.unwrap(), BlockingClosureStatus::Observed);
+        assert_eq!(reader.calls.len(), 2);
+        assert!(frame.locks.is_empty());
+        assert_eq!(owners(&frame, 0)[0].session().unwrap().id, "20");
+    }
 }

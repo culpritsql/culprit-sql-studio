@@ -14,6 +14,7 @@ pub mod read_store;
 pub mod receipts;
 pub mod schema;
 pub mod semantics;
+mod worker_contexts;
 
 use culprit_core::{Result, telemetry::TelemetryStream};
 use schema::OutputColumn;

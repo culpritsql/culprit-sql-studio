@@ -1,4 +1,5 @@
 use super::*;
+mod mssql;
 
 fn snapshot() -> CurrentRequestWorkSnapshot {
     let mut context = super::super::native_read_context::tests::read_context();

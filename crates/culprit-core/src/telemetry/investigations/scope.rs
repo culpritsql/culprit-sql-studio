@@ -41,14 +41,15 @@ impl RecipeCostScope {
     pub fn target(&self) -> CollectionTarget {
         match self {
             Self::Activity(scope) => scope.target.clone(),
-            Self::NativeRead(scope) => CollectionTarget::Database(scope.target().clone()),
+            Self::NativeRead(scope) => scope.target(),
             Self::SharedResource { target, .. } => CollectionTarget::Shared(target.clone()),
         }
     }
 
     pub fn subject(&self) -> CollectionSubject {
         match self {
-            Self::Activity(_) | Self::NativeRead(_) => CollectionSubject::Database,
+            Self::Activity(_) => CollectionSubject::Database,
+            Self::NativeRead(scope) => scope.subject(),
             Self::SharedResource { target, .. } => CollectionSubject::Shared { resource: target.clone() },
         }
     }

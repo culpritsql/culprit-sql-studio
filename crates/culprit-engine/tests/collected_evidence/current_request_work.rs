@@ -236,3 +236,25 @@ async fn missing_archived_copy_point_cannot_become_a_complete_empty_or_request_c
     assert_eq!(analysis.report.source_state, SourceState::Partial);
     assert_eq!(analysis.context.source, source);
 }
+
+#[tokio::test]
+async fn mssql_request_work_replays_its_own_counter_population_and_independent_cache_endpoints() {
+    for (source, records) in culprit_evidence::analytical::test_support::mssql_current_work_evidence_cases() {
+        let expected = culprit_checks::current_request_work::explain(&raw(&source, &records), true).unwrap();
+        let fixture = Fixture::new(source.clone(), records.clone()).await;
+        let capture = fixture.read_families(FAMILY).await;
+        assert!(capture.is_read_complete(), "{:?}", capture.gaps());
+        culprit_evidence::analytical::test_support::assert_current_request_work_capture(&capture, &source, &records);
+        let actual = collected_resources::current_request_work(&capture).unwrap();
+        assert_eq!(serde_json::to_value(&actual.report).unwrap(), serde_json::to_value(expected).unwrap());
+        assert_eq!(actual.context.source, source);
+        // Checked statement identity remains in the internal report. Independently sampled cache handles do not.
+        for private in ["private-current-request-secret", "0xCCDD", "0xAABB"] {
+            assert!(!serde_json::to_string(&actual.report).unwrap().contains(private), "{private}");
+        }
+        if records.is_empty() {
+            assert_eq!(actual.report.source_state, SourceState::Partial);
+            assert_eq!(actual.report.membership, FocusedRequestMembership::NotObserved);
+        }
+    }
+}

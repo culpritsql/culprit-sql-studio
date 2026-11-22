@@ -16,10 +16,12 @@ pub enum BlockingClosureStatus {
     LookupLimit,
     DepthLimit,
     ParticipantLimit,
+    /// The focused native lock-resource/mode prefix or final blocker roster reached its separate evidence bound.
+    LockEvidenceLimit,
 }
 impl BlockingClosureStatus {
     pub fn is_limited(self) -> bool {
-        matches!(self, Self::LookupLimit | Self::DepthLimit | Self::ParticipantLimit)
+        matches!(self, Self::LookupLimit | Self::DepthLimit | Self::ParticipantLimit | Self::LockEvidenceLimit)
     }
 }
 

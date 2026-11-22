@@ -81,6 +81,7 @@ pub(crate) fn blocking(report: &BlockingReport) -> String {
                     .collect::<Vec<_>>();
                 super::super::append_brief_details(text, chains.iter().map(String::as_str), OBSERVATION_DETAIL_CHARS);
             }
+            metadata_queue(text, &report.metadata_queue);
             for limitation in &report.limitations {
                 line(text, limitation);
             }
@@ -88,6 +89,18 @@ pub(crate) fn blocking(report: &BlockingReport) -> String {
             line(text, &report.verify);
         },
     )
+}
+
+fn metadata_queue(text: &mut String, report: &culprit_core::MetadataQueueReport) {
+    line(text, &report.summary);
+    for case in report.explanations.iter().take(super::super::BRIEF_FINDING_LIMIT) {
+        for words in [&case.victim_summary, &case.mechanism, &case.investigation, &case.verify] {
+            line(text, words);
+        }
+    }
+    for limitation in &report.limitations {
+        line(text, limitation);
+    }
 }
 
 pub(super) fn request(key: &ActivityKey) -> String {

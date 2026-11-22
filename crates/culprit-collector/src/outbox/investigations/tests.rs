@@ -8,6 +8,7 @@ mod request_memory;
 mod retirement;
 mod session_authority;
 mod shared;
+mod shared_source_read;
 mod task_holders;
 use super::*;
 use crate::{

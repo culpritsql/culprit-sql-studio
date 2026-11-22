@@ -94,7 +94,13 @@ impl Runtime {
     }
 
     pub(super) fn policies(&self) -> DiagnosticPolicies {
-        let policies = if self.fixture.backend.shared.is_some() {
+        let policies = if self
+            .fixture
+            .backend
+            .shared
+            .as_ref()
+            .is_some_and(|frame| diagnostic_original_source_kind(&frame.source).is_none())
+        {
             // The database point was sealed before selecting this independent shared-resource route.
             DiagnosticPolicies::for_activity("saved-source", CollectionSubject::Database, ActivityPolicy::default())
         } else {

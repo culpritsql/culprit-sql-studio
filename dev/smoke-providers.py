@@ -71,7 +71,10 @@ REPLICATION_FIXTURES = (
 )
 POSTGRES_REPLICATION_IMAGES = {"postgres-replication": "postgres:18.6", "postgres-16-replication": "postgres:16"}
 OPTIONAL_NATIVE_MODULES = {
-    "culprit-postgres": ("telemetry::native_tests::replication::", "jobs::", "maintenance_waits::"),
+    "culprit-postgres": (
+        "telemetry::native_tests::replication::", "jobs::", "maintenance_waits::", "metadata_queue::",
+        "transaction_metadata::native_tests::",
+    ),
     "culprit-mysql": (
         "telemetry::native_tests::replication::", "telemetry::native_tests::replication_movement::",
         "telemetry::native_tests::group_replication::", "telemetry::native_tests::galera::",
@@ -84,6 +87,10 @@ OPTIONAL_NATIVE_MODULES = {
         "exact_original_scalar_metadata_is_observed_without_memory_collection",
         "exact_original_scalar_metadata_is_observed_between_memory_source_phases",
     ),
+}
+NATIVE_TEST_FEATURES = {
+    "culprit-engine": "collector",
+    "culprit-postgres": "native-test-support",
 }
 
 
@@ -186,7 +193,8 @@ def run_tests(commands, crate, selection, environment, *, library=True, skip=Non
     print(f"  Testing {crate} {selection}", flush=True)
     skips = [skip] if isinstance(skip, str) else (skip or [])
     filters = [argument for selection in skips for argument in ("--skip", selection)]
-    features = ["--features", "collector"] if crate == "culprit-engine" else []
+    required_features = NATIVE_TEST_FEATURES.get(crate)
+    features = ["--features", required_features] if required_features else []
     _, output = commands.run(["cargo", "test", "--locked", "-p", crate, *features, *target, selection,
                              "--", "--ignored", "--test-threads=1", *filters],
                             env=environment, timeout=TEST_BUDGET, echo=True)

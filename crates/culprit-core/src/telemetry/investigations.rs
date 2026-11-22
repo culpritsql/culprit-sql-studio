@@ -313,7 +313,14 @@ impl DiagnosticInvestigationIntent {
             // can justify it. Another trigger cannot spend the same population stage again after restart.
             return page_wait_tasks_stage_key(&focus.parent.capture_ref(), &self.qualification.scope().target());
         }
-        question_stage_key(&self.episode_id, self.focus.selector(), &self.qualification.scope().target())
+        if let DiagnosticFocus::SourceRead { focus } = &self.focus {
+            return question_stage_key(&self.episode_id, QuestionStage::SourceRead(focus.question), &focus.target);
+        }
+        question_stage_key(
+            &self.episode_id,
+            QuestionStage::Native(self.focus.selector()),
+            &self.qualification.scope().target(),
+        )
     }
 
     /// Revalidate the immutable question against current, authenticated context. A newer same-episode revision
@@ -337,15 +344,26 @@ impl DiagnosticInvestigationIntent {
     }
 }
 
+pub(super) enum QuestionStage {
+    Native(RecipeSelector),
+    SourceRead(SourceReadQuestion),
+}
 pub(super) fn question_stage_key(
     episode_id: &str,
-    selector: RecipeSelector,
+    question: QuestionStage,
     target: &CollectionTarget,
 ) -> Result<String> {
     if !valid_digest(episode_id) {
         return Err(invalid());
     }
-    hash(&("diagnostic-question-stage-v3", episode_id, selector, target.telemetry_id()?))
+    match question {
+        QuestionStage::Native(selector) => {
+            hash(&("diagnostic-question-stage-v3", episode_id, selector, target.telemetry_id()?))
+        }
+        QuestionStage::SourceRead(question) => {
+            hash(&("diagnostic-source-question-stage-v1", episode_id, question, target.telemetry_id()?))
+        }
+    }
 }
 
 /// The exact earlier frame and execution resource identify one population stage before its rows are recovered.

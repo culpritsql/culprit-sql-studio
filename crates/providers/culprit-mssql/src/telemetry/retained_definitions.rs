@@ -1,11 +1,16 @@
-use super::streamed::{SnapshotAcquisition, SnapshotRecipe};
-use crate::{read::NativeRead, retained_definitions, value::Rec};
+use super::streamed::{SnapshotAcquisition, SnapshotRecipe, limit_parameter};
+use crate::{
+    read::{NativeRead, Parameter, invalid_data},
+    retained_definitions,
+    value::Rec,
+};
 use culprit_core::{Result, Source, telemetry::*};
 pub(super) struct RetainedPlans;
 const MAX_RETAINED_STATEMENTS: u32 = 64;
 // A boxed/MI read uses three initial and three final authority projections, versus two and one on Azure SQL.
-// Layout, two admission checks, the one payload stream and its binding check complete the twelve-call ceiling.
-const MAX_SOURCE_QUERIES: u32 = 12;
+// Layout, two admission checks, one payload stream and binding check complete twelve reader calls.
+// The same caller total also reserves the owned session SET; stricter callers cannot spend that slot twice.
+const MAX_SOURCE_QUERIES: u32 = 13;
 const MAX_STATEMENT_MS: u32 = 1_000;
 const MAX_SOURCE_MS: u32 = 5_000;
 const MAX_PAGE_BYTES: u32 = 4 * 1024 * 1024;
@@ -30,6 +35,7 @@ pub(super) fn bounded_budget(caller: &CollectionBudget) -> CollectionBudget {
 pub(super) struct Layout {
     native: retained_definitions::Layout,
     bindings: crate::relational_inputs::Bindings,
+    selection: Option<CachedStatementContext>,
 }
 #[async_trait::async_trait]
 impl SnapshotRecipe for RetainedPlans {
@@ -38,16 +44,45 @@ impl SnapshotRecipe for RetainedPlans {
     const DATASET: SnapshotDataset = SnapshotDataset::RetainedPlans;
     const NAME: &'static str = "retained-plans-state";
     const SOURCE: &'static Source = &crate::sources::RETAINED_PLANS;
+    const SOURCE_READ: Option<SourceReadQuestion> = Some(SourceReadQuestion::RelationalInputContext);
     async fn layout<R: NativeRead>(&self, reader: &mut R, budget: &CollectionBudget) -> Result<Option<Self::Layout>> {
-        Ok(retained_definitions::layout(reader, budget)
-            .await?
-            .map(|native| Layout { native, bindings: Default::default() }))
+        Ok(retained_definitions::layout(reader, budget).await?.map(|native| Layout {
+            native,
+            bindings: Default::default(),
+            selection: None,
+        }))
+    }
+    fn select(&self, layout: &mut Self::Layout, request: &CollectionRequest) -> Result<()> {
+        layout.selection = None;
+        if let CollectionSelection::SourceRead { focus, .. } = &request.selection {
+            let SourceReadPrerequisite::ObservedCurrentRequestPlan { context, .. } = &focus.prerequisite else {
+                return Err(invalid_data());
+            };
+            layout.selection = Some(context.as_ref().clone());
+        }
+        Ok(())
     }
     fn query(&self, layout: &Self::Layout) -> String {
-        retained_definitions::acquisition_sql(&layout.native)
+        retained_definitions::acquisition_sql_for(&layout.native, layout.selection.is_some())
+    }
+    fn parameters(&self, layout: &Self::Layout, limit: usize) -> Result<Vec<Parameter>> {
+        let mut parameters = limit_parameter(limit);
+        if let Some(context) = &layout.selection {
+            parameters.extend([
+                Parameter::Text(context.identity.plan_handle.clone()),
+                Parameter::Text(context.identity.sql_handle.clone()),
+                Parameter::Integer(context.identity.statement_start_bytes.into()),
+                Parameter::Integer(context.identity.statement_end_bytes.into()),
+            ]);
+        }
+        Ok(parameters)
     }
     fn decode(&self, row: &Rec, layout: &Self::Layout, source: &CollectionDescription) -> Result<TelemetryRecord> {
-        let admitted = layout.bindings.contains(&crate::cached_statements::context(row)?);
+        let context = crate::cached_statements::context(row)?;
+        if layout.selection.as_ref().is_some_and(|selected| !selected.matches_locator(&context)) {
+            return Err(CollectionStop::SourceChanged.error());
+        }
+        let admitted = layout.bindings.contains(&context);
         let mut definition = retained_definitions::decode(row, &layout.native, admitted.then_some(source))?;
         if !admitted {
             definition.batch_plan.payload = DefinitionPayload::Unavailable { reason: PayloadUnavailable::NotCollected };

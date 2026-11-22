@@ -121,3 +121,33 @@ test("current request work renders the shared explanation and exact native metri
   expect(statement).toContain("&lt;script&gt;");
   expect(statement).not.toContain("<script>");
 });
+
+
+test("MSSQL current-work disclosure preserves request-lifetime counters and later cache clocks without exposing authority", () => {
+  const report = currentWorkReport();
+  report.title = t("view.current_request_work.title");
+  report.summary = t("view.current_request_work.mssql.observed");
+  report.limitations = [t("view.current_request_work.mssql.limit.plan"), t("view.current_request_work.mssql.limit.parallel")];
+  const entry = report.entries[0]!;
+  entry.explanation = t("view.current_request_work.mssql.plan", { from: "2026-11-16T10:00:00.2Z", until: "2026-11-16T10:00:00.8Z", payload: "unavailable" });
+  entry.metrics = [
+    { key: "view.current_request_work.mssql.metric.reads", label: t("view.current_request_work.mssql.metric.reads"), value: 0, unit: "text", text: "9007199254740993" },
+    { key: "view.current_request_work.mssql.metric.plan_generation", label: t("view.current_request_work.mssql.metric.plan_generation"), value: 0, unit: "text", text: "9007199254740995" },
+  ];
+  const html = renderToStaticMarkup(<CurrentRequestWork report={report} />);
+  for (const original of [report.summary, ...report.limitations, entry.explanation, "9007199254740993", "9007199254740995"]) expect(html).toContain(original);
+  expect(html).not.toContain("private-route-canary");
+  expect(html).not.toContain("private-statement-authority");
+  expect(html).not.toMatch(/<details[^>]*\bopen(?:=|\s|>)/);
+
+  report.entries = [];
+  report.native_rows = 0;
+  report.observed_rows = 0;
+  report.summary = t("view.current_request_work.mssql.not_observed");
+  report.membership = "not-observed";
+  report.source_state = "partial";
+  report.source_reason = t("view.current_request_work.mssql.not_observed");
+  const missing = renderToStaticMarkup(<CurrentRequestWork report={report} />);
+  expect(missing).toContain(report.source_reason);
+  expect(missing).not.toContain("9007199254740993");
+});

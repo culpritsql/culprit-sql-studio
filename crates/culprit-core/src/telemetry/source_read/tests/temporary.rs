@@ -68,7 +68,7 @@ fn fixture(snapshot_protector: bool) -> Fixture {
     episode.report = Some(DiagnosticReport::OriginalObservation { observation: reference, peers: vec![] });
     episode.analysis = DiagnosticAnalysisStatus::Unresolved;
     episode.issue = Some(DiagnosticAnalysisIssue::Unsupported);
-    let focus = episode.source_read_focus().unwrap().unwrap();
+    let focus = episode.source_read_focus(SourceReadQuestion::TemporarySpaceContributors).unwrap().unwrap();
     let execution = SourceReadExecutionScope::from_context(focus.question, &context).unwrap();
     assert!(episode.is_valid());
     Fixture { source, original, episode, focus, execution }
@@ -246,8 +246,9 @@ fn historical_unknown_or_changed_role_is_not_repaired_by_new_execution_authority
         observe_diagnostic_original(&historical, &reference.capture_ref(), &[input], None, &[], "2020-01-01T12:00:01Z")
             .unwrap();
     let episode = &update.checkpoint.episodes[0];
+    let focus = episode.source_read_focus(SourceReadQuestion::TemporarySpaceContributors).unwrap().unwrap();
     assert!(matches!(
-        episode.plan_source_read_for_execution(&historical, &row, &current).unwrap(),
+        episode.plan_source_read_for_execution(&focus, &historical, &row, &current).unwrap(),
         DiagnosticFocusPlan::Ready(_)
     ));
     assert_eq!(before.database_writable, None);
@@ -442,7 +443,7 @@ fn cleanup_question_requires_the_existing_attention_age_on_the_exact_authenticat
         let (source, row, update) = observed_boundary(&seed, age, "2020-01-01T12:00:01Z", None);
         assert_eq!(update.checkpoint.episodes.len(), 1, "all original boundary observations remain history");
         let episode = &update.checkpoint.episodes[0];
-        let focus = episode.source_read_focus().unwrap().unwrap();
+        let focus = episode.source_read_focus(SourceReadQuestion::TemporarySpaceContributors).unwrap().unwrap();
         assert_eq!(focus.matches_original(&source, &row), expected, "{age:?}");
         assert_eq!(focus.matches_basis(&source, &row, &seed.execution), expected, "{age:?}");
         if expected {
@@ -465,7 +466,7 @@ fn a_boundary_first_seen_young_can_pin_its_first_adverse_original_without_rebind
     let episode = &adverse.checkpoint.episodes[0];
     assert_eq!(episode.first, young.checkpoint.episodes[0].first);
     assert_ne!(episode.latest, episode.first);
-    let focus = episode.source_read_focus().unwrap().unwrap();
+    let focus = episode.source_read_focus(SourceReadQuestion::TemporarySpaceContributors).unwrap().unwrap();
     assert_eq!(*focus.basis, episode.latest);
     assert!(focus.matches_original(&source, &row));
     let enrolled = episode.enroll_source_read(focus.clone()).unwrap();
@@ -474,10 +475,13 @@ fn a_boundary_first_seen_young_can_pin_its_first_adverse_original_without_rebind
     let (_, _, later) = observed_boundary(&seed, Some("3600"), "2020-01-01T13:00:01Z", Some(&checkpoint));
     let retained = &later.checkpoint.episodes[0];
     assert_ne!(retained.latest, *focus.basis);
-    assert_eq!(retained.source_read_focus().unwrap().unwrap(), focus);
+    assert_eq!(retained.source_read_focus(SourceReadQuestion::TemporarySpaceContributors).unwrap().unwrap(), focus);
     assert_eq!(retained.first, young.checkpoint.episodes[0].first);
     let deferred = retained
-        .transition_source_read(SourceReadStageState::Deferred { issue: DiagnosticAnalysisIssue::CostUnqualified })
+        .transition_source_read(
+            &focus,
+            SourceReadStageState::Deferred { issue: DiagnosticAnalysisIssue::CostUnqualified },
+        )
         .unwrap();
     assert!(
         DiagnosticRevision::between(Some(&checkpoint.episodes[0]), deferred, "2020-01-01T13:00:02Z").unwrap().is_some(),
@@ -505,4 +509,35 @@ fn local_resource_headers_match_only_their_exact_bounded_snapshot_request() {
     let SourceObservation::LocalResource { snapshot, .. } = &mut foreign.observation else { panic!() };
     snapshot.dataset = SnapshotDataset::Operational;
     assert!(!foreign.matches_request(&request), "a local role header cannot qualify an unrelated source family");
+}
+
+#[test]
+fn qualified_recovery_stops_only_unadmitted_live_questions_and_keeps_admitted_work_owed() {
+    let original = fixture(true);
+    let pending = original.episode.enroll_source_read(original.focus.clone()).unwrap();
+    let question = DiagnosticFocus::SourceRead { focus: Box::new(original.focus.clone()) };
+    let mut resolved = pending.clone();
+    resolved.lifecycle = DiagnosticLifecycle::Resolved;
+    assert!(resolved.recover_source_read_stages().is_err(), "a lifecycle label has no recovery proof");
+    resolved.recovery = Some(DiagnosticRecoveryProof::CompleteScope { capture: original.focus.basis.capture_ref() });
+    assert!(resolved.is_valid());
+    assert!(!resolved.needs_question(&question));
+    assert!(!resolved.has_owed_question());
+    let recovered = resolved.recover_source_read_stages().unwrap();
+    assert_eq!(recovered.source_reads.get(original.focus.question).unwrap().state, SourceReadStageState::Recovered);
+    assert!(recovered.transition_source_read(&original.focus, SourceReadStageState::Collecting).is_err());
+
+    let mut admitted = pending.transition_source_read(&original.focus, SourceReadStageState::Collecting).unwrap();
+    admitted.lifecycle = DiagnosticLifecycle::Resolved;
+    admitted.recovery = resolved.recovery.clone();
+    assert!(admitted.is_valid());
+    assert!(admitted.needs_question(&question));
+    assert!(admitted.has_owed_question());
+    assert_eq!(admitted.recover_source_read_stages().unwrap().source_reads, admitted.source_reads);
+    assert!(matches!(
+        admitted
+            .plan_source_read_for_execution(&original.focus, &original.source, &original.original, &original.execution)
+            .unwrap(),
+        DiagnosticFocusPlan::NotRequired
+    ));
 }

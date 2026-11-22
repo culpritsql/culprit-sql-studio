@@ -60,8 +60,10 @@ impl DiagnosticRevision {
                 walk.record(DiagnosticAncestryRole::ReportedEvidence, reference)?;
             }
         }
-        if let Some(stage) = &episode.source_read {
-            walk.record(DiagnosticAncestryRole::SourceBasis, &stage.focus.basis)?;
+        for stage in episode.source_reads.iter() {
+            for reference in stage.focus.references() {
+                walk.record(DiagnosticAncestryRole::SourceBasis, reference)?;
+            }
             if let Some(result) = stage.result() {
                 walk.capture(DiagnosticAncestryRole::SourceResult, result)?;
             }

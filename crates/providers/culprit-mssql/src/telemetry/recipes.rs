@@ -64,7 +64,13 @@ impl Registration {
         (self.budget)(&CollectionBudget::upper_limits())
     }
     fn accepts(&self, request: &CollectionRequest) -> bool {
-        self.selector.matches(request) && self.subjects.iter().any(|subject| subject.accepts(&request.subject))
+        let provider_matches = match &request.subject {
+            CollectionSubject::Database => true,
+            CollectionSubject::Shared { resource } => resource.engine == culprit_core::Engine::Mssql,
+        };
+        provider_matches
+            && self.selector.matches(request)
+            && self.subjects.iter().any(|subject| subject.accepts(&request.subject))
     }
     fn bounded_request(&self, request: &CollectionRequest) -> CollectionRequest {
         let mut request = request.clone();
@@ -95,6 +101,16 @@ macro_rules! state {
 }
 
 const REGISTRATIONS: &[Registration] = &[
+    Registration::database("mssql.worker-starvation", RecipeSelector::WorkerStarvation, |pool, request, host, port| {
+        Ok(Box::new(worker_starvation::WorkerStarvationSource::new(pool, request, host, port)?))
+    })
+    .shared(&[
+        RecipeSubject::Database,
+        RecipeSubject::Shared(SharedResourceKind::Instance),
+        RecipeSubject::Shared(SharedResourceKind::Node),
+    ])
+    .on_editions(&[2, 3, 4, 5, 8])
+    .bounded(worker_starvation::bounded_budget),
     state!("mssql.database-performance-counters", DatabasePerformanceCounters)
         .on_editions(&[2, 3, 4])
         .bounded(state::local_point_budget)
@@ -169,7 +185,7 @@ const REGISTRATIONS: &[Registration] = &[
     )
     .bounded(activity::bounded_budget)
     .baseline()
-    .version(7),
+    .version(8),
     Registration::database("mssql.blocking", RecipeSelector::FocusedBlocking, blocking::source)
         .on_editions(&[3])
         .bounded(blocking::bounded_budget),
@@ -246,6 +262,12 @@ const REGISTRATIONS: &[Registration] = &[
     )
     .bounded(request_memory::bounded_budget)
     .version(6),
+    Registration::database(
+        "mssql.current-request-work",
+        RecipeSelector::CurrentRequestWork,
+        |pool, request, host, port| Ok(Box::new(current_request_work::Source::new(pool, request, host, port)?)),
+    )
+    .bounded(current_request_work::bounded_budget),
     Registration::database(
         "mssql.focused-request-memory",
         RecipeSelector::FocusedRequestMemory,
@@ -381,7 +403,7 @@ const REGISTRATIONS: &[Registration] = &[
     streamed!("mssql.partitions", Partitions, partitions::Partitions).version(2),
     streamed!("mssql.cached-definitions", CachedDefinitions, cached_definitions::CachedDefinitions).version(7),
     streamed!("mssql.retained-plans", RetainedPlans, retained_definitions::RetainedPlans)
-        .version(8)
+        .version(9)
         .bounded(retained_definitions::bounded_budget),
 ];
 
@@ -418,7 +440,6 @@ pub(super) fn open(
     port: u16,
 ) -> Result<Box<dyn TelemetrySource>> {
     request.validate()?;
-    subject::is_shared(&request.subject)?;
     let recipe = REGISTRATIONS.iter().find(|recipe| recipe.accepts(request)).ok_or_else(|| {
         culprit_core::Error::new(culprit_core::ErrorCode::Unsupported, culprit_core::t!("collection.unsupported"))
     })?;
