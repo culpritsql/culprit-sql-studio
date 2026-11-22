@@ -137,13 +137,14 @@ impl Files {
 }
 
 fn content_digest(diagnosis: &DerivedDiagnosis) -> Result<String> {
-    // Analyzer, rules, input captures, catalog provenance and origin are bound by the validated analysis ID.
+    // Analyzer, rules, approved display labels, input captures and origin are bound by the validated analysis ID.
     // Destructure exhaustively so adding description fields requires an explicit replay-identity decision.
     let DerivedDiagnosisDescription {
         analysis_id,
         analyzer: _,
         rules_version: _,
         language: _,
+        display: _,
         recorded_at: _,
         observed_from,
         observed_until,

@@ -16,9 +16,9 @@
     ],
     "entries": [
       {
-        "controller_version": 17,
-        "revision_id": "5f527d97516a41234434f73a463cac7c0d68cc286bb65e56f2667ce0dfaacebc",
-        "episode_id": "a69f97d76015c91df70d906b8826b47c20fac6661269a5ba3b21dc35167eeb2e",
+        "controller_version": 18,
+        "revision_id": "d21bf3b12b7801a1d3a30621a76f827981dbde7319646d7d2869f8490675af22",
+        "episode_id": "291b4155a91e0da0e75ca72b63fa230f1269c48824b83ab4b5e2d091610ae499",
         "target_id": "fcfe294a3d4f5c47afc2d6c9c9b1d3e50a6fbf5f072ec23b411f747efdb57314",
         "target_scope": "database",
         "scope_id": "4294eac332da2604462f5c6987fc2b3e84081487defa0c9e8e8cdfdd560f55dd",
@@ -76,8 +76,8 @@
               },
               "batch_id": "aae500dcd62418a6ada844eb8fceb872e231942da66e04cfef3540f9e99a3b6a",
               "record_id": "28d1c3cccf96a8702eb053638272ff6ef0fe014427d07e5e397ad823c9fb2a0b",
-              "payload_sha256": "cc543823b79c789b3b33b9756a4238343684cda3f3bdf6ef2b9ca5af57fa05a1",
-              "representation_version": 2,
+              "payload_sha256": "34a94ca70d8c8f042f4bc1b478ca5db05429d7d877931f4c2c1bad0b2fc39300",
+              "representation_version": 3,
               "row_ordinal": 0
             },
             "availability": "Unverified imported reference; payload availability not checked."
@@ -121,8 +121,8 @@
               },
               "batch_id": "aae500dcd62418a6ada844eb8fceb872e231942da66e04cfef3540f9e99a3b6a",
               "record_id": "28d1c3cccf96a8702eb053638272ff6ef0fe014427d07e5e397ad823c9fb2a0b",
-              "payload_sha256": "cc543823b79c789b3b33b9756a4238343684cda3f3bdf6ef2b9ca5af57fa05a1",
-              "representation_version": 2,
+              "payload_sha256": "34a94ca70d8c8f042f4bc1b478ca5db05429d7d877931f4c2c1bad0b2fc39300",
+              "representation_version": 3,
               "row_ordinal": 0
             },
             "availability": "Unverified imported reference; payload availability not checked."
@@ -139,7 +139,7 @@
                 }
               },
               "manifest_sha256": "df512f744bed170f67790e1d0c1efb3b3d38464c4a8fd4ef67e916315dad5c81",
-              "source_scope_id": "11e2b27ac05748cd0c776bbc86effb02cb60318141eef4e97f16a776be464eff"
+              "source_scope_id": "2223a1ebc0f2a0d5eae3335122c74c1756e0b8f775419c2ed0d3454f87ed174f"
             },
             "reference": null,
             "availability": "Unverified imported reference; payload availability not checked."
@@ -183,8 +183,8 @@
               },
               "batch_id": "aae500dcd62418a6ada844eb8fceb872e231942da66e04cfef3540f9e99a3b6a",
               "record_id": "28d1c3cccf96a8702eb053638272ff6ef0fe014427d07e5e397ad823c9fb2a0b",
-              "payload_sha256": "cc543823b79c789b3b33b9756a4238343684cda3f3bdf6ef2b9ca5af57fa05a1",
-              "representation_version": 2,
+              "payload_sha256": "34a94ca70d8c8f042f4bc1b478ca5db05429d7d877931f4c2c1bad0b2fc39300",
+              "representation_version": 3,
               "row_ordinal": 0
             },
             "availability": "Unverified imported reference; payload availability not checked."
@@ -201,7 +201,7 @@
                 }
               },
               "manifest_sha256": "df512f744bed170f67790e1d0c1efb3b3d38464c4a8fd4ef67e916315dad5c81",
-              "source_scope_id": "11e2b27ac05748cd0c776bbc86effb02cb60318141eef4e97f16a776be464eff"
+              "source_scope_id": "2223a1ebc0f2a0d5eae3335122c74c1756e0b8f775419c2ed0d3454f87ed174f"
             },
             "reference": null,
             "availability": "Unverified imported reference; payload availability not checked."
@@ -250,9 +250,9 @@
     ],
     "entries": [
       {
-        "controller_version": 17,
-        "revision_id": "4478f2a2d1a58d25d9551846a56cdd1ddde3bd6f6f09a79954f0952ba0b30bb7",
-        "episode_id": "a69f97d76015c91df70d906b8826b47c20fac6661269a5ba3b21dc35167eeb2e",
+        "controller_version": 18,
+        "revision_id": "2bec973491fa7d1a8ce4089b79e815c333e6a66b2a9fb8a8b22f00f728c57c52",
+        "episode_id": "291b4155a91e0da0e75ca72b63fa230f1269c48824b83ab4b5e2d091610ae499",
         "target_id": "fcfe294a3d4f5c47afc2d6c9c9b1d3e50a6fbf5f072ec23b411f747efdb57314",
         "target_scope": "database",
         "scope_id": "4294eac332da2604462f5c6987fc2b3e84081487defa0c9e8e8cdfdd560f55dd",
@@ -310,8 +310,8 @@
               },
               "batch_id": "aae500dcd62418a6ada844eb8fceb872e231942da66e04cfef3540f9e99a3b6a",
               "record_id": "28d1c3cccf96a8702eb053638272ff6ef0fe014427d07e5e397ad823c9fb2a0b",
-              "payload_sha256": "cc543823b79c789b3b33b9756a4238343684cda3f3bdf6ef2b9ca5af57fa05a1",
-              "representation_version": 2,
+              "payload_sha256": "34a94ca70d8c8f042f4bc1b478ca5db05429d7d877931f4c2c1bad0b2fc39300",
+              "representation_version": 3,
               "row_ordinal": 0
             },
             "availability": "Unverified imported reference; payload availability not checked."
@@ -355,8 +355,8 @@
               },
               "batch_id": "aae500dcd62418a6ada844eb8fceb872e231942da66e04cfef3540f9e99a3b6a",
               "record_id": "28d1c3cccf96a8702eb053638272ff6ef0fe014427d07e5e397ad823c9fb2a0b",
-              "payload_sha256": "cc543823b79c789b3b33b9756a4238343684cda3f3bdf6ef2b9ca5af57fa05a1",
-              "representation_version": 2,
+              "payload_sha256": "34a94ca70d8c8f042f4bc1b478ca5db05429d7d877931f4c2c1bad0b2fc39300",
+              "representation_version": 3,
               "row_ordinal": 0
             },
             "availability": "Unverified imported reference; payload availability not checked."
@@ -373,7 +373,7 @@
                 }
               },
               "manifest_sha256": "df512f744bed170f67790e1d0c1efb3b3d38464c4a8fd4ef67e916315dad5c81",
-              "source_scope_id": "11e2b27ac05748cd0c776bbc86effb02cb60318141eef4e97f16a776be464eff"
+              "source_scope_id": "2223a1ebc0f2a0d5eae3335122c74c1756e0b8f775419c2ed0d3454f87ed174f"
             },
             "reference": null,
             "availability": "Unverified imported reference; payload availability not checked."
@@ -417,8 +417,8 @@
               },
               "batch_id": "aae500dcd62418a6ada844eb8fceb872e231942da66e04cfef3540f9e99a3b6a",
               "record_id": "28d1c3cccf96a8702eb053638272ff6ef0fe014427d07e5e397ad823c9fb2a0b",
-              "payload_sha256": "cc543823b79c789b3b33b9756a4238343684cda3f3bdf6ef2b9ca5af57fa05a1",
-              "representation_version": 2,
+              "payload_sha256": "34a94ca70d8c8f042f4bc1b478ca5db05429d7d877931f4c2c1bad0b2fc39300",
+              "representation_version": 3,
               "row_ordinal": 0
             },
             "availability": "Unverified imported reference; payload availability not checked."
@@ -435,7 +435,7 @@
                 }
               },
               "manifest_sha256": "df512f744bed170f67790e1d0c1efb3b3d38464c4a8fd4ef67e916315dad5c81",
-              "source_scope_id": "11e2b27ac05748cd0c776bbc86effb02cb60318141eef4e97f16a776be464eff"
+              "source_scope_id": "2223a1ebc0f2a0d5eae3335122c74c1756e0b8f775419c2ed0d3454f87ed174f"
             },
             "reference": null,
             "availability": "Unverified imported reference; payload availability not checked."
@@ -484,9 +484,9 @@
     ],
     "entries": [
       {
-        "controller_version": 17,
-        "revision_id": "d5bc82756a5a0c03cff7fe2805951305b40d8be34090a8482633688c4c7db52d",
-        "episode_id": "a69f97d76015c91df70d906b8826b47c20fac6661269a5ba3b21dc35167eeb2e",
+        "controller_version": 18,
+        "revision_id": "e9b61bd9fac5f4bed2cfb411e9ef4b19488026b2433bbaeb0c9cc1fde6019553",
+        "episode_id": "291b4155a91e0da0e75ca72b63fa230f1269c48824b83ab4b5e2d091610ae499",
         "target_id": "fcfe294a3d4f5c47afc2d6c9c9b1d3e50a6fbf5f072ec23b411f747efdb57314",
         "target_scope": "database",
         "scope_id": "4294eac332da2604462f5c6987fc2b3e84081487defa0c9e8e8cdfdd560f55dd",
@@ -544,8 +544,8 @@
               },
               "batch_id": "aae500dcd62418a6ada844eb8fceb872e231942da66e04cfef3540f9e99a3b6a",
               "record_id": "28d1c3cccf96a8702eb053638272ff6ef0fe014427d07e5e397ad823c9fb2a0b",
-              "payload_sha256": "cc543823b79c789b3b33b9756a4238343684cda3f3bdf6ef2b9ca5af57fa05a1",
-              "representation_version": 2,
+              "payload_sha256": "34a94ca70d8c8f042f4bc1b478ca5db05429d7d877931f4c2c1bad0b2fc39300",
+              "representation_version": 3,
               "row_ordinal": 0
             },
             "availability": "Unverified imported reference; payload availability not checked."
@@ -589,8 +589,8 @@
               },
               "batch_id": "aae500dcd62418a6ada844eb8fceb872e231942da66e04cfef3540f9e99a3b6a",
               "record_id": "28d1c3cccf96a8702eb053638272ff6ef0fe014427d07e5e397ad823c9fb2a0b",
-              "payload_sha256": "cc543823b79c789b3b33b9756a4238343684cda3f3bdf6ef2b9ca5af57fa05a1",
-              "representation_version": 2,
+              "payload_sha256": "34a94ca70d8c8f042f4bc1b478ca5db05429d7d877931f4c2c1bad0b2fc39300",
+              "representation_version": 3,
               "row_ordinal": 0
             },
             "availability": "Unverified imported reference; payload availability not checked."
@@ -607,7 +607,7 @@
                 }
               },
               "manifest_sha256": "df512f744bed170f67790e1d0c1efb3b3d38464c4a8fd4ef67e916315dad5c81",
-              "source_scope_id": "11e2b27ac05748cd0c776bbc86effb02cb60318141eef4e97f16a776be464eff"
+              "source_scope_id": "2223a1ebc0f2a0d5eae3335122c74c1756e0b8f775419c2ed0d3454f87ed174f"
             },
             "reference": null,
             "availability": "Unverified imported reference; payload availability not checked."
@@ -651,8 +651,8 @@
               },
               "batch_id": "aae500dcd62418a6ada844eb8fceb872e231942da66e04cfef3540f9e99a3b6a",
               "record_id": "28d1c3cccf96a8702eb053638272ff6ef0fe014427d07e5e397ad823c9fb2a0b",
-              "payload_sha256": "cc543823b79c789b3b33b9756a4238343684cda3f3bdf6ef2b9ca5af57fa05a1",
-              "representation_version": 2,
+              "payload_sha256": "34a94ca70d8c8f042f4bc1b478ca5db05429d7d877931f4c2c1bad0b2fc39300",
+              "representation_version": 3,
               "row_ordinal": 0
             },
             "availability": "Unverified imported reference; payload availability not checked."
@@ -669,7 +669,7 @@
                 }
               },
               "manifest_sha256": "df512f744bed170f67790e1d0c1efb3b3d38464c4a8fd4ef67e916315dad5c81",
-              "source_scope_id": "11e2b27ac05748cd0c776bbc86effb02cb60318141eef4e97f16a776be464eff"
+              "source_scope_id": "2223a1ebc0f2a0d5eae3335122c74c1756e0b8f775419c2ed0d3454f87ed174f"
             },
             "reference": null,
             "availability": "Unverified imported reference; payload availability not checked."
@@ -719,9 +719,9 @@
     ],
     "entries": [
       {
-        "controller_version": 17,
-        "revision_id": "703fc278a75d2288d2083c2210c15c6332ebab9b3e3577620495889861fde567",
-        "episode_id": "a69f97d76015c91df70d906b8826b47c20fac6661269a5ba3b21dc35167eeb2e",
+        "controller_version": 18,
+        "revision_id": "4b25c618b64d2b8884b6d8831f3ee16b0e2184f1889c1627a658ef9e09fb318c",
+        "episode_id": "291b4155a91e0da0e75ca72b63fa230f1269c48824b83ab4b5e2d091610ae499",
         "target_id": "fcfe294a3d4f5c47afc2d6c9c9b1d3e50a6fbf5f072ec23b411f747efdb57314",
         "target_scope": "database",
         "scope_id": "4294eac332da2604462f5c6987fc2b3e84081487defa0c9e8e8cdfdd560f55dd",
@@ -779,8 +779,8 @@
               },
               "batch_id": "aae500dcd62418a6ada844eb8fceb872e231942da66e04cfef3540f9e99a3b6a",
               "record_id": "28d1c3cccf96a8702eb053638272ff6ef0fe014427d07e5e397ad823c9fb2a0b",
-              "payload_sha256": "cc543823b79c789b3b33b9756a4238343684cda3f3bdf6ef2b9ca5af57fa05a1",
-              "representation_version": 2,
+              "payload_sha256": "34a94ca70d8c8f042f4bc1b478ca5db05429d7d877931f4c2c1bad0b2fc39300",
+              "representation_version": 3,
               "row_ordinal": 0
             },
             "availability": "Unverified imported reference; payload availability not checked."
@@ -824,8 +824,8 @@
               },
               "batch_id": "aae500dcd62418a6ada844eb8fceb872e231942da66e04cfef3540f9e99a3b6a",
               "record_id": "28d1c3cccf96a8702eb053638272ff6ef0fe014427d07e5e397ad823c9fb2a0b",
-              "payload_sha256": "cc543823b79c789b3b33b9756a4238343684cda3f3bdf6ef2b9ca5af57fa05a1",
-              "representation_version": 2,
+              "payload_sha256": "34a94ca70d8c8f042f4bc1b478ca5db05429d7d877931f4c2c1bad0b2fc39300",
+              "representation_version": 3,
               "row_ordinal": 0
             },
             "availability": "Unverified imported reference; payload availability not checked."
@@ -842,7 +842,7 @@
                 }
               },
               "manifest_sha256": "df512f744bed170f67790e1d0c1efb3b3d38464c4a8fd4ef67e916315dad5c81",
-              "source_scope_id": "11e2b27ac05748cd0c776bbc86effb02cb60318141eef4e97f16a776be464eff"
+              "source_scope_id": "2223a1ebc0f2a0d5eae3335122c74c1756e0b8f775419c2ed0d3454f87ed174f"
             },
             "reference": null,
             "availability": "Unverified imported reference; payload availability not checked."
@@ -886,8 +886,8 @@
               },
               "batch_id": "aae500dcd62418a6ada844eb8fceb872e231942da66e04cfef3540f9e99a3b6a",
               "record_id": "28d1c3cccf96a8702eb053638272ff6ef0fe014427d07e5e397ad823c9fb2a0b",
-              "payload_sha256": "cc543823b79c789b3b33b9756a4238343684cda3f3bdf6ef2b9ca5af57fa05a1",
-              "representation_version": 2,
+              "payload_sha256": "34a94ca70d8c8f042f4bc1b478ca5db05429d7d877931f4c2c1bad0b2fc39300",
+              "representation_version": 3,
               "row_ordinal": 0
             },
             "availability": "Unverified imported reference; payload availability not checked."
@@ -904,7 +904,7 @@
                 }
               },
               "manifest_sha256": "df512f744bed170f67790e1d0c1efb3b3d38464c4a8fd4ef67e916315dad5c81",
-              "source_scope_id": "11e2b27ac05748cd0c776bbc86effb02cb60318141eef4e97f16a776be464eff"
+              "source_scope_id": "2223a1ebc0f2a0d5eae3335122c74c1756e0b8f775419c2ed0d3454f87ed174f"
             },
             "reference": null,
             "availability": "Unverified imported reference; payload availability not checked."
@@ -954,9 +954,9 @@
     ],
     "entries": [
       {
-        "controller_version": 17,
-        "revision_id": "f0f67a07431cd56cd41a2e3cc6b4efb2a2920d02a88c3f3554e69c19b403b953",
-        "episode_id": "183817b95e010ff04ac1913a98133b94ddee09be507c4f1787842884d16cd7b0",
+        "controller_version": 18,
+        "revision_id": "697b1821f830a0009f9158ca25aae1a3dfb95a68d3c9917440fcfce18d984a75",
+        "episode_id": "7edb0fa261da21347484ac7800808095e1831d71617462379c79eebb32490974",
         "target_id": "6117a569dfb2e93ff3d030cc4e3ff2693e8275ba5473617e9a41fc985de86faa",
         "target_scope": "database",
         "scope_id": "7aaaacbcbc486bb383b2a06e12fca07dd2b137c207543c5b20b8a0db34753610",
@@ -1017,8 +1017,8 @@
               },
               "batch_id": "b4e71dd3f0e10be386412533f5cb5bc490f3de53ab698d16ccd2b4d37fde8caa",
               "record_id": "4571ebb65c5cb7104c00f41760bf104551d7f0d4c82022b4677aaf44a91f2157",
-              "payload_sha256": "01013fe48f789ec0eb3454905dbafa5963946409b6099382e1b097f7c2123997",
-              "representation_version": 2,
+              "payload_sha256": "fcb96e8b47d40c756f359456b9227a1a735da168b3739f254dcf6ec72e139b1b",
+              "representation_version": 3,
               "row_ordinal": 0
             },
             "availability": "Unverified imported reference; payload availability not checked."
@@ -1065,8 +1065,8 @@
               },
               "batch_id": "b4e71dd3f0e10be386412533f5cb5bc490f3de53ab698d16ccd2b4d37fde8caa",
               "record_id": "4571ebb65c5cb7104c00f41760bf104551d7f0d4c82022b4677aaf44a91f2157",
-              "payload_sha256": "01013fe48f789ec0eb3454905dbafa5963946409b6099382e1b097f7c2123997",
-              "representation_version": 2,
+              "payload_sha256": "fcb96e8b47d40c756f359456b9227a1a735da168b3739f254dcf6ec72e139b1b",
+              "representation_version": 3,
               "row_ordinal": 0
             },
             "availability": "Unverified imported reference; payload availability not checked."
@@ -1080,9 +1080,9 @@
         "next_step": "Inspect the retained originals and recorded reason. Unfinished analysis remains unresolved until qualified evidence answers it."
       },
       {
-        "controller_version": 17,
-        "revision_id": "b9f95750454962a9a3227a84ac9127df3f22ebd3df56aa92462daff0a08dde2e",
-        "episode_id": "183817b95e010ff04ac1913a98133b94ddee09be507c4f1787842884d16cd7b0",
+        "controller_version": 18,
+        "revision_id": "3177bdfb76de20573f9ff07cca67c1081bc65708e62177f2eb66796ef80916f6",
+        "episode_id": "7edb0fa261da21347484ac7800808095e1831d71617462379c79eebb32490974",
         "target_id": "6117a569dfb2e93ff3d030cc4e3ff2693e8275ba5473617e9a41fc985de86faa",
         "target_scope": "database",
         "scope_id": "7aaaacbcbc486bb383b2a06e12fca07dd2b137c207543c5b20b8a0db34753610",
@@ -1143,8 +1143,8 @@
               },
               "batch_id": "b4e71dd3f0e10be386412533f5cb5bc490f3de53ab698d16ccd2b4d37fde8caa",
               "record_id": "4571ebb65c5cb7104c00f41760bf104551d7f0d4c82022b4677aaf44a91f2157",
-              "payload_sha256": "01013fe48f789ec0eb3454905dbafa5963946409b6099382e1b097f7c2123997",
-              "representation_version": 2,
+              "payload_sha256": "fcb96e8b47d40c756f359456b9227a1a735da168b3739f254dcf6ec72e139b1b",
+              "representation_version": 3,
               "row_ordinal": 0
             },
             "availability": "Unverified imported reference; payload availability not checked."
@@ -1191,8 +1191,8 @@
               },
               "batch_id": "b4e71dd3f0e10be386412533f5cb5bc490f3de53ab698d16ccd2b4d37fde8caa",
               "record_id": "4571ebb65c5cb7104c00f41760bf104551d7f0d4c82022b4677aaf44a91f2157",
-              "payload_sha256": "01013fe48f789ec0eb3454905dbafa5963946409b6099382e1b097f7c2123997",
-              "representation_version": 2,
+              "payload_sha256": "fcb96e8b47d40c756f359456b9227a1a735da168b3739f254dcf6ec72e139b1b",
+              "representation_version": 3,
               "row_ordinal": 0
             },
             "availability": "Unverified imported reference; payload availability not checked."
@@ -1210,9 +1210,9 @@
         "next_step": "Inspect the retained originals and recorded reason. Unfinished analysis remains unresolved until qualified evidence answers it."
       },
       {
-        "controller_version": 17,
-        "revision_id": "bc23b97935415fca8b05dc8ef9f28a2d00d6da4013095876db05b8f9661b95f5",
-        "episode_id": "183817b95e010ff04ac1913a98133b94ddee09be507c4f1787842884d16cd7b0",
+        "controller_version": 18,
+        "revision_id": "486ef315b516989928979b448a4625a4be3feaafff08622981934a3d9a1f574f",
+        "episode_id": "7edb0fa261da21347484ac7800808095e1831d71617462379c79eebb32490974",
         "target_id": "6117a569dfb2e93ff3d030cc4e3ff2693e8275ba5473617e9a41fc985de86faa",
         "target_scope": "database",
         "scope_id": "7aaaacbcbc486bb383b2a06e12fca07dd2b137c207543c5b20b8a0db34753610",
@@ -1273,8 +1273,8 @@
               },
               "batch_id": "b4e71dd3f0e10be386412533f5cb5bc490f3de53ab698d16ccd2b4d37fde8caa",
               "record_id": "4571ebb65c5cb7104c00f41760bf104551d7f0d4c82022b4677aaf44a91f2157",
-              "payload_sha256": "01013fe48f789ec0eb3454905dbafa5963946409b6099382e1b097f7c2123997",
-              "representation_version": 2,
+              "payload_sha256": "fcb96e8b47d40c756f359456b9227a1a735da168b3739f254dcf6ec72e139b1b",
+              "representation_version": 3,
               "row_ordinal": 0
             },
             "availability": "Unverified imported reference; payload availability not checked."
@@ -1321,8 +1321,8 @@
               },
               "batch_id": "b4e71dd3f0e10be386412533f5cb5bc490f3de53ab698d16ccd2b4d37fde8caa",
               "record_id": "4571ebb65c5cb7104c00f41760bf104551d7f0d4c82022b4677aaf44a91f2157",
-              "payload_sha256": "01013fe48f789ec0eb3454905dbafa5963946409b6099382e1b097f7c2123997",
-              "representation_version": 2,
+              "payload_sha256": "fcb96e8b47d40c756f359456b9227a1a735da168b3739f254dcf6ec72e139b1b",
+              "representation_version": 3,
               "row_ordinal": 0
             },
             "availability": "Unverified imported reference; payload availability not checked."
@@ -1340,9 +1340,9 @@
         "next_step": "Inspect the retained originals and recorded reason. Unfinished analysis remains unresolved until qualified evidence answers it."
       },
       {
-        "controller_version": 17,
-        "revision_id": "aea07a579e34d2a3503687c3d75d1b7e4c04465a2e888c15feb5ad6b08e03ecc",
-        "episode_id": "183817b95e010ff04ac1913a98133b94ddee09be507c4f1787842884d16cd7b0",
+        "controller_version": 18,
+        "revision_id": "b89f392dc301d2649cc72b835edff6eb12b32c950c445f5726bac20abfd5161e",
+        "episode_id": "7edb0fa261da21347484ac7800808095e1831d71617462379c79eebb32490974",
         "target_id": "6117a569dfb2e93ff3d030cc4e3ff2693e8275ba5473617e9a41fc985de86faa",
         "target_scope": "database",
         "scope_id": "7aaaacbcbc486bb383b2a06e12fca07dd2b137c207543c5b20b8a0db34753610",
@@ -1403,8 +1403,8 @@
               },
               "batch_id": "b4e71dd3f0e10be386412533f5cb5bc490f3de53ab698d16ccd2b4d37fde8caa",
               "record_id": "4571ebb65c5cb7104c00f41760bf104551d7f0d4c82022b4677aaf44a91f2157",
-              "payload_sha256": "01013fe48f789ec0eb3454905dbafa5963946409b6099382e1b097f7c2123997",
-              "representation_version": 2,
+              "payload_sha256": "fcb96e8b47d40c756f359456b9227a1a735da168b3739f254dcf6ec72e139b1b",
+              "representation_version": 3,
               "row_ordinal": 0
             },
             "availability": "Unverified imported reference; payload availability not checked."
@@ -1451,8 +1451,8 @@
               },
               "batch_id": "b4e71dd3f0e10be386412533f5cb5bc490f3de53ab698d16ccd2b4d37fde8caa",
               "record_id": "4571ebb65c5cb7104c00f41760bf104551d7f0d4c82022b4677aaf44a91f2157",
-              "payload_sha256": "01013fe48f789ec0eb3454905dbafa5963946409b6099382e1b097f7c2123997",
-              "representation_version": 2,
+              "payload_sha256": "fcb96e8b47d40c756f359456b9227a1a735da168b3739f254dcf6ec72e139b1b",
+              "representation_version": 3,
               "row_ordinal": 0
             },
             "availability": "Unverified imported reference; payload availability not checked."
@@ -1470,9 +1470,9 @@
         "next_step": "Inspect the retained originals and recorded reason. Unfinished analysis remains unresolved until qualified evidence answers it."
       },
       {
-        "controller_version": 17,
-        "revision_id": "9c1635c5fda5848560bb05a00c84ffb7bcdd459ecc4bfd6f125651f9440a67f5",
-        "episode_id": "183817b95e010ff04ac1913a98133b94ddee09be507c4f1787842884d16cd7b0",
+        "controller_version": 18,
+        "revision_id": "153fa22ed9563d975870ebba098852b31c35f357eff5b9af1e4b7e35daa7e75b",
+        "episode_id": "7edb0fa261da21347484ac7800808095e1831d71617462379c79eebb32490974",
         "target_id": "6117a569dfb2e93ff3d030cc4e3ff2693e8275ba5473617e9a41fc985de86faa",
         "target_scope": "database",
         "scope_id": "7aaaacbcbc486bb383b2a06e12fca07dd2b137c207543c5b20b8a0db34753610",
@@ -1533,8 +1533,8 @@
               },
               "batch_id": "b4e71dd3f0e10be386412533f5cb5bc490f3de53ab698d16ccd2b4d37fde8caa",
               "record_id": "4571ebb65c5cb7104c00f41760bf104551d7f0d4c82022b4677aaf44a91f2157",
-              "payload_sha256": "01013fe48f789ec0eb3454905dbafa5963946409b6099382e1b097f7c2123997",
-              "representation_version": 2,
+              "payload_sha256": "fcb96e8b47d40c756f359456b9227a1a735da168b3739f254dcf6ec72e139b1b",
+              "representation_version": 3,
               "row_ordinal": 0
             },
             "availability": "Unverified imported reference; payload availability not checked."
@@ -1581,8 +1581,8 @@
               },
               "batch_id": "b4e71dd3f0e10be386412533f5cb5bc490f3de53ab698d16ccd2b4d37fde8caa",
               "record_id": "4571ebb65c5cb7104c00f41760bf104551d7f0d4c82022b4677aaf44a91f2157",
-              "payload_sha256": "01013fe48f789ec0eb3454905dbafa5963946409b6099382e1b097f7c2123997",
-              "representation_version": 2,
+              "payload_sha256": "fcb96e8b47d40c756f359456b9227a1a735da168b3739f254dcf6ec72e139b1b",
+              "representation_version": 3,
               "row_ordinal": 0
             },
             "availability": "Unverified imported reference; payload availability not checked."
@@ -1600,9 +1600,9 @@
         "next_step": "Inspect the retained originals and recorded reason. Unfinished analysis remains unresolved until qualified evidence answers it."
       },
       {
-        "controller_version": 17,
-        "revision_id": "3e3e646229cd2d9892c19a688a7d7020ea617d6f80661381a663904f3b15ea99",
-        "episode_id": "183817b95e010ff04ac1913a98133b94ddee09be507c4f1787842884d16cd7b0",
+        "controller_version": 18,
+        "revision_id": "d3445a5d0ad677bea7b2014988a7cabc5d3e48b1bcb32b710352b9333de40627",
+        "episode_id": "7edb0fa261da21347484ac7800808095e1831d71617462379c79eebb32490974",
         "target_id": "6117a569dfb2e93ff3d030cc4e3ff2693e8275ba5473617e9a41fc985de86faa",
         "target_scope": "database",
         "scope_id": "7aaaacbcbc486bb383b2a06e12fca07dd2b137c207543c5b20b8a0db34753610",
@@ -1663,8 +1663,8 @@
               },
               "batch_id": "b4e71dd3f0e10be386412533f5cb5bc490f3de53ab698d16ccd2b4d37fde8caa",
               "record_id": "4571ebb65c5cb7104c00f41760bf104551d7f0d4c82022b4677aaf44a91f2157",
-              "payload_sha256": "01013fe48f789ec0eb3454905dbafa5963946409b6099382e1b097f7c2123997",
-              "representation_version": 2,
+              "payload_sha256": "fcb96e8b47d40c756f359456b9227a1a735da168b3739f254dcf6ec72e139b1b",
+              "representation_version": 3,
               "row_ordinal": 0
             },
             "availability": "Unverified imported reference; payload availability not checked."
@@ -1711,8 +1711,8 @@
               },
               "batch_id": "b4e71dd3f0e10be386412533f5cb5bc490f3de53ab698d16ccd2b4d37fde8caa",
               "record_id": "4571ebb65c5cb7104c00f41760bf104551d7f0d4c82022b4677aaf44a91f2157",
-              "payload_sha256": "01013fe48f789ec0eb3454905dbafa5963946409b6099382e1b097f7c2123997",
-              "representation_version": 2,
+              "payload_sha256": "fcb96e8b47d40c756f359456b9227a1a735da168b3739f254dcf6ec72e139b1b",
+              "representation_version": 3,
               "row_ordinal": 0
             },
             "availability": "Unverified imported reference; payload availability not checked."
@@ -1730,9 +1730,9 @@
         "next_step": "Inspect the retained originals and recorded reason. Unfinished analysis remains unresolved until qualified evidence answers it."
       },
       {
-        "controller_version": 17,
-        "revision_id": "4babb6195a403bc36f25b6c645d983764f1893b595647dd546b3d700fc322bcc",
-        "episode_id": "183817b95e010ff04ac1913a98133b94ddee09be507c4f1787842884d16cd7b0",
+        "controller_version": 18,
+        "revision_id": "ce64b2dfa671fafa7158b95ec955f743c560fa31a14464d2e38b96ef1a38c6be",
+        "episode_id": "7edb0fa261da21347484ac7800808095e1831d71617462379c79eebb32490974",
         "target_id": "6117a569dfb2e93ff3d030cc4e3ff2693e8275ba5473617e9a41fc985de86faa",
         "target_scope": "database",
         "scope_id": "7aaaacbcbc486bb383b2a06e12fca07dd2b137c207543c5b20b8a0db34753610",
@@ -1793,8 +1793,8 @@
               },
               "batch_id": "b4e71dd3f0e10be386412533f5cb5bc490f3de53ab698d16ccd2b4d37fde8caa",
               "record_id": "4571ebb65c5cb7104c00f41760bf104551d7f0d4c82022b4677aaf44a91f2157",
-              "payload_sha256": "01013fe48f789ec0eb3454905dbafa5963946409b6099382e1b097f7c2123997",
-              "representation_version": 2,
+              "payload_sha256": "fcb96e8b47d40c756f359456b9227a1a735da168b3739f254dcf6ec72e139b1b",
+              "representation_version": 3,
               "row_ordinal": 0
             },
             "availability": "Unverified imported reference; payload availability not checked."
@@ -1841,8 +1841,8 @@
               },
               "batch_id": "b4e71dd3f0e10be386412533f5cb5bc490f3de53ab698d16ccd2b4d37fde8caa",
               "record_id": "4571ebb65c5cb7104c00f41760bf104551d7f0d4c82022b4677aaf44a91f2157",
-              "payload_sha256": "01013fe48f789ec0eb3454905dbafa5963946409b6099382e1b097f7c2123997",
-              "representation_version": 2,
+              "payload_sha256": "fcb96e8b47d40c756f359456b9227a1a735da168b3739f254dcf6ec72e139b1b",
+              "representation_version": 3,
               "row_ordinal": 0
             },
             "availability": "Unverified imported reference; payload availability not checked."
@@ -1860,9 +1860,9 @@
         "next_step": "Inspect the retained originals and recorded reason. Unfinished analysis remains unresolved until qualified evidence answers it."
       },
       {
-        "controller_version": 17,
-        "revision_id": "a553733779a99c99679563180299c1b98007da183cf3802176ab3bf16782b06e",
-        "episode_id": "183817b95e010ff04ac1913a98133b94ddee09be507c4f1787842884d16cd7b0",
+        "controller_version": 18,
+        "revision_id": "5d3afcec8c3927d6cbe1a694d7f71932e399a421e24002366b975b55ee876236",
+        "episode_id": "7edb0fa261da21347484ac7800808095e1831d71617462379c79eebb32490974",
         "target_id": "6117a569dfb2e93ff3d030cc4e3ff2693e8275ba5473617e9a41fc985de86faa",
         "target_scope": "database",
         "scope_id": "7aaaacbcbc486bb383b2a06e12fca07dd2b137c207543c5b20b8a0db34753610",
@@ -1923,8 +1923,8 @@
               },
               "batch_id": "b4e71dd3f0e10be386412533f5cb5bc490f3de53ab698d16ccd2b4d37fde8caa",
               "record_id": "4571ebb65c5cb7104c00f41760bf104551d7f0d4c82022b4677aaf44a91f2157",
-              "payload_sha256": "01013fe48f789ec0eb3454905dbafa5963946409b6099382e1b097f7c2123997",
-              "representation_version": 2,
+              "payload_sha256": "fcb96e8b47d40c756f359456b9227a1a735da168b3739f254dcf6ec72e139b1b",
+              "representation_version": 3,
               "row_ordinal": 0
             },
             "availability": "Unverified imported reference; payload availability not checked."
@@ -1971,8 +1971,8 @@
               },
               "batch_id": "b4e71dd3f0e10be386412533f5cb5bc490f3de53ab698d16ccd2b4d37fde8caa",
               "record_id": "4571ebb65c5cb7104c00f41760bf104551d7f0d4c82022b4677aaf44a91f2157",
-              "payload_sha256": "01013fe48f789ec0eb3454905dbafa5963946409b6099382e1b097f7c2123997",
-              "representation_version": 2,
+              "payload_sha256": "fcb96e8b47d40c756f359456b9227a1a735da168b3739f254dcf6ec72e139b1b",
+              "representation_version": 3,
               "row_ordinal": 0
             },
             "availability": "Unverified imported reference; payload availability not checked."
@@ -1990,9 +1990,9 @@
         "next_step": "Inspect the retained originals and recorded reason. Unfinished analysis remains unresolved until qualified evidence answers it."
       },
       {
-        "controller_version": 17,
-        "revision_id": "acaa9bcccb44f4f8c29053a9873bdddd8637fea325dcf73c788c84be279be320",
-        "episode_id": "183817b95e010ff04ac1913a98133b94ddee09be507c4f1787842884d16cd7b0",
+        "controller_version": 18,
+        "revision_id": "dcb545a974b8906b73fc2daf1003317ad3147dff278dd774c4388ca9baee34cb",
+        "episode_id": "7edb0fa261da21347484ac7800808095e1831d71617462379c79eebb32490974",
         "target_id": "6117a569dfb2e93ff3d030cc4e3ff2693e8275ba5473617e9a41fc985de86faa",
         "target_scope": "database",
         "scope_id": "7aaaacbcbc486bb383b2a06e12fca07dd2b137c207543c5b20b8a0db34753610",
@@ -2053,8 +2053,8 @@
               },
               "batch_id": "b4e71dd3f0e10be386412533f5cb5bc490f3de53ab698d16ccd2b4d37fde8caa",
               "record_id": "4571ebb65c5cb7104c00f41760bf104551d7f0d4c82022b4677aaf44a91f2157",
-              "payload_sha256": "01013fe48f789ec0eb3454905dbafa5963946409b6099382e1b097f7c2123997",
-              "representation_version": 2,
+              "payload_sha256": "fcb96e8b47d40c756f359456b9227a1a735da168b3739f254dcf6ec72e139b1b",
+              "representation_version": 3,
               "row_ordinal": 0
             },
             "availability": "Unverified imported reference; payload availability not checked."
@@ -2101,8 +2101,8 @@
               },
               "batch_id": "b4e71dd3f0e10be386412533f5cb5bc490f3de53ab698d16ccd2b4d37fde8caa",
               "record_id": "4571ebb65c5cb7104c00f41760bf104551d7f0d4c82022b4677aaf44a91f2157",
-              "payload_sha256": "01013fe48f789ec0eb3454905dbafa5963946409b6099382e1b097f7c2123997",
-              "representation_version": 2,
+              "payload_sha256": "fcb96e8b47d40c756f359456b9227a1a735da168b3739f254dcf6ec72e139b1b",
+              "representation_version": 3,
               "row_ordinal": 0
             },
             "availability": "Unverified imported reference; payload availability not checked."
@@ -2120,9 +2120,9 @@
         "next_step": "Inspect the retained originals and recorded reason. Unfinished analysis remains unresolved until qualified evidence answers it."
       },
       {
-        "controller_version": 17,
-        "revision_id": "285117733ae2bc12e720184af80f8a348eebe88d52cb4fc0dc8d620f3cf38390",
-        "episode_id": "183817b95e010ff04ac1913a98133b94ddee09be507c4f1787842884d16cd7b0",
+        "controller_version": 18,
+        "revision_id": "537e2816caba5d9f70678d76b8016bea927992560d0d1eb1d40289d037e396dc",
+        "episode_id": "7edb0fa261da21347484ac7800808095e1831d71617462379c79eebb32490974",
         "target_id": "6117a569dfb2e93ff3d030cc4e3ff2693e8275ba5473617e9a41fc985de86faa",
         "target_scope": "database",
         "scope_id": "7aaaacbcbc486bb383b2a06e12fca07dd2b137c207543c5b20b8a0db34753610",
@@ -2183,8 +2183,8 @@
               },
               "batch_id": "b4e71dd3f0e10be386412533f5cb5bc490f3de53ab698d16ccd2b4d37fde8caa",
               "record_id": "4571ebb65c5cb7104c00f41760bf104551d7f0d4c82022b4677aaf44a91f2157",
-              "payload_sha256": "01013fe48f789ec0eb3454905dbafa5963946409b6099382e1b097f7c2123997",
-              "representation_version": 2,
+              "payload_sha256": "fcb96e8b47d40c756f359456b9227a1a735da168b3739f254dcf6ec72e139b1b",
+              "representation_version": 3,
               "row_ordinal": 0
             },
             "availability": "Unverified imported reference; payload availability not checked."
@@ -2231,8 +2231,8 @@
               },
               "batch_id": "b4e71dd3f0e10be386412533f5cb5bc490f3de53ab698d16ccd2b4d37fde8caa",
               "record_id": "4571ebb65c5cb7104c00f41760bf104551d7f0d4c82022b4677aaf44a91f2157",
-              "payload_sha256": "01013fe48f789ec0eb3454905dbafa5963946409b6099382e1b097f7c2123997",
-              "representation_version": 2,
+              "payload_sha256": "fcb96e8b47d40c756f359456b9227a1a735da168b3739f254dcf6ec72e139b1b",
+              "representation_version": 3,
               "row_ordinal": 0
             },
             "availability": "Unverified imported reference; payload availability not checked."
@@ -2250,9 +2250,9 @@
         "next_step": "Inspect the retained originals and recorded reason. Unfinished analysis remains unresolved until qualified evidence answers it."
       },
       {
-        "controller_version": 17,
-        "revision_id": "6cfe339adde88476b83c0fe7bbfed039560b8cbe73c13cf9d9bba8ffd4a5591c",
-        "episode_id": "183817b95e010ff04ac1913a98133b94ddee09be507c4f1787842884d16cd7b0",
+        "controller_version": 18,
+        "revision_id": "e8f470fa8058d6d1be1e08fd15ed5bb92d2893aa3f1190019a7c278cebef4395",
+        "episode_id": "7edb0fa261da21347484ac7800808095e1831d71617462379c79eebb32490974",
         "target_id": "6117a569dfb2e93ff3d030cc4e3ff2693e8275ba5473617e9a41fc985de86faa",
         "target_scope": "database",
         "scope_id": "7aaaacbcbc486bb383b2a06e12fca07dd2b137c207543c5b20b8a0db34753610",
@@ -2313,8 +2313,8 @@
               },
               "batch_id": "b4e71dd3f0e10be386412533f5cb5bc490f3de53ab698d16ccd2b4d37fde8caa",
               "record_id": "4571ebb65c5cb7104c00f41760bf104551d7f0d4c82022b4677aaf44a91f2157",
-              "payload_sha256": "01013fe48f789ec0eb3454905dbafa5963946409b6099382e1b097f7c2123997",
-              "representation_version": 2,
+              "payload_sha256": "fcb96e8b47d40c756f359456b9227a1a735da168b3739f254dcf6ec72e139b1b",
+              "representation_version": 3,
               "row_ordinal": 0
             },
             "availability": "Unverified imported reference; payload availability not checked."
@@ -2361,8 +2361,8 @@
               },
               "batch_id": "b4e71dd3f0e10be386412533f5cb5bc490f3de53ab698d16ccd2b4d37fde8caa",
               "record_id": "4571ebb65c5cb7104c00f41760bf104551d7f0d4c82022b4677aaf44a91f2157",
-              "payload_sha256": "01013fe48f789ec0eb3454905dbafa5963946409b6099382e1b097f7c2123997",
-              "representation_version": 2,
+              "payload_sha256": "fcb96e8b47d40c756f359456b9227a1a735da168b3739f254dcf6ec72e139b1b",
+              "representation_version": 3,
               "row_ordinal": 0
             },
             "availability": "Unverified imported reference; payload availability not checked."
@@ -2380,9 +2380,9 @@
         "next_step": "Inspect the retained originals and recorded reason. Unfinished analysis remains unresolved until qualified evidence answers it."
       },
       {
-        "controller_version": 17,
-        "revision_id": "bedf0a03c84a3c009ad0715034e9d57fee044d12ee9ca60bc15e6bb48124ce6d",
-        "episode_id": "183817b95e010ff04ac1913a98133b94ddee09be507c4f1787842884d16cd7b0",
+        "controller_version": 18,
+        "revision_id": "e7c9569614cfe0005c23194c5844ced93af77d377b96b08938a59b600b937199",
+        "episode_id": "7edb0fa261da21347484ac7800808095e1831d71617462379c79eebb32490974",
         "target_id": "6117a569dfb2e93ff3d030cc4e3ff2693e8275ba5473617e9a41fc985de86faa",
         "target_scope": "database",
         "scope_id": "7aaaacbcbc486bb383b2a06e12fca07dd2b137c207543c5b20b8a0db34753610",
@@ -2443,8 +2443,8 @@
               },
               "batch_id": "b4e71dd3f0e10be386412533f5cb5bc490f3de53ab698d16ccd2b4d37fde8caa",
               "record_id": "4571ebb65c5cb7104c00f41760bf104551d7f0d4c82022b4677aaf44a91f2157",
-              "payload_sha256": "01013fe48f789ec0eb3454905dbafa5963946409b6099382e1b097f7c2123997",
-              "representation_version": 2,
+              "payload_sha256": "fcb96e8b47d40c756f359456b9227a1a735da168b3739f254dcf6ec72e139b1b",
+              "representation_version": 3,
               "row_ordinal": 0
             },
             "availability": "Unverified imported reference; payload availability not checked."
@@ -2491,8 +2491,8 @@
               },
               "batch_id": "b4e71dd3f0e10be386412533f5cb5bc490f3de53ab698d16ccd2b4d37fde8caa",
               "record_id": "4571ebb65c5cb7104c00f41760bf104551d7f0d4c82022b4677aaf44a91f2157",
-              "payload_sha256": "01013fe48f789ec0eb3454905dbafa5963946409b6099382e1b097f7c2123997",
-              "representation_version": 2,
+              "payload_sha256": "fcb96e8b47d40c756f359456b9227a1a735da168b3739f254dcf6ec72e139b1b",
+              "representation_version": 3,
               "row_ordinal": 0
             },
             "availability": "Unverified imported reference; payload availability not checked."
@@ -2510,9 +2510,9 @@
         "next_step": "Inspect the retained originals and recorded reason. Unfinished analysis remains unresolved until qualified evidence answers it."
       },
       {
-        "controller_version": 17,
-        "revision_id": "069999f71def270b55416b6d1e4ff8bbaab02f50083fa0a8bd08fb4f52d766eb",
-        "episode_id": "183817b95e010ff04ac1913a98133b94ddee09be507c4f1787842884d16cd7b0",
+        "controller_version": 18,
+        "revision_id": "4b9d33bc40e4e1e3aa52ad0cdb051a461f5cc5e5f87127b069a9b47fbe255c70",
+        "episode_id": "7edb0fa261da21347484ac7800808095e1831d71617462379c79eebb32490974",
         "target_id": "6117a569dfb2e93ff3d030cc4e3ff2693e8275ba5473617e9a41fc985de86faa",
         "target_scope": "database",
         "scope_id": "7aaaacbcbc486bb383b2a06e12fca07dd2b137c207543c5b20b8a0db34753610",
@@ -2573,8 +2573,8 @@
               },
               "batch_id": "b4e71dd3f0e10be386412533f5cb5bc490f3de53ab698d16ccd2b4d37fde8caa",
               "record_id": "4571ebb65c5cb7104c00f41760bf104551d7f0d4c82022b4677aaf44a91f2157",
-              "payload_sha256": "01013fe48f789ec0eb3454905dbafa5963946409b6099382e1b097f7c2123997",
-              "representation_version": 2,
+              "payload_sha256": "fcb96e8b47d40c756f359456b9227a1a735da168b3739f254dcf6ec72e139b1b",
+              "representation_version": 3,
               "row_ordinal": 0
             },
             "availability": "Unverified imported reference; payload availability not checked."
@@ -2621,8 +2621,8 @@
               },
               "batch_id": "b4e71dd3f0e10be386412533f5cb5bc490f3de53ab698d16ccd2b4d37fde8caa",
               "record_id": "4571ebb65c5cb7104c00f41760bf104551d7f0d4c82022b4677aaf44a91f2157",
-              "payload_sha256": "01013fe48f789ec0eb3454905dbafa5963946409b6099382e1b097f7c2123997",
-              "representation_version": 2,
+              "payload_sha256": "fcb96e8b47d40c756f359456b9227a1a735da168b3739f254dcf6ec72e139b1b",
+              "representation_version": 3,
               "row_ordinal": 0
             },
             "availability": "Unverified imported reference; payload availability not checked."
@@ -2675,9 +2675,9 @@
     ],
     "entries": [
       {
-        "controller_version": 17,
-        "revision_id": "f0f67a07431cd56cd41a2e3cc6b4efb2a2920d02a88c3f3554e69c19b403b953",
-        "episode_id": "183817b95e010ff04ac1913a98133b94ddee09be507c4f1787842884d16cd7b0",
+        "controller_version": 18,
+        "revision_id": "697b1821f830a0009f9158ca25aae1a3dfb95a68d3c9917440fcfce18d984a75",
+        "episode_id": "7edb0fa261da21347484ac7800808095e1831d71617462379c79eebb32490974",
         "target_id": "6117a569dfb2e93ff3d030cc4e3ff2693e8275ba5473617e9a41fc985de86faa",
         "target_scope": "database",
         "scope_id": "7aaaacbcbc486bb383b2a06e12fca07dd2b137c207543c5b20b8a0db34753610",
@@ -2738,8 +2738,8 @@
               },
               "batch_id": "b4e71dd3f0e10be386412533f5cb5bc490f3de53ab698d16ccd2b4d37fde8caa",
               "record_id": "4571ebb65c5cb7104c00f41760bf104551d7f0d4c82022b4677aaf44a91f2157",
-              "payload_sha256": "01013fe48f789ec0eb3454905dbafa5963946409b6099382e1b097f7c2123997",
-              "representation_version": 2,
+              "payload_sha256": "fcb96e8b47d40c756f359456b9227a1a735da168b3739f254dcf6ec72e139b1b",
+              "representation_version": 3,
               "row_ordinal": 0
             },
             "availability": "Unverified imported reference; payload availability not checked."
@@ -2786,8 +2786,8 @@
               },
               "batch_id": "b4e71dd3f0e10be386412533f5cb5bc490f3de53ab698d16ccd2b4d37fde8caa",
               "record_id": "4571ebb65c5cb7104c00f41760bf104551d7f0d4c82022b4677aaf44a91f2157",
-              "payload_sha256": "01013fe48f789ec0eb3454905dbafa5963946409b6099382e1b097f7c2123997",
-              "representation_version": 2,
+              "payload_sha256": "fcb96e8b47d40c756f359456b9227a1a735da168b3739f254dcf6ec72e139b1b",
+              "representation_version": 3,
               "row_ordinal": 0
             },
             "availability": "Unverified imported reference; payload availability not checked."
@@ -2819,9 +2819,9 @@
     ],
     "entries": [
       {
-        "controller_version": 17,
-        "revision_id": "637696d9aebb8b6fbeeac7923fdc499708363cbe6d9cae1bdbfea2bb5e78add8",
-        "episode_id": "183817b95e010ff04ac1913a98133b94ddee09be507c4f1787842884d16cd7b0",
+        "controller_version": 18,
+        "revision_id": "35113190643b36e211868e90816d4cbfc4d1269bafd061d8e89edbdd0e4f6e0c",
+        "episode_id": "7edb0fa261da21347484ac7800808095e1831d71617462379c79eebb32490974",
         "target_id": "6117a569dfb2e93ff3d030cc4e3ff2693e8275ba5473617e9a41fc985de86faa",
         "target_scope": "database",
         "scope_id": "7aaaacbcbc486bb383b2a06e12fca07dd2b137c207543c5b20b8a0db34753610",
@@ -2882,8 +2882,8 @@
               },
               "batch_id": "b4e71dd3f0e10be386412533f5cb5bc490f3de53ab698d16ccd2b4d37fde8caa",
               "record_id": "4571ebb65c5cb7104c00f41760bf104551d7f0d4c82022b4677aaf44a91f2157",
-              "payload_sha256": "01013fe48f789ec0eb3454905dbafa5963946409b6099382e1b097f7c2123997",
-              "representation_version": 2,
+              "payload_sha256": "fcb96e8b47d40c756f359456b9227a1a735da168b3739f254dcf6ec72e139b1b",
+              "representation_version": 3,
               "row_ordinal": 0
             },
             "availability": "Unverified imported reference; payload availability not checked."
@@ -2930,8 +2930,8 @@
               },
               "batch_id": "b4e71dd3f0e10be386412533f5cb5bc490f3de53ab698d16ccd2b4d37fde8caa",
               "record_id": "4571ebb65c5cb7104c00f41760bf104551d7f0d4c82022b4677aaf44a91f2157",
-              "payload_sha256": "01013fe48f789ec0eb3454905dbafa5963946409b6099382e1b097f7c2123997",
-              "representation_version": 2,
+              "payload_sha256": "fcb96e8b47d40c756f359456b9227a1a735da168b3739f254dcf6ec72e139b1b",
+              "representation_version": 3,
               "row_ordinal": 0
             },
             "availability": "Unverified imported reference; payload availability not checked."
@@ -2985,9 +2985,9 @@
     ],
     "entries": [
       {
-        "controller_version": 17,
-        "revision_id": "f0f67a07431cd56cd41a2e3cc6b4efb2a2920d02a88c3f3554e69c19b403b953",
-        "episode_id": "183817b95e010ff04ac1913a98133b94ddee09be507c4f1787842884d16cd7b0",
+        "controller_version": 18,
+        "revision_id": "697b1821f830a0009f9158ca25aae1a3dfb95a68d3c9917440fcfce18d984a75",
+        "episode_id": "7edb0fa261da21347484ac7800808095e1831d71617462379c79eebb32490974",
         "target_id": "6117a569dfb2e93ff3d030cc4e3ff2693e8275ba5473617e9a41fc985de86faa",
         "target_scope": "database",
         "scope_id": "7aaaacbcbc486bb383b2a06e12fca07dd2b137c207543c5b20b8a0db34753610",
@@ -3048,8 +3048,8 @@
               },
               "batch_id": "b4e71dd3f0e10be386412533f5cb5bc490f3de53ab698d16ccd2b4d37fde8caa",
               "record_id": "4571ebb65c5cb7104c00f41760bf104551d7f0d4c82022b4677aaf44a91f2157",
-              "payload_sha256": "01013fe48f789ec0eb3454905dbafa5963946409b6099382e1b097f7c2123997",
-              "representation_version": 2,
+              "payload_sha256": "fcb96e8b47d40c756f359456b9227a1a735da168b3739f254dcf6ec72e139b1b",
+              "representation_version": 3,
               "row_ordinal": 0
             },
             "availability": "Unverified imported reference; payload availability not checked."
@@ -3096,8 +3096,8 @@
               },
               "batch_id": "b4e71dd3f0e10be386412533f5cb5bc490f3de53ab698d16ccd2b4d37fde8caa",
               "record_id": "4571ebb65c5cb7104c00f41760bf104551d7f0d4c82022b4677aaf44a91f2157",
-              "payload_sha256": "01013fe48f789ec0eb3454905dbafa5963946409b6099382e1b097f7c2123997",
-              "representation_version": 2,
+              "payload_sha256": "fcb96e8b47d40c756f359456b9227a1a735da168b3739f254dcf6ec72e139b1b",
+              "representation_version": 3,
               "row_ordinal": 0
             },
             "availability": "Unverified imported reference; payload availability not checked."
@@ -3111,9 +3111,9 @@
         "next_step": "Inspect the retained originals and recorded reason. Unfinished analysis remains unresolved until qualified evidence answers it."
       },
       {
-        "controller_version": 17,
-        "revision_id": "b9f95750454962a9a3227a84ac9127df3f22ebd3df56aa92462daff0a08dde2e",
-        "episode_id": "183817b95e010ff04ac1913a98133b94ddee09be507c4f1787842884d16cd7b0",
+        "controller_version": 18,
+        "revision_id": "3177bdfb76de20573f9ff07cca67c1081bc65708e62177f2eb66796ef80916f6",
+        "episode_id": "7edb0fa261da21347484ac7800808095e1831d71617462379c79eebb32490974",
         "target_id": "6117a569dfb2e93ff3d030cc4e3ff2693e8275ba5473617e9a41fc985de86faa",
         "target_scope": "database",
         "scope_id": "7aaaacbcbc486bb383b2a06e12fca07dd2b137c207543c5b20b8a0db34753610",
@@ -3174,8 +3174,8 @@
               },
               "batch_id": "b4e71dd3f0e10be386412533f5cb5bc490f3de53ab698d16ccd2b4d37fde8caa",
               "record_id": "4571ebb65c5cb7104c00f41760bf104551d7f0d4c82022b4677aaf44a91f2157",
-              "payload_sha256": "01013fe48f789ec0eb3454905dbafa5963946409b6099382e1b097f7c2123997",
-              "representation_version": 2,
+              "payload_sha256": "fcb96e8b47d40c756f359456b9227a1a735da168b3739f254dcf6ec72e139b1b",
+              "representation_version": 3,
               "row_ordinal": 0
             },
             "availability": "Unverified imported reference; payload availability not checked."
@@ -3222,8 +3222,8 @@
               },
               "batch_id": "b4e71dd3f0e10be386412533f5cb5bc490f3de53ab698d16ccd2b4d37fde8caa",
               "record_id": "4571ebb65c5cb7104c00f41760bf104551d7f0d4c82022b4677aaf44a91f2157",
-              "payload_sha256": "01013fe48f789ec0eb3454905dbafa5963946409b6099382e1b097f7c2123997",
-              "representation_version": 2,
+              "payload_sha256": "fcb96e8b47d40c756f359456b9227a1a735da168b3739f254dcf6ec72e139b1b",
+              "representation_version": 3,
               "row_ordinal": 0
             },
             "availability": "Unverified imported reference; payload availability not checked."
@@ -3241,9 +3241,9 @@
         "next_step": "Inspect the retained originals and recorded reason. Unfinished analysis remains unresolved until qualified evidence answers it."
       },
       {
-        "controller_version": 17,
-        "revision_id": "637696d9aebb8b6fbeeac7923fdc499708363cbe6d9cae1bdbfea2bb5e78add8",
-        "episode_id": "183817b95e010ff04ac1913a98133b94ddee09be507c4f1787842884d16cd7b0",
+        "controller_version": 18,
+        "revision_id": "35113190643b36e211868e90816d4cbfc4d1269bafd061d8e89edbdd0e4f6e0c",
+        "episode_id": "7edb0fa261da21347484ac7800808095e1831d71617462379c79eebb32490974",
         "target_id": "6117a569dfb2e93ff3d030cc4e3ff2693e8275ba5473617e9a41fc985de86faa",
         "target_scope": "database",
         "scope_id": "7aaaacbcbc486bb383b2a06e12fca07dd2b137c207543c5b20b8a0db34753610",
@@ -3304,8 +3304,8 @@
               },
               "batch_id": "b4e71dd3f0e10be386412533f5cb5bc490f3de53ab698d16ccd2b4d37fde8caa",
               "record_id": "4571ebb65c5cb7104c00f41760bf104551d7f0d4c82022b4677aaf44a91f2157",
-              "payload_sha256": "01013fe48f789ec0eb3454905dbafa5963946409b6099382e1b097f7c2123997",
-              "representation_version": 2,
+              "payload_sha256": "fcb96e8b47d40c756f359456b9227a1a735da168b3739f254dcf6ec72e139b1b",
+              "representation_version": 3,
               "row_ordinal": 0
             },
             "availability": "Unverified imported reference; payload availability not checked."
@@ -3352,8 +3352,8 @@
               },
               "batch_id": "b4e71dd3f0e10be386412533f5cb5bc490f3de53ab698d16ccd2b4d37fde8caa",
               "record_id": "4571ebb65c5cb7104c00f41760bf104551d7f0d4c82022b4677aaf44a91f2157",
-              "payload_sha256": "01013fe48f789ec0eb3454905dbafa5963946409b6099382e1b097f7c2123997",
-              "representation_version": 2,
+              "payload_sha256": "fcb96e8b47d40c756f359456b9227a1a735da168b3739f254dcf6ec72e139b1b",
+              "representation_version": 3,
               "row_ordinal": 0
             },
             "availability": "Unverified imported reference; payload availability not checked."
@@ -3406,9 +3406,9 @@
     ],
     "entries": [
       {
-        "controller_version": 17,
-        "revision_id": "5b63938b9e370ab9994ca4e06d4da13ef15372799b903a951dcf4ee51bbe19f3",
-        "episode_id": "503dc4a5e80fcc85dbd130ee912f280081707bc6acda41bfdab53b311fa82fb3",
+        "controller_version": 18,
+        "revision_id": "863130b88b383ac50355635b81ad8b574eb7e82bb8cb165770c9f9d0b757b3fd",
+        "episode_id": "9ac1ab25e97183030275b28341ca0be748526b838727024adc438663242cae98",
         "target_id": "e07fa26bc9d41533f42691d2889c08a1b1ee0f6c4875f9fe5daa309a58d3b996",
         "target_scope": "database",
         "scope_id": "fe309c90da5ab17593e4b35adb2610e44e9e702fee121fa9cfc19de66ff6a367",
@@ -3462,8 +3462,8 @@
               },
               "batch_id": "bf2236388feffc32e671c270cf805ac87c6f2644ae927ff83325a69534ed944a",
               "record_id": "0ea2b2b7d4b220994568e8334508d064598830fedbb67b84ca5ebfbfc7545e3d",
-              "payload_sha256": "c4cba4356c5fb0b906f9b8cf586a089319641f7fd2fce90ebec34065cc341c8d",
-              "representation_version": 2,
+              "payload_sha256": "939b24f7c973256d57768284af620f990d412203f9d1be16efd678f6c18b7ea4",
+              "representation_version": 3,
               "row_ordinal": 0
             },
             "availability": "Unverified imported reference; payload availability not checked."
@@ -3503,8 +3503,8 @@
               },
               "batch_id": "bf2236388feffc32e671c270cf805ac87c6f2644ae927ff83325a69534ed944a",
               "record_id": "0ea2b2b7d4b220994568e8334508d064598830fedbb67b84ca5ebfbfc7545e3d",
-              "payload_sha256": "c4cba4356c5fb0b906f9b8cf586a089319641f7fd2fce90ebec34065cc341c8d",
-              "representation_version": 2,
+              "payload_sha256": "939b24f7c973256d57768284af620f990d412203f9d1be16efd678f6c18b7ea4",
+              "representation_version": 3,
               "row_ordinal": 0
             },
             "availability": "Unverified imported reference; payload availability not checked."
@@ -3521,7 +3521,7 @@
                 }
               },
               "manifest_sha256": "104c1c9ce8f64810c66e4005b0503adc1adbcd9c4972c43359aa924e38aef04f",
-              "source_scope_id": "e9cacc0ae111bc7b001384dadd405781728e66d9a439208ff263019410c6721c"
+              "source_scope_id": "e13f6c2e67f9fb282d173c8a7f218369a5393f4552fdf9cc2164675c52eab016"
             },
             "reference": null,
             "availability": "Unverified imported reference; payload availability not checked."
@@ -3561,8 +3561,8 @@
               },
               "batch_id": "bf2236388feffc32e671c270cf805ac87c6f2644ae927ff83325a69534ed944a",
               "record_id": "0ea2b2b7d4b220994568e8334508d064598830fedbb67b84ca5ebfbfc7545e3d",
-              "payload_sha256": "c4cba4356c5fb0b906f9b8cf586a089319641f7fd2fce90ebec34065cc341c8d",
-              "representation_version": 2,
+              "payload_sha256": "939b24f7c973256d57768284af620f990d412203f9d1be16efd678f6c18b7ea4",
+              "representation_version": 3,
               "row_ordinal": 0
             },
             "availability": "Unverified imported reference; payload availability not checked."
@@ -3619,9 +3619,9 @@
     ],
     "entries": [
       {
-        "controller_version": 17,
-        "revision_id": "0ed61fb80fdd69823a9e6ac657dfb3b4a49174351da78448aa816dfd803e66ce",
-        "episode_id": "503dc4a5e80fcc85dbd130ee912f280081707bc6acda41bfdab53b311fa82fb3",
+        "controller_version": 18,
+        "revision_id": "d7cee346fb8c78554f5b4bb3f0616da87ce5986016e64edc5ce054b597882489",
+        "episode_id": "9ac1ab25e97183030275b28341ca0be748526b838727024adc438663242cae98",
         "target_id": "e07fa26bc9d41533f42691d2889c08a1b1ee0f6c4875f9fe5daa309a58d3b996",
         "target_scope": "database",
         "scope_id": "fe309c90da5ab17593e4b35adb2610e44e9e702fee121fa9cfc19de66ff6a367",
@@ -3675,8 +3675,8 @@
               },
               "batch_id": "bf2236388feffc32e671c270cf805ac87c6f2644ae927ff83325a69534ed944a",
               "record_id": "0ea2b2b7d4b220994568e8334508d064598830fedbb67b84ca5ebfbfc7545e3d",
-              "payload_sha256": "c4cba4356c5fb0b906f9b8cf586a089319641f7fd2fce90ebec34065cc341c8d",
-              "representation_version": 2,
+              "payload_sha256": "939b24f7c973256d57768284af620f990d412203f9d1be16efd678f6c18b7ea4",
+              "representation_version": 3,
               "row_ordinal": 0
             },
             "availability": "Unverified imported reference; payload availability not checked."
@@ -3716,8 +3716,8 @@
               },
               "batch_id": "bf2236388feffc32e671c270cf805ac87c6f2644ae927ff83325a69534ed944a",
               "record_id": "0ea2b2b7d4b220994568e8334508d064598830fedbb67b84ca5ebfbfc7545e3d",
-              "payload_sha256": "c4cba4356c5fb0b906f9b8cf586a089319641f7fd2fce90ebec34065cc341c8d",
-              "representation_version": 2,
+              "payload_sha256": "939b24f7c973256d57768284af620f990d412203f9d1be16efd678f6c18b7ea4",
+              "representation_version": 3,
               "row_ordinal": 0
             },
             "availability": "Unverified imported reference; payload availability not checked."
@@ -3734,7 +3734,7 @@
                 }
               },
               "manifest_sha256": "104c1c9ce8f64810c66e4005b0503adc1adbcd9c4972c43359aa924e38aef04f",
-              "source_scope_id": "e9cacc0ae111bc7b001384dadd405781728e66d9a439208ff263019410c6721c"
+              "source_scope_id": "e13f6c2e67f9fb282d173c8a7f218369a5393f4552fdf9cc2164675c52eab016"
             },
             "reference": null,
             "availability": "Unverified imported reference; payload availability not checked."
@@ -3774,8 +3774,8 @@
               },
               "batch_id": "bf2236388feffc32e671c270cf805ac87c6f2644ae927ff83325a69534ed944a",
               "record_id": "0ea2b2b7d4b220994568e8334508d064598830fedbb67b84ca5ebfbfc7545e3d",
-              "payload_sha256": "c4cba4356c5fb0b906f9b8cf586a089319641f7fd2fce90ebec34065cc341c8d",
-              "representation_version": 2,
+              "payload_sha256": "939b24f7c973256d57768284af620f990d412203f9d1be16efd678f6c18b7ea4",
+              "representation_version": 3,
               "row_ordinal": 0
             },
             "availability": "Unverified imported reference; payload availability not checked."
@@ -3832,9 +3832,9 @@
     ],
     "entries": [
       {
-        "controller_version": 17,
-        "revision_id": "f0f67a07431cd56cd41a2e3cc6b4efb2a2920d02a88c3f3554e69c19b403b953",
-        "episode_id": "183817b95e010ff04ac1913a98133b94ddee09be507c4f1787842884d16cd7b0",
+        "controller_version": 18,
+        "revision_id": "697b1821f830a0009f9158ca25aae1a3dfb95a68d3c9917440fcfce18d984a75",
+        "episode_id": "7edb0fa261da21347484ac7800808095e1831d71617462379c79eebb32490974",
         "target_id": "6117a569dfb2e93ff3d030cc4e3ff2693e8275ba5473617e9a41fc985de86faa",
         "target_scope": "database",
         "scope_id": "7aaaacbcbc486bb383b2a06e12fca07dd2b137c207543c5b20b8a0db34753610",
@@ -3895,8 +3895,8 @@
               },
               "batch_id": "b4e71dd3f0e10be386412533f5cb5bc490f3de53ab698d16ccd2b4d37fde8caa",
               "record_id": "4571ebb65c5cb7104c00f41760bf104551d7f0d4c82022b4677aaf44a91f2157",
-              "payload_sha256": "01013fe48f789ec0eb3454905dbafa5963946409b6099382e1b097f7c2123997",
-              "representation_version": 2,
+              "payload_sha256": "fcb96e8b47d40c756f359456b9227a1a735da168b3739f254dcf6ec72e139b1b",
+              "representation_version": 3,
               "row_ordinal": 0
             },
             "availability": "Unverified imported reference; payload availability not checked."
@@ -3943,8 +3943,8 @@
               },
               "batch_id": "b4e71dd3f0e10be386412533f5cb5bc490f3de53ab698d16ccd2b4d37fde8caa",
               "record_id": "4571ebb65c5cb7104c00f41760bf104551d7f0d4c82022b4677aaf44a91f2157",
-              "payload_sha256": "01013fe48f789ec0eb3454905dbafa5963946409b6099382e1b097f7c2123997",
-              "representation_version": 2,
+              "payload_sha256": "fcb96e8b47d40c756f359456b9227a1a735da168b3739f254dcf6ec72e139b1b",
+              "representation_version": 3,
               "row_ordinal": 0
             },
             "availability": "Unverified imported reference; payload availability not checked."
@@ -3958,9 +3958,9 @@
         "next_step": "Inspect the retained originals and recorded reason. Unfinished analysis remains unresolved until qualified evidence answers it."
       },
       {
-        "controller_version": 17,
-        "revision_id": "b9f95750454962a9a3227a84ac9127df3f22ebd3df56aa92462daff0a08dde2e",
-        "episode_id": "183817b95e010ff04ac1913a98133b94ddee09be507c4f1787842884d16cd7b0",
+        "controller_version": 18,
+        "revision_id": "3177bdfb76de20573f9ff07cca67c1081bc65708e62177f2eb66796ef80916f6",
+        "episode_id": "7edb0fa261da21347484ac7800808095e1831d71617462379c79eebb32490974",
         "target_id": "6117a569dfb2e93ff3d030cc4e3ff2693e8275ba5473617e9a41fc985de86faa",
         "target_scope": "database",
         "scope_id": "7aaaacbcbc486bb383b2a06e12fca07dd2b137c207543c5b20b8a0db34753610",
@@ -4021,8 +4021,8 @@
               },
               "batch_id": "b4e71dd3f0e10be386412533f5cb5bc490f3de53ab698d16ccd2b4d37fde8caa",
               "record_id": "4571ebb65c5cb7104c00f41760bf104551d7f0d4c82022b4677aaf44a91f2157",
-              "payload_sha256": "01013fe48f789ec0eb3454905dbafa5963946409b6099382e1b097f7c2123997",
-              "representation_version": 2,
+              "payload_sha256": "fcb96e8b47d40c756f359456b9227a1a735da168b3739f254dcf6ec72e139b1b",
+              "representation_version": 3,
               "row_ordinal": 0
             },
             "availability": "Unverified imported reference; payload availability not checked."
@@ -4069,8 +4069,8 @@
               },
               "batch_id": "b4e71dd3f0e10be386412533f5cb5bc490f3de53ab698d16ccd2b4d37fde8caa",
               "record_id": "4571ebb65c5cb7104c00f41760bf104551d7f0d4c82022b4677aaf44a91f2157",
-              "payload_sha256": "01013fe48f789ec0eb3454905dbafa5963946409b6099382e1b097f7c2123997",
-              "representation_version": 2,
+              "payload_sha256": "fcb96e8b47d40c756f359456b9227a1a735da168b3739f254dcf6ec72e139b1b",
+              "representation_version": 3,
               "row_ordinal": 0
             },
             "availability": "Unverified imported reference; payload availability not checked."

@@ -215,7 +215,7 @@ pub use finding::*;
 pub use finding_facts::*;
 pub use hyperscale_log_component_report::*;
 pub use io_accounting::{FileIoContext, IoAccounting};
-pub use jobs_report::{JobEntry, JobEntryKind, JobsReport};
+pub use jobs_report::*;
 pub use maintenance::*;
 pub use maintenance_blocking_report::MaintenanceBlockingReport;
 pub use maintenance_progress_report::{MaintenanceProgressEntry, MaintenanceProgressReport};

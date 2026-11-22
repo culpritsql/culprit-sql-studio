@@ -20,6 +20,8 @@ pub struct DerivedDiagnosisDescription {
     pub analyzer: ComponentVersion,
     pub rules_version: String,
     pub language: String,
+    /// Explicitly approved labels remain available even when evaluation emits no rows.
+    pub display: DerivedDisplayContext,
     pub recorded_at: String,
     pub observed_from: String,
     pub observed_until: String,
@@ -36,9 +38,10 @@ pub struct DerivedDiagnosisDescription {
 impl DerivedDiagnosisDescription {
     pub fn expected_analysis_id(&self) -> Result<String> {
         let encoded = serde_json::to_vec(&(
-            "culprit-derived-analysis-v1",
+            "culprit-derived-analysis-v2",
             &self.analyzer,
             &self.rules_version,
+            &self.display,
             &self.inputs,
             &self.context_issues,
             &self.change_evaluations,
@@ -50,6 +53,7 @@ impl DerivedDiagnosisDescription {
     pub fn is_valid(&self) -> bool {
         let mut refs = BTreeSet::new();
         self.language == "en"
+            && self.display.is_valid()
             && label(&self.analyzer.component)
             && self.analyzer.version.as_deref().is_some_and(label)
             && self.analyzer.revision.as_deref().is_none_or(label)
@@ -68,12 +72,7 @@ impl DerivedDiagnosisDescription {
             && self.change_evaluations.len() <= MAX_DERIVED_CAPTURES
             && self.change_evaluations.iter().all(|evaluation| evaluation.is_valid_for(&self.inputs))
             && (self.change_evaluations.is_empty() || self.output_coverage.changes == DerivedOutputCoverage::Evaluated)
-            && self
-                .change_evaluations
-                .iter()
-                .map(|evaluation| (evaluation.scope as u8, evaluation.previous_input, evaluation.current_input))
-                .collect::<BTreeSet<_>>()
-                .len()
+            && self.change_evaluations.iter().map(DerivedChangeEvaluation::scope_key).collect::<BTreeSet<_>>().len()
                 == self.change_evaluations.len()
             && self.context_issues.len() <= MAX_DERIVED_CAPTURES
             && self.context_issues.iter().map(|issue| *issue as u8).collect::<BTreeSet<_>>().len()

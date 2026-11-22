@@ -12681,5 +12681,20 @@
   "mcp.warehouse.invalid_arguments": "The warehouse lookup arguments are invalid. Copy selectors and continuation cursors from this server.",
   "mcp.warehouse.native_connections": "Expose only this native connection (repeatable). Incompatible with --warehouse-evidence.",
   "mcp.warehouse.native_disabled": "This MCP server exposes archived evidence only. Native database tools are disabled.",
-  "mcp.warehouse.native_selection": "Warehouse MCP mode cannot use native --connection selection."
+  "mcp.warehouse.native_selection": "Warehouse MCP mode cannot use native --connection selection.",
+  "view.jobs.execution.event.title": "{status, select, failed {Native job {job} recorded a failed run} succeeded {Native job {job} recorded a successful run} other {Native job {job} recorded a run with an unknown outcome}}",
+  "view.jobs.execution.event.detail": "This retained native run record has a UTC clock. It does not identify a current worker or establish why a query changed.",
+  "view.jobs.execution.limit.records": "Counts describe selected native records. Run summaries, steps, retry records, error rows and last-start markers are separate, not a complete or unique execution count. Recorded labels and the collecting process do not establish historical definitions or workers.",
+  "view.jobs.execution.limit.cause": "A job record or an overlap in time does not establish a contributing query or a cause.",
+  "view.jobs.execution.limit.placement": "{placed, plural, one {# selected record can be placed on the UTC timeline} other {# selected records can be placed on the UTC timeline}}; {unplaced, plural, one {# remains unplaced} other {# remain unplaced}}. An unplaced record is still retained evidence.",
+  "view.synthesis.context.job_executions": "Job execution assessment covers only the selected native observation and preserves its source gaps and unplaced records. Zero timeline events does not mean that no jobs ran or failed.",
+  "core.events.why.job_execution": "a native job record overlaps this period; this does not establish a cause",
+  "core.events.around.job_execution": "{n, plural, one {a native job record} other {{count} native job records}}",
+  "ui.events.kind.job_execution": "Job record",
+  "cli.events.kind.job_execution": "Job record",
+  "ui.jobs.execution.inspect": "Native execution record and clock",
+  "ui.jobs.execution.status": "{status, select, failed {The native record reports failure.} succeeded {The native record reports success.} retry {The native record reports a retry.} cancelled {The native record reports cancellation.} progress {The native record reports work in progress.} other {The execution outcome is unknown.}}",
+  "ui.jobs.execution.placement": "{placement, select, utc {This record has a native UTC clock and run identity.} local {This record has a native local clock without a recorded UTC offset and remains unplaced.} unidentified {This record has no native run identity and remains unplaced.} other {More than one record has this native run identity; no timeline record is selected.}}",
+  "ui.jobs.execution.local_role": "Meaning of the native local time",
+  "ui.jobs.execution.local_time_role": "{role, select, written {History-write time for a record reported in progress; not a proven start time} other {Native reported run-start time}}"
 }

@@ -35,11 +35,27 @@ pub fn diff(previous: Option<&Snapshot>, current: &Snapshot, mut recorded: Vec<C
     restart(previous, current, since, &mut out);
     stats_reset(previous, current, since, &mut out);
     statistics(previous, current, since, &mut out);
+    // This existing pure jobs owner requires compatible original database scope and emits only native UTC records.
+    // Native-local/unidentified records remain in JobsReport and never acquire a fabricated timeline instant.
+    if let Ok(events) = culprit_checks::jobs::execution_events_snapshot(current) {
+        recorded.extend(events);
+    }
 
     // The database's own timestamps make "between two scans" exact where exactly one change can be behind them, and
     // stand on their own where Culprit's comparison found nothing (a procedure altered, a table rebuilt).
-    let recorded: Vec<ChangeEvent> =
-        recorded.into_iter().filter(|e| e.start() > since && e.start() <= now + 60.0).collect();
+    let recorded: Vec<ChangeEvent> = recorded
+        .into_iter()
+        .filter(|event| {
+            event.start() <= now + 60.0
+                && if event.kind == EventKind::JobExecution {
+                    // A history row can arrive after a later scan, or record the end of an older run.
+                    // Its original UTC window belongs in retained history; collection time does not date it.
+                    event.end() >= now - trends::HISTORY_DAYS * 86_400.0
+                } else {
+                    event.start() > since
+                }
+        })
+        .collect();
     let mut explained = vec![false; recorded.len()];
     for (i, r) in recorded.iter().enumerate() {
         let matches: Vec<usize> = out
@@ -72,8 +88,7 @@ pub fn diff(previous: Option<&Snapshot>, current: &Snapshot, mut recorded: Vec<C
             .filter(|(r, done)| !done && !(r.kind == EventKind::Setting && r.object.is_some()))
             .map(|(r, _)| r),
     );
-    let mut seen = BTreeSet::new();
-    out.retain(|e| seen.insert(e.id.clone()));
+    let mut out = culprit_core::events::reconcile_records(out);
     out.sort_by(|a, b| a.start().total_cmp(&b.start()));
     out
 }

@@ -145,6 +145,7 @@ impl DerivedIncident {
     pub fn fits_description(&self, description: &DerivedDiagnosisDescription) -> bool {
         self.is_valid()
             && self.analysis_id == description.analysis_id
+            && self.display == description.display
             && description.contains_capture_for(&self.revision_reference)
             && self
                 .affected_queries
@@ -182,6 +183,7 @@ impl DerivedFinding {
     pub fn fits_description(&self, description: &DerivedDiagnosisDescription) -> bool {
         self.is_valid()
             && self.analysis_id == description.analysis_id
+            && self.display == description.display
             && self.inputs.iter().all(|reference| description.contains_capture_for(reference))
             && self.query.as_ref().is_none_or(|query| description.contains_capture_for(&query.reference))
             && self
@@ -197,12 +199,21 @@ impl DerivedChange {
     pub fn is_valid(&self) -> bool {
         public_context(&self.analysis_id, &self.database, &self.display)
             && label(&self.change.id)
+            && self.change.job_execution_is_valid()
+            && self.change.job_execution.as_ref().is_none_or(|job| {
+                self.inputs.iter().any(|input| {
+                    input.stream == TelemetryStream::OperationalSamples
+                        && matches!(&input.native_key, NativeRecordIdentity::Operational { source, key }
+                        if source == &job.reference.source && key == &job.reference.observation_key)
+                })
+            })
             && capture_level_or_rows(&self.inputs)
             && bounded(self)
     }
     pub fn fits_description(&self, description: &DerivedDiagnosisDescription) -> bool {
         self.is_valid()
             && self.analysis_id == description.analysis_id
+            && self.display == description.display
             && self.inputs.iter().all(|reference| description.contains_capture_for(reference))
     }
 }

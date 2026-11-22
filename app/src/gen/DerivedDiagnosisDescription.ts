@@ -4,11 +4,16 @@ import type { ComponentVersion } from "./ComponentVersion";
 import type { DerivedChangeEvaluation } from "./DerivedChangeEvaluation";
 import type { DerivedContextIssue } from "./DerivedContextIssue";
 import type { DerivedDiagnosisCounts } from "./DerivedDiagnosisCounts";
+import type { DerivedDisplayContext } from "./DerivedDisplayContext";
 import type { DerivedFindingEvaluations } from "./DerivedFindingEvaluations";
 import type { DerivedInputReference } from "./DerivedInputReference";
 import type { DerivedOutputCoverageSet } from "./DerivedOutputCoverageSet";
 
-export type DerivedDiagnosisDescription = { analysis_id: string, analyzer: ComponentVersion, rules_version: string, language: string, recorded_at: string, observed_from: string, observed_until: string, inputs: Array<DerivedInputReference>, origin: AnalysisOrigin, 
+export type DerivedDiagnosisDescription = { analysis_id: string, analyzer: ComponentVersion, rules_version: string, language: string, 
+/**
+ * Explicitly approved labels remain available even when evaluation emits no rows.
+ */
+display: DerivedDisplayContext, recorded_at: string, observed_from: string, observed_until: string, inputs: Array<DerivedInputReference>, origin: AnalysisOrigin, 
 /**
  * Completeness of the explicitly selected original inputs, never a healthy native population verdict.
  */

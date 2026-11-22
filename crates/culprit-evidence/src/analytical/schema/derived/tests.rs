@@ -3,6 +3,23 @@ use crate::delivery::recovery::reopen;
 use culprit_core::telemetry::{ExportedRecord, SourceObservation, TelemetryStream};
 use serde_json::{Value, json};
 
+#[test]
+fn every_derived_row_rejects_labels_that_differ_from_the_authenticated_analysis_header() {
+    let (source, output) = test_support::derived_diagnosis_output(false, false);
+    let capture = test_support::fixture().0.capture;
+    for mut record in output.into_records() {
+        assert!(ExportedRecord::new(&source, &capture, record.clone()).is_ok());
+        let display = match &mut record {
+            culprit_core::telemetry::TelemetryRecord::DerivedIncident(row) => &mut row.display,
+            culprit_core::telemetry::TelemetryRecord::DerivedFinding(row) => &mut row.display,
+            culprit_core::telemetry::TelemetryRecord::DerivedChange(row) => &mut row.display,
+            _ => unreachable!(),
+        };
+        display.connection_alias = "Another approved resource alias".into();
+        assert!(ExportedRecord::new(&source, &capture, record).is_err());
+    }
+}
+
 #[tokio::test]
 async fn derived_projection_is_dispatched_by_the_same_catalog_and_keeps_partial_and_shared_scope_explicit() {
     let catalog = LogicalCatalog::new().unwrap();
@@ -168,6 +185,8 @@ async fn zero_finding_rows_retain_locked_and_partial_evaluation_in_the_same_auth
     let SourceObservation::DerivedDiagnosis(restored) = &range.manifest().source.observation else { panic!() };
     assert_eq!(**restored, output.description);
     assert_eq!(restored.counts.findings, 0);
+    assert_eq!(restored.display.connection_alias, "Orders production");
+    assert_eq!(restored.display.database_name, None, "an absent approved name stays unknown even with zero rows");
     assert_eq!(restored.finding_evaluations.omitted_populations, 2);
     assert!(restored.input_read_complete);
     assert!(!restored.limitations().is_empty());
@@ -176,8 +195,8 @@ async fn zero_finding_rows_retain_locked_and_partial_evaluation_in_the_same_auth
 #[tokio::test]
 async fn zero_change_rows_retain_settings_only_evaluation_through_the_same_range_header() {
     use culprit_core::{
-        DerivedCatalogProvenance, DerivedChangeEvaluation, DerivedChangeScope, DerivedDiagnosisCounts,
-        DerivedInputRole, DerivedOutputCoverage,
+        DerivedCatalogProvenance, DerivedChangeEvaluation, DerivedDiagnosisCounts, DerivedInputRole,
+        DerivedOutputCoverage,
     };
     let (mut source, mut output) = test_support::derived_diagnosis_output(false, false);
     output.incidents.clear();
@@ -197,8 +216,7 @@ async fn zero_change_rows_retain_settings_only_evaluation_through_the_same_range
     current.catalog.as_mut().unwrap().observed_from = "2020-01-01T11:00:00Z".into();
     current.catalog.as_mut().unwrap().observed_until = "2020-01-01T11:00:01Z".into();
     output.description.inputs = vec![previous, current];
-    output.description.change_evaluations = vec![DerivedChangeEvaluation {
-        scope: DerivedChangeScope::Settings,
+    output.description.change_evaluations = vec![DerivedChangeEvaluation::Settings {
         previous_input: 0,
         current_input: 1,
         observed_after: "2020-01-01T10:00:00Z".into(),

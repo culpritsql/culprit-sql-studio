@@ -38,6 +38,8 @@ pub enum EventKind {
     Statistics,
     /// The cloud held the server back: CPU or IO credits ran out, or a tier limit was hit.
     Throttle,
+    /// One retained native job execution record with a qualified UTC clock, never query causality.
+    JobExecution,
 }
 
 impl EventKind {
@@ -53,6 +55,7 @@ impl EventKind {
             EventKind::StatsReset => "stats-reset",
             EventKind::Statistics => "statistics",
             EventKind::Throttle => "throttle",
+            EventKind::JobExecution => "job-execution",
         }
     }
 }
@@ -109,6 +112,8 @@ pub struct ChangeEvent {
     pub minor: bool,
     /// Marks: who put it there ("cli", "app" or the coding agent's name).
     pub by: Option<String>,
+    /// Original native slot and acquisition namespace; historical worker/definition ownership is not inferred.
+    pub job_execution: Option<crate::JobExecutionEvent>,
 }
 
 impl ChangeEvent {
@@ -134,6 +139,7 @@ impl ChangeEvent {
             object: None,
             minor: false,
             by: None,
+            job_execution: None,
         }
     }
 
@@ -197,6 +203,29 @@ impl ChangeEvent {
         self.until.as_deref().and_then(epoch).or_else(|| epoch(&self.at)).unwrap_or(0.0)
     }
 
+    /// Native job timeline identity is a recorded UTC history slot, never a current action/worker authority.
+    pub fn job_execution_is_valid(&self) -> bool {
+        let Some(job) = &self.job_execution else {
+            return self.kind != EventKind::JobExecution;
+        };
+        let crate::JobExecutionIdentity::TimescaleHistory { started_at, .. } = &job.reference.native else {
+            return false;
+        };
+        self.kind == EventKind::JobExecution
+            && self.source == EventSource::Database
+            && job.reference.is_valid()
+            && self.after.is_none()
+            && self.action.is_none()
+            && self.table.is_none()
+            && self.object.is_none()
+            && crate::telemetry::canonical_time(&self.at).ok() == crate::telemetry::canonical_time(started_at).ok()
+            && self
+                .until
+                .as_deref()
+                .is_none_or(|until| crate::telemetry::ObservationBounds::new(&self.at, until).is_some())
+            && job.reference.key().is_ok_and(|key| self.id == format!("job-execution:{key}:{}", self.at))
+    }
+
     /// "at Tue 14:05 UTC", "between the Tue 13:00 and 14:00 UTC scans", "from Tue 14:02 to 15:10 UTC". Agents and the
     /// CLI read UTC; the app formats the same fields in local time.
     pub fn when(&self) -> String {
@@ -230,11 +259,56 @@ pub struct EventLink {
 
 /// Events in `[start, end]` (epoch seconds), oldest first, without duplicates.
 pub fn in_range(events: Vec<ChangeEvent>, start: f64, end: f64) -> Vec<ChangeEvent> {
-    let mut seen = BTreeSet::new();
-    let mut out: Vec<ChangeEvent> =
-        events.into_iter().filter(|e| e.end() >= start && e.start() <= end && seen.insert(e.id.clone())).collect();
+    let mut out =
+        reconcile_records(events.into_iter().filter(|event| event.end() >= start && event.start() <= end).collect());
     out.sort_by(|a, b| a.start().total_cmp(&b.start()).then(a.kind.cmp(&b.kind)));
     out
+}
+
+/// Reobserving one native job slot updates its recorded verdict only under a later original read clock.
+/// Equal-clock conflicting native verdicts have no selected survivor; all other existing event kinds retain first-id semantics.
+pub fn reconcile_records(events: Vec<ChangeEvent>) -> Vec<ChangeEvent> {
+    let mut positions = std::collections::BTreeMap::new();
+    let mut output: Vec<EventSelection> = Vec::new();
+    for event in events {
+        if !event.job_execution_is_valid() {
+            continue;
+        }
+        let Some(&position) = positions.get(&event.id) else {
+            positions.insert(event.id.clone(), output.len());
+            output.push(EventSelection { event, conflicting_native_verdict: false });
+            continue;
+        };
+        output[position].consider(event);
+    }
+    output
+        .into_iter()
+        .filter(|selection| !selection.conflicting_native_verdict)
+        .map(|selection| selection.event)
+        .collect()
+}
+
+struct EventSelection {
+    event: ChangeEvent,
+    conflicting_native_verdict: bool,
+}
+impl EventSelection {
+    fn consider(&mut self, event: ChangeEvent) {
+        let (Some(before), Some(after)) = (&self.event.job_execution, &event.job_execution) else { return };
+        let clock = |job: &crate::JobExecutionEvent| {
+            chrono::DateTime::parse_from_rfc3339(&job.reference.acquisition.observed_until).ok()
+        };
+        match clock(before).zip(clock(after)).map(|(a, b)| a.cmp(&b)) {
+            Some(std::cmp::Ordering::Less) => {
+                self.event = event;
+                self.conflicting_native_verdict = false;
+            }
+            Some(std::cmp::Ordering::Equal) if before.status != after.status || self.event.until != event.until => {
+                self.conflicting_native_verdict = true;
+            }
+            _ => {}
+        }
+    }
 }
 
 /// Tie events to the queries that changed around them, append the strongest one to each query's headline, list the
@@ -341,6 +415,7 @@ fn link(
         (EventKind::Statistics, _) => return None,
         (EventKind::Mark, New | Stopped) => (0.8, t!("core.events.why.deploy"), true),
         (EventKind::Mark, _) => (0.6, t!("core.events.why.marked"), true),
+        (EventKind::JobExecution, Regressed | Improved) => (0.2, t!("core.events.why.job_execution"), false),
         (EventKind::Setting, Regressed | Improved) => (0.5, t!("core.events.why.setting"), false),
         (EventKind::Version, Regressed | Improved) => (0.6, t!("core.events.why.version"), true),
         (EventKind::Restart, Regressed) => (0.4, t!("core.events.why.restart"), false),
@@ -395,6 +470,7 @@ fn around_then(events: &[ChangeEvent]) -> Option<String> {
         counted(EventKind::StatsReset, key!("core.events.around.stats_reset")),
         counted(EventKind::Statistics, key!("core.events.around.statistics")),
         counted(EventKind::Throttle, key!("core.events.around.throttle")),
+        counted(EventKind::JobExecution, key!("core.events.around.job_execution")),
     ]
     .into_iter()
     .flatten()
@@ -713,3 +789,6 @@ Database time per hour rose 4.5×: 50 ms → 225 ms. 1 query got slower. Around 
 
 #[cfg(test)]
 mod saved_text;
+
+#[cfg(test)]
+mod job_execution_tests;

@@ -767,6 +767,12 @@ from individual retained runs. Missing history never establishes that no job fai
 does not identify the process or query responsible. Current job labels cannot establish historical ownership.
 Read [Timescale job coverage](providers/timescale.md#background-jobs) before scheduling this unqualified source.
 
+The shared job execution projection distinguishes run summaries, steps, retries, error records and last-start
+markers. It feeds scan history, the timeline, archived analysis and automatic `CulpritChangesV1` output. A native
+Timescale history run with a run identifier and UTC clock can appear on the timeline. SQL Server Agent and
+MySQL/MariaDB local timestamps remain visible in job details without an invented UTC placement. Job overlap is
+context, not proof of a contributing query. Empty timeline output retains the assessment and its coverage gaps.
+
 `cleanup` explains retained cleanup horizons and version-store observations through the scan's pure view.
 PostgreSQL `cleanup` captures retain sessions, prepared transactions and replication slots, their separate data
 and catalog horizons, comparable transaction distances and ties. Missing coverage metadata does not discard

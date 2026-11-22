@@ -3,6 +3,8 @@ use super::provenance::latest_creation;
 use super::*;
 use culprit_core::{Capability, Engine, EventAction, EventKind, EventSource, Report, Snapshot};
 
+mod jobs;
+
 #[test]
 fn setting_values_lose_trailing_zeros() {
     assert_eq!(setting_text("10.000000"), "10");

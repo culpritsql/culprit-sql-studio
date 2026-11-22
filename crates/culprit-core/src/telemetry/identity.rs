@@ -8,8 +8,8 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use ts_rs::TS;
 
-pub const EXPORT_FORMAT_VERSION: u32 = 85;
-pub const REPRESENTATION_VERSION: u32 = 2;
+pub const EXPORT_FORMAT_VERSION: u32 = 86;
+pub const REPRESENTATION_VERSION: u32 = 3;
 
 impl DatabaseIdentity {
     /// Stable resource identity for telemetry destinations; endpoints remain evidence when native identity is absent.

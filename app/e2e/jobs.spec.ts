@@ -58,6 +58,12 @@ test("Agent retained history opens as exact native text with independent local-t
   await page.locator('[data-tile="health"]').click();const region=page.getByRole("region",{name:report.title,exact:true});await expect(region).toBeVisible();await expect(region.locator("details[open]")).toHaveCount(0);
   const card=region.locator(".observation-grid > .operational-card").first();await expect(card).not.toBeVisible();await region.getByText(english["ui.jobs.inspect"],{exact:true}).click();
   await expect(card).toContainText("2147483647");await expect(card).toContainText("250101");await expect(card.locator("script")).toHaveCount(0);
+  const executionSummary=card.getByText(english["ui.jobs.execution.inspect"],{exact:true});
+  await executionSummary.focus();await executionSummary.press("Enter");
+  await expect(card.locator("details[open]")).toHaveCount(1);
+  await expect(card).toContainText("without a recorded UTC offset");
+  await expect(card).toContainText("20261115");await expect(card).toContainText("123456");
+  await executionSummary.press("Enter");await expect(card.locator("details[open]")).toHaveCount(0);
   await card.getByText(english["ui.memory_failures.investigation"],{exact:true}).click();await expect(card).toContainText("without executing jobs");
   await region.getByText(english["ui.memory_failures.limitations"],{exact:true}).click();await expect(region).toContainText("Job local times have no recorded offset.");await expect(region).toContainText("An old failure does not establish a current failing job.");
   await expect(region.getByRole("button",{name:/execute|run job|kill|terminate/i})).toHaveCount(0);

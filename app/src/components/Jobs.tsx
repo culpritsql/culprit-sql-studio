@@ -1,3 +1,4 @@
+import type { JobExecution } from "../gen/JobExecution";
 import type { JobsReport } from "../gen/JobsReport";
 import type { JobsSnapshot } from "../gen/JobsSnapshot";
 import { findingMetric } from "../lib/format";
@@ -21,14 +22,38 @@ export function Jobs({ evidence, report }: { evidence: JobsSnapshot; report: Job
     renderEntry={(entry) => {
       const row = sources.get(entry.source)?.get(entry.observation_key);
       const matched = sameRead && row && ((entry.kind === "state" && ["timescale-job-state", "mssql-agent-job", "mssql-agent-step", "mysql-scheduled-event"].includes(row.fact.kind))
-        || (entry.kind === "retained-run" && ["timescale-job-run", "mssql-agent-history"].includes(row.fact.kind))
+        || (entry.kind === "retained-run" && (row.fact.kind === "timescale-job-run" || (row.fact.kind === "mssql-agent-history" && row.fact.data.step_id === "0")))
+        || (entry.kind === "retained-step" && row.fact.kind === "mssql-agent-history" && row.fact.data.step_id !== "0")
         || (entry.kind === "agent-context" && row.fact.kind === "mssql-agent-context")
         || (entry.kind === "continuous-aggregate" && row.fact.kind === "timescale-continuous-aggregate"))
         && ("job_id" in row.fact.data ? row.fact.data.job_id === entry.job_id : entry.job_id === null);
+      const execution = sameRead ? report.executions.entries.find((value) => value.reference.source === entry.source && value.reference.observation_key === entry.observation_key && value.reference.acquisition.observed_from === native.context.observed_from && value.reference.acquisition.observed_until === native.context.observed_until) : undefined;
       return matched ? <article className="operational-card" key={`${entry.source}:${entry.observation_key}`}>
         <h4>{entry.title}</h4><p>{entry.explanation}</p>
+        {execution && <ExecutionFields entry={execution} />}
         <dl>{entry.metrics.map((metric, index) => <NativeValue key={`${metric.key}:${index}`} label={metric.label} value={findingMetric(metric)} />)}</dl>
         <details><summary>{t("ui.memory_failures.investigation")}</summary><p>{entry.investigation}</p><p>{entry.verify}</p></details>
       </article> : <div className="operational-card" key={`${entry.source}:${entry.observation_key}`}><p>{t("ui.memory_failures.missing_row")}</p></div>;
     }} />;
+}
+
+/** Native local fields stay literal. Only the backend's qualified UTC record enters an actual timeline. */
+function ExecutionFields({ entry }: { entry: JobExecution }) {
+  const time = entry.time;
+  return <details><summary>{t("ui.jobs.execution.inspect")}</summary>
+    <p>{t("ui.jobs.execution.status", { status: entry.status === "in-progress" ? "progress" : entry.status })}</p>
+    <p>{t("ui.jobs.execution.placement", { placement: entry.placement === "native-local" ? "local" : entry.placement === "no-native-run-identity" ? "unidentified" : entry.placement === "ambiguous-native-identity" ? "ambiguous" : "utc" })}</p>
+    <dl>{time.kind === "utc" ? <>
+      <NativeValue label={t("view.jobs.metric.started_at")} value={time.started_at} />
+      <NativeValue label={t("view.jobs.metric.finished_at")} value={time.reported_until ?? t("view.mysql_events.unknown")} />
+    </> : time.kind === "mssql-local" ? <>
+      <NativeValue label={t("view.mssql_agent_jobs.field.run_date")} value={time.run_date} />
+      <NativeValue label={t("view.mssql_agent_jobs.field.run_time")} value={time.run_time} />
+      <NativeValue label={t("view.mssql_agent_jobs.field.duration")} value={time.run_duration} />
+      <NativeValue label={t("ui.jobs.execution.local_role")} value={t("ui.jobs.execution.local_time_role", { role: time.history_written_time ? "written" : "start" })} />
+    </> : <>
+      <NativeValue label={t("view.mysql_events.field.last_started")} value={time.started_without_offset} />
+      <NativeValue label={t("view.mysql_events.field.time_zone")} value={time.event_time_zone ?? t("view.mysql_events.unknown")} />
+    </>}</dl>
+  </details>;
 }

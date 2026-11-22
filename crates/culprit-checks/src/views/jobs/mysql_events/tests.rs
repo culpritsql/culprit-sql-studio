@@ -86,7 +86,8 @@ fn partial_visibility_and_missing_original_body_never_become_empty_success() {
     assert!(partial.limitations.contains(&t!("view.mysql_events.limit.visibility")));
     assert_eq!(partial.sources[0].state, SourceState::Partial);
     read.observations.clear();
-    let missing = super::explain(&read, false, 256).unwrap();
+    let missing =
+        super::super::explain(&JobsSnapshot::MysqlEvents { snapshot: Box::new(read), read_complete: false }).unwrap();
     assert_eq!(missing.native_rows, 1);
     assert_eq!(missing.observed_rows, 0);
     assert!(!missing.read_complete);

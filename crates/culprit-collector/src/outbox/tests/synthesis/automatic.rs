@@ -32,6 +32,7 @@ impl Synthesizer for QueueAnalysis {
             analyzer: self.analyzer(),
             rules_version: self.rules_version().into(),
             language: "en".into(),
+            display: input.display().clone(),
             recorded_at: input.recorded_at().into(),
             observed_from: input.primary().collected_from().into(),
             observed_until: input.primary().collected_until().into(),

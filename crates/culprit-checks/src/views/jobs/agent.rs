@@ -1,7 +1,12 @@
 //! A retained failure is historical; Agent service/session and reported job activity never identify a SQL owner.
 use super::*;
 
-pub(super) fn explain(read: &MssqlAgentJobsSnapshot, read_complete: bool, max_entries: usize) -> Result<JobsReport> {
+pub(super) fn explain(
+    read: &MssqlAgentJobsSnapshot,
+    read_complete: bool,
+    max_entries: usize,
+    executions: JobExecutionProjection,
+) -> Result<JobsReport> {
     if !read.is_valid_read(read_complete) {
         return Err(invalid());
     }
@@ -9,7 +14,7 @@ pub(super) fn explain(read: &MssqlAgentJobsSnapshot, read_complete: bool, max_en
     rows.sort_by(|left, right| {
         (priority(&left.fact), &left.source, &left.key).cmp(&(priority(&right.fact), &right.source, &right.key))
     });
-    let limit = max_entries.min(MAX_JOB_ENTRIES);
+    let limit = max_entries.min(MAX_JOB_EXECUTION_ENTRIES);
     let entries = rows.iter().take(limit).map(|row| entry(row)).collect::<Result<Vec<_>>>()?;
     let mut counts = BTreeMap::<&str, usize>::new();
     for row in &read.observations {
@@ -64,11 +69,16 @@ pub(super) fn explain(read: &MssqlAgentJobsSnapshot, read_complete: bool, max_en
         },
         limitations,
         entries,
+        executions,
     })
 }
 fn priority(fact: &OperationalFact) -> u8 {
     match fact {
-        OperationalFact::MssqlAgentHistory(point) if point.run_status == 0 => 0,
+        OperationalFact::MssqlAgentHistory(point)
+            if executions::agent_status(point.run_status) == culprit_core::JobExecutionStatus::Failed =>
+        {
+            0
+        }
         OperationalFact::MssqlAgentHistory(_) => 1,
         OperationalFact::MssqlAgentJob(_) => 2,
         OperationalFact::MssqlAgentStep(_) => 3,
@@ -93,7 +103,7 @@ fn entry(row: &OperationalObservation) -> Result<JobEntry> {
         ),
         OperationalFact::MssqlAgentHistory(point) => (
             Some(point.job_id.clone()),
-            JobEntryKind::RetainedRun,
+            if point.step_id == "0" { JobEntryKind::RetainedRun } else { JobEntryKind::RetainedStep },
             t!("view.mssql_agent_jobs.history.title"),
             history_explanation(point.run_status),
             history_metrics(point),
@@ -189,12 +199,12 @@ fn step_metrics(point: &MssqlAgentStep) -> Vec<Metric> {
     values
 }
 fn history_explanation(status: i32) -> String {
-    match status {
-        0 => t!("view.mssql_agent_jobs.history.failed"),
-        1 => t!("view.mssql_agent_jobs.history.succeeded"),
-        2 => t!("view.mssql_agent_jobs.history.retry"),
-        3 => t!("view.mssql_agent_jobs.history.cancelled"),
-        4 => t!("view.mssql_agent_jobs.history.in_progress"),
+    match executions::agent_status(status) {
+        culprit_core::JobExecutionStatus::Failed => t!("view.mssql_agent_jobs.history.failed"),
+        culprit_core::JobExecutionStatus::Succeeded => t!("view.mssql_agent_jobs.history.succeeded"),
+        culprit_core::JobExecutionStatus::Retry => t!("view.mssql_agent_jobs.history.retry"),
+        culprit_core::JobExecutionStatus::Cancelled => t!("view.mssql_agent_jobs.history.cancelled"),
+        culprit_core::JobExecutionStatus::InProgress => t!("view.mssql_agent_jobs.history.in_progress"),
         _ => t!("view.mssql_agent_jobs.history.unknown"),
     }
 }

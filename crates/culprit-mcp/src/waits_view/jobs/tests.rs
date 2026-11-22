@@ -368,7 +368,7 @@ fn agent_projection_identifies_original_jobs_and_steps_without_borrowing_current
     assert!(output.to_string().contains("250101"));
     assert!(!output.to_string().contains("PRIVATE-AGENT"));
     let entries = output["jobs"]["entries"].as_array().unwrap();
-    let histories = entries.iter().filter(|entry| entry["kind"] == "retained-run").collect::<Vec<_>>();
+    let histories = entries.iter().filter(|entry| entry["kind"] == "retained-step").collect::<Vec<_>>();
     assert_eq!(histories.len(), 2);
     assert!(
         histories.iter().any(|entry| entry["job_id"] == job_id && entry.to_string().contains("original failed import"))
@@ -384,7 +384,10 @@ fn agent_projection_identifies_original_jobs_and_steps_without_borrowing_current
             .iter()
             .any(|entry| entry["job_id"] == job_id && entry.to_string().contains("current import configuration"))
     );
-    assert!(!output.to_string().contains("2147483647"));
+    let executions = output["jobs"]["execution_records"].as_array().unwrap();
+    assert!(executions.iter().any(|entry| entry["reference"]["native"]["history_id"] == "2147483647"));
+    assert!(executions.iter().all(|entry| entry["placement"] == "native-local"));
+    assert!(executions.iter().all(|entry| entry.get("session_id").is_none()));
 }
 
 #[test]

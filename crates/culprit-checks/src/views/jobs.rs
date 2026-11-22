@@ -1,13 +1,14 @@
 //! Native scheduler points and retained run outcomes share one explanation, without historical ownership joins.
 use culprit_core::{
-    Error, JobEntry, JobEntryKind, JobsReport, Metric, Result, SourceOutcome, SourceState, format, t, telemetry::*,
+    Error, JobEntry, JobEntryKind, JobExecutionProjection, JobsReport, MAX_JOB_EXECUTION_ENTRIES, Metric, Result,
+    SourceOutcome, SourceState, format, t, telemetry::*,
 };
 use std::collections::BTreeMap;
 mod agent;
 mod continuous_aggregates;
+mod executions;
 mod mysql_events;
 mod points;
-const MAX_JOB_ENTRIES: usize = 256;
 
 /// Ordinary scans may display independent native positives under unknown identity only with an explicit limit.
 /// A known namespace conflict cannot borrow the scan's database; archive explanation remains source-owned.
@@ -28,26 +29,56 @@ pub fn explain_snapshot(snapshot: &culprit_core::Snapshot) -> Result<Option<Jobs
 }
 
 pub fn explain(snapshot: &JobsSnapshot) -> Result<JobsReport> {
-    explain_bounded(snapshot, MAX_JOB_ENTRIES)
+    explain_bounded(snapshot, MAX_JOB_EXECUTION_ENTRIES)
 }
 pub fn explain_bounded(snapshot: &JobsSnapshot, max_entries: usize) -> Result<JobsReport> {
     if !snapshot.is_valid() {
         return Err(Error::invalid(t!("view.jobs.invalid")));
     }
-    match snapshot {
+    let executions = executions::project(snapshot, max_entries)?;
+    let mut report = match snapshot {
         JobsSnapshot::MysqlEvents { snapshot, read_complete } => {
-            mysql_events::explain(snapshot, *read_complete, max_entries)
+            mysql_events::explain(snapshot, *read_complete, max_entries, executions)
         }
         JobsSnapshot::Timescale { snapshot, read_complete } => {
-            explain_timescale_bounded(snapshot, *read_complete, max_entries)
+            explain_timescale_bounded(snapshot, *read_complete, max_entries, executions)
         }
-        JobsSnapshot::MssqlAgent { snapshot, read_complete } => agent::explain(snapshot, *read_complete, max_entries),
-    }
+        JobsSnapshot::MssqlAgent { snapshot, read_complete } => {
+            agent::explain(snapshot, *read_complete, max_entries, executions)
+        }
+    }?;
+    report.limitations.push(t!("view.jobs.execution.limit.records"));
+    report.limitations.push(t!("view.jobs.execution.limit.cause"));
+    report.limitations.push(t!(
+        "view.jobs.execution.limit.placement",
+        placed = report.executions.assessment.utc_placed_records,
+        unplaced = report.executions.assessment.unplaced_records
+    ));
+    Ok(report)
 }
+/// Native records only. Read completion and native source coverage remain independent.
+pub fn execution_projection(read: &JobsSnapshot) -> Result<JobExecutionProjection> {
+    if !read.is_valid() {
+        return Err(Error::invalid(t!("view.jobs.invalid")));
+    }
+    executions::project(read, MAX_JOB_EXECUTION_ENTRIES)
+}
+/// Timeline attachment requires actual original database-namespace agreement; unidentified positives remain in JobsReport.
+pub fn execution_events_snapshot(snapshot: &culprit_core::Snapshot) -> Result<Vec<culprit_core::ChangeEvent>> {
+    let Some(read) = snapshot.operations.jobs.as_deref() else {
+        return Ok(vec![]);
+    };
+    if !matches!(read.context().target.snapshot_namespace_comparison(snapshot), culprit_core::Comparison::Compatible) {
+        return Ok(vec![]);
+    }
+    execution_projection(read).map(|projection| projection.events)
+}
+
 fn explain_timescale_bounded(
     snapshot: &TimescaleJobsSnapshot,
     read_complete: bool,
     max_entries: usize,
+    executions: JobExecutionProjection,
 ) -> Result<JobsReport> {
     if !snapshot.is_valid_read(read_complete) {
         return Err(Error::invalid(t!("view.jobs.invalid")));
@@ -66,7 +97,7 @@ fn explain_timescale_bounded(
         })
         .collect::<Vec<_>>();
     selected.sort_by(|left, right| (left.0, left.1, left.2).cmp(&(right.0, right.1, right.2)));
-    let max_entries = max_entries.min(MAX_JOB_ENTRIES);
+    let max_entries = max_entries.min(MAX_JOB_EXECUTION_ENTRIES);
     let entries_limited = selected.len() > max_entries;
     let entries = selected
         .into_iter()
@@ -141,6 +172,7 @@ fn explain_timescale_bounded(
         },
         limitations,
         entries,
+        executions,
     })
 }
 fn outcome(source: &StateSourceCoverage, rows: usize, read_complete: bool) -> SourceOutcome {

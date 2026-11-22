@@ -11,7 +11,6 @@ pub(super) struct FindingProjection {
 pub(super) fn findings(
     original: &dyn OriginalProjection,
     description: &DerivedDiagnosisDescription,
-    display: &DerivedDisplayContext,
     pipeline: &culprit_checks::Pipeline,
     catalogs: &crate::collected_evidence::catalogs::CatalogContext,
     budget: &mut OutputBudget,
@@ -34,7 +33,7 @@ pub(super) fn findings(
             let mut derived = DerivedFinding {
                 analysis_id: description.analysis_id.clone(),
                 database: database.clone(),
-                display: display.clone(),
+                display: description.display.clone(),
                 finding: finding.clone(),
                 inputs: refs,
                 query,

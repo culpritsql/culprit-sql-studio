@@ -71,7 +71,7 @@ mod maintenance_blocking;
 pub use maintenance_blocking::maintenance_blocking;
 mod current_request_work;
 pub use current_request_work::current_request_work;
-mod jobs;
+pub(crate) mod jobs;
 pub use jobs::jobs;
 mod replication;
 #[cfg(feature = "collector")]

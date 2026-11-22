@@ -19,4 +19,5 @@ path = "tests/all.rs"
 
 [dependencies]
 culprit-core.workspace = true
+chrono.workspace = true
 serde_json.workspace = true

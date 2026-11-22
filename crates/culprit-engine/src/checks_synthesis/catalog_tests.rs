@@ -191,16 +191,19 @@ async fn actual_settings_comparison_uses_existing_events_and_keeps_zero_rows_sco
             .unwrap();
         assert_eq!(output.changes.len(), expected);
         assert_eq!(output.description.change_evaluations.len(), 1);
-        let evaluation = &output.description.change_evaluations[0];
-        assert_eq!(evaluation.scope, DerivedChangeScope::Settings);
-        assert_eq!((evaluation.previous_input, evaluation.current_input), (1, 2));
+        let DerivedChangeEvaluation::Settings { previous_input, current_input, observed_after, observed_until } =
+            &output.description.change_evaluations[0]
+        else {
+            panic!("Settings assessment");
+        };
+        assert_eq!((*previous_input, *current_input), (1, 2));
         assert_eq!(output.description.output_coverage.changes, DerivedOutputCoverage::Evaluated);
         assert!(!output.description.limitations().is_empty());
         if let Some(change) = output.changes.first() {
             assert_eq!(change.change.source, EventSource::Scans);
             assert_eq!(change.change.object.as_deref(), Some("MAXDOP"));
-            assert_eq!(change.change.after.as_deref(), Some(evaluation.observed_after.as_str()));
-            assert_eq!(change.change.at, evaluation.observed_until);
+            assert_eq!(change.change.after.as_deref(), Some(observed_after.as_str()));
+            assert_eq!(change.change.at, *observed_until);
             assert_eq!(change.inputs.len(), 2);
             assert!(change.change.title.source().is_some());
         }

@@ -1,4 +1,4 @@
-import { ChartColumn, CircleArrowUp, CloudAlert, CodeXml, Eraser, Flag, ListTree, Power, SlidersHorizontal, Table2 } from "lucide-react";
+import { Clock3, ChartColumn, CircleArrowUp, CloudAlert, CodeXml, Eraser, Flag, ListTree, Power, SlidersHorizontal, Table2 } from "lucide-react";
 import type { EventKind } from "../gen/EventKind";
 
 const ICONS = {
@@ -12,6 +12,7 @@ const ICONS = {
   "stats-reset": Eraser,
   statistics: ChartColumn,
   throttle: CloudAlert,
+  "job-execution": Clock3,
 } satisfies Record<EventKind, unknown>;
 
 /** The icon for a kind of change, the same on charts, in the timeline and in What changed. */

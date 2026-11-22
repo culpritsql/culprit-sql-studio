@@ -1,3 +1,4 @@
+import type { JobExecutionProjection } from "../gen/JobExecutionProjection";
 import type { JobEntry } from "../gen/JobEntry";
 import type { JobsReport } from "../gen/JobsReport";
 import type { OperationalObservation } from "../gen/OperationalObservation";
@@ -26,6 +27,7 @@ export function jobsReport(rows = [jobPoint()]): JobsReport {
   return { context: jobsEvidence(rows).snapshot.context, sources: [{ source: JOBS_SOURCE, state: "partial", reason: { text: "Job-owner visibility remains partial." } }], read_complete: true,
     native_rows: rows.length, observed_rows: rows.length, entries_limited: false, title: "Recorded TimescaleDB jobs", summary: "Native job state and run outcomes remain independent.",
     limitations: ["Reported Running does not prove a worker or request.", "Job history retention and logging remain incomplete."],
+    executions: noExecutions(jobsEvidence(rows)),
     entries: rows.map((row): JobEntry => {
       if (row.fact.kind !== "timescale-job-state") throw new Error("Job state fixture required");
       return { source: row.source, observation_key: row.key, job_id: row.fact.data.job_id, kind: "state", title: `Native job ${row.fact.data.job_id}`,
@@ -43,7 +45,7 @@ export function agentJobEvidence(): JobsSnapshot {
     sources:[{source:"mssql-agent-job-history",state:"partial",records:1,complete_scope:false,error_code:null,stopped:null}]}});
 }
 export function agentJobsReport(evidence=agentJobEvidence()): JobsReport {
-  return {context:evidence.snapshot.context,sources:[{source:"mssql-agent-job-history",state:"partial",reason:{ text: "Retained history is partial." }}],read_complete:true,native_rows:1,observed_rows:1,entries_limited:false,title:"Recorded SQL Server Agent jobs",summary:"Retained failure is independent from the current definition.",limitations:["Job local times have no recorded offset.","An old failure does not establish a current failing job."],entries:[{source:"mssql-agent-job-history",observation_key:"original-agent-history",job_id:"aaaaaaaa-1111-2222-3333-bbbbbbbbbbbb",kind:"retained-run",title:"Retained execution record",explanation:"This retained history row records failure, not a current failure.",metrics:[{key:"view.mssql_agent_jobs.field.history_id",label:"Native history row ID",value:0,unit:"text",text:"2147483647"},{key:"view.mssql_agent_jobs.field.duration",label:"Native duration (HHmmss)",value:0,unit:"text",text:"250101"},{key:"view.mssql_agent_jobs.field.stored_step",label:"Stored historical label",value:0,unit:"text",text:"stored <script>agent-canary</script>"}],investigation:"Inspect current definition and retained outcomes separately.",verify:"Take another bounded native read without executing jobs."}]};
+  return {context:evidence.snapshot.context,sources:[{source:"mssql-agent-job-history",state:"partial",reason:{ text: "Retained history is partial." }}],read_complete:true,native_rows:1,observed_rows:1,entries_limited:false,executions:agentExecutions(evidence),title:"Recorded SQL Server Agent jobs",summary:"Retained failure is independent from the current definition.",limitations:["Job local times have no recorded offset.","An old failure does not establish a current failing job."],entries:[{source:"mssql-agent-job-history",observation_key:"original-agent-history",job_id:"aaaaaaaa-1111-2222-3333-bbbbbbbbbbbb",kind:"retained-step",title:"Retained execution record",explanation:"This retained history row records failure, not a current failure.",metrics:[{key:"view.mssql_agent_jobs.field.history_id",label:"Native history row ID",value:0,unit:"text",text:"2147483647"},{key:"view.mssql_agent_jobs.field.duration",label:"Native duration (HHmmss)",value:0,unit:"text",text:"250101"},{key:"view.mssql_agent_jobs.field.stored_step",label:"Stored historical label",value:0,unit:"text",text:"stored <script>agent-canary</script>"}],investigation:"Inspect current definition and retained outcomes separately.",verify:"Take another bounded native read without executing jobs."}]};
 }
 
 
@@ -60,6 +62,20 @@ export function mysqlEventsReport(evidence = mysqlEventEvidence()): JobsReport {
   const row = evidence.snapshot.observations[0]!;
   if (row.fact.kind !== "mysql-scheduled-event") throw new Error("original event point required");
   return { context: evidence.snapshot.context, sources: [{ source: row.source, state: "collected", reason: null }], read_complete: true, native_rows: 1, observed_rows: 1, entries_limited: false,
+    executions: noExecutions(evidence),
     title: "Scheduled events", summary: "Event Scheduler setting: OFF. This is configuration, not a runtime result.", limitations: ["Last start is not a success or failure outcome."],
     entries: [{ source: row.source, observation_key: row.key, job_id: null, kind: "state", title: "Recorded event", explanation: "The event is recorded as disabled.", metrics: [{ label: "Event", key: "view.mysql_events.field.name", value: 0, unit: "text", text: row.fact.data.name }], investigation: "Review the original event schedule.", verify: "Verify a specific run independently." }] };
+}
+
+function noExecutions(evidence: JobsSnapshot): JobExecutionProjection {
+  return { assessment: { read_complete: evidence.read_complete, sources: evidence.snapshot.sources.map((source) => ({ source: source.source, state: source.state, complete_scope: source.complete_scope, native_rows: source.records, observed_rows: evidence.snapshot.observations.filter((row) => row.source === source.source).length, stopped: source.stopped, error_code: source.error_code })), run_records: 0, step_records: 0, error_records: 0, last_start_records: 0, utc_placed_records: 0, unplaced_records: 0, omitted_entries: 0 }, entries: [], events: [] };
+}
+function agentExecutions(evidence: JobsSnapshot): JobExecutionProjection {
+  const projection = noExecutions(evidence);
+  const row = evidence.snapshot.observations[0]!;
+  if (row.fact.kind !== "mssql-agent-history") throw new Error("Agent history UI fixture");
+  const native = row.fact.data;
+  projection.assessment.step_records = 1; projection.assessment.unplaced_records = 1;
+  projection.entries = [{ reference: { source: row.source, observation_key: row.key, acquisition: { target_id: "a".repeat(64), member_id: "b".repeat(64), process_generation: "c".repeat(64), namespace: "d".repeat(64), observed_from: evidence.snapshot.context.observed_from, observed_until: evidence.snapshot.context.observed_until }, native: { kind: "mssql-agent-history", job_id: native.job_id, history_id: native.instance_id, step_id: native.step_id, run_date: native.run_date, run_time: native.run_time } }, status: "failed", label: { text: native.stored_step_name ?? "", origin: "stored" }, time: { kind: "mssql-local", run_date: native.run_date, run_time: native.run_time, run_duration: native.run_duration, started_without_offset: "2026-11-15T12:34:56", duration_seconds: "90061", history_written_time: false }, diagnostics: { kind: "mssql", sql_message_id: native.sql_message_id, sql_severity: native.sql_severity, retries_attempted: native.retries_attempted, native_status: native.run_status }, placement: "native-local" }];
+  return projection;
 }

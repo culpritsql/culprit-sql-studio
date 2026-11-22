@@ -138,3 +138,33 @@ test("unavailable scheduled-event catalog keeps its own source title without Age
   expect(html).toContain(t("view.mysql_events.title")); expect(html).toContain("Native event catalog permission denied.");
   expect(html).not.toContain(t("view.mssql_agent_jobs.title")); expect(html).not.toContain(t("ui.health.empty"));
 });
+
+
+test("typed Agent execution stays unplaced and folded with literal DST-sensitive native clock fields", () => {
+  const evidence=agentJobEvidence();const report=agentJobsReport(evidence);
+  const execution=report.executions.entries[0]!;
+  if(execution.time.kind!=="mssql-local")throw new Error("native local fixture");
+  execution.time.run_date="20261025";execution.time.run_time="33000";execution.time.started_without_offset="2026-10-25T03:30:00";
+  execution.time.history_written_time=true;
+  const before=JSON.stringify(report);
+  const html=renderToStaticMarkup(<Jobs evidence={evidence} report={report}/>);
+  expect(html).toContain("20261025");expect(html).toContain("33000");
+  expect(html).toContain(t("ui.jobs.execution.placement",{placement:"local"}));
+  expect(html).toContain(t("ui.jobs.execution.local_time_role",{role:"written"}));
+  expect(html).not.toContain("2026-10-25T03:30:00Z");expect(html).not.toContain("private-agent-machine");
+  expect(html).not.toMatch(/<details[^>]*\bopen(?:=|\s|>)/);
+  expect(JSON.stringify(report)).toBe(before);
+  report.context={...report.context,observed_until:"2026-11-15T12:00:02.123456Z"};
+  const foreign=renderToStaticMarkup(<Jobs evidence={evidence} report={report}/>);
+  expect(foreign).toContain(t("ui.memory_failures.missing_row"));
+  expect(foreign).not.toContain("20261025");
+});
+
+
+test("an execution child from another read cannot supply typed execution details for a matching outer row", () => {
+  const evidence=agentJobEvidence();const report=agentJobsReport(evidence);
+  report.executions.entries[0]!.reference.acquisition.observed_until="2026-11-15T12:00:02.123456Z";
+  const html=renderToStaticMarkup(<Jobs evidence={evidence} report={report}/>);
+  expect(html).toContain("2147483647");
+  expect(html).not.toContain(t("ui.jobs.execution.inspect"));
+});

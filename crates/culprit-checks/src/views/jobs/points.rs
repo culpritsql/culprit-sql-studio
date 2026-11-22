@@ -1,7 +1,11 @@
 use super::*;
 pub(super) fn priority(fact: &OperationalFact) -> u8 {
     match fact {
-        OperationalFact::TimescaleJobRun(point) if point.succeeded == Some(false) && point.finished_at.is_some() => 0,
+        OperationalFact::TimescaleJobRun(point)
+            if executions::timescale_status(point) == culprit_core::JobExecutionStatus::Failed =>
+        {
+            0
+        }
         OperationalFact::TimescaleJobState(point)
             if point
                 .statistics
@@ -108,8 +112,8 @@ pub(super) fn state(row: &OperationalObservation, point: &TimescaleJobState, dup
     )
 }
 pub(super) fn run(row: &OperationalObservation, point: &TimescaleJobRun) -> JobEntry {
-    let (title, mut explanation) = match (point.succeeded, point.finished_at.as_ref()) {
-        (Some(false), Some(_)) => {
+    let (title, mut explanation) = match executions::timescale_status(point) {
+        culprit_core::JobExecutionStatus::Failed => {
             let mut explanation = t!("view.jobs.run.failed");
             if let Some(kind) = point.failure_kind() {
                 let (_, native, _) = super::super::native_failures::postgres_explanation(kind, None);
@@ -118,7 +122,9 @@ pub(super) fn run(row: &OperationalObservation, point: &TimescaleJobRun) -> JobE
             }
             (t!("view.jobs.run.failed_title", job = &point.job_id), explanation)
         }
-        (Some(true), Some(_)) => (t!("view.jobs.run.success_title", job = &point.job_id), t!("view.jobs.run.success")),
+        culprit_core::JobExecutionStatus::Succeeded => {
+            (t!("view.jobs.run.success_title", job = &point.job_id), t!("view.jobs.run.success"))
+        }
         _ => (t!("view.jobs.run.unverified_title", job = &point.job_id), t!("view.jobs.run.unverified")),
     };
     let mut metrics = vec![

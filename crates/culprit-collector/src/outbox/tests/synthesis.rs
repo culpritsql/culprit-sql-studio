@@ -36,6 +36,7 @@ impl Synthesizer for ControlledAnalysis {
             analyzer: self.analyzer(),
             rules_version: "controlled-1".into(),
             language: "en".into(),
+            display: input.display().clone(),
             recorded_at: input.recorded_at().into(),
             observed_from: input.primary().collected_from().into(),
             observed_until: input.primary().collected_until().into(),

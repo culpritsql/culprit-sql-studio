@@ -350,10 +350,15 @@ async fn independent_catalog_originals_keep_same_scope_clocks_and_changes_while_
             ));
         } else {
             assert_eq!(output.description.output_coverage.changes, DerivedOutputCoverage::Evaluated);
-            let comparison = &output.description.change_evaluations[0];
-            assert_eq!((comparison.previous_input, comparison.current_input), (1, 2));
-            assert_eq!(comparison.observed_after, canonical_time(previous_capture.collected_from()).unwrap());
-            assert_eq!(comparison.observed_until, canonical_time(current_capture.collected_until()).unwrap());
+            assert_eq!(
+                output.description.change_evaluations[0],
+                DerivedChangeEvaluation::Settings {
+                    previous_input: 1,
+                    current_input: 2,
+                    observed_after: canonical_time(previous_capture.collected_from()).unwrap(),
+                    observed_until: canonical_time(current_capture.collected_until()).unwrap(),
+                }
+            );
             assert_eq!(output.changes[0].change.source, EventSource::Scans);
             assert_eq!(output.changes[0].change.object.as_deref(), Some("MAXDOP"));
         }

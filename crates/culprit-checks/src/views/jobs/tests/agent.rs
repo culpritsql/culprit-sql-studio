@@ -91,6 +91,14 @@ fn each_native_history_status_has_its_own_explanation_without_current_failure_or
         let report = explain_agent(read.clone(), true).unwrap();
         assert_eq!(report.entries[0].explanation, expected);
         assert_eq!(report.context, read.context);
+        let typed = &report.executions.entries[0];
+        assert_eq!(typed.status, executions::agent_status(status));
+        let culprit_core::JobExecutionTime::MssqlLocal { history_written_time, duration_seconds, .. } = &typed.time
+        else {
+            panic!()
+        };
+        assert_eq!(*history_written_time, status == 4);
+        assert_eq!(duration_seconds.as_deref(), Some("90061"));
         assert_eq!(report.entries[0].observation_key, read.observations[0].key);
         assert!(report.entries[0].metrics.iter().any(|metric| metric.text.as_deref() == Some("250101")));
         assert!(report.entries[0].metrics.iter().any(|metric| metric.text.as_deref() == Some("0")));
@@ -99,6 +107,7 @@ fn each_native_history_status_has_its_own_explanation_without_current_failure_or
         assert_eq!(serde_json::to_value(read).unwrap(), original);
     }
 }
+
 #[test]
 fn native_denial_bounded_history_and_missing_archive_bodies_keep_independent_qualifications() {
     let mut read = native(0);
@@ -116,11 +125,11 @@ fn native_denial_bounded_history_and_missing_archive_bodies_keep_independent_qua
 fn bounded_presentation_validates_the_unpresented_tail_and_never_changes_original_counts() {
     let mut read = native(1);
     let mut rows = vec![];
-    for id in 1..=MAX_JOB_ENTRIES + 1 {
+    for id in 1..=MAX_JOB_EXECUTION_ENTRIES + 1 {
         let mut row = read.observations[0].clone();
         let OperationalFact::MssqlAgentHistory(point) = &mut row.fact else { panic!() };
         point.instance_id = id.to_string();
-        if id == MAX_JOB_ENTRIES + 1 {
+        if id == MAX_JOB_EXECUTION_ENTRIES + 1 {
             point.run_status = 0;
         }
         row.key = point.key().unwrap();
@@ -132,7 +141,7 @@ fn bounded_presentation_validates_the_unpresented_tail_and_never_changes_origina
     let wrapped = JobsSnapshot::MssqlAgent { snapshot: Box::new(read.clone()), read_complete: true };
     let report = explain_bounded(&wrapped, 5).unwrap();
     assert_eq!(report.entries.len(), 5);
-    assert_eq!(report.observed_rows, MAX_JOB_ENTRIES as u32 + 1);
+    assert_eq!(report.observed_rows, MAX_JOB_EXECUTION_ENTRIES as u32 + 1);
     assert!(report.entries_limited);
     assert_eq!(report.entries[0].explanation, t!("view.mssql_agent_jobs.history.failed"));
     read.observations.last_mut().unwrap().key = digest(b"different-original-key");

@@ -5,7 +5,6 @@ use std::collections::BTreeSet;
 pub(super) fn project(
     originals: &[&dyn OriginalProjection],
     description: &DerivedDiagnosisDescription,
-    display: &DerivedDisplayContext,
     budget: &mut OutputBudget,
 ) -> Result<Vec<DerivedIncident>> {
     let primary = *originals.first().ok_or_else(invalid)?;
@@ -67,7 +66,7 @@ pub(super) fn project(
         let mut incident = DerivedIncident {
             analysis_id: description.analysis_id.clone(),
             database: database.clone(),
-            display: display.clone(),
+            display: description.display.clone(),
             revision_reference: primary.reference(position)?,
             victim_summary: entry.title.clone(),
             original_interval,

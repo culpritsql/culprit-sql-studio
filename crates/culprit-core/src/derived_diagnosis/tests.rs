@@ -43,6 +43,7 @@ fn description() -> DerivedDiagnosisDescription {
         },
         rules_version: "rules-1".into(),
         language: "en".into(),
+        display: display(),
         recorded_at: "2026-11-21T11:00:00Z".into(),
         observed_from: "2026-11-21T10:00:00Z".into(),
         observed_until: "2026-11-21T10:01:00Z".into(),
@@ -207,7 +208,7 @@ fn decimal_predecessor_lifecycle_and_enrichment_survive_without_a_false_culprit(
     assert!(row.culprit_queries.is_empty());
 }
 #[test]
-fn version_and_exact_inputs_choose_analysis_identity_but_display_alias_does_not() {
+fn version_exact_inputs_and_approved_labels_choose_analysis_identity_without_becoming_native_identity() {
     let header = description();
     let id = header.analysis_id.clone();
     let mut changed = header.clone();
@@ -216,10 +217,30 @@ fn version_and_exact_inputs_choose_analysis_identity_but_display_alias_does_not(
     changed = header.clone();
     changed.inputs[0].capture.manifest_sha256 = digest(b"new native original");
     assert_ne!(changed.expected_analysis_id().unwrap(), id);
+    changed = header.clone();
+    changed.display.connection_alias = "Another alias".into();
+    assert_ne!(changed.expected_analysis_id().unwrap(), id);
+    assert!(!changed.is_valid(), "a label change requires a newly bound analysis identity");
     let mut row = incident();
+    let original_database = row.database.clone();
     row.display.connection_alias = "Another alias".into();
     assert_eq!(row.analysis_id, id);
-    assert!(row.fits_description(&header));
+    assert!(!row.fits_description(&header), "row labels must come from their authenticated analysis header");
+    changed.analysis_id = changed.expected_analysis_id().unwrap();
+    row.analysis_id = changed.analysis_id.clone();
+    assert!(row.fits_description(&changed));
+    assert_eq!(row.database, original_database, "display aliases do not grant native ownership");
+}
+
+#[test]
+fn empty_evaluation_keeps_approved_labels_and_unknown_names_after_serialization() {
+    let output = DerivedDiagnosis { description: description(), incidents: vec![], findings: vec![], changes: vec![] };
+    output.validate().unwrap();
+    let restored: DerivedDiagnosis = serde_json::from_slice(&serde_json::to_vec(&output).unwrap()).unwrap();
+    assert_eq!(restored.description.display, display());
+    assert_eq!(restored.description.display.database_name, None);
+    assert_eq!(restored.description.counts.total(), Some(0));
+    assert_eq!(restored.into_records().count(), 0, "an identifiable empty result needs no invented row");
 }
 #[test]
 fn local_output_is_not_a_native_recipe_and_unknown_target_never_becomes_current_authority() {
@@ -449,8 +470,7 @@ fn zero_setting_changes_keep_exact_comparison_scope_and_plan_identity_without_a_
         })
         .collect();
     let before = header.expected_analysis_id().unwrap();
-    header.change_evaluations.push(DerivedChangeEvaluation {
-        scope: DerivedChangeScope::Settings,
+    header.change_evaluations.push(DerivedChangeEvaluation::Settings {
         previous_input: 0,
         current_input: 1,
         observed_after: "2026-11-21T08:00:00Z".into(),
@@ -464,11 +484,16 @@ fn zero_setting_changes_keep_exact_comparison_scope_and_plan_identity_without_a_
     assert!(serde_json::to_vec(&header).unwrap().len() < 4 * 1024);
     for case in ["same-input", "wrong-role", "missing-input", "local-clock", "unavailable"] {
         let mut invalid = header.clone();
+        let DerivedChangeEvaluation::Settings { current_input, observed_after, .. } =
+            &mut invalid.change_evaluations[0]
+        else {
+            panic!()
+        };
         match case {
-            "same-input" => invalid.change_evaluations[0].current_input = 0,
+            "same-input" => *current_input = 0,
             "wrong-role" => invalid.inputs[0].role = DerivedInputRole::Observation,
-            "missing-input" => invalid.change_evaluations[0].current_input = 2,
-            "local-clock" => invalid.change_evaluations[0].observed_after = "2026-11-21T08:00:00".into(),
+            "missing-input" => *current_input = 2,
+            "local-clock" => *observed_after = "2026-11-21T08:00:00".into(),
             "unavailable" => {
                 invalid.output_coverage.changes =
                     DerivedOutputCoverage::ContextUnavailable { reason: DerivedOutputGap::CatalogComparisonUnavailable }
@@ -516,4 +541,47 @@ fn derived_change_redaction_preserves_saved_catalog_authority_and_raw_detail_whi
     restored.change.clear_rendered_text();
     row.change.clear_rendered_text();
     assert_eq!(restored, row, "explicit locale rendering changes no event identity, source, clock or redacted input");
+}
+
+#[test]
+fn zero_job_events_keep_the_single_original_assessment_and_cannot_impersonate_a_settings_pair() {
+    let mut header = description();
+    header.inputs[0].role = DerivedInputRole::Observation;
+    let assessment = crate::JobExecutionAssessment {
+        read_complete: true,
+        sources: vec![crate::JobExecutionSourceCoverage {
+            source: TIMESCALE_JOB_RUNS_SOURCE.into(),
+            state: crate::SourceState::Unavailable,
+            complete_scope: false,
+            native_rows: 0,
+            observed_rows: 0,
+            stopped: None,
+            error_code: Some(crate::ErrorCode::PermissionDenied),
+        }],
+        run_records: 0,
+        step_records: 0,
+        error_records: 0,
+        last_start_records: 0,
+        utc_placed_records: 0,
+        unplaced_records: 0,
+        omitted_entries: 0,
+    };
+    header.change_evaluations.push(DerivedChangeEvaluation::JobExecutions { input: 0, assessment });
+    header.analysis_id = header.expected_analysis_id().unwrap();
+    assert!(header.is_valid());
+    let original = header.analysis_id.clone();
+    let DerivedChangeEvaluation::JobExecutions { assessment, .. } = &mut header.change_evaluations[0] else { panic!() };
+    assessment.read_complete = false;
+    header.analysis_id = header.expected_analysis_id().unwrap();
+    assert_ne!(header.analysis_id, original, "the selected assessment participates in immutable analysis identity");
+    assert!(header.is_valid());
+    let encoded = serde_json::to_value(&header.change_evaluations[0]).unwrap();
+    assert_eq!(encoded["scope"], "job-executions");
+    assert!(encoded.get("previous_input").is_none());
+    let mut impersonated = encoded;
+    impersonated["scope"] = serde_json::json!("settings");
+    assert!(serde_json::from_value::<DerivedChangeEvaluation>(impersonated).is_err());
+    header.change_evaluations.push(header.change_evaluations[0].clone());
+    header.analysis_id = header.expected_analysis_id().unwrap();
+    assert!(!header.is_valid());
 }

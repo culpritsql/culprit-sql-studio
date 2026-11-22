@@ -70,8 +70,7 @@ impl<'a> ComparisonPlan<'a> {
             plan.issue(DerivedContextIssue::PartialCatalog);
             return Ok(plan);
         }
-        let evaluation = DerivedChangeEvaluation {
-            scope: DerivedChangeScope::Settings,
+        let evaluation = DerivedChangeEvaluation::Settings {
             previous_input: (*previous_input).try_into().map_err(|_| capacity())?,
             current_input: (*current_input).try_into().map_err(|_| capacity())?,
             // A value was read somewhere within each capture. Use the earliest prior acquisition bound
@@ -89,21 +88,23 @@ impl<'a> ComparisonPlan<'a> {
     pub fn project(
         &self,
         description: &DerivedDiagnosisDescription,
-        display: &DerivedDisplayContext,
         pipeline: &culprit_checks::Pipeline,
         budget: &mut OutputBudget,
     ) -> Result<Vec<DerivedChange>> {
         let Some(comparison) = &self.comparison else { return Ok(vec![]) };
+        let DerivedChangeEvaluation::Settings { observed_after, observed_until, .. } = &comparison.evaluation else {
+            return Err(invalid());
+        };
         let previous = crate::collected_evidence::settings_snapshot(
             comparison.previous,
             comparison.before.values().cloned().collect(),
-            &comparison.evaluation.observed_after,
+            observed_after,
             pipeline,
         )?;
         let current = crate::collected_evidence::settings_snapshot(
             comparison.current,
             comparison.after.values().cloned().collect(),
-            &comparison.evaluation.observed_until,
+            observed_until,
             pipeline,
         )?;
         let database = current.identity.as_ref().map(IncidentDatabaseSelector::from_route).transpose()?;
@@ -113,7 +114,7 @@ impl<'a> ComparisonPlan<'a> {
             let mut row = DerivedChange {
                 analysis_id: description.analysis_id.clone(),
                 database: database.clone(),
-                display: display.clone(),
+                display: description.display.clone(),
                 change,
                 inputs,
             };

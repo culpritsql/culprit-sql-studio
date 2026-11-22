@@ -1,41 +1,46 @@
-//! A comparison keeps its actual scope even when no change rows are produced.
+//! Each assessment names its exact original inputs and the native scope that was actually evaluated.
 use super::*;
-
-#[derive(Serialize, Deserialize, TS, Clone, Copy, Debug, PartialEq, Eq)]
-#[serde(rename_all = "kebab-case")]
-#[ts(export)]
-pub enum DerivedChangeScope {
-    /// Known configuration values only; not schema, runtime state, resets or workload absence.
-    Settings,
-}
 #[derive(Serialize, Deserialize, TS, Clone, Debug, PartialEq, Eq)]
-#[serde(deny_unknown_fields)]
+#[serde(tag = "scope", rename_all = "kebab-case", deny_unknown_fields)]
 #[ts(export)]
-pub struct DerivedChangeEvaluation {
-    pub scope: DerivedChangeScope,
-    pub previous_input: u16,
-    pub current_input: u16,
-    /// Conservative collector acquisition bounds, not native DDL/event timestamps.
-    pub observed_after: String,
-    pub observed_until: String,
+pub enum DerivedChangeEvaluation {
+    /// Known configuration values only; not schema, runtime state, resets or workload absence.
+    Settings { previous_input: u16, current_input: u16, observed_after: String, observed_until: String },
+    /// One selected native job-record observation, including unplaced records and independent source coverage.
+    JobExecutions { input: u16, assessment: crate::JobExecutionAssessment },
 }
 impl DerivedChangeEvaluation {
     pub fn is_valid_for(&self, inputs: &[DerivedInputReference]) -> bool {
-        let catalog = |index: u16| {
-            inputs
-                .get(usize::from(index))
-                .is_some_and(|input| input.role == DerivedInputRole::Catalog && input.catalog.is_some())
-        };
-        self.previous_input != self.current_input
-            && catalog(self.previous_input)
-            && catalog(self.current_input)
-            && utc(&self.observed_after)
-            && utc(&self.observed_until)
-            && ObservationBounds::new(&self.observed_after, &self.observed_until).is_some()
+        match self {
+            Self::Settings { previous_input, current_input, observed_after, observed_until } => {
+                let catalog = |index: u16| {
+                    inputs
+                        .get(usize::from(index))
+                        .is_some_and(|input| input.role == DerivedInputRole::Catalog && input.catalog.is_some())
+                };
+                previous_input != current_input
+                    && catalog(*previous_input)
+                    && catalog(*current_input)
+                    && utc(observed_after)
+                    && utc(observed_until)
+                    && ObservationBounds::new(observed_after, observed_until).is_some()
+            }
+            Self::JobExecutions { input, assessment } => {
+                inputs.get(usize::from(*input)).is_some_and(|input| input.role == DerivedInputRole::Observation)
+                    && assessment.is_valid()
+            }
+        }
+    }
+    pub fn scope_key(&self) -> (u8, u16, Option<u16>) {
+        match self {
+            Self::Settings { previous_input, current_input, .. } => (0, *previous_input, Some(*current_input)),
+            Self::JobExecutions { input, .. } => (1, *input, None),
+        }
     }
     pub fn limitation(&self) -> String {
-        match self.scope {
-            DerivedChangeScope::Settings => crate::t!("view.synthesis.context.settings_comparison"),
+        match self {
+            Self::Settings { .. } => crate::t!("view.synthesis.context.settings_comparison"),
+            Self::JobExecutions { .. } => crate::t!("view.synthesis.context.job_executions"),
         }
     }
 }

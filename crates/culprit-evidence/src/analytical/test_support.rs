@@ -1087,3 +1087,6 @@ pub use read_only::{ReadOnlyFixture, ReadOnlyStore};
 
 mod mssql_schema_catalogs;
 pub use mssql_schema_catalogs::{MssqlSchemaCatalogCase, mssql_schema_catalog_evidence};
+
+mod job_executions;
+pub use job_executions::{JobExecutionCase, job_execution_evidence, job_execution_evidence_cases};

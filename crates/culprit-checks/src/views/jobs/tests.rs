@@ -135,7 +135,7 @@ fn presentation_limits_preserve_raw_counts_and_do_not_hide_a_late_recorded_failu
     let mut input = input();
     let original = input.observations[0].clone();
     let mut rows = Vec::new();
-    for i in 0..MAX_JOB_ENTRIES + 10 {
+    for i in 0..MAX_JOB_EXECUTION_ENTRIES + 10 {
         let mut row = original.clone();
         let OperationalFact::TimescaleJobRun(point) = &mut row.fact else { panic!() };
         point.position = i as u32 + 1;
@@ -146,16 +146,16 @@ fn presentation_limits_preserve_raw_counts_and_do_not_hide_a_late_recorded_failu
     rows.push(original.clone());
     let last = rows.last_mut().unwrap();
     let OperationalFact::TimescaleJobRun(point) = &mut last.fact else { panic!() };
-    point.position = MAX_JOB_ENTRIES as u32 + 11;
+    point.position = MAX_JOB_EXECUTION_ENTRIES as u32 + 11;
     last.key = point.key().unwrap();
     let failure = rows.last().unwrap().key.clone();
     input.sources[1].records = rows.len() as u32;
     input.observations = rows;
     let report = explain_native(&input, true).unwrap();
     assert!(report.entries_limited);
-    assert_eq!(report.entries.len(), MAX_JOB_ENTRIES);
+    assert_eq!(report.entries.len(), MAX_JOB_EXECUTION_ENTRIES);
     assert_eq!(report.entries[0].observation_key, failure);
-    assert_eq!(report.observed_rows as usize, MAX_JOB_ENTRIES + 11);
+    assert_eq!(report.observed_rows as usize, MAX_JOB_EXECUTION_ENTRIES + 11);
 }
 
 #[test]

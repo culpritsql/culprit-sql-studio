@@ -74,6 +74,11 @@ async fn scenario() -> Scenario {
         analyzer: ComponentVersion::package("controlled-canonical-synthesis", "1", None),
         rules_version: "1".into(),
         language: "en".into(),
+        display: DerivedDisplayContext {
+            connection_alias: "saved-alias".into(),
+            environment: None,
+            database_name: Some(source.target.database().unwrap().database.clone()),
+        },
         recorded_at: "2020-01-01T12:01:00Z".into(),
         observed_from: "2020-01-01T12:00:00Z".into(),
         observed_until: "2020-01-01T12:00:01Z".into(),
@@ -115,11 +120,7 @@ async fn scenario() -> Scenario {
         .map(|entry| DerivedIncident {
             analysis_id: description.analysis_id.clone(),
             database: Some(database.clone()),
-            display: DerivedDisplayContext {
-                connection_alias: "saved-alias".into(),
-                environment: None,
-                database_name: Some(source.target.database().unwrap().database.clone()),
-            },
+            display: description.display.clone(),
             entry: entry.clone(),
             original_interval: None,
             revision_reference: entry.original.clone().unwrap(),

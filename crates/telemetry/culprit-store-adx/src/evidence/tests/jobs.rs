@@ -8,6 +8,7 @@ async fn job_views_run_nulls_lifetime_counters_and_original_receipts_round_trip_
         .into_iter()
         .chain(test_support::mssql_agent_jobs_evidence_cases())
         .chain(test_support::mysql_events_evidence_cases())
+        .chain(test_support::job_execution_evidence_cases())
     {
         let fixture = Fixture::new(source.clone(), records.clone()).await;
         let opened = fixture.recovery.object_reads.load(Ordering::SeqCst);

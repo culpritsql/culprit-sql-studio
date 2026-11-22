@@ -1,12 +1,17 @@
 //! Configured events and native last starts remain independent from execution outcomes.
 use super::*;
-pub(super) fn explain(read: &MysqlEventsSnapshot, read_complete: bool, max_entries: usize) -> Result<JobsReport> {
+pub(super) fn explain(
+    read: &MysqlEventsSnapshot,
+    read_complete: bool,
+    max_entries: usize,
+    executions: JobExecutionProjection,
+) -> Result<JobsReport> {
     if !read.is_valid_read(read_complete) {
         return Err(invalid());
     }
     let mut rows = read.observations.iter().collect::<Vec<_>>();
     rows.sort_by_key(|row| &row.key);
-    let limit = max_entries.min(MAX_JOB_ENTRIES);
+    let limit = max_entries.min(MAX_JOB_EXECUTION_ENTRIES);
     let entries = rows.iter().take(limit).map(|row| entry(row)).collect::<Result<Vec<_>>>()?;
     let coverage = &read.sources[0];
     let mut limitations = vec![
@@ -49,6 +54,7 @@ pub(super) fn explain(read: &MysqlEventsSnapshot, read_complete: bool, max_entri
         ),
         limitations,
         entries,
+        executions,
     })
 }
 fn setting(setting: Option<MysqlEventSchedulerSetting>) -> String {

@@ -595,6 +595,7 @@ export async function demoApi(): Promise<Api> {
         object: null,
         minor: false,
         by: m.by,
+        job_execution: null,
       }));
       const cloud = request.cloud ? demoCloud(reportName(name), start, end) : null;
       const throttles: ChangeEvent[] = (cloud?.episodes ?? []).map((e) => ({
@@ -611,6 +612,7 @@ export async function demoApi(): Promise<Api> {
         object: cloud?.resource ?? null,
         minor: false,
         by: null,
+        job_execution: null,
       }));
       const events = [...fixture, ...marks, ...throttles]
         .filter((e) => Date.parse(e.until ?? e.at) >= start && Date.parse(e.after ?? e.at) <= end)

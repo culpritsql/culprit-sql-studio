@@ -10,6 +10,7 @@ mod causal_actors;
 mod changes;
 mod evaluation;
 mod explanations;
+mod job_executions;
 mod output_budget;
 use output_budget::OutputBudget;
 mod incidents;
@@ -17,7 +18,7 @@ mod queries;
 
 // Advance this policy when retained interpretation changes, including builds sharing a package version.
 #[cfg(feature = "collector")]
-pub(crate) const BUILTIN_RULES_VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "/retained-diagnosis-1");
+pub(crate) const BUILTIN_RULES_VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "/retained-diagnosis-2");
 
 pub struct ChecksSynthesizer {
     pipeline: Arc<culprit_checks::Pipeline>,
@@ -96,10 +97,11 @@ impl ChecksSynthesizer {
         {
             return Err(invalid());
         }
-        let mut description = description(originals, recorded_at, self.analyzer(), &self.rules_version)?;
+        let mut description = description(originals, recorded_at, self.analyzer(), &self.rules_version, display)?;
         description.context_issues = context_issues;
         let catalogs = crate::collected_evidence::catalogs::CatalogContext::from_originals(primary, originals)?;
         let changes = changes::ComparisonPlan::select(primary, originals)?;
+        let job_executions = job_executions::JobExecutionPlan::select(primary)?;
         for &issue in catalogs.issues().iter().chain(&changes.issues) {
             if !description.context_issues.contains(&issue) {
                 description.context_issues.push(issue);
@@ -109,21 +111,28 @@ impl ChecksSynthesizer {
             description.change_evaluations.push(evaluation);
             description.output_coverage.changes = DerivedOutputCoverage::Evaluated;
         }
+        if let Some(plan) = &job_executions {
+            description.change_evaluations.push(plan.evaluation());
+            description.output_coverage.changes = DerivedOutputCoverage::Evaluated;
+        }
         description.analysis_id = description.expected_analysis_id()?;
         let mut output =
             DerivedDiagnosis { description: description.clone(), incidents: vec![], findings: vec![], changes: vec![] };
         let mut budget = OutputBudget::new(&output)?;
         if matches!(primary.source().observation, SourceObservation::Diagnostics(_)) {
-            output.incidents = incidents::project(originals, &description, display, &mut budget)?;
+            output.incidents = incidents::project(originals, &description, &mut budget)?;
             description.output_coverage.incidents = DerivedOutputCoverage::Evaluated;
         }
         if primary.source().query_history().is_some() {
-            let projected = queries::findings(primary, &description, display, &self.pipeline, &catalogs, &mut budget)?;
+            let projected = queries::findings(primary, &description, &self.pipeline, &catalogs, &mut budget)?;
             output.findings = projected.findings;
             description.finding_evaluations = projected.evaluations;
             description.output_coverage.findings = DerivedOutputCoverage::Evaluated;
         }
-        output.changes = changes.project(&description, display, &self.pipeline, &mut budget)?;
+        output.changes = changes.project(&description, &self.pipeline, &mut budget)?;
+        if let Some(plan) = job_executions {
+            output.changes.extend(plan.project(&description, &mut budget)?);
+        }
         description.counts = DerivedDiagnosisCounts {
             incidents: output.incidents.len().try_into().map_err(|_| capacity())?,
             findings: output.findings.len().try_into().map_err(|_| capacity())?,
@@ -152,6 +161,7 @@ fn description(
     recorded_at: &str,
     analyzer: ComponentVersion,
     rules_version: &str,
+    display: &DerivedDisplayContext,
 ) -> Result<DerivedDiagnosisDescription> {
     let mut from = None;
     let mut until = None;
@@ -210,6 +220,7 @@ fn description(
         analyzer,
         rules_version: rules_version.into(),
         language: "en".into(),
+        display: display.clone(),
         recorded_at: canonical_time(recorded_at)?,
         observed_from: canonical_time(&from.ok_or_else(invalid)?.to_rfc3339())?,
         observed_until: canonical_time(&until.ok_or_else(invalid)?.to_rfc3339())?,
@@ -249,3 +260,6 @@ mod causal_tests;
 
 #[cfg(test)]
 mod catalog_tests;
+
+#[cfg(test)]
+mod job_execution_tests;

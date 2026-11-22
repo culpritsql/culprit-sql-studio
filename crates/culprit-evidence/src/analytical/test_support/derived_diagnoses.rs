@@ -49,11 +49,17 @@ fn from_history(
             });
         }
     }
+    let display = DerivedDisplayContext {
+        connection_alias: "Orders production".into(),
+        environment: Some("prod".into()),
+        database_name: None,
+    };
     let mut description = DerivedDiagnosisDescription {
         analysis_id: String::new(),
         analyzer: ComponentVersion::package("controlled-gold-analyzer", "1", None),
         rules_version: "controlled-rules-1".into(),
         language: "en".into(),
+        display: display.clone(),
         recorded_at: "2020-01-01T12:01:00Z".into(),
         observed_from: "2020-01-01T12:00:00Z".into(),
         observed_until: "2020-01-01T12:00:01Z".into(),
@@ -72,11 +78,6 @@ fn from_history(
     };
     description.analysis_id = description.expected_analysis_id().unwrap();
     let database = source.target.database().map(IncidentDatabaseSelector::from_route).transpose().unwrap();
-    let display = DerivedDisplayContext {
-        connection_alias: "Orders production".into(),
-        environment: Some("prod".into()),
-        database_name: None,
-    };
     let entry = IncidentHistoryEntry {
         controller_version: revision.controller_version,
         revision_id: revision.id.clone(),

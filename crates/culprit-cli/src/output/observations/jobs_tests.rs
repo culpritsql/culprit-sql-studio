@@ -56,3 +56,31 @@ fn scheduled_event_brief_uses_canonical_status_and_escapes_native_controls_witho
         assert!(!text.contains(forbidden));
     }
 }
+
+#[test]
+fn job_execution_briefs_keep_scope_and_placement_when_retained_local_rows_cannot_enter_a_timeline() {
+    use culprit_evidence::analytical::test_support::{JobExecutionCase, job_execution_evidence};
+    for case in
+        [JobExecutionCase::AgentSummaryAndRetries, JobExecutionCase::TimescaleFailed, JobExecutionCase::TimescaleDenied]
+    {
+        let (source, records) = job_execution_evidence(case);
+        let rows = records
+            .into_iter()
+            .map(|row| {
+                let TelemetryRecord::Operational(row) = row else { panic!() };
+                row
+            })
+            .collect();
+        let read = JobsSnapshot::from_source(&source, rows, true).unwrap();
+        let report = culprit_checks::jobs::explain(&read).unwrap();
+        let text = jobs(&report);
+        assert!(text.contains(&culprit_core::t!("view.jobs.execution.limit.cause")));
+        assert!(text.contains(&culprit_core::t!(
+            "view.jobs.execution.limit.placement",
+            placed = report.executions.assessment.utc_placed_records,
+            unplaced = report.executions.assessment.unplaced_records
+        )));
+        assert!(!text.contains("private-agent-machine"));
+        assert!(!text.contains("sp_start_job"));
+    }
+}

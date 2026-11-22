@@ -31,7 +31,10 @@ pub(super) fn attach(response: &mut Value, report: &Report) {
     response["jobs"] = json!({"title":view.title,"summary":view.summary,"sources":view.sources,"read_complete":view.read_complete,
         "read_bounds":{"observed_from":view.context.observed_from,"observed_until":view.context.observed_until},
         "native_rows":view.native_rows,"observed_rows":view.observed_rows,"entries_retained":view.entries.len(),"entries_presented":view.entries.len().min(ENTRY_LIMIT),"entries_limited":view.entries_limited||view.entries.len()>ENTRY_LIMIT,
-        "entries":view.entries.iter().take(ENTRY_LIMIT).map(point).collect::<Vec<_>>(),"limitations":view.limitations});
+        "entries":view.entries.iter().take(ENTRY_LIMIT).map(point).collect::<Vec<_>>(),
+        "execution_assessment":view.executions.assessment,
+        "execution_records":view.executions.entries.iter().take(ENTRY_LIMIT).map(|entry|json!({"reference":entry.reference,"status":entry.status,"time":entry.time,"diagnostics":entry.diagnostics,"placement":entry.placement})).collect::<Vec<_>>(),
+        "limitations":view.limitations});
 }
 fn point(entry: &JobEntry) -> Value {
     json!({"reference":{"source":entry.source,"observation_key":entry.observation_key},"job_id":entry.job_id,"kind":entry.kind,"title":entry.title,"explanation":entry.explanation,

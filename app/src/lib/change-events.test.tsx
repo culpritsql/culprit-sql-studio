@@ -10,7 +10,7 @@ function recorded(): ChangeEvent {
     id: "mark:native-event:2026-11-21T10:00:00Z", kind: "mark", source: "mark", action: null,
     at: "2026-11-21T10:00:00Z", after: null, until: null,
     title: { text: "raw <script>event-canary()</script>" }, detail: { text: "native <detail>" },
-    table: null, object: null, minor: false, by: "native-owner",
+    table: null, object: null, minor: false, by: "native-owner", job_execution: null,
   };
 }
 function changes(events: ChangeEvent[]): Changes {

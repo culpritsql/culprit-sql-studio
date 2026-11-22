@@ -1046,6 +1046,7 @@ dependencies = [
 name = "culprit-checks"
 version = "0.5.6"
 dependencies = [
+ "chrono",
  "culprit-core",
  "serde_json",
 ]
@@ -1194,8 +1195,8 @@ dependencies = [
  "culprit-collector",
  "culprit-core",
  "culprit-engine",
- "culprit-read",
  "culprit-evidence",
+ "culprit-read",
  "rmcp",
  "schemars 1.2.3",
  "serde",

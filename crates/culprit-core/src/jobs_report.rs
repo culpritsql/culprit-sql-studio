@@ -2,6 +2,8 @@
 use crate::{Metric, SourceOutcome, telemetry::NativeReadContext};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
+mod executions;
+pub use executions::*;
 
 #[derive(Serialize, Deserialize, TS, Clone, Copy, Debug, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
@@ -9,6 +11,7 @@ use ts_rs::TS;
 pub enum JobEntryKind {
     State,
     RetainedRun,
+    RetainedStep,
     AgentContext,
     ContinuousAggregate,
 }
@@ -40,4 +43,5 @@ pub struct JobsReport {
     pub summary: String,
     pub limitations: Vec<String>,
     pub entries: Vec<JobEntry>,
+    pub executions: JobExecutionProjection,
 }
