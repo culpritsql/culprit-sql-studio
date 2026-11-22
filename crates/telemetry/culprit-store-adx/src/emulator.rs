@@ -1,4 +1,5 @@
 //! Functional query/mapping correctness only. The Kusto emulator is never used for capacity or performance tests.
+mod query_helpers;
 use super::catalog::SchemaCatalog;
 use super::client;
 use super::client::QueryRequest;
@@ -191,6 +192,7 @@ async fn functional_contract_and_canonical_sets() {
         emulator.management(true, &command);
     }
     let catalog = SchemaCatalog::new().unwrap();
+    query_helpers::run(&emulator, &catalog).await;
     shared_resource_scopes(&emulator, &catalog).await;
     let first = Scenario::new(Recovery::new("adx:test", catalog.digest()), emulator.clone()).await;
     first.dispatch(&emulator).await;

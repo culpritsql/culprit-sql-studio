@@ -1,11 +1,12 @@
 //! Explicit offline DDL. Normal collection never provisions or modifies warehouse schema.
+use crate::eligibility;
 use crate::{
     catalog::SchemaCatalog,
     schema::{Schema, quote},
 };
 use culprit_core::Result;
-use culprit_evidence::analytical::semantics::CurrentScope;
 use culprit_evidence::analytical::semantics::stream_semantics;
+use culprit_evidence::analytical::semantics::{CurrentScope, EligibilityScope};
 use serde::Serialize;
 
 #[derive(Clone, Copy, Default)]
@@ -30,30 +31,13 @@ impl DeploymentAssets {
             commands.push(create_table(schema, layout, false));
         }
         commands.push(create_table(catalog.publication(), layout, true));
-        commands.push(
-            include_str!("sql/published.sql")
-                .replace("$COLUMNS", &catalog.publication().column_names())
-                .replace("$SCHEMA", catalog.digest()),
-        );
+        commands.push(eligibility::published(&catalog, EligibilityScope::Resource));
         commands.push(heads(false));
         commands.push(heads(true));
         for (stream, schema) in catalog.schemas() {
-            commands.push(
-                include_str!("sql/eligible.sql")
-                    .replace("$TABLE", schema.table())
-                    .replace("$COLUMNS", &schema.column_names()),
-            );
+            commands.push(eligibility::eligible(schema, EligibilityScope::Resource));
             let semantics = stream_semantics(stream)?;
-            let rows = if semantics.latest_revision {
-                include_str!("sql/revisions.sql").to_owned()
-            } else {
-                "CREATE VIEW IF NOT EXISTS $TABLERows AS SELECT $COLUMNS FROM $TABLEEligible($ARGS)".into()
-            };
-            commands.push(
-                rows.replace("$TABLE", schema.table())
-                    .replace("$COLUMNS", &schema.column_names())
-                    .replace("$ARGS", arguments()),
-            );
+            commands.push(eligibility::rows(schema, EligibilityScope::Resource, semantics.latest_revision));
             if let Some(scope) = semantics.current {
                 let (head, keys) = match scope {
                     CurrentScope::Activity => ("CulpritActivityHeadsV1", "RangeId"),
@@ -120,10 +104,7 @@ fn heads(snapshot: bool) -> String {
         .replace("$COMPLETE", complete)
         .replace("$KEYS", keys)
         .replace("$SOURCE", if snapshot { "JSONExtractString(Coverage,'source')" } else { "''" })
-        .replace("$ARGS", arguments())
-}
-fn arguments() -> &'static str {
-    "contract={contract:String}, store={store:String}, resource={resource:String}, captured_from={captured_from:DateTime64(9, 'UTC')}, asof={asof:DateTime64(9, 'UTC')}"
+        .replace("$ARGS", &eligibility::arguments(EligibilityScope::Resource))
 }
 #[cfg(test)]
 mod tests;

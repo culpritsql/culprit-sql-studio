@@ -1,6 +1,6 @@
-CREATE VIEW IF NOT EXISTS $TABLEEligible AS
+CREATE VIEW IF NOT EXISTS $TABLE$SCOPEEligible AS
 WITH Published AS (
-    SELECT * FROM CulpritPublishedV1(contract={contract:String},store={store:String},resource={resource:String},captured_from={captured_from:DateTime64(9, 'UTC')},asof={asof:DateTime64(9, 'UTC')})
+    SELECT * FROM CulpritPublished$SCOPEV1(contract={contract:String},store={store:String},$RESOURCE_VALUEcaptured_from={captured_from:DateTime64(9, 'UTC')},asof={asof:DateTime64(9, 'UTC')})
 ), Membership AS (
     SELECT RangeId, JSONExtractString(Batch,'batch_id') AS BatchId, JSONExtractInt(Batch,'rows') AS ExpectedRows,
         1 AS BatchKnown, ContractId AS PublishedContract, ResourceId AS PublishedResource, ResourceKind AS PublishedKind,

@@ -3,6 +3,7 @@ pub mod catalog;
 pub mod client;
 #[cfg(feature = "write")]
 pub mod deployment;
+mod eligibility;
 pub mod evidence;
 #[cfg(all(test, feature = "write"))]
 mod functional;
@@ -11,6 +12,7 @@ mod functional;
 mod http_fixture;
 #[cfg(feature = "write")]
 pub mod ingestion;
+pub mod query_assets;
 pub mod response;
 pub mod schema;
 #[cfg(feature = "write")]

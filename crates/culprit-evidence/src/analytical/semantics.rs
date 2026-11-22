@@ -28,3 +28,20 @@ pub fn stream_semantics(stream: TelemetryStream) -> Result<StreamSemantics> {
     };
     Ok(StreamSemantics { latest_revision, current })
 }
+
+/// Namespace views reuse exact publication/membership policy; they are offered only for derived outputs.
+#[derive(Clone, Copy)]
+pub enum EligibilityScope {
+    Resource,
+    Namespace,
+}
+impl EligibilityScope {
+    pub const fn suffix(self) -> &'static str {
+        match self {
+            Self::Resource => "",
+            Self::Namespace => "Namespace",
+        }
+    }
+}
+pub const NAMESPACE_QUERY_STREAMS: [TelemetryStream; 3] =
+    [TelemetryStream::DerivedIncidents, TelemetryStream::DerivedFindings, TelemetryStream::DerivedChanges];

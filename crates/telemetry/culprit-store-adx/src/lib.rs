@@ -5,11 +5,13 @@ pub mod client;
 pub mod control;
 #[cfg(feature = "write")]
 pub mod deployment;
+mod eligibility;
 pub mod evidence;
 mod http;
 #[cfg(feature = "write")]
 pub mod ingestion;
 pub mod projection;
+pub mod query_assets;
 #[cfg(feature = "write")]
 pub mod queued;
 #[cfg(feature = "write")]

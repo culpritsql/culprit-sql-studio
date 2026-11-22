@@ -1,7 +1,7 @@
-CREATE VIEW IF NOT EXISTS CulpritPublishedV1 AS
+CREATE VIEW IF NOT EXISTS CulpritPublished$SCOPEV1 AS
 WITH Observations AS (
     SELECT DISTINCT $COLUMNS FROM CulpritPublishedRangesV1
-    WHERE ContractId={contract:String} AND RecoveryStoreId={store:String} AND ResourceId={resource:String}
+    WHERE ContractId={contract:String} AND RecoveryStoreId={store:String} AND $RESOURCE_FILTER
         AND SchemaDigest='$SCHEMA'
         AND CollectedUntil>={captured_from:DateTime64(9, 'UTC')} AND CollectedUntil<={asof:DateTime64(9, 'UTC')}
 ), Unambiguous AS (

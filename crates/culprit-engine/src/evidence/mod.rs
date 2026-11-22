@@ -2,6 +2,7 @@
 mod config;
 mod incidents;
 pub use incidents::IncidentRequest;
+mod query_helpers;
 mod recovery;
 mod resources;
 mod session;

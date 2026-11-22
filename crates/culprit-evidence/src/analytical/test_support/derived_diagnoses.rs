@@ -21,6 +21,78 @@ pub fn unresolved_derived_diagnosis_output() -> (CollectionDescription, DerivedD
     from_history(source, records, false)
 }
 
+/// Warehouse-query controls over the existing diagnostic corpus. Deliberate conflicting derived rows
+/// test logical query refusal; they are never evidence of a native incident or authenticated input.
+#[derive(Clone, Copy)]
+pub enum FirstObservationCase {
+    Original,
+    LaterActive,
+    ConflictingClock,
+    ConflictingReference,
+}
+pub fn first_observation_evidence(
+    shared: bool,
+    case: FirstObservationCase,
+) -> (CollectionDescription, DerivedDiagnosis) {
+    let (source, mut records) = diagnostic_evidence_cases().remove(if shared { 2 } else { 0 });
+    if matches!(case, FirstObservationCase::LaterActive) {
+        let TelemetryRecord::Operational(row) = &mut records[0] else { unreachable!() };
+        let OperationalFact::DiagnosticRevision(previous) = &row.fact else { unreachable!() };
+        let mut next = previous.episode.clone();
+        next.analysis = DiagnosticAnalysisStatus::Deferred;
+        next.issue = Some(DiagnosticAnalysisIssue::CostUnqualified);
+        let next = DiagnosticRevision::between(Some(&previous.episode), next, &previous.analyzed_at).unwrap().unwrap();
+        assert_eq!(next.episode.lifecycle, DiagnosticLifecycle::Active);
+        row.key = next.id.clone();
+        let episode = next.episode.clone();
+        row.fact = OperationalFact::DiagnosticRevision(Box::new(next));
+        let Some(TelemetryRecord::DiagnosticCheckpoint(checkpoint)) = records.get_mut(1) else { unreachable!() };
+        checkpoint.episodes = vec![episode];
+        checkpoint.id = checkpoint.expected_id().unwrap();
+        assert!(checkpoint.is_valid());
+    }
+    let (mut derived_source, mut output) = from_history(source, records, false);
+    if shared {
+        output.description.display.connection_alias = "Shared first-observation control".into();
+    }
+    match case {
+        FirstObservationCase::ConflictingClock => {
+            output.incidents[0].entry.recorded_at =
+                chrono::DateTime::parse_from_rfc3339(&output.incidents[0].entry.recorded_at)
+                    .unwrap()
+                    .checked_add_signed(chrono::Duration::days(7))
+                    .unwrap()
+                    .to_rfc3339();
+        }
+        FirstObservationCase::ConflictingReference => {
+            let incident = &mut output.incidents[0];
+            let previous = incident.revision_reference.capture_ref();
+            incident.revision_reference.manifest_sha256 = digest(b"deliberately conflicting original revision receipt");
+            incident.entry.original = Some(incident.revision_reference.clone());
+            let next = incident.revision_reference.capture_ref();
+            let input = output.description.inputs.iter_mut().find(|input| input.capture == previous).unwrap();
+            input.capture = next;
+        }
+        FirstObservationCase::Original | FirstObservationCase::LaterActive => {}
+    }
+    output.description.analysis_id = output.description.expected_analysis_id().unwrap();
+    for incident in &mut output.incidents {
+        incident.analysis_id = output.description.analysis_id.clone();
+        incident.display = output.description.display.clone();
+    }
+    for finding in &mut output.findings {
+        finding.analysis_id = output.description.analysis_id.clone();
+        finding.display = output.description.display.clone();
+    }
+    for change in &mut output.changes {
+        change.analysis_id = output.description.analysis_id.clone();
+        change.display = output.description.display.clone();
+    }
+    output.validate().unwrap();
+    derived_source.observation = SourceObservation::DerivedDiagnosis(Box::new(output.description.clone()));
+    (derived_source, output)
+}
+
 fn from_history(
     source: CollectionDescription,
     records: Vec<TelemetryRecord>,
@@ -294,4 +366,51 @@ pub fn assert_derived_capture(
     }
     assert_eq!(capture.metrics().recovery_objects, 0, "retained Gold DTOs do not borrow native payloads");
     assert!(!serde_json::to_string(capture.records()).unwrap().contains("private-gold-canary"));
+}
+
+#[cfg(test)]
+mod first_observation_tests {
+    use super::*;
+    #[test]
+    fn later_active_head_uses_the_existing_original_episode_and_real_revision_transition() {
+        for shared in [false, true] {
+            let (_, first) = first_observation_evidence(shared, FirstObservationCase::Original);
+            let (_, later) = first_observation_evidence(shared, FirstObservationCase::LaterActive);
+            let first = &first.incidents[0];
+            let later = &later.incidents[0];
+            assert_eq!(first.entry.revision, "1");
+            assert_eq!(later.entry.revision, "2");
+            assert_eq!(later.entry.lifecycle, DiagnosticLifecycle::Active);
+            assert_eq!(later.entry.previous_revision.as_deref(), Some("1"));
+            assert_eq!(later.entry.episode_id, first.entry.episode_id);
+            assert_eq!(later.entry.scope_id, first.entry.scope_id);
+            assert_eq!(later.entry.target_id, first.entry.target_id);
+            assert_ne!(later.entry.revision_id, first.entry.revision_id);
+            assert_ne!(later.revision_reference.native_key, first.revision_reference.native_key);
+        }
+    }
+    #[test]
+    fn deliberate_clock_and_receipt_conflicts_keep_the_first_revision_and_other_signature_inputs() {
+        for case in [FirstObservationCase::ConflictingClock, FirstObservationCase::ConflictingReference] {
+            let (_, first) = first_observation_evidence(false, FirstObservationCase::Original);
+            let (_, conflict) = first_observation_evidence(false, case);
+            let first = &first.incidents[0];
+            let conflict = &conflict.incidents[0];
+            assert_eq!(first.entry.revision, conflict.entry.revision);
+            assert_eq!(first.entry.revision_id, conflict.entry.revision_id);
+            assert_eq!(first.entry.episode_id, conflict.entry.episode_id);
+            assert_eq!(first.entry.lifecycle, conflict.entry.lifecycle);
+            match case {
+                FirstObservationCase::ConflictingClock => {
+                    assert_ne!(first.entry.recorded_at, conflict.entry.recorded_at);
+                    assert_eq!(first.revision_reference, conflict.revision_reference);
+                }
+                FirstObservationCase::ConflictingReference => {
+                    assert_eq!(first.entry.recorded_at, conflict.entry.recorded_at);
+                    assert_ne!(first.revision_reference, conflict.revision_reference);
+                }
+                _ => unreachable!(),
+            }
+        }
+    }
 }

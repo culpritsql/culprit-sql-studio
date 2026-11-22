@@ -1,8 +1,9 @@
 //! Offline deployment output uses exactly the same schemas, mappings and projection contract as the sink.
-use super::{catalog::SchemaCatalog, projection::ScalarType, schema::Schema};
+use super::catalog::SchemaCatalog;
+use crate::eligibility;
 use culprit_core::Result;
-use culprit_evidence::analytical::semantics::CurrentScope;
 use culprit_evidence::analytical::semantics::stream_semantics;
+use culprit_evidence::analytical::semantics::{CurrentScope, EligibilityScope};
 use serde::Serialize;
 
 #[derive(Serialize)]
@@ -35,7 +36,7 @@ impl DeploymentAssets {
                 blob_suffix: ".ndjson",
             });
         }
-        commands.push(published(&catalog));
+        commands.push(eligibility::published(&catalog, EligibilityScope::Resource));
         commands.push(heads("CulpritActivityHeadsV1","tostring(SourceDescription.observation.kind) == \"activity\" and tobool(SourceDescription.observation.data.coverage.complete_scope) and tostring(SourceDescription.observation.data.coverage.state) in (\"collected\", \"empty\")",false));
         commands.push(heads(
             "CulpritSnapshotHeadsV1",
@@ -43,11 +44,9 @@ impl DeploymentAssets {
             true,
         ));
         for (stream, schema) in catalog.schemas() {
-            commands.push(eligible(schema));
+            commands.push(eligibility::eligible(schema, EligibilityScope::Resource));
             let semantics = stream_semantics(stream)?;
-            commands.push(if !semantics.latest_revision {
-                format!(".create function {}Rows(contract:string,store:string,resource:string,captured_from:datetime,asof:datetime) {{ {}Eligible(contract,store,resource,captured_from,asof) }}",schema.table(),schema.table())
-            } else {revisions(schema)});
+            commands.push(eligibility::rows(schema, EligibilityScope::Resource, semantics.latest_revision));
             let current_heads = match semantics.current {
                 Some(CurrentScope::Activity) => Some("CulpritActivityHeadsV1"),
                 Some(CurrentScope::NativeSource) => Some("CulpritSnapshotHeadsV1"),
@@ -67,39 +66,6 @@ impl DeploymentAssets {
     pub fn script(&self) -> String {
         format!(".execute database script with (ContinueOnErrors=false) <|\n{}\n", self.commands.join("\n\n"))
     }
-}
-fn columns(schema: &Schema) -> String {
-    schema.columns().iter().map(|column| column.name.as_str()).collect::<Vec<_>>().join(", ")
-}
-fn restore(schema: &Schema) -> String {
-    let conversions = schema
-        .columns()
-        .iter()
-        .filter_map(|column| match column.kind {
-            ScalarType::JsonContainer => Some(format!("{}=todynamic({})", column.name, column.name)),
-            ScalarType::ExactCounter => Some(format!("{}=todecimal({})", column.name, column.name)),
-            _ => None,
-        })
-        .collect::<Vec<_>>();
-    if conversions.is_empty() { String::new() } else { format!("| extend {}", conversions.join(", ")) }
-}
-fn published(catalog: &SchemaCatalog) -> String {
-    let schema = catalog.publication();
-    include_str!("kql/published.kql")
-        .replace("$PROJECTION", &schema.verification_projection())
-        .replace("$COLUMNS", &columns(schema))
-        .replace("$RESTORE", &restore(schema))
-        .replace("$SCHEMA", catalog.digest())
-}
-fn eligible(schema: &Schema) -> String {
-    include_str!("kql/eligible.kql")
-        .replace("$TABLE", schema.table())
-        .replace("$PROJECTION", &schema.verification_projection())
-        .replace("$COLUMNS", &columns(schema))
-        .replace("$RESTORE", &restore(schema))
-}
-fn revisions(schema: &Schema) -> String {
-    include_str!("kql/revisions.kql").replace("$TABLE", schema.table()).replace("$COLUMNS", &columns(schema))
 }
 fn heads(name: &str, selection: &str, check_sources: bool) -> String {
     let complete = if check_sources {

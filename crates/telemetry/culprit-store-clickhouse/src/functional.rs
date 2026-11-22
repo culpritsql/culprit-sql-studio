@@ -1,4 +1,5 @@
 //! Native correctness against the owned loopback container created by dev/smoke-clickhouse.py.
+mod query_helpers;
 use crate::{
     catalog::SchemaCatalog,
     client::{ClickHouseConfig, Credentials, QueryRequest, QueryTransport},
@@ -76,6 +77,7 @@ impl Server {
         parameters: BTreeMap<String, String>,
         columns: &[(&str, &str)],
     ) -> Vec<Vec<Value>> {
+        let context = text.chars().take(200).collect::<String>();
         self.client
             .query(QueryRequest {
                 text,
@@ -88,7 +90,7 @@ impl Server {
                 byte_limit: crate::response::MAX_RESPONSE_BYTES,
             })
             .await
-            .unwrap()
+            .unwrap_or_else(|error| panic!("owned warehouse query failed ({context}): {error}"))
             .rows
     }
     fn scope(&self, range: &CommittedRange) -> BTreeMap<String, String> {
@@ -177,6 +179,7 @@ async fn functional_contract_and_canonical_sets() {
     let server = Server::new();
     server.deploy();
     let catalog = SchemaCatalog::new().unwrap();
+    query_helpers::run(&server, &catalog).await;
     native_scalar_roundtrip(&server).await;
     exact_delivery_and_recovery(&server, &catalog).await;
     complete_current_sets(&server, &catalog).await;

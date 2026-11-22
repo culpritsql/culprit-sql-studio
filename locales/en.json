@@ -12760,5 +12760,12 @@
   "ui.archives.acquired_until": "Acquired before (UTC, optional)",
   "engine.credentials.archive_token_failed": "The Azure CLI could not issue a token for the selected archive service",
   "engine.credentials.archive_token_hint": "Sign in with `az login` for the selected tenant, then read the archive again",
-  "warehouse.connection.secret_restore_failed": "The archive connection could not be removed, and its saved password could not be restored after the metadata update failed. Remove the connection again, then add its read-only credential."
+  "warehouse.connection.secret_restore_failed": "The archive connection could not be removed, and its saved password could not be restored after the metadata update failed. Remove the connection again, then add its read-only credential.",
+  "query_helpers.cli.about": "Generate configured warehouse queries and alert examples for one published archive namespace",
+  "query_helpers.cli.name": "Prefix for the generated functions or views; letters, digits and underscores only",
+  "query_helpers.cli.history_from": "Earliest retained publication to include (UTC); this does not assert complete native history",
+  "query_helpers.cli.rules": "Exact rules version to interpret; older rules are never selected as a fallback",
+  "query_helpers.cli.analyzer_component": "Exact analyzer component for the configured interpretation",
+  "query_helpers.cli.analyzer_version": "Exact analyzer package version for the configured interpretation",
+  "query_helpers.cli.analyzer_revision": "Exact analyzer build revision, when the recorded analyzer has one"
 }

@@ -17,6 +17,7 @@ mod logs_cmd;
 mod outbox_cmd;
 mod output;
 mod plan_cmd;
+mod query_assets_cmd;
 mod resources_cmd;
 mod scan_capture;
 mod service_cmd;

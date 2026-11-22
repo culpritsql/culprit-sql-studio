@@ -14,6 +14,10 @@ are starting configurations, not measured capacity claims.
 
 ## Automatic diagnoses
 
+Configured [warehouse queries and alerts](warehouse-queries.md) bind one existing archive namespace and expose
+approved resource labels, recorded incident heads, findings, changes and explicit coverage/freshness status.
+Generation/deployment is explicit; warehouse helpers contain no diagnostic rules or source database reads.
+
 The collector runs the existing pure analysis engine on sealed captures and sends its answers through the same
 verified delivery path as the original telemetry. This local analysis adds no database queries.
 

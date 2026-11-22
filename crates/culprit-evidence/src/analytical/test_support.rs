@@ -1078,8 +1078,9 @@ pub use baseline_profile::baseline_profile_expectation;
 
 mod derived_diagnoses;
 pub use derived_diagnoses::{
-    assert_derived_capture, assert_derived_projection, derived_diagnosis_evidence_cases, derived_diagnosis_output,
-    empty_derived_diagnosis_output, unresolved_derived_diagnosis_output,
+    FirstObservationCase, assert_derived_capture, assert_derived_projection, derived_diagnosis_evidence_cases,
+    derived_diagnosis_output, empty_derived_diagnosis_output, first_observation_evidence,
+    unresolved_derived_diagnosis_output,
 };
 
 mod read_only;

@@ -1,14 +1,14 @@
-.create function $TABLEEligible(contract:string,store:string,resource:string,captured_from:datetime,asof:datetime) {
-let Published=CulpritPublishedV1(contract,store,resource,captured_from,asof);
+.create function $TABLE$SCOPEEligible(contract:string,store:string,$RESOURCE_ARGcaptured_from:datetime,asof:datetime) {
+let Published=CulpritPublished$SCOPEV1(contract,store,$RESOURCE_VALUEcaptured_from,asof);
 let Membership=Published
     | mv-expand Batch=Batches
     | where tostring(Batch.table) == "$TABLE" and tobool(Batch.delivery_required)
-    | project RangeId, BatchId=tostring(Batch.batch_id), ExpectedRows=tolong(Batch.rows),
+    | project RangeId,$RESOURCE_MEMBERSHIP BatchId=tostring(Batch.batch_id), ExpectedRows=tolong(Batch.rows),
         PublishedKind=ResourceKind, PublishedManifest=ManifestSha256, PublishedSchema=SchemaDigest, PublishedOutbox=OutboxId,
         PublishedEpoch=OwnerEpoch, PublishedSequence=CaptureSequence, PublishedReferencesComplete=ReferencesComplete;
 let Rows=materialize(
     $TABLE
-    | where ContractId == contract and ResourceId == resource
+    | where ContractId == contract and $RESOURCE_FILTER
     | where CollectedUntil >= captured_from and CollectedUntil <= asof
     | project $PROJECTION
     | distinct $COLUMNS
@@ -19,7 +19,7 @@ let Invalid=Rows
     | where isnull(ExpectedRows) or isnull(RowOrdinal) or RowOrdinal <= 0 or RowOrdinal > ExpectedRows
         or ResourceKind != PublishedKind or ManifestSha256 != PublishedManifest or SchemaDigest != PublishedSchema
         or OutboxId != PublishedOutbox or OwnerEpoch != PublishedEpoch or CaptureSequence != PublishedSequence
-        or ReferencesComplete != PublishedReferencesComplete
+        or ReferencesComplete != PublishedReferencesComplete$RESOURCE_MISMATCH
     | project RangeId;
 let Conflicts=Candidates
     | summarize Variants=count() by RangeId, BatchId, RowOrdinal

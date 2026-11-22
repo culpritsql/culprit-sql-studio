@@ -1,0 +1,139 @@
+.create-or-alter function $NPublished(asof:datetime) {
+CulpritPublishedNamespaceV1($CONTRACT,$STORE,$FROM,asof)
+}
+
+.create-or-alter function $NHeaders(asof:datetime) {
+$NPublished(asof)
+| where tostring(SourceDescription.observation.kind) == "derived-diagnosis"
+| extend Header=SourceDescription.observation.data
+| extend Alias=tostring(Header.display.connection_alias), DatabaseName=tostring(Header.display.database_name), Environment=tostring(Header.display.environment)
+}
+
+.create-or-alter function $NResources(asof:datetime) {
+$NHeaders(asof)
+| project SourceId,LogicalSourceId,Engine,Alias,DatabaseName,DatabaseNameKnown=isnotnull(Header.display.database_name),Environment,EnvironmentKnown=isnotnull(Header.display.environment),CollectedFrom,CollectedUntil,
+    SourcePartition=SourceDescription.partition,OriginalObservedFrom=todatetime(Header.observed_from),OriginalObservedUntil=todatetime(Header.observed_until),
+    RulesVersion=tostring(Header.rules_version),Analyzer=Header.analyzer,InputReadComplete=tobool(Header.input_read_complete),
+    OutputCoverage=Header.output_coverage,Counts=Header.counts,ContextIssues=Header.context_issues
+}
+
+.create-or-alter function $NMatches(resource:string,asof:datetime) {
+$NHeaders(asof) | where Alias == resource or (isnotnull(Header.display.database_name) and DatabaseName == resource) | distinct ResourceId
+}
+
+.create-or-alter function $NIncidentRows(asof:datetime) {
+CulpritIncidentsV1NamespaceRows($CONTRACT,$STORE,$FROM,asof)
+}
+
+.create-or-alter function $NFindingRows(asof:datetime) {
+CulpritFindingsV1NamespaceRows($CONTRACT,$STORE,$FROM,asof)
+}
+
+.create-or-alter function $NChangeRows(asof:datetime) {
+CulpritChangesV1NamespaceRows($CONTRACT,$STORE,$FROM,asof)
+}
+
+.create-or-alter function $NCompleteness(asof:datetime) {
+let Incidents=$NIncidentRows(asof) | summarize IncidentRows=count() by RangeId;
+let Findings=$NFindingRows(asof) | summarize FindingRows=count() by RangeId;
+let Changes=$NChangeRows(asof) | summarize ChangeRows=count() by RangeId;
+$NHeaders(asof)
+| join kind=leftouter Incidents on RangeId | join kind=leftouter Findings on RangeId | join kind=leftouter Changes on RangeId
+| extend IncidentRowsComplete=coalesce(IncidentRows,0) == tolong(Header.counts.incidents),
+    OutputRowsComplete=coalesce(IncidentRows,0) == tolong(Header.counts.incidents) and coalesce(FindingRows,0) == tolong(Header.counts.findings) and coalesce(ChangeRows,0) == tolong(Header.counts.changes)
+}
+
+.create-or-alter function $NConsistentOriginals(asof:datetime) {
+let Rows=materialize($NIncidentRows(asof));
+let Stable=Rows | project ResourceId,TargetId,OriginalScopeId,OriginalSource,EpisodeId,ControllerVersion,Revision,RevisionId,OriginalRecordedAt,Lifecycle,OriginalReference=tostring(OriginalReference)
+    | distinct ResourceId,TargetId,OriginalScopeId,OriginalSource,EpisodeId,ControllerVersion,Revision,RevisionId,OriginalRecordedAt,Lifecycle,OriginalReference
+    | summarize Variants=count() by ResourceId,TargetId,OriginalScopeId,OriginalSource,EpisodeId,ControllerVersion,Revision | where Variants == 1;
+Rows | join kind=leftsemi Stable on ResourceId,TargetId,OriginalScopeId,OriginalSource,EpisodeId,ControllerVersion,Revision
+| where isnotempty(RevisionId) and isnotnull(OriginalRecordedAt) and Lifecycle in ("active","resolved","uncertain") and isnotnull(OriginalReference) and isnotempty(tostring(OriginalReference)) and tostring(OriginalReference) !in ("null","{}")
+}
+
+.create-or-alter function $NHeadBasis(asof:datetime) {
+let CompleteResources=$NCompleteness(asof) | summarize Missing=countif(not(IncidentRowsComplete)) by ResourceId | where Missing == 0;
+let Rows=materialize($NIncidentRows(asof) | join kind=leftsemi CompleteResources on ResourceId);
+let Versions=Rows | summarize Revision=max(Revision) by ResourceId,TargetId,OriginalScopeId,OriginalSource,EpisodeId,ControllerVersion;
+$NConsistentOriginals(asof) | join kind=leftsemi Versions on ResourceId,TargetId,OriginalScopeId,OriginalSource,EpisodeId,ControllerVersion,Revision
+}
+
+.create-or-alter function $NHeads(asof:datetime) {
+let Pinned=materialize($NHeadBasis(asof) | where ($ANALYZER_MATCH) and RulesVersion == $RULES);
+let Times=Pinned | summarize RecordedAt=max(RecordedAt) by ResourceId,TargetId,OriginalScopeId,OriginalSource,EpisodeId,ControllerVersion;
+let Latest=materialize(Pinned | join kind=leftsemi Times on ResourceId,TargetId,OriginalScopeId,OriginalSource,EpisodeId,ControllerVersion,RecordedAt);
+let Unique=Latest | extend InterpretationHeader=tostring(pack_array(InputReadComplete,OutputCoverage,OutputLimitations,FindingEvaluations,ChangeEvaluations,ContextIssues,OriginalObservedFrom,OriginalObservedUntil,InputReferences,AnalysisOrigin,Language))
+    | distinct ResourceId,TargetId,OriginalScopeId,OriginalSource,EpisodeId,ControllerVersion,AnalysisId,DetailSha256,InterpretationHeader
+    | summarize Variants=count() by ResourceId,TargetId,OriginalScopeId,OriginalSource,EpisodeId,ControllerVersion | where Variants == 1;
+Latest | join kind=leftsemi Unique on ResourceId,TargetId,OriginalScopeId,OriginalSource,EpisodeId,ControllerVersion
+| summarize take_any(*) by ResourceId,TargetId,OriginalScopeId,OriginalSource,EpisodeId,ControllerVersion
+}
+
+.create-or-alter function $NIncidents(resource:string,window_from:datetime,window_until:datetime,asof:datetime) {
+let Matches=materialize($NMatches(resource,asof));let N=toscalar(Matches | count);
+$NHeads(asof) | where N == 1 and window_from >= $FROM and window_from < window_until and window_until <= asof
+| join kind=leftsemi Matches on ResourceId
+| where (OriginalObservedFrom < window_until and OriginalObservedUntil >= window_from) or (OriginalIntervalFrom < window_until and OriginalIntervalUntil >= window_from) or (OriginalRecordedAt >= window_from and OriginalRecordedAt < window_until)
+| project ConnectionAlias,DatabaseName,DatabaseNameKnown=HasDatabaseName,Environment,EnvironmentKnown=HasEnvironment,Title,Lifecycle,EnrichmentStatus,VictimSummary,AffectedQueries,CulpritQueries,CandidateQueries,AttributionStatus,Mechanism,MechanismKnown=HasMechanism,DeveloperAction,Verification,Caller,
+    OriginalRecordedAt,OriginalObservedFrom,OriginalObservedUntil,OriginalIntervalFrom,OriginalIntervalUntil,OriginalScope,OriginalScopeId,OriginalSource,TargetId,EpisodeId,ControllerVersion,Revision,RevisionId,
+    Details,InterpretationRecordedAt=RecordedAt,RulesVersion,Analyzer,InputReadComplete,OutputCoverage,OutputLimitations,ContextIssues
+}
+
+.create-or-alter function $NIncidentHistory(resource:string,window_from:datetime,window_until:datetime,asof:datetime) {
+let Matches=materialize($NMatches(resource,asof));let N=toscalar(Matches | count);
+$NIncidentRows(asof) | where N == 1 and window_from >= $FROM and window_from < window_until and window_until <= asof and ($ANALYZER_MATCH) and RulesVersion == $RULES
+| join kind=leftsemi Matches on ResourceId
+| where OriginalRecordedAt >= window_from and OriginalRecordedAt < window_until
+| project ConnectionAlias,DatabaseName,DatabaseNameKnown=HasDatabaseName,Title,Lifecycle,EnrichmentStatus,OriginalRecordedAt,OriginalObservedFrom,OriginalObservedUntil,OriginalScope,OriginalScopeId,OriginalSource,TargetId,EpisodeId,ControllerVersion,Revision,RevisionId,
+    VictimSummary,AffectedQueries,CulpritQueries,CandidateQueries,AttributionStatus,Mechanism,MechanismKnown=HasMechanism,DeveloperAction,Verification,Caller,Details,InterpretationRecordedAt=RecordedAt,RulesVersion,Analyzer,InputReadComplete,OutputCoverage,OutputLimitations,ContextIssues
+}
+
+.create-or-alter function $NFindings(resource:string,window_from:datetime,window_until:datetime,asof:datetime) {
+let Matches=materialize($NMatches(resource,asof));let N=toscalar(Matches | count);
+$NFindingRows(asof) | where N == 1 and window_from >= $FROM and window_from < window_until and window_until <= asof and ($ANALYZER_MATCH) and RulesVersion == $RULES
+| join kind=leftsemi Matches on ResourceId
+| where OriginalObservedFrom < window_until and OriginalObservedUntil >= window_from
+| project ConnectionAlias,DatabaseName,DatabaseNameKnown=HasDatabaseName,Environment,EnvironmentKnown=HasEnvironment,Title,Summary,FindingId,CheckId,Severity,Actionability,Confidence,Subject,Impact,Metrics,AffectedQueries,OriginalQuery,EstablishedCause,DeveloperAction,Verification,Caveats,Inactive,Guidance,
+    OriginalObservedFrom,OriginalObservedUntil,SourceId,LogicalSourceId,Details,InterpretationRecordedAt=RecordedAt,RulesVersion,Analyzer,FindingEvaluations,InputReadComplete,OutputCoverage,OutputLimitations,ContextIssues
+}
+
+.create-or-alter function $NChanges(resource:string,window_from:datetime,window_until:datetime,asof:datetime) {
+let Matches=materialize($NMatches(resource,asof));let N=toscalar(Matches | count);
+$NChangeRows(asof) | where N == 1 and window_from >= $FROM and window_from < window_until and window_until <= asof and ($ANALYZER_MATCH) and RulesVersion == $RULES
+| join kind=leftsemi Matches on ResourceId
+| where OriginalObservedFrom < window_until and OriginalObservedUntil >= window_from
+| project ConnectionAlias,DatabaseName,DatabaseNameKnown=HasDatabaseName,Environment,EnvironmentKnown=HasEnvironment,Title,Detail,DetailKnown=HasDetail,ChangeId,ChangeKind,OriginalSource,Action,ActionKnown=HasAction,ChangedAt,ChangedAfter,ChangedAfterKnown=HasChangedAfter,ChangedUntil,ChangedUntilKnown=HasChangedUntil,TableName,TableNameKnown=HasTableName,ObjectName,ObjectNameKnown=HasObjectName,
+    OriginalObservedFrom,OriginalObservedUntil,SourceId,LogicalSourceId,Details,InterpretationRecordedAt=RecordedAt,RulesVersion,Analyzer,ChangeEvaluations,InputReadComplete,OutputCoverage,OutputLimitations,ContextIssues
+}
+
+.create-or-alter function $NNewIncidents(resource:string,window_from:datetime,window_until:datetime,asof:datetime) {
+let Matches=materialize($NMatches(resource,asof));let N=toscalar(Matches | count);
+let Incomplete=toscalar($NCompleteness(asof) | join kind=leftsemi Matches on ResourceId | where not(OutputRowsComplete) | count);
+let First=$NConsistentOriginals(asof) | where Revision == todecimal(1) and OriginalRecordedAt >= window_from and OriginalRecordedAt < window_until
+    | project ResourceId,TargetId,OriginalScopeId,OriginalSource,EpisodeId,ControllerVersion,FirstRecordedObservation=OriginalRecordedAt
+    | distinct ResourceId,TargetId,OriginalScopeId,OriginalSource,EpisodeId,ControllerVersion,FirstRecordedObservation;
+$NHeads(asof) | where N == 1 and Incomplete == 0 and window_from >= $FROM and window_from < window_until and window_until <= asof and Lifecycle == "active" and InputReadComplete and tostring(OutputCoverage.incidents.state) == "evaluated"
+| join kind=leftsemi Matches on ResourceId
+| join kind=inner First on ResourceId,TargetId,OriginalScopeId,OriginalSource,EpisodeId,ControllerVersion
+| project EpisodeId,ControllerVersion,OriginalScopeId,OriginalSource,TargetId,FirstRecordedObservation,ConnectionAlias,DatabaseName,Title,VictimSummary,AffectedQueries,CulpritQueries,CandidateQueries,AttributionStatus,Mechanism,MechanismKnown=HasMechanism,DeveloperAction,Verification,Caller,
+    OriginalRecordedAt,OriginalObservedFrom,OriginalObservedUntil,Revision,RevisionId,InterpretationRecordedAt=RecordedAt,OutputLimitations,ContextIssues
+}
+
+.create-or-alter function $NStatus(resource:string,asof:datetime,max_age:timespan) {
+let Matches=materialize($NMatches(resource,asof));let N=toscalar(Matches | count);
+let Headers=materialize($NCompleteness(asof) | join kind=leftsemi Matches on ResourceId | where N == 1);
+let Times=Headers | summarize CollectedUntil=max(CollectedUntil) by ResourceId,SourceId,LogicalSourceId;
+let Latest=Headers | join kind=leftsemi Times on ResourceId,SourceId,LogicalSourceId,CollectedUntil;
+let OriginalHeads=toscalar($NIncidentRows(asof) | join kind=leftsemi Matches on ResourceId | distinct ResourceId,TargetId,OriginalScopeId,OriginalSource,EpisodeId,ControllerVersion | count);
+let Selected=materialize($NHeads(asof) | join kind=leftsemi Matches on ResourceId);
+let SelectedHeads=toscalar(Selected | count);
+let First=$NConsistentOriginals(asof) | where Revision == todecimal(1) | distinct ResourceId,TargetId,OriginalScopeId,OriginalSource,EpisodeId,ControllerVersion;
+let UnavailableFirst=toscalar(Selected | join kind=leftanti First on ResourceId,TargetId,OriginalScopeId,OriginalSource,EpisodeId,ControllerVersion | count);
+let UnselectedHeads=OriginalHeads-SelectedHeads;
+union
+(Latest | project ResourceId,SourceId,LogicalSourceId,Alias,DatabaseName,DatabaseNameKnown=isnotnull(Header.display.database_name),CollectedFrom,CollectedUntil,OriginalObservedFrom=todatetime(Header.observed_from),OriginalObservedUntil=todatetime(Header.observed_until),
+    State=case(max_age <= 0s,"invalid-max-age",isnull(todatetime(Header.observed_until)),"unknown-clock",todatetime(Header.observed_until) > asof,"clock-boundary",todatetime(Header.observed_until) < asof-max_age,"stale",not($HEADER_ANALYZER_MATCH) or tostring(Header.rules_version) != $RULES,"rules-unavailable",not(OutputRowsComplete),"incomplete-output",not(tobool(Header.input_read_complete)) or array_length(Header.context_issues)>0 or tostring(Header.output_coverage.incidents.state) != "evaluated" or tostring(Header.output_coverage.findings.state) != "evaluated" or tostring(Header.output_coverage.changes.state) != "evaluated","partial",UnselectedHeads > 0,"head-interpretation-unavailable",UnavailableFirst > 0,"first-observation-unavailable","observed"),
+    InputReadComplete=tobool(Header.input_read_complete),OutputRowsComplete,OutputCoverage=Header.output_coverage,Counts=Header.counts,ContextIssues=Header.context_issues,UnselectedIncidentHeads=UnselectedHeads,UnavailableFirstObservations=UnavailableFirst,NativeHistoryCoverage="unknown"),
+(print State=case(N == 0,"unknown-label",N != 1,"ambiguous-label","no-published-analysis"),InputReadComplete=false,NativeHistoryCoverage="unknown" | where N != 1 or toscalar(Headers | count) == 0)
+}

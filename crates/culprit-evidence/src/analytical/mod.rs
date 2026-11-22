@@ -9,6 +9,7 @@ mod page_target_contexts;
 pub mod prepared;
 pub mod projection;
 pub mod publication;
+pub mod query_helpers;
 pub mod read_store;
 pub mod receipts;
 pub mod schema;

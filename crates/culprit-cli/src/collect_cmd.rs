@@ -19,6 +19,8 @@ pub(crate) enum CollectCommand {
     Resources(ResourcesArgs),
     #[command(about=culprit_core::t!("delivery.cli.schema"))]
     Schema(SchemaArgs),
+    #[command(about=culprit_core::t!("query_helpers.cli.about"))]
+    Queries(crate::query_assets_cmd::QueryAssetsArgs),
     #[command(subcommand,about=culprit_core::t!("service.cli.about"))]
     Service(crate::service_cmd::ServiceCommand),
     #[command(about=culprit_core::t!("collection.cli.once"))]
@@ -370,6 +372,7 @@ pub(crate) fn run(command: CollectCommand, out: &Out) -> crate::CommandTask<'_> 
         CollectCommand::Evidence(command) => crate::command_task(|| crate::evidence_cmd::run(command, out)),
         CollectCommand::Resources(args) => crate::command_task(|| args.run(out)),
         CollectCommand::Schema(args) => crate::command_task(|| async { schema(args, out) }),
+        CollectCommand::Queries(args) => crate::command_task(|| crate::query_assets_cmd::run(args, out)),
         CollectCommand::Service(command) => crate::command_task(|| crate::service_cmd::run(command, out)),
         CollectCommand::Outbox(command) => crate::command_task(|| crate::outbox_cmd::run(command, out)),
         CollectCommand::Once(args) => crate::command_task(|| once(args, out)),
