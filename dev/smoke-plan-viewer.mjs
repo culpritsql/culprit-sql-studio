@@ -411,7 +411,16 @@ try {
       ensure(mount.querySelector(".nd"), "PlanViewer operator details panel missing");
 
       const tabs = [...mount.querySelectorAll(".look-toggle [role='tab']")];
-      ensure(tabs.length === 3, "Expected Diagram / Tree / Operations tabs");
+      ensure(tabs.length === 5, `Expected 5 plan tabs (Diagram/Tree/Operations/Tables/Raw), got ${tabs.length}`);
+
+      // Verify diagram search highlight and minimap toggle
+      const searchInput = mount.querySelector(".plan-search input");
+      ensure(searchInput, "Diagram search input missing");
+      const minimapBtn = mount.querySelector(".zoom button:last-child");
+      ensure(minimapBtn, "Minimap toggle button missing");
+      minimapBtn.click();
+      await new Promise((r) => requestAnimationFrame(r));
+
       tabs[1].click();
       await new Promise((r) => requestAnimationFrame(r));
       const treeRows = mount.querySelectorAll(".pnode").length;
@@ -421,6 +430,33 @@ try {
       await new Promise((r) => requestAnimationFrame(r));
       const opRows = mount.querySelectorAll(".ops-table tbody tr").length;
       ensure(opRows >= 1, "Operations view rendered zero table rows");
+
+      tabs[3].click();
+      await new Promise((r) => requestAnimationFrame(r));
+      const objectRows = mount.querySelectorAll(".plan-objects tbody tr").length;
+      ensure(objectRows >= 1, "Tables view rendered zero table rollup rows");
+
+      tabs[4].click();
+      await new Promise((r) => requestAnimationFrame(r));
+      const rawCode = mount.querySelector(".plan-raw-code");
+      ensure(rawCode && rawCode.textContent.includes("ShowPlanXML"), "Raw view did not render native plan XML");
+
+      // 1b. Pure PlanCanvas granular smoke (zero insights, zero header, zero NodeDetails drawer)
+      await renderSync(
+        React.createElement(viewer.PlanCanvas, {
+          plan: mssqlPlan,
+          lens: "cost",
+          showInsights: false,
+          showMinimap: true,
+          height: 420,
+          theme: "dark",
+        }),
+      );
+      ensure(mount.querySelectorAll(".plan-card").length >= 1, "PlanCanvas rendered zero operator cards");
+      ensure(!mount.querySelector(".plan-head"), "PlanCanvas unexpectedly rendered .plan-head");
+      ensure(!mount.querySelector(".nd"), "PlanCanvas unexpectedly rendered NodeDetails");
+      ensure(!mount.querySelector(".pc-flag"), "PlanCanvas with showInsights=false rendered insight flags");
+      ensure(mount.querySelector(".diagram-minimap"), "PlanCanvas minimap did not render");
 
       // 2. PlanDiffViewer smoke
       const pgBefore = parser.parsePlan(pgBeforeJson, "postgres");

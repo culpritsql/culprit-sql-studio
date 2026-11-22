@@ -65,7 +65,7 @@ export function PlanViewer({
             <span className="muted">{planKindLabel(plan)}</span>
           </div>
           <span className="spacer" />
-          <LookToggle look={look} onChange={handleLookChange} />
+          <LookToggle look={look} onChange={handleLookChange} hasRaw={Boolean(plan.raw)} />
           {toolbarActions}
         </div>
       )}

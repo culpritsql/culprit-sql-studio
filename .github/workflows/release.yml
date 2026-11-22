@@ -74,8 +74,6 @@ jobs:
               tag = os.environ["EVENT_REF"].removeprefix("refs/tags/")
           version = json.loads(Path("app/src-tauri/tauri.conf.json").read_text())["version"]
           versions = [version, json.loads(Path("app/package.json").read_text())["version"],
-                      json.loads(Path("packages/culprit-wasm/package.json").read_text())["version"],
-                      json.loads(Path("packages/culprit-plan-viewer/package.json").read_text())["version"],
                       tomllib.loads(Path("Cargo.toml").read_text())["workspace"]["package"]["version"]]
           if len(set(versions)) != 1:
               raise SystemExit("Workspace, interface and desktop versions do not match")

@@ -8,9 +8,9 @@ import json
 from pathlib import Path
 import re
 import shutil
-import tomllib
 
 ROOT = Path(__file__).resolve().parents[2]
+SEMVER_RE = re.compile(r"^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$")
 DESCRIPTION = (
     "Portable WebAssembly execution plan parser, comparator, deadlock parser, and exporter "
     "for SQL Server, PostgreSQL, MySQL, MariaDB, YugabyteDB, and SQLite."
@@ -53,17 +53,15 @@ def sha256_bytes(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-def build_public_manifest(source_manifest: dict[str, object], workspace_version: str) -> dict[str, object]:
+def build_public_manifest(source_manifest: dict[str, object]) -> dict[str, object]:
     if source_manifest.get("name") != "@culpritsql/plans":
         raise RuntimeError(f"unexpected package name: {source_manifest.get('name')}")
-    if source_manifest.get("version") != workspace_version:
-        raise RuntimeError(
-            f"packages/culprit-wasm version {source_manifest.get('version')} "
-            f"does not match Cargo.toml version {workspace_version}"
-        )
+    version = source_manifest.get("version")
+    if not isinstance(version, str) or not SEMVER_RE.fullmatch(version):
+        raise RuntimeError(f"invalid semver in packages/culprit-wasm/package.json: {version!r}")
     return {
         "name": source_manifest["name"],
-        "version": workspace_version,
+        "version": version,
         "description": DESCRIPTION,
         "license": source_manifest["license"],
         "type": source_manifest["type"],
@@ -138,12 +136,36 @@ def copy_verified_pkg(package_dir: Path, destination_pkg: Path) -> None:
             shutil.copyfile(src, target)
 
 
+def meaningful_digests(repo_dir: Path, *, pkg_only: bool = False) -> dict[str, str]:
+    """Compute SHA-256 digests of meaningful files, ignoring .git/, .github/, and build-report.json metadata."""
+    base = repo_dir / "pkg" if pkg_only else repo_dir
+    if not base.is_dir():
+        return {}
+    digests: dict[str, str] = {}
+    for path in sorted(base.rglob("*")):
+        if not path.is_file():
+            continue
+        rel = path.relative_to(repo_dir).as_posix()
+        if rel.startswith((".git/", ".github/")) or rel == "pkg/build-report.json":
+            continue
+        digests[rel] = sha256_bytes(path.read_bytes())
+    return digests
+
+
+def has_meaningful_changes(staged_dir: Path, target_dir: Path) -> bool:
+    return meaningful_digests(staged_dir) != meaningful_digests(target_dir)
+
+
+def has_pkg_changes(staged_dir: Path, previous_release_dir: Path) -> bool:
+    return meaningful_digests(staged_dir, pkg_only=True) != meaningful_digests(previous_release_dir, pkg_only=True)
+
+
 def stage_repository(destination: Path, *, root: Path = ROOT, include_pkg: bool = True, include_workflows: bool = True) -> dict[str, object]:
     package_dir = root / "packages/culprit-wasm"
     template_dir = root / ".github/wasm-repo"
-    workspace_version = tomllib.loads((root / "Cargo.toml").read_text())["workspace"]["package"]["version"]
     source_manifest = json.loads((package_dir / "package.json").read_text())
-    public_manifest = build_public_manifest(source_manifest, workspace_version)
+    public_manifest = build_public_manifest(source_manifest)
+    version = str(public_manifest["version"])
 
     if destination.exists():
         shutil.rmtree(destination)
@@ -173,15 +195,23 @@ def stage_repository(destination: Path, *, root: Path = ROOT, include_pkg: bool 
     if include_pkg:
         copy_verified_pkg(package_dir, destination / "pkg")
 
-    return {"destination": str(destination), "version": workspace_version, "include_pkg": include_pkg}
+    return {"destination": str(destination), "version": version, "include_pkg": include_pkg}
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("destination", type=Path, help="Directory to write the staged standalone repository")
+    parser.add_argument("destination", type=Path, help="Directory for staged repo (or left side of comparison)")
     parser.add_argument("--seed-only", action="store_true", help="Omit pkg/ when creating the initial repository seed")
-    parser.add_argument("--omit-workflows", action="store_true", help="Omit .github/workflows when syncing via deploy key")
+    parser.add_argument("--omit-workflows", action="store_true", help="Omit .github/workflows when syncing via token")
+    parser.add_argument("--compare-sync", type=Path, help="Compare staged dir against target checkout (ignores build-report.json)")
+    parser.add_argument("--compare-pkg", type=Path, help="Compare staged pkg/ against previous release checkout")
     args = parser.parse_args()
+    if args.compare_sync is not None:
+        print("true" if has_meaningful_changes(args.destination, args.compare_sync) else "false")
+        return
+    if args.compare_pkg is not None:
+        print("true" if has_pkg_changes(args.destination, args.compare_pkg) else "false")
+        return
     summary = stage_repository(
         args.destination,
         include_pkg=not args.seed_only,

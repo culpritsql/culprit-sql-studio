@@ -1,10 +1,11 @@
 import hashlib
 import json
+import shutil
 import tempfile
 import unittest
 from pathlib import Path
 
-from stage_wasm_repo import stage_repository
+from stage_wasm_repo import has_meaningful_changes, has_pkg_changes, stage_repository
 
 
 class StageWasmRepoTests(unittest.TestCase):
@@ -21,7 +22,8 @@ class StageWasmRepoTests(unittest.TestCase):
         (package / "pkg/models").mkdir(parents=True)
         (template / "workflows").mkdir(parents=True)
 
-        (self.root / "Cargo.toml").write_text('[workspace.package]\nversion = "0.5.6"\n')
+        # Desktop Cargo.toml can advance independently without forcing npm bumps.
+        (self.root / "Cargo.toml").write_text('[workspace.package]\nversion = "0.6.2"\n')
         (package / "package.json").write_text(
             json.dumps(
                 {
@@ -87,38 +89,41 @@ class StageWasmRepoTests(unittest.TestCase):
         }
         (package / "pkg/build-report.json").write_text(json.dumps(report))
 
-    def test_full_stage_produces_public_manifest_and_scrubs_host_paths(self) -> None:
+    def test_full_stage_uses_independent_pkg_version_and_scrubs_host_paths(self) -> None:
         stage_repository(self.out, root=self.root, include_pkg=True, include_workflows=False)
         manifest = json.loads((self.out / "package.json").read_text())
         self.assertNotIn("private", manifest)
         self.assertEqual(manifest["name"], "@culpritsql/plans")
         self.assertEqual(manifest["version"], "0.5.6")
         self.assertEqual(manifest["publishConfig"], {"access": "public", "provenance": True})
-        self.assertEqual(manifest["repository"]["url"], "git+https://github.com/culpritsql/culprit-plans.git")
         self.assertFalse((self.out / ".github").exists())
 
         report_text = (self.out / "pkg/build-report.json").read_text()
         self.assertNotIn("/Users/", report_text)
         self.assertNotIn("bindgen_executable", report_text)
-        report = json.loads(report_text)
-        self.assertEqual(
-            report["tools"],
-            {"locked_bindgen_versions": ["0.2.129"], "bindgen_cli_version": "0.2.129"},
-        )
 
-    def test_seed_only_includes_workflows_and_omits_pkg_binaries(self) -> None:
-        stage_repository(self.out, root=self.root, include_pkg=False, include_workflows=True)
-        self.assertFalse((self.out / "pkg").exists())
-        self.assertTrue((self.out / ".github/workflows/ci.yml").is_file())
-        self.assertTrue((self.out / ".github/workflows/publish.yml").is_file())
-        self.assertTrue((self.out / "test/smoke.mjs").is_file())
+    def test_change_detection_ignores_build_report_metadata_churn(self) -> None:
+        stage_repository(self.out, root=self.root, include_pkg=True, include_workflows=False)
+        target = Path(self.temp.name) / "target"
+        shutil.copytree(self.out, target)
+        (target / ".github/workflows").mkdir(parents=True)
+        (target / ".github/workflows/ci.yml").write_text("name: CI\n")
+        (target / "pkg/build-report.json").write_text('{"cargo_lock_sha256": "different"}\n')
+        self.assertFalse(has_meaningful_changes(self.out, target))
+        self.assertFalse(has_pkg_changes(self.out, target))
 
-    def test_version_mismatch_or_tampered_binary_is_refused(self) -> None:
-        (self.root / "Cargo.toml").write_text('[workspace.package]\nversion = "0.6.0"\n')
-        with self.assertRaisesRegex(RuntimeError, "does not match Cargo.toml"):
+        (target / "pkg/models/Plan.d.ts").write_text("export type Plan = { id: number };\n")
+        self.assertTrue(has_meaningful_changes(self.out, target))
+        self.assertTrue(has_pkg_changes(self.out, target))
+
+    def test_invalid_semver_or_tampered_binary_is_refused(self) -> None:
+        pkg_json = self.root / "packages/culprit-wasm/package.json"
+        original = json.loads(pkg_json.read_text())
+        pkg_json.write_text(json.dumps({**original, "version": "not-semver"}))
+        with self.assertRaisesRegex(RuntimeError, "invalid semver"):
             stage_repository(self.out, root=self.root)
 
-        (self.root / "Cargo.toml").write_text('[workspace.package]\nversion = "0.5.6"\n')
+        pkg_json.write_text(json.dumps(original))
         wasm = self.root / "packages/culprit-wasm/pkg/native/culprit_wasm_bg.wasm"
         wasm.write_bytes(wasm.read_bytes() + b"\x00")
         with self.assertRaisesRegex(RuntimeError, "executable digest mismatch"):

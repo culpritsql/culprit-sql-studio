@@ -12,13 +12,16 @@ export {
 export { NodeDetails } from "./NodeDetails.js";
 export { OpIcon, opIcon } from "./OpIcon.js";
 export { PlanAssessmentNotes } from "./PlanAssessmentNotes.js";
-export { compactOp, CostStrip, costBasis, PlanDiagram, type Mark } from "./PlanDiagram.js";
+export { PlanCanvas, type PlanCanvasProps } from "./PlanCanvas.js";
+export { compactOp, CostStrip, costBasis, PlanDiagram, type DiagramLens, type Mark } from "./PlanDiagram.js";
 export { PlanDiffViewer, PropsCompare, type PlanDiffLook, type PlanDiffViewerProps } from "./PlanDiffViewer.js";
 export { PlanInsights } from "./PlanInsights.js";
+export { PlanObjects } from "./PlanObjects.js";
 export { PlanOperations } from "./PlanOperations.js";
+export { PlanRaw } from "./PlanRaw.js";
 export { LookToggle, PlanSurface, rememberedLook, rememberLook, type PlanLook } from "./PlanSurface.js";
 export { PlanTypeSchema } from "./PlanTypeSchema.js";
-export { NodeProps, PlanView, planKindLabel, predicateLabel, shortPredicate } from "./PlanView.js";
+export { NodeProps, PlanTree, PlanView, planKindLabel, predicateLabel, shortPredicate } from "./PlanView.js";
 export { PlanViewer, type PlanViewerProps, type PlanViewerTheme } from "./PlanViewer.js";
 export { Prose } from "./Prose.js";
 export { Sql } from "./Sql.js";
@@ -32,12 +35,14 @@ export type {
   DocdbMetrics,
   Engine,
   InsightArea,
+  NodeRuntime,
   Plan,
   PlanChange,
   PlanDiff,
   PlanInsight,
   PlanKind,
   PlanNode,
+  PlanNodeFacts,
   PlanOperatorView,
   PlanViewModel,
   QueryStat,

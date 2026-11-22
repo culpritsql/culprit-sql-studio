@@ -81,11 +81,15 @@ for (const requiredExport of [
   "DeadlockViewer",
   "NodeDetails",
   "OpIcon",
+  "PlanCanvas",
   "PlanDiagram",
   "PlanDiffViewer",
   "PlanInsights",
+  "PlanObjects",
   "PlanOperations",
+  "PlanRaw",
   "PlanSurface",
+  "PlanTree",
   "PlanView",
   "PlanViewer",
   "Sql",
@@ -297,6 +301,14 @@ assert(diffHtml.includes("cmp-verdict"), "PlanDiffViewer SSR output missing verd
 const deadlockHtml = renderToStaticMarkup(React.createElement(viewer.DeadlockViewer, { deadlock: sampleDeadlock }));
 assert(deadlockHtml.includes("dl-graph"), "DeadlockViewer SSR output missing SVG graph");
 assert(!deadlockHtml.includes("<script>bad()"), "DeadlockViewer SSR output failed to escape SQL script tag");
+
+// Pure canvas-only rendering without insights, headers, prose, or bottom drawer
+const canvasHtml = renderToStaticMarkup(
+  React.createElement(viewer.PlanCanvas, { plan: samplePlan, showInsights: false, height: 420, theme: "dark" }),
+);
+assert(canvasHtml.includes("plan-card"), "PlanCanvas SSR output missing operator card");
+assert(!canvasHtml.includes("Full scan filters 98% of orders"), "PlanCanvas with showInsights=false leaked insight prose");
+assert(!canvasHtml.includes("nd-head"), "PlanCanvas rendered NodeDetails drawer unexpectedly");
 
 console.log(
   JSON.stringify({

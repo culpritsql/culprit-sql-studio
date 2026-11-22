@@ -1,9 +1,10 @@
 import { ChevronRight, Search, TriangleAlert } from "lucide-react";
 import { Fragment, useMemo, useState } from "react";
 import { DocdbWork } from "./DocdbWork.js";
-import { cost, duration, estRowsForRuns, exact, misestimate, operatorRuns, operatorView, percent, propValue, shortPredicate, t } from "./host.js";
+import { cost, count, duration, estRowsForRuns, exact, misestimate, operatorRuns, operatorView, percent, propValue, shortPredicate, t } from "./host.js";
 import { OpIcon } from "./OpIcon.js";
-import type { Plan, PlanInsight, PlanNode, PlanPageServerIoView } from "./types.js";
+import type { PlanViewerTheme } from "./PlanViewer.js";
+import type { Engine, Plan, PlanInsight, PlanNode, PlanPageServerIoView } from "./types.js";
 
 function warningLabel(warning: string): string {
   switch (warning) {
@@ -38,15 +39,62 @@ const SHOWN = new Set([
   "ActualRows",
   "ActualExecutions",
   "ActualRowsRead",
+  "ActualLogicalReads",
+  "ActualPhysicalReads",
+  "ActualExecutionMode",
   "EstimateRebinds",
   "EstimateRewinds",
   "OutputList",
   "Rows Removed by Filter",
   "Parent Relationship",
+  "Shared Hit Blocks",
+  "Shared Read Blocks",
+  "Shared Dirtied Blocks",
+  "Shared Written Blocks",
+  "Local Hit Blocks",
+  "Local Read Blocks",
+  "Temp Read Blocks",
+  "Temp Written Blocks",
+  "I/O Read Time",
+  "I/O Write Time",
+  "WAL Bytes",
+  "WAL Records",
+  "Workers Planned",
+  "Workers Launched",
+  "Sort Space Used",
 ]);
 
 const MAX_PAGE_SERVER_METRICS = 4;
 const MAX_PAGE_SERVER_LIMITATIONS = 2;
+
+function formatKb(kb: number): string {
+  if (kb >= 1024 * 1024) return `${(kb / 1024 / 1024).toFixed(1)}\u00a0GB`;
+  if (kb >= 1024) return `${(kb / 1024).toFixed(kb >= 10 * 1024 ? 0 : 1)}\u00a0MB`;
+  return `${Math.round(kb)}\u00a0KB`;
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes >= 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024 / 1024).toFixed(1)}\u00a0GB`;
+  if (bytes >= 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)}\u00a0MB`;
+  if (bytes >= 1024) return `${(bytes / 1024).toFixed(1)}\u00a0KB`;
+  return `${Math.round(bytes)}\u00a0B`;
+}
+
+function uses8KbPages(engine?: Engine): boolean {
+  return engine === "postgres" || engine === "mssql" || engine === "yugabyte";
+}
+
+function formatPages(pages: number, engine?: Engine): string {
+  const base = exact(pages);
+  if (!uses8KbPages(engine) || pages <= 0) return base;
+  return `${base} (${formatKb(pages * 8)})`;
+}
+
+function optNumber(raw: string | undefined): number | null {
+  if (raw == null || raw.trim() === "") return null;
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
 
 function PageServerIoDetails({ view }: { view: PlanPageServerIoView }) {
   return (
@@ -85,7 +133,7 @@ function ratio(plan: Plan | undefined, n: PlanNode) {
   );
 }
 
-/** One operator, explained: what it does, its rows and cost, what's wrong with it, then every raw property on demand. */
+/** One operator, explained: what it does, its rows, cost, buffers/I/O, parallelism, warnings, then raw properties on demand. */
 export function NodeDetails({
   plan,
   node,
@@ -95,6 +143,8 @@ export function NodeDetails({
   insights = [],
   estimates = true,
   actual = false,
+  theme,
+  className,
 }: {
   plan?: Plan;
   node: PlanNode;
@@ -104,6 +154,8 @@ export function NodeDetails({
   insights?: PlanInsight[];
   estimates?: boolean;
   actual?: boolean;
+  theme?: PlanViewerTheme;
+  className?: string;
 }) {
   const [filter, setFilter] = useState("");
   const props = useMemo(() => {
@@ -120,8 +172,42 @@ export function NodeDetails({
   const executions = operatorRuns(plan, node) ?? 0;
   const pageServerIo = operatorView(plan, node)?.page_server_io;
 
+  const rt = node.runtime;
+  const logicalReads = rt?.logical_reads ?? null;
+  const physicalReads = rt?.physical_reads ?? null;
+  const cachedReads = logicalReads != null && physicalReads != null ? Math.max(0, logicalReads - physicalReads) : null;
+  const hitShare = logicalReads != null && logicalReads > 0 && cachedReads != null ? cachedReads / logicalReads : null;
+  const spillPages = rt?.spill_pages != null && rt.spill_pages > 0 ? rt.spill_pages : null;
+  const cpuMs = rt?.cpu_ms ?? null;
+  const heapFetches = node.facts.heap_fetches != null && node.facts.heap_fetches > 0 ? node.facts.heap_fetches : null;
+  const sortSpaceKb = node.facts.sort_space_kb != null && node.facts.sort_space_kb > 0 ? node.facts.sort_space_kb : null;
+  const diskUsageKb = node.facts.disk_usage_kb != null && node.facts.disk_usage_kb > 0 ? node.facts.disk_usage_kb : null;
+  const ioReadMs = optNumber(node.props["I/O Read Time"]);
+  const ioWriteMs = optNumber(node.props["I/O Write Time"]);
+  const walBytes = optNumber(node.props["WAL Bytes"]);
+  const execMode = node.facts.actual_execution_mode ?? null;
+
+  const hasIoCard =
+    logicalReads != null ||
+    physicalReads != null ||
+    spillPages != null ||
+    cpuMs != null ||
+    heapFetches != null ||
+    sortSpaceKb != null ||
+    diskUsageKb != null ||
+    ioReadMs != null ||
+    ioWriteMs != null ||
+    walBytes != null ||
+    execMode != null;
+
+  const workersPlanned = node.facts.workers_planned ?? null;
+  const workersLaunched = node.facts.workers_launched ?? null;
+  const threadRows = rt?.thread_rows ?? [];
+  const maxWorkerRows = threadRows.length > 0 ? Math.max(1, ...threadRows) : 1;
+  const hasParallelCard = workersPlanned != null || workersLaunched != null || threadRows.length > 1;
+
   return (
-    <div className="nd">
+    <div className={`culprit-pv nd ${className ?? ""}`} data-theme={theme && theme !== "system" ? theme : undefined}>
       <div className="nd-head">
         <span className="nd-icon">
           <OpIcon node={node} size={16} />
@@ -263,6 +349,141 @@ export function NodeDetails({
                     {t("ui.node_details.io_share", { share: percent(1 - split) })}
                   </span>
                 </div>
+              </div>
+            )}
+          </section>
+        )}
+        {hasIoCard && (
+          <section className="nd-card">
+            <h4>{t("ui.node_details.io_buffers")}</h4>
+            <dl>
+              {logicalReads != null && (
+                <>
+                  <dt>{t("ui.node_details.logical_reads")}</dt>
+                  <dd>{formatPages(logicalReads, plan?.engine)}</dd>
+                </>
+              )}
+              {cachedReads != null && cachedReads > 0 && (
+                <>
+                  <dt>{t("ui.node_details.from_cache")}</dt>
+                  <dd>{formatPages(cachedReads, plan?.engine)}</dd>
+                </>
+              )}
+              {physicalReads != null && physicalReads > 0 && (
+                <>
+                  <dt>{t("ui.node_details.from_disk")}</dt>
+                  <dd>{formatPages(physicalReads, plan?.engine)}</dd>
+                </>
+              )}
+              {spillPages != null && (
+                <>
+                  <dt>{t("ui.node_details.spill_pages")}</dt>
+                  <dd>
+                    <span className="nd-ratio bad">{formatPages(spillPages, plan?.engine)}</span>
+                  </dd>
+                </>
+              )}
+              {sortSpaceKb != null && (
+                <>
+                  <dt>{t("ui.node_details.sort_memory")}</dt>
+                  <dd>{formatKb(sortSpaceKb)}</dd>
+                </>
+              )}
+              {diskUsageKb != null && sortSpaceKb == null && (
+                <>
+                  <dt>{t("ui.node_details.work_memory")}</dt>
+                  <dd>{formatKb(diskUsageKb)}</dd>
+                </>
+              )}
+              {heapFetches != null && (
+                <>
+                  <dt>{t("ui.node_details.heap_fetches")}</dt>
+                  <dd>{exact(heapFetches)}</dd>
+                </>
+              )}
+              {cpuMs != null && (
+                <>
+                  <dt>{t("ui.node_details.cpu_time")}</dt>
+                  <dd>{duration(cpuMs)}</dd>
+                </>
+              )}
+              {ioReadMs != null && (
+                <>
+                  <dt>{t("ui.node_details.io_read_time")}</dt>
+                  <dd>{duration(ioReadMs)}</dd>
+                </>
+              )}
+              {ioWriteMs != null && (
+                <>
+                  <dt>{t("ui.node_details.io_write_time")}</dt>
+                  <dd>{duration(ioWriteMs)}</dd>
+                </>
+              )}
+              {walBytes != null && (
+                <>
+                  <dt>{t("ui.node_details.wal_bytes")}</dt>
+                  <dd>{formatBytes(walBytes)}</dd>
+                </>
+              )}
+              {execMode != null && (
+                <>
+                  <dt>{t("ui.node_details.execution_mode")}</dt>
+                  <dd>
+                    {execMode.kind === "batch"
+                      ? t("ui.node_details.mode_batch")
+                      : execMode.kind === "row"
+                        ? t("ui.node_details.mode_row")
+                        : execMode.value}
+                  </dd>
+                </>
+              )}
+            </dl>
+            {hitShare != null && (
+              <div className="nd-split">
+                <div className="nd-split-bar">
+                  <span className="hit" style={{ width: `${hitShare * 100}%` }} />
+                  <span className="disk" style={{ width: `${(1 - hitShare) * 100}%` }} />
+                </div>
+                <div className="nd-split-legend">
+                  <span>
+                    <i className="hit" />
+                    {t("ui.node_details.cache_hit_share", { share: percent(hitShare) })}
+                  </span>
+                  <span>
+                    <i className="disk" />
+                    {t("ui.node_details.disk_read_share", { share: percent(1 - hitShare) })}
+                  </span>
+                </div>
+              </div>
+            )}
+          </section>
+        )}
+        {hasParallelCard && (
+          <section className="nd-card">
+            <h4>{t("ui.node_details.parallelism")}</h4>
+            <dl>
+              {(workersLaunched != null || workersPlanned != null) && (
+                <>
+                  <dt>{t("ui.node_details.workers_launched")}</dt>
+                  <dd>
+                    {workersLaunched != null && workersPlanned != null
+                      ? t("ui.node_details.workers_of_planned", { launched: String(workersLaunched), planned: String(workersPlanned) })
+                      : String(workersLaunched ?? workersPlanned)}
+                  </dd>
+                </>
+              )}
+            </dl>
+            {threadRows.length > 1 && (
+              <div className="nd-workers">
+                {threadRows.slice(0, 8).map((wRows, idx) => (
+                  <div key={idx} className="nd-worker-row">
+                    <span className="muted">{t("ui.node_details.worker_rows", { worker: String(idx + 1) })}</span>
+                    <span className="nd-worker-bar">
+                      <span style={{ width: `${Math.max(3, (wRows / maxWorkerRows) * 100)}%` }} />
+                    </span>
+                    <span className="num">{count(wRows)}</span>
+                  </div>
+                ))}
               </div>
             )}
           </section>

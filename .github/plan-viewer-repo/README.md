@@ -17,7 +17,7 @@
 <br />
 Extracted directly from [Culprit SQL Studio](https://github.com/culpritsql/culprit-sql-studio) and paired with [`@culpritsql/plans`](https://github.com/culpritsql/culprit-plans).
 
-[Quickstart](#quickstart) · [PlanViewer](#planviewer) · [PlanDiffViewer](#plandiffviewer) · [DeadlockViewer](#deadlockviewer) · [Theming](#theming--css-isolation) · [Primitives](#granular-primitives)
+[Quickstart](#quickstart) · [PlanViewer](#planviewer) · [PlanDiffViewer](#plandiffviewer) · [DeadlockViewer](#deadlockviewer) · [Canvas & Primitives](#canvas-only--granular-primitives) · [Theming](#theming--css-isolation)
 
 </div>
 
@@ -55,9 +55,9 @@ Drop-in single-plan explorer with bottleneck insights, measured runtime strip, i
 </picture>
 
 - **Ranked insights**: Highlights high-impact bottlenecks with plain-language explanations and copyable SQL fixes.
-- **Three views**: Switch seamlessly between **Diagram**, **Tree**, and sortable **Operations** table.
-- **Actual run metrics**: Surfaces elapsed duration, buffer reads, memory grants, disk spills, and parallel skew.
-- **Operator inspector**: Compares estimated vs actual row counts, seek/filter predicates, and engine properties.
+- **Five synchronized views**: Switch between **Diagram**, **Tree**, **Operations**, **Tables** (per-table/index rollup), and **Raw** (`EXPLAIN` output).
+- **Interactive canvas**: Drag to pan, `Ctrl`/`Cmd` + scroll to zoom around cursor, corner **Minimap**, **Metric lens** (`Time` · `Cost` · `Rows` · `Reads`), and live step search.
+- **Buffers, I/O & parallelism**: Dedicated cache-hit vs disk-read bar (`8 KB` pages/MB), temp spills, WAL volume, and per-worker row skew bars.
 
 ```tsx
 <PlanViewer
@@ -134,20 +134,47 @@ const [deadlock] = parseDeadlock(serverDeadlockText);
 
 ---
 
-## Granular Primitives
+## Canvas-Only & Granular Primitives
 
-Need custom layout composition? Every building block is exported individually with full TypeScript definitions:
+Want **only** the interactive flow canvas (or lock-cycle SVG) inside your own IDE, query runner, or split-pane layout, with zero recommendations, prose banners, or built-in drawers? Import `<PlanCanvas />` and wire `onSelect` to your own UI (or `<NodeDetails />`):
+
+```tsx
+import { useState } from "react";
+import { PlanCanvas, NodeDetails } from "@culpritsql/plan-viewer";
+import "@culpritsql/plan-viewer/styles.css";
+
+export function CustomSplitExplain({ plan }) {
+  const [selectedId, setSelectedId] = useState<number | null>(plan.root.id);
+
+  return (
+    <PlanCanvas
+      plan={plan}
+      lens="time"          // "time" | "cost" | "rows" | "reads"
+      showInsights={false} // pure operator flow, no recommendation badges
+      height="100%"        // fills your container; drag to pan, Ctrl/Cmd + scroll to zoom
+      selectedId={selectedId}
+      onSelect={setSelectedId}
+      theme="dark"
+    />
+  );
+}
+```
+
+Every building block is exported individually with full TypeScript definitions:
 
 | Export | Purpose |
 | --- | --- |
-| `PlanSurface` | Combined insights, DocDB/type metadata, and active plan view without outer toolbar |
-| `PlanDiagram` | Interactive DAG layout with pan, zoom, cost strip, and collapsible cheap branches |
-| `PlanView` | Collapsible tree view with inline warning chips and cost heat bars |
+| `PlanCanvas` | Pure interactive DAG flow canvas (pan, cursor zoom, minimap) with zero prose, headers, or drawers |
+| `PlanTree` / `PlanView` | Collapsible operator tree (`showHeader`, `showActualSummary`, `showProps`, `showInsights` all optional) |
 | `PlanOperations` | Searchable, keyboard-navigable (`j`/`k`), multi-column sortable operator table |
-| `PlanInsights` | Expandable bottleneck cards with Markdown export |
-| `NodeDetails` | Standalone operator property and cardinality inspector |
-| `ActualSummary` | Measured runtime, I/O, memory grant, and spill callout strip |
-| `DeadlockGraph` | Standalone interactive lock-cycle SVG figure |
+| `PlanObjects` | Per-table and per-index rollup of time, rows, buffer reads, and cache hit ratio |
+| `PlanRaw` | Native XML, JSON, or text plan viewer with one-click copy |
+| `NodeDetails` | Standalone operator property, cardinality, buffers/I/O, and parallelism inspector |
+| `DeadlockGraph` | Pure interactive lock-cycle SVG figure (`showLegend={false}` for bare SVG) |
+| `PlanDiagram` | Diagram panel with header bar, metric lens switcher, search, and optional inspector |
+| `PlanSurface` | Combined insights, DocDB/type metadata, and active plan view without outer toolbar |
+| `PlanInsights` | Standalone bottleneck cards with Markdown export |
+| `ActualSummary` / `CostStrip` | Standalone runtime and cost distribution strips |
 | `Sql` | Lightweight zero-dependency SQL tokenizer and formatter |
 | `bindPlanViewerI18n` | Plug in a custom host localization catalog (ships English out of the box) |
 | `bindPlanViewerClipboard` | Plug in a custom clipboard + toast notification handler |

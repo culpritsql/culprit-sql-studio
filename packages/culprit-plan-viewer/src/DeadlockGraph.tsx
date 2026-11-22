@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { t, useLanguage } from "./host.js";
+import type { PlanViewerTheme } from "./PlanViewer.js";
 import type { Deadlock, DeadlockProcess, DeadlockResource } from "./types.js";
 
 const W = 640;
@@ -74,7 +75,19 @@ function edgeLabel(e: Edge): string {
   return mode ? t("ui.deadlock_graph.edge_mode", { kind: e.kind, mode }) : t("ui.deadlock_graph.edge", { kind: e.kind });
 }
 
-export function DeadlockGraph({ deadlock, onPick }: { deadlock: Deadlock; onPick?: (process: DeadlockProcess) => void }) {
+export function DeadlockGraph({
+  deadlock,
+  onPick,
+  showLegend = true,
+  theme,
+  className,
+}: {
+  deadlock: Deadlock;
+  onPick?: (process: DeadlockProcess) => void;
+  showLegend?: boolean;
+  theme?: PlanViewerTheme;
+  className?: string;
+}) {
   const [focus, setFocus] = useState<string | null>(null);
   const lang = useLanguage();
 
@@ -137,7 +150,7 @@ export function DeadlockGraph({ deadlock, onPick }: { deadlock: Deadlock; onPick
   }, [layout, lang]);
 
   return (
-    <figure className="culprit-pv dl-graph">
+    <figure className={`culprit-pv dl-graph ${className ?? ""}`} data-theme={theme && theme !== "system" ? theme : undefined}>
       <svg viewBox={`0 0 ${W} ${layout.height}`} role="group" aria-label={t("ui.deadlock_graph.label", { headline: deadlock.headline })} preserveAspectRatio="xMidYMin meet">
         <defs>
           <marker id="dl-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
@@ -222,15 +235,17 @@ export function DeadlockGraph({ deadlock, onPick }: { deadlock: Deadlock; onPick
           );
         })}
       </svg>
-      <figcaption className="dl-legend">
-        <span>
-          <i className="dl-key holds" /> {t("ui.deadlock_graph.edge", { kind: "holds" })}
-        </span>
-        <span>
-          <i className="dl-key wants" /> {t("ui.deadlock_graph.edge", { kind: "wants" })}
-        </span>
-        <span className="muted">{t("ui.deadlock_graph.hint")}</span>
-      </figcaption>
+      {showLegend && (
+        <figcaption className="dl-legend">
+          <span>
+            <i className="dl-key holds" /> {t("ui.deadlock_graph.edge", { kind: "holds" })}
+          </span>
+          <span>
+            <i className="dl-key wants" /> {t("ui.deadlock_graph.edge", { kind: "wants" })}
+          </span>
+          <span className="muted">{t("ui.deadlock_graph.hint")}</span>
+        </figcaption>
+      )}
     </figure>
   );
 }

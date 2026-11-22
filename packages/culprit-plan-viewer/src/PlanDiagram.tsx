@@ -1,5 +1,5 @@
-import { Flame, Maximize2, Minus, Plus, Scan, TriangleAlert } from "lucide-react";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { ChevronDown, ChevronUp, Flame, Map as MapIcon, Maximize2, Minus, Plus, Scan, Search, TriangleAlert, X } from "lucide-react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import { ActualSummary } from "./ActualSummary.js";
 import {
   allNodes,
@@ -14,6 +14,7 @@ import {
   isWrapper,
   misestimate,
   noShareReason,
+  operatorView,
   percent,
   planKindLabel,
   planShares,
@@ -26,6 +27,7 @@ import {
 } from "./host.js";
 import { NodeDetails } from "./NodeDetails.js";
 import { OpIcon } from "./OpIcon.js";
+import type { PlanViewerTheme } from "./PlanViewer.js";
 import type { Plan, PlanInsight, PlanNode, QueryStat } from "./types.js";
 
 const CARD_W = 196;
@@ -43,8 +45,11 @@ const GAP_Y = 62;
 const PAD = 26;
 const CHEAP_SHARE = 0.005;
 const MIN_FIT = 0.45;
+const MIN_ZOOM = 0.25;
+const MAX_ZOOM = 1.8;
 
 export type Mark = "changed" | "added" | "removed";
+export type DiagramLens = "time" | "cost" | "rows" | "reads";
 
 const MARK_LABEL: Record<Mark, () => string> = {
   changed: () => t("ui.plan_diagram.mark_changed"),
@@ -138,6 +143,15 @@ function layout(root: PlanNode, total: number, expanded: Set<number>, keep: Set<
 const px = (x: number) => PAD + x * (CARD_W + GAP_X);
 const py = (y: number) => PAD + 24 + y * (CARD_H + GAP_Y);
 
+function nodeMatchesQuery(n: PlanNode, q: string): boolean {
+  const hay = `${n.op} ${n.object ?? ""} ${n.index ?? ""} ${n.detail ?? ""} ${n.predicate ?? ""} ${n.seek_predicate ?? ""}`.toLowerCase();
+  return hay.includes(q);
+}
+
+function nodeReadsValue(n: PlanNode): number | null {
+  return n.runtime?.logical_reads ?? n.rows_read ?? null;
+}
+
 export function CostStrip({ plan, query, focus, onPick }: { plan: Plan; query?: QueryStat | null; focus?: number | null; onPick: (id: number) => void }) {
   const shares = useMemo(() => planShares(plan, query), [plan, query]);
   const focused = allNodes(plan.root).find((n) => n.id === focus);
@@ -207,10 +221,43 @@ export function PlanDiagram(props: {
   zoom?: number;
   onZoomChange?: (zoom: number) => void;
   showProps?: boolean;
+  showHeader?: boolean;
+  showActualSummary?: boolean;
+  showCostStrip?: boolean;
+  showInsights?: boolean;
+  showControls?: boolean;
+  showMinimap?: boolean;
+  lens?: DiagramLens;
+  defaultLens?: DiagramLens;
+  height?: number | string;
   kindLabel?: string;
   overlay?: (node: PlanNode, box: { x: number; y: number; w: number; h: number }) => ReactNode;
+  theme?: PlanViewerTheme;
+  className?: string;
 }) {
-  const { plan, query, focus, marks, selectedId, onSelect, initialZoom, badge, bare, tints, onZoomChange, overlay, kindLabel } = props;
+  const {
+    plan,
+    query,
+    focus,
+    marks,
+    selectedId,
+    onSelect,
+    initialZoom,
+    badge,
+    bare,
+    tints,
+    onZoomChange,
+    overlay,
+    kindLabel,
+    showHeader = !bare,
+    showActualSummary = !bare,
+    showCostStrip = !bare,
+    showInsights = true,
+    showControls = true,
+    height: customHeight,
+    theme,
+    className,
+  } = props;
   const reason = (n: PlanNode) => (focus === n.id ? findingNoShareReason(plan, n, query) : noShareReason(plan, n, query));
   const total = basis(plan);
   const shares = useMemo(() => planShares(plan, query), [plan, query]);
@@ -218,40 +265,131 @@ export function PlanDiagram(props: {
   const planCost = plan.total_cost || plan.root.subtree_cost;
   const estimates = canPlanEstimates(plan.engine) || shares.basis === "time";
   const nodes = useMemo(() => allNodes(plan.root), [plan]);
-  const flagged = useMemo(() => insightsByNode(plan), [plan]);
+  const flagged = useMemo(() => (showInsights ? insightsByNode(plan) : new Map<number, PlanInsight[]>()), [plan, showInsights]);
   const hottest = shares.hottest;
   const target = selectedId ?? focus ?? hottest?.id ?? plan.root.id;
+
+  // Available metric lenses for coloring cards
+  const availableLenses = useMemo<DiagramLens[]>(() => {
+    const out: DiagramLens[] = [];
+    if (shares.basis === "time") out.push("time");
+    if (canPlanEstimates(plan.engine) && !plan.facts.estimated_cost_unavailable) out.push("cost");
+    if (nodes.some((n) => (rowsOut(plan, n) ?? 0) > 0)) out.push("rows");
+    if (nodes.some((n) => (nodeReadsValue(n) ?? 0) > 0)) out.push("reads");
+    return out;
+  }, [plan, nodes, shares.basis]);
+
+  const fallbackLens: DiagramLens =
+    props.defaultLens && availableLenses.includes(props.defaultLens)
+      ? props.defaultLens
+      : shares.basis === "time"
+        ? "time"
+        : availableLenses[0] ?? "cost";
+  const [ownLens, setOwnLens] = useState<DiagramLens>(fallbackLens);
+  const lens = props.lens && availableLenses.includes(props.lens) ? props.lens : ownLens;
+  const setLens = setOwnLens;
+  useEffect(() => {
+    if (!props.lens && !availableLenses.includes(ownLens)) setOwnLens(fallbackLens);
+  }, [availableLenses, ownLens, fallbackLens, props.lens]);
+
+  // Search & match navigation across the diagram
+  const [searchText, setSearchText] = useState("");
+  const [matchCursor, setMatchCursor] = useState(0);
+  const trimmedSearch = searchText.trim().toLowerCase();
+  const matchedIds = useMemo(() => {
+    if (!trimmedSearch) return [];
+    return nodes.filter((n) => nodeMatchesQuery(n, trimmedSearch)).map((n) => n.id);
+  }, [nodes, trimmedSearch]);
+  const matchedSet = useMemo(() => new Set(matchedIds), [matchedIds]);
+
   const keep = useMemo(
-    () => new Set<number>([...(marks?.keys() ?? []), ...flagged.keys(), ...uncostedSteps(plan).map((n) => n.id)]),
-    [marks, flagged, plan],
+    () => new Set<number>([...(marks?.keys() ?? []), ...flagged.keys(), ...uncostedSteps(plan).map((n) => n.id), ...matchedIds]),
+    [marks, flagged, plan, matchedIds],
   );
   const [expanded, setExpanded] = useState<Set<number>>(() => {
     const open = pathTo(plan.root, target);
     keep.forEach((id) => pathTo(plan.root, id).forEach((n) => open.add(n)));
     return open;
   });
+
+  useEffect(() => {
+    if (matchedIds.length === 0) return;
+    setMatchCursor(0);
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      matchedIds.forEach((id) => pathTo(plan.root, id).forEach((anc) => next.add(anc)));
+      return next;
+    });
+  }, [matchedIds, plan.root]);
+
   const [selected, setSelected] = useState<number>(target);
   const [ownZoom, setOwnZoom] = useState(initialZoom ?? 1);
   const zoom = props.zoom ?? ownZoom;
+  const zoomRef = useRef(zoom);
+  zoomRef.current = zoom;
   const setZoom = useCallback(
     (next: number | ((z: number) => number)) => {
-      const value = typeof next === "function" ? next(zoom) : next;
+      const value = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, typeof next === "function" ? next(zoomRef.current) : next));
       setOwnZoom(value);
       onZoomChange?.(value);
     },
-    [zoom, onZoomChange],
+    [onZoomChange],
   );
   const [fitted, setFitted] = useState(initialZoom != null || props.zoom != null);
   const scroller = useRef<HTMLDivElement>(null);
+  const [isPanning, setIsPanning] = useState(false);
+  const panState = useRef<{ active: boolean; moved: boolean; startX: number; startY: number; scrollLeft: number; scrollTop: number }>({
+    active: false,
+    moved: false,
+    startX: 0,
+    startY: 0,
+    scrollLeft: 0,
+    scrollTop: 0,
+  });
+  const suppressClick = useRef(false);
+
   const hot = useMemo(() => pathTo(plan.root, target), [plan.root, target]);
   const { boxes, folds, parentOf, rootVia, width, height } = useMemo(
     () => layout(plan.root, total, expanded, keep, estimates, (n) => shares.statedSubtree.get(n.id) ?? null),
     [plan.root, total, expanded, keep, estimates, shares],
   );
+  const [minimapPref, setMinimapPref] = useState<boolean | null>(null);
+  const autoMinimap = props.showMinimap ?? (!bare && boxes.length >= 6);
+  const showMinimap = minimapPref ?? autoMinimap;
+  const [viewport, setViewport] = useState({ left: 0, top: 0, clientW: 0, clientH: 0 });
+
   const byId = new Map(boxes.map((b) => [b.node.id, b]));
   const maxRows = Math.max(1, ...nodes.map((node) => rowsOut(plan, node) ?? 0));
+  const maxReads = Math.max(1, ...nodes.map((node) => nodeReadsValue(node) ?? 0));
   const stroke = (r: number) => 1.5 + 4.5 * (Math.log10(r + 1) / Math.log10(maxRows + 1));
   const selectedNode = nodes.find((n) => n.id === selected) ?? null;
+
+  // Lens metric projection per card
+  const lensValue = useCallback(
+    (n: PlanNode): { ratio: number | null; text: string | null } => {
+      if (lens === "time") {
+        const s = shares.stated.get(n.id) ?? null;
+        return { ratio: s, text: s != null ? percent(s) : null };
+      }
+      if (lens === "cost") {
+        const s = operatorView(plan, n)?.cost_share ?? (total > 0 ? n.self_cost / total : null);
+        return { ratio: s, text: s != null ? percent(s) : null };
+      }
+      if (lens === "rows") {
+        const r = rowsOut(plan, n);
+        return { ratio: r != null ? r / maxRows : null, text: r != null ? rows(r) : null };
+      }
+      const rd = nodeReadsValue(n);
+      return { ratio: rd != null ? rd / maxReads : null, text: rd != null ? rows(rd) : null };
+    },
+    [lens, shares.stated, plan, total, maxRows, maxReads],
+  );
+
+  const syncViewport = useCallback(() => {
+    const el = scroller.current;
+    if (!el) return;
+    setViewport({ left: el.scrollLeft, top: el.scrollTop, clientW: el.clientWidth, clientH: el.clientHeight });
+  }, []);
 
   const fit = useCallback(() => {
     const box = scroller.current?.getBoundingClientRect();
@@ -264,6 +402,45 @@ export function PlanDiagram(props: {
     fit();
     setFitted(true);
   }, [fit, fitted]);
+
+  useEffect(() => {
+    syncViewport();
+    const el = scroller.current;
+    if (!el) return;
+    el.addEventListener("scroll", syncViewport, { passive: true });
+    const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(syncViewport) : null;
+    ro?.observe(el);
+    return () => {
+      el.removeEventListener("scroll", syncViewport);
+      ro?.disconnect();
+    };
+  }, [syncViewport, zoom, width, height]);
+
+  // Ctrl/Cmd + wheel / trackpad pinch zoom anchored at cursor
+  useEffect(() => {
+    const el = scroller.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      if (!e.ctrlKey && !e.metaKey) return;
+      e.preventDefault();
+      const prevZoom = zoomRef.current;
+      const factor = Math.exp(-e.deltaY * 0.0025);
+      const nextZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, +(prevZoom * factor).toFixed(3)));
+      if (nextZoom === prevZoom) return;
+      const rect = el.getBoundingClientRect();
+      const cursorX = e.clientX - rect.left;
+      const cursorY = e.clientY - rect.top;
+      const worldX = (el.scrollLeft + cursorX) / prevZoom;
+      const worldY = (el.scrollTop + cursorY) / prevZoom;
+      setZoom(nextZoom);
+      requestAnimationFrame(() => {
+        el.scrollLeft = Math.max(0, worldX * nextZoom - cursorX);
+        el.scrollTop = Math.max(0, worldY * nextZoom - cursorY);
+      });
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, [setZoom]);
 
   // Compatible across React 18 and React 19 (replaces React 19.2-only useEffectEvent).
   const followSelectionRef = useRef<(id: number) => void>(() => {});
@@ -313,9 +490,94 @@ export function PlanDiagram(props: {
     onSelect?.(id);
   };
 
+  const stepMatch = (delta: number) => {
+    if (matchedIds.length === 0) return;
+    const nextIdx = (matchCursor + delta + matchedIds.length) % matchedIds.length;
+    setMatchCursor(nextIdx);
+    const id = matchedIds[nextIdx];
+    if (id != null) select(id);
+  };
+
+  const handlePointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
+    if (e.button !== 0 || !scroller.current) return;
+    panState.current = {
+      active: true,
+      moved: false,
+      startX: e.clientX,
+      startY: e.clientY,
+      scrollLeft: scroller.current.scrollLeft,
+      scrollTop: scroller.current.scrollTop,
+    };
+  };
+
+  const handlePointerMove = (e: ReactPointerEvent<HTMLDivElement>) => {
+    const st = panState.current;
+    const el = scroller.current;
+    if (!st.active || !el) return;
+    const dx = e.clientX - st.startX;
+    const dy = e.clientY - st.startY;
+    if (!st.moved && Math.hypot(dx, dy) > 5) {
+      st.moved = true;
+      suppressClick.current = true;
+      setIsPanning(true);
+    }
+    if (st.moved) {
+      el.scrollLeft = st.scrollLeft - dx;
+      el.scrollTop = st.scrollTop - dy;
+    }
+  };
+
+  const endPan = () => {
+    if (!panState.current.active) return;
+    panState.current.active = false;
+    setIsPanning(false);
+    if (suppressClick.current) {
+      setTimeout(() => {
+        suppressClick.current = false;
+      }, 0);
+    }
+  };
+
+  const lensLabel = (l: DiagramLens): string => {
+    switch (l) {
+      case "time":
+        return t("ui.plan_diagram.lens.time");
+      case "cost":
+        return t("ui.plan_diagram.lens.cost");
+      case "rows":
+        return t("ui.plan_diagram.lens.rows");
+      case "reads":
+        return t("ui.plan_diagram.lens.reads");
+    }
+  };
+
+  // Minimap geometry
+  const mmMaxW = 152;
+  const mmMaxH = 104;
+  const mmScale = Math.min(mmMaxW / Math.max(1, width), mmMaxH / Math.max(1, height));
+  const mmW = Math.max(64, Math.round(width * mmScale));
+  const mmH = Math.max(44, Math.round(height * mmScale));
+  const panFromMinimap = (e: ReactPointerEvent<SVGSVGElement>) => {
+    const el = scroller.current;
+    if (!el) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const worldX = (e.clientX - rect.left) / mmScale;
+    const worldY = (e.clientY - rect.top) / mmScale;
+    el.scrollLeft = Math.max(0, worldX * zoom - el.clientWidth / 2);
+    el.scrollTop = Math.max(0, worldY * zoom - el.clientHeight / 2);
+  };
+
+  const scrollStyle =
+    customHeight != null
+      ? { height: typeof customHeight === "number" ? `${customHeight}px` : customHeight, maxHeight: "none" }
+      : undefined;
+
   return (
-    <div className={`culprit-pv plan ${bare ? "bare" : ""}`}>
-      {!bare && (
+    <div
+      className={`culprit-pv plan ${bare ? "bare" : ""} ${customHeight != null ? "has-height" : ""} ${className ?? ""}`}
+      data-theme={theme && theme !== "system" ? theme : undefined}
+    >
+      {showHeader && (
         <div className="plan-head">
           {badge && <span className="side-badge">{badge}</span>}
           <span className="tag">{kindLabel ?? planKindLabel(plan)}</span>
@@ -323,25 +585,119 @@ export function PlanDiagram(props: {
             {t("ui.common.plan_operators", { count: nodes.length })}
             {estimates && ` · ${plan.facts.estimated_cost_unavailable ? t("ui.common.plan_cost_unavailable") : t("ui.common.plan_cost", { cost: cost(planCost) })}`}
           </span>
-          <span className="spacer" />
           {plan.warnings.length > 0 && (
             <span className="warn-chip">
               <TriangleAlert size={11} /> {t("ui.plan_diagram.plan_warnings", { count: plan.warnings.length })}
             </span>
           )}
-          <ZoomControls zoom={zoom} setZoom={setZoom} fit={fit} />
+          <span className="spacer" />
+          {availableLenses.length > 1 && (
+            <span className="seg plan-lens" role="group" aria-label={t("ui.plan_diagram.lens.label")}>
+              {availableLenses.map((item) => (
+                <button key={item} type="button" className={lens === item ? "on" : ""} onClick={() => setLens(item)}>
+                  {lensLabel(item)}
+                </button>
+              ))}
+            </span>
+          )}
+          <div className="search plan-search">
+            <Search size={12} />
+            <input
+              value={searchText}
+              placeholder={t("ui.plan_diagram.search_placeholder")}
+              onChange={(e) => setSearchText(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  stepMatch(e.shiftKey ? -1 : 1);
+                } else if (e.key === "Escape" && searchText) {
+                  e.preventDefault();
+                  setSearchText("");
+                }
+              }}
+            />
+            {trimmedSearch && (
+              <>
+                <span className="plan-search-count num">
+                  {matchedIds.length > 0
+                    ? t("ui.plan_diagram.search_matches", { current: String(matchCursor + 1), total: String(matchedIds.length) })
+                    : t("ui.plan_diagram.search_none")}
+                </span>
+                {matchedIds.length > 1 && (
+                  <>
+                    <button type="button" className="plan-search-btn" title={t("ui.plan_diagram.search_prev")} onClick={() => stepMatch(-1)}>
+                      <ChevronUp size={12} />
+                    </button>
+                    <button type="button" className="plan-search-btn" title={t("ui.plan_diagram.search_next")} onClick={() => stepMatch(1)}>
+                      <ChevronDown size={12} />
+                    </button>
+                  </>
+                )}
+                <button type="button" className="plan-search-btn" title={t("ui.plan_diagram.search_clear")} onClick={() => setSearchText("")}>
+                  <X size={12} />
+                </button>
+              </>
+            )}
+          </div>
+          {showControls && (
+            <ZoomControls
+              zoom={zoom}
+              setZoom={setZoom}
+              fit={fit}
+              showMinimap={showMinimap}
+              onToggleMinimap={() => setMinimapPref((prev) => !(prev ?? autoMinimap))}
+            />
+          )}
         </div>
       )}
-      {!bare && plan.kind === "actual" && <ActualSummary plan={plan} onPick={select} />}
-      {!bare && <CostStrip plan={plan} query={query} focus={focus} onPick={select} />}
-      <div className="diagram-wrap">
-        {bare && (
+      {showActualSummary && plan.kind === "actual" && <ActualSummary plan={plan} onPick={select} />}
+      {showCostStrip && <CostStrip plan={plan} query={query} focus={focus} onPick={select} />}
+      <div
+        className="diagram-wrap"
+        onKeyDown={(e) => {
+          if ((e.target as HTMLElement)?.tagName === "INPUT") return;
+          if (e.key === "+" || e.key === "=") {
+            e.preventDefault();
+            setZoom((z) => +(z + 0.15).toFixed(2));
+          } else if (e.key === "-") {
+            e.preventDefault();
+            setZoom((z) => +(z - 0.15).toFixed(2));
+          } else if (e.key === "0") {
+            e.preventDefault();
+            fit();
+          }
+        }}
+      >
+        {!showHeader && showControls && (
           <div className="diagram-float">
-            <ZoomControls zoom={zoom} setZoom={setZoom} fit={fit} />
+            <ZoomControls
+              zoom={zoom}
+              setZoom={setZoom}
+              fit={fit}
+              showMinimap={showMinimap}
+              onToggleMinimap={() => setMinimapPref((prev) => !(prev ?? autoMinimap))}
+            />
           </div>
         )}
-        <div className="diagram-scroll" ref={scroller}>
-          <div className="diagram" style={{ width: width * zoom, height: height * zoom }}>
+        <div
+          className={`diagram-scroll can-pan ${isPanning ? "is-panning" : ""}`}
+          style={scrollStyle}
+          ref={scroller}
+          title={isPanning ? undefined : t("ui.plan_diagram.pan_hint")}
+          onPointerDown={handlePointerDown}
+          onPointerMove={handlePointerMove}
+          onPointerUp={endPan}
+          onPointerCancel={endPan}
+          onPointerLeave={endPan}
+          onClickCapture={(e) => {
+            if (suppressClick.current) {
+              e.stopPropagation();
+              e.preventDefault();
+              suppressClick.current = false;
+            }
+          }}
+        >
+          <div className={`diagram ${trimmedSearch ? "has-search" : ""}`} style={{ width: width * zoom, height: height * zoom }}>
             <div style={{ width, height, transform: `scale(${zoom})`, transformOrigin: "0 0", position: "relative" }}>
               <svg width={width} height={height} className="diagram-edges" aria-hidden="true">
                 <defs>
@@ -389,26 +745,31 @@ export function PlanDiagram(props: {
                 {t("ui.plan_diagram.result")}
                 {rootVia.length ? ` · ${t("ui.plan_diagram.via", { operators: rootVia.join(", ") })}` : ""}
               </div>
-              {boxes.map((b) => (
-                <PlanCard
-                  plan={plan}
-                  key={b.node.id}
-                  estimates={estimates}
-                  node={b.node}
-                  share={shareOf(b.node)}
-                  ownMs={shares.ms.get(b.node.id)}
-                  x={px(b.x)}
-                  y={py(b.y)}
-                  hot={hot.has(b.node.id)}
-                  hottest={b.node.id === hottest?.id && (shareOf(b.node) ?? 0) >= 0.05}
-                  noShare={shares.basis === "cost" ? reason(b.node) : null}
-                  selected={b.node.id === selected}
-                  mark={marks?.get(b.node.id)}
-                  tint={tints?.get(b.node.id)}
-                  insights={flagged.get(b.node.id)}
-                  onSelect={() => select(b.node.id)}
-                />
-              ))}
+              {boxes.map((b) => {
+                const lv = lensValue(b.node);
+                return (
+                  <PlanCard
+                    plan={plan}
+                    key={b.node.id}
+                    estimates={estimates || lens === "rows" || lens === "reads"}
+                    node={b.node}
+                    share={lv.ratio}
+                    badgeText={lv.text}
+                    ownMs={shares.ms.get(b.node.id)}
+                    x={px(b.x)}
+                    y={py(b.y)}
+                    hot={hot.has(b.node.id)}
+                    hottest={b.node.id === hottest?.id && (shareOf(b.node) ?? 0) >= 0.05}
+                    matched={matchedSet.has(b.node.id)}
+                    noShare={shares.basis === "cost" ? reason(b.node) : null}
+                    selected={b.node.id === selected}
+                    mark={marks?.get(b.node.id)}
+                    tint={tints?.get(b.node.id)}
+                    insights={flagged.get(b.node.id)}
+                    onSelect={() => select(b.node.id)}
+                  />
+                );
+              })}
               {overlay && boxes.map((b) => <span key={`overlay-${b.node.id}`}>{overlay(b.node, { x: px(b.x), y: py(b.y), w: CARD_W, h: CARD_H })}</span>)}
               {folds.map((f) => (
                 <button
@@ -429,6 +790,53 @@ export function PlanDiagram(props: {
             </div>
           </div>
         </div>
+        {showMinimap && (
+          <div className="diagram-minimap" aria-label={t("ui.plan_diagram.minimap_label")}>
+            <svg
+              width={mmW}
+              height={mmH}
+              viewBox={`0 0 ${mmW} ${mmH}`}
+              onPointerDown={(e) => {
+                e.stopPropagation();
+                (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
+                panFromMinimap(e);
+              }}
+              onPointerMove={(e) => {
+                if (e.buttons === 1) panFromMinimap(e);
+              }}
+            >
+              {boxes.map((b) => {
+                const lv = lensValue(b.node).ratio ?? 0;
+                const fill = heat(lv) === "transparent" ? "var(--border-strong)" : heat(lv);
+                const isSel = b.node.id === selected;
+                const isMatch = matchedSet.has(b.node.id);
+                return (
+                  <rect
+                    key={b.node.id}
+                    x={px(b.x) * mmScale}
+                    y={py(b.y) * mmScale}
+                    width={Math.max(6, CARD_W * mmScale)}
+                    height={Math.max(4, CARD_H * mmScale)}
+                    rx={2}
+                    fill={fill}
+                    stroke={isSel ? "var(--focus)" : isMatch ? "var(--brand)" : "none"}
+                    strokeWidth={isSel || isMatch ? 1.5 : 0}
+                  />
+                );
+              })}
+              {viewport.clientW > 0 && (
+                <rect
+                  className="mm-viewport"
+                  x={Math.max(0, (viewport.left / zoom) * mmScale)}
+                  y={Math.max(0, (viewport.top / zoom) * mmScale)}
+                  width={Math.min(mmW, (viewport.clientW / zoom) * mmScale)}
+                  height={Math.min(mmH, (viewport.clientH / zoom) * mmScale)}
+                  rx={3}
+                />
+              )}
+            </svg>
+          </div>
+        )}
       </div>
       {selectedNode && props.showProps !== false && (
         <NodeDetails
@@ -446,14 +854,26 @@ export function PlanDiagram(props: {
   );
 }
 
-function ZoomControls({ zoom, setZoom, fit }: { zoom: number; setZoom: (f: (z: number) => number) => void; fit: () => void }) {
+function ZoomControls({
+  zoom,
+  setZoom,
+  fit,
+  showMinimap,
+  onToggleMinimap,
+}: {
+  zoom: number;
+  setZoom: (f: (z: number) => number) => void;
+  fit: () => void;
+  showMinimap?: boolean;
+  onToggleMinimap?: () => void;
+}) {
   return (
     <span className="zoom">
-      <button type="button" className="btn icon ghost" title={t("ui.plan_diagram.zoom_out")} onClick={() => setZoom((z) => Math.max(0.3, +(z - 0.15).toFixed(2)))}>
+      <button type="button" className="btn icon ghost" title={t("ui.plan_diagram.zoom_out")} onClick={() => setZoom((z) => +(z - 0.15).toFixed(2))}>
         <Minus size={13} />
       </button>
       <span className="zoom-level">{Math.round(zoom * 100)}%</span>
-      <button type="button" className="btn icon ghost" title={t("ui.plan_diagram.zoom_in")} onClick={() => setZoom((z) => Math.min(1.6, +(z + 0.15).toFixed(2)))}>
+      <button type="button" className="btn icon ghost" title={t("ui.plan_diagram.zoom_in")} onClick={() => setZoom((z) => +(z + 0.15).toFixed(2))}>
         <Plus size={13} />
       </button>
       <button type="button" className="btn icon ghost" title={t("ui.plan_diagram.fit")} onClick={fit}>
@@ -462,6 +882,17 @@ function ZoomControls({ zoom, setZoom, fit }: { zoom: number; setZoom: (f: (z: n
       <button type="button" className="btn icon ghost" title={t("ui.plan_diagram.actual_size")} onClick={() => setZoom(() => 1)}>
         <Maximize2 size={12} />
       </button>
+      {onToggleMinimap && (
+        <button
+          type="button"
+          className={`btn icon ghost ${showMinimap ? "on" : ""}`}
+          aria-pressed={showMinimap}
+          title={t("ui.plan_diagram.minimap_toggle")}
+          onClick={onToggleMinimap}
+        >
+          <MapIcon size={12} />
+        </button>
+      )}
     </span>
   );
 }
@@ -470,11 +901,13 @@ function PlanCard(props: {
   plan: Plan;
   node: PlanNode;
   share: number | null;
+  badgeText?: string | null;
   noShare?: string | null;
   x: number;
   y: number;
   hot: boolean;
   hottest: boolean;
+  matched?: boolean;
   selected: boolean;
   mark?: Mark;
   insights?: PlanInsight[];
@@ -483,7 +916,7 @@ function PlanCard(props: {
   estimates: boolean;
   onSelect: () => void;
 }) {
-  const { plan, node, x, y, hot, hottest, selected, mark, insights, tint, ownMs, estimates, onSelect, noShare } = props;
+  const { plan, node, x, y, hot, hottest, matched, selected, mark, insights, tint, ownMs, estimates, onSelect, noShare, badgeText } = props;
   const share = props.share ?? 0;
   const mis = node.warnings.includes("misestimate") ? misestimate(plan, node) : null;
   const table = node.object?.split(".").pop();
@@ -501,7 +934,7 @@ function PlanCard(props: {
       type="button"
       data-node={node.id}
       data-tint={tint}
-      className={`plan-card ${selected ? "sel" : ""} ${hot ? "hot" : ""} ${mark ? `mark-${mark}` : ""} ${worst ? `flag-${worst.severity}` : ""}`}
+      className={`plan-card ${selected ? "sel" : ""} ${hot ? "hot" : ""} ${matched ? "match" : ""} ${mark ? `mark-${mark}` : ""} ${worst ? `flag-${worst.severity}` : ""}`}
       style={{
         left: x,
         top: y,
@@ -514,7 +947,7 @@ function PlanCard(props: {
       title={tip}
       aria-label={[
         table ? t("ui.plan_diagram.card_on", { operator: node.op, table }) : node.op,
-        estimates && props.share != null ? t("ui.plan_diagram.card_share", { share: percent(share) }) : "",
+        estimates && badgeText != null ? t("ui.plan_diagram.card_share", { share: badgeText }) : "",
         worst ? t("ui.plan_diagram.card_issues", { count: insights!.length }) : "",
       ]
         .filter(Boolean)
@@ -530,7 +963,7 @@ function PlanCard(props: {
         {estimates && (
           <span className="pc-share">
             {hottest && <Flame size={11} color="var(--heat-4)" />}
-            {props.share != null ? percent(share) : "—"}
+            {badgeText ?? "-"}
           </span>
         )}
       </span>
@@ -541,7 +974,7 @@ function PlanCard(props: {
             {rows(estRowsForRuns(plan, node))} → <b>{rows(node.act_rows)}</b>
             {mis != null && <span className="mis">×{rows(Math.abs(mis))}</span>}
           </>
-        ) : estimates ? (
+        ) : estimates && !node.facts.estimated_rows_unavailable ? (
           <>{t("ui.plan_diagram.estimated_rows", { rows: rows(estRows(plan, node)) })}</>
         ) : (
           node.seek_predicate && (

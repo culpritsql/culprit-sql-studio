@@ -1972,6 +1972,7 @@
 
 /* ───────── operator details ───────── */
 
+.culprit-pv.nd,
 .culprit-pv .nd {
   container: operator-details / inline-size;
   border-top: 1px solid var(--border);
@@ -1981,6 +1982,11 @@
   flex-direction: column;
   gap: 10px;
   overflow-wrap: anywhere;
+}
+
+.culprit-pv.nd {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
 }
 
 .culprit-pv .nd-head {
@@ -3079,6 +3085,179 @@
   background: var(--code-bg);
   font-size: var(--fs-meta);
   overflow: auto;
+}
+
+/* ───────── interactive canvas, lens, search, minimap, buffers & objects ───────── */
+
+.culprit-pv .diagram-scroll.can-pan {
+  cursor: grab;
+}
+
+.culprit-pv .diagram-scroll.is-panning,
+.culprit-pv .diagram-scroll.is-panning * {
+  cursor: grabbing !important;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.culprit-pv .zoom .btn.on {
+  background: var(--active);
+  color: var(--text);
+}
+
+.culprit-pv .plan-lens button {
+  height: 20px;
+  padding: 0 7px;
+  font-size: var(--fs-micro);
+}
+
+.culprit-pv .plan-search {
+  min-width: 196px;
+  max-width: 256px;
+  height: 24px;
+}
+
+.culprit-pv .plan-search input {
+  font-size: var(--fs-meta);
+}
+
+.culprit-pv .plan-search-count {
+  font-size: var(--fs-2xs);
+  color: var(--text-3);
+  white-space: nowrap;
+}
+
+.culprit-pv .plan-search-btn {
+  display: inline-grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  color: var(--text-3);
+}
+
+.culprit-pv .plan-search-btn:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.culprit-pv .diagram.has-search .plan-card:not(.match):not(.sel) {
+  opacity: 0.42;
+}
+
+.culprit-pv .plan-card.match {
+  box-shadow: 0 0 0 2px var(--brand);
+}
+
+.culprit-pv .pnode.match {
+  background: color-mix(in srgb, var(--brand) 16%, transparent);
+}
+
+.culprit-pv .diagram-minimap {
+  position: absolute;
+  inset-inline-end: 10px;
+  bottom: 10px;
+  z-index: 2;
+  padding: 5px;
+  border-radius: 8px;
+  border: 1px solid var(--border-strong);
+  background: color-mix(in srgb, var(--raised) 90%, transparent);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  box-shadow: var(--shadow-1);
+}
+
+.culprit-pv .diagram-minimap svg {
+  display: block;
+  cursor: crosshair;
+}
+
+.culprit-pv .diagram-minimap .mm-viewport {
+  fill: color-mix(in srgb, var(--focus) 14%, transparent);
+  stroke: var(--focus);
+  stroke-width: 1.2;
+}
+
+.culprit-pv .nd-split-bar .hit,
+.culprit-pv .nd-split-legend i.hit {
+  background: var(--good);
+}
+
+.culprit-pv .nd-split-bar .disk,
+.culprit-pv .nd-split-legend i.disk {
+  background: var(--heat-3);
+}
+
+.culprit-pv .nd-workers {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-top: 8px;
+}
+
+.culprit-pv .nd-worker-row {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--fs-ui-sm);
+}
+
+.culprit-pv .nd-worker-bar {
+  height: 5px;
+  border-radius: 3px;
+  background: var(--sunken);
+  overflow: hidden;
+}
+
+.culprit-pv .nd-worker-bar > span {
+  display: block;
+  height: 100%;
+  border-radius: 3px;
+  background: var(--focus);
+}
+
+.culprit-pv .po-access {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.culprit-pv .po-step-pills,
+.culprit-pv .po-indexes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.culprit-pv .po-step-pill {
+  padding: 1px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: var(--sunken);
+  font-size: var(--fs-micro);
+  color: var(--text-2);
+}
+
+.culprit-pv .po-step-pill:hover,
+.culprit-pv .po-step-pill.on {
+  border-color: var(--focus);
+  color: var(--text);
+}
+
+.culprit-pv .plan-raw-code {
+  margin: 0;
+  padding: 12px 14px;
+  max-height: 520px;
+  overflow: auto;
+  background: var(--code-bg);
+  font: var(--fs-meta)/1.5 var(--mono);
+  white-space: pre;
+}
+
+.culprit-pv .plan-raw-sql {
+  padding: 12px 14px;
+  background: var(--code-bg);
 }
 
 @media (prefers-reduced-motion: reduce) {

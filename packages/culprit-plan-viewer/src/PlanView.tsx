@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronRight, Flame, TriangleAlert } from "lucide-react";
+import { ChevronDown, ChevronRight, ChevronUp, Flame, Search, TriangleAlert, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { ActualSummary } from "./ActualSummary.js";
 import {
@@ -20,6 +20,7 @@ import {
 } from "./host.js";
 import { NodeDetails } from "./NodeDetails.js";
 import { OpIcon } from "./OpIcon.js";
+import type { PlanViewerTheme } from "./PlanViewer.js";
 import type { Plan, PlanInsight, PlanNode, QueryStat } from "./types.js";
 
 export { planKindLabel, predicateLabel, shortPredicate };
@@ -31,6 +32,12 @@ type Props = {
   compact?: boolean;
   selectedId?: number | null;
   onSelect?: (id: number) => void;
+  showHeader?: boolean;
+  showActualSummary?: boolean;
+  showProps?: boolean;
+  showInsights?: boolean;
+  theme?: PlanViewerTheme;
+  className?: string;
 };
 
 const WARNING_LABEL: Record<string, () => string> = {
@@ -68,9 +75,22 @@ function heatVar(share: number): string {
   return "var(--heat-0)";
 }
 
-export function PlanView({ plan, query, focus, compact, selectedId, onSelect }: Props) {
+export function PlanView({
+  plan,
+  query,
+  focus,
+  compact,
+  selectedId,
+  onSelect,
+  showHeader = true,
+  showActualSummary = true,
+  showProps = true,
+  showInsights = true,
+  theme,
+  className,
+}: Props) {
   const nodes = useMemo(() => walk(plan.root), [plan]);
-  const flagged = useMemo(() => insightsByNode(plan), [plan]);
+  const flagged = useMemo(() => (showInsights ? insightsByNode(plan) : new Map<number, PlanInsight[]>()), [plan, showInsights]);
   const shares = useMemo(() => planShares(plan, query), [plan, query]);
   const reason = (n: PlanNode) => (focus === n.id ? findingNoShareReason(plan, n, query) : noShareReason(plan, n, query));
   const focused = nodes.find((n) => n.id === focus);
@@ -88,6 +108,27 @@ export function PlanView({ plan, query, focus, compact, selectedId, onSelect }: 
     return open;
   });
   const [selected, setSelected] = useState<number | null>(selectedId ?? target);
+  const [searchText, setSearchText] = useState("");
+  const [matchCursor, setMatchCursor] = useState(0);
+  const trimmedSearch = searchText.trim().toLowerCase();
+  const matchedIds = useMemo(() => {
+    if (!trimmedSearch) return [];
+    return nodes
+      .filter((n) => `${n.op} ${n.object ?? ""} ${n.index ?? ""} ${n.predicate ?? ""} ${n.seek_predicate ?? ""}`.toLowerCase().includes(trimmedSearch))
+      .map((n) => n.id);
+  }, [nodes, trimmedSearch]);
+  const matchedSet = useMemo(() => new Set(matchedIds), [matchedIds]);
+
+  useEffect(() => {
+    if (matchedIds.length === 0) return;
+    setMatchCursor(0);
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      matchedIds.forEach((id) => (pathTo(plan.root, id) ?? []).forEach((anc) => next.add(anc)));
+      return next;
+    });
+  }, [matchedIds, plan.root]);
+
   const selectedNode = nodes.find((n) => n.id === selected) ?? null;
 
   useEffect(() => {
@@ -108,6 +149,17 @@ export function PlanView({ plan, query, focus, compact, selectedId, onSelect }: 
       return next;
     });
 
+  const stepMatch = (delta: number) => {
+    if (matchedIds.length === 0) return;
+    const nextIdx = (matchCursor + delta + matchedIds.length) % matchedIds.length;
+    setMatchCursor(nextIdx);
+    const id = matchedIds[nextIdx];
+    if (id != null) {
+      setSelected(id);
+      onSelect?.(id);
+    }
+  };
+
   const rows: { node: PlanNode; depth: number }[] = [];
   const visit = (node: PlanNode, depth: number) => {
     rows.push({ node, depth });
@@ -116,8 +168,9 @@ export function PlanView({ plan, query, focus, compact, selectedId, onSelect }: 
   visit(plan.root, 0);
 
   return (
-    <div className="culprit-pv plan">
-      <div className="plan-head">
+    <div className={`culprit-pv plan ${className ?? ""}`} data-theme={theme && theme !== "system" ? theme : undefined}>
+      {showHeader && (
+        <div className="plan-head">
         <span className="tag">{planKindLabel(plan)}</span>
         <span>
           {t("ui.common.plan_operators", { count: nodes.length })}
@@ -128,15 +181,57 @@ export function PlanView({ plan, query, focus, compact, selectedId, onSelect }: 
                 : t("ui.common.plan_cost", { cost: (plan.total_cost || plan.root.subtree_cost).toFixed((plan.total_cost || plan.root.subtree_cost) < 10 ? 3 : 1) })
             }`}
         </span>
-        <span className="spacer" />
         {plan.warnings.length > 0 && (
           <span className="warn-chip">
             <TriangleAlert size={11} />
             {plan.warnings.map(warningLabel).join(", ")}
           </span>
         )}
+        <span className="spacer" />
+        {!compact && (
+          <div className="search plan-search">
+            <Search size={12} />
+            <input
+              value={searchText}
+              placeholder={t("ui.plan_diagram.search_placeholder")}
+              onChange={(e) => setSearchText(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  stepMatch(e.shiftKey ? -1 : 1);
+                } else if (e.key === "Escape" && searchText) {
+                  e.preventDefault();
+                  setSearchText("");
+                }
+              }}
+            />
+            {trimmedSearch && (
+              <>
+                <span className="plan-search-count num">
+                  {matchedIds.length > 0
+                    ? t("ui.plan_diagram.search_matches", { current: String(matchCursor + 1), total: String(matchedIds.length) })
+                    : t("ui.plan_diagram.search_none")}
+                </span>
+                {matchedIds.length > 1 && (
+                  <>
+                    <button type="button" className="plan-search-btn" title={t("ui.plan_diagram.search_prev")} onClick={() => stepMatch(-1)}>
+                      <ChevronUp size={12} />
+                    </button>
+                    <button type="button" className="plan-search-btn" title={t("ui.plan_diagram.search_next")} onClick={() => stepMatch(1)}>
+                      <ChevronDown size={12} />
+                    </button>
+                  </>
+                )}
+                <button type="button" className="plan-search-btn" title={t("ui.plan_diagram.search_clear")} onClick={() => setSearchText("")}>
+                  <X size={12} />
+                </button>
+              </>
+            )}
+          </div>
+        )}
       </div>
-      {plan.kind === "actual" && <ActualSummary plan={plan} onPick={setSelected} />}
+      )}
+      {showActualSummary && plan.kind === "actual" && <ActualSummary plan={plan} onPick={setSelected} />}
       <div className="plan-cols">
         <span>{t("ui.plan_view.operator")}</span>
         <span>{hasActuals ? t("ui.plan_view.rows_est_actual") : weighed ? t("ui.plan_view.est_rows") : ""}</span>
@@ -150,7 +245,7 @@ export function PlanView({ plan, query, focus, compact, selectedId, onSelect }: 
             <button
               type="button"
               key={node.id}
-              className={`pnode ${selected === node.id ? "sel" : ""} ${hotPath.has(node.id) ? "hot" : ""}`}
+              className={`pnode ${selected === node.id ? "sel" : ""} ${hotPath.has(node.id) ? "hot" : ""} ${matchedSet.has(node.id) ? "match" : ""}`}
               onClick={() => {
                 setSelected(node.id);
                 onSelect?.(node.id);
@@ -235,7 +330,7 @@ export function PlanView({ plan, query, focus, compact, selectedId, onSelect }: 
                     </>
                   ) : (
                     <span className="num muted" title={reason(node) ?? undefined}>
-                      —
+                      -
                     </span>
                   ))}
               </span>
@@ -243,8 +338,8 @@ export function PlanView({ plan, query, focus, compact, selectedId, onSelect }: 
           );
         })}
       </div>
-      {weighed && note && <div className="muted" style={{ fontSize: 12, padding: "6px 10px" }}>— {note}</div>}
-      {selectedNode && (
+      {weighed && note && <div className="muted" style={{ fontSize: 12, padding: "6px 10px" }}>{note}</div>}
+      {selectedNode && showProps && (
         <NodeDetails
           plan={plan}
           estimates={weighed}
@@ -259,6 +354,9 @@ export function PlanView({ plan, query, focus, compact, selectedId, onSelect }: 
     </div>
   );
 }
+
+/** Alias of PlanView for ergonomic granular imports alongside PlanCanvas. */
+export const PlanTree = PlanView;
 
 /** The operator detail panel; kept under this name for existing callers. */
 export function NodeProps({ node, share, insights }: { node: PlanNode; share: number | null; insights?: PlanInsight[] }) {

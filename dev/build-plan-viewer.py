@@ -26,7 +26,7 @@ TS_GEN_EXPORT = re.compile(
     r'export\s+type\s+\{\s*([A-Za-z_][A-Za-z_0-9]*(?:\s+as\s+[A-Za-z_][A-Za-z_0-9]*)?)\s*\}\s+from\s+"../../../app/src/gen/([A-Za-z_][A-Za-z_0-9]*)";'
 )
 MODEL_IMPORT = re.compile(r'(from\s+["\'])(\./[^"\']+)(["\'])')
-MESSAGE_KEY = re.compile(r'["\']((?:ui|common)\.[a-z0-9_.]+)["\']')
+MESSAGE_KEY = re.compile(r'["\']((?:ui|common|view)\.[a-z0-9_.]+)["\']')
 ANY_IMPORT = re.compile(r'(?:from|import)\s*["\']([^"\']+)["\']')
 ALLOWED_EXTERNALS = {"react", "react/jsx-runtime", "lucide-react"}
 

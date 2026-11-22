@@ -1345,3 +1345,176 @@
 .plan-head .zoom {
   margin-inline-start: auto;
 }
+
+/* interactive canvas, lens, search, minimap, buffers & objects */
+
+.diagram-scroll.can-pan {
+  cursor: grab;
+}
+
+.diagram-scroll.is-panning,
+.diagram-scroll.is-panning * {
+  cursor: grabbing !important;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.zoom .btn.on {
+  background: var(--active);
+  color: var(--text);
+}
+
+.plan-lens button {
+  height: 20px;
+  padding: 0 7px;
+  font-size: var(--fs-micro);
+}
+
+.plan-search {
+  min-width: 196px;
+  max-width: 256px;
+  height: 24px;
+}
+
+.plan-search input {
+  font-size: var(--fs-meta);
+}
+
+.plan-search-count {
+  font-size: var(--fs-2xs);
+  color: var(--text-3);
+  white-space: nowrap;
+}
+
+.plan-search-btn {
+  display: inline-grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  color: var(--text-3);
+}
+
+.plan-search-btn:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.diagram.has-search .plan-card:not(.match):not(.sel) {
+  opacity: 0.42;
+}
+
+.plan-card.match {
+  box-shadow: 0 0 0 2px var(--brand);
+}
+
+.pnode.match {
+  background: color-mix(in srgb, var(--brand) 16%, transparent);
+}
+
+.diagram-minimap {
+  position: absolute;
+  inset-inline-end: 10px;
+  bottom: 10px;
+  z-index: 2;
+  padding: 5px;
+  border-radius: 8px;
+  border: 1px solid var(--border-strong);
+  background: color-mix(in srgb, var(--raised) 90%, transparent);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  box-shadow: var(--shadow-1);
+}
+
+.diagram-minimap svg {
+  display: block;
+  cursor: crosshair;
+}
+
+.diagram-minimap .mm-viewport {
+  fill: color-mix(in srgb, var(--focus) 14%, transparent);
+  stroke: var(--focus);
+  stroke-width: 1.2;
+}
+
+.nd-split-bar .hit,
+.nd-split-legend i.hit {
+  background: var(--good);
+}
+
+.nd-split-bar .disk,
+.nd-split-legend i.disk {
+  background: var(--heat-3);
+}
+
+.nd-workers {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-top: 8px;
+}
+
+.nd-worker-row {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--fs-ui-sm);
+}
+
+.nd-worker-bar {
+  height: 5px;
+  border-radius: 3px;
+  background: var(--sunken);
+  overflow: hidden;
+}
+
+.nd-worker-bar > span {
+  display: block;
+  height: 100%;
+  border-radius: 3px;
+  background: var(--focus);
+}
+
+.po-access {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.po-step-pills,
+.po-indexes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.po-step-pill {
+  padding: 1px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: var(--sunken);
+  font-size: var(--fs-micro);
+  color: var(--text-2);
+}
+
+.po-step-pill:hover,
+.po-step-pill.on {
+  border-color: var(--focus);
+  color: var(--text);
+}
+
+.plan-raw-code {
+  margin: 0;
+  padding: 12px 14px;
+  max-height: 520px;
+  overflow: auto;
+  background: var(--code-bg);
+  font: var(--fs-meta)/1.5 var(--mono);
+  white-space: pre;
+}
+
+.plan-raw-sql {
+  padding: 12px 14px;
+  background: var(--code-bg);
+}

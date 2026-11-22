@@ -1,4 +1,4 @@
-import { GitBranch, ListTree, Network, TableProperties } from "lucide-react";
+import { Database, FileCode, GitBranch, ListTree, Network, TableProperties } from "lucide-react";
 import { useMemo, useState } from "react";
 import { DocdbWork } from "./DocdbWork.js";
 import {
@@ -20,17 +20,20 @@ import { NodeDetails } from "./NodeDetails.js";
 import { PlanAssessmentNotes } from "./PlanAssessmentNotes.js";
 import { PlanDiagram } from "./PlanDiagram.js";
 import { PlanInsights } from "./PlanInsights.js";
+import { PlanObjects } from "./PlanObjects.js";
 import { PlanOperations } from "./PlanOperations.js";
+import { PlanRaw } from "./PlanRaw.js";
 import { PlanTypeSchema } from "./PlanTypeSchema.js";
 import { PlanView } from "./PlanView.js";
 import type { Plan, QueryStat } from "./types.js";
 
-export type PlanLook = "diagram" | "tree" | "operations";
+export type PlanLook = "diagram" | "tree" | "operations" | "objects" | "raw";
 
 const LOOK_KEY = "culprit.plan.look";
+const ALL_LOOKS: readonly PlanLook[] = ["diagram", "tree", "operations", "objects", "raw"];
 
 export function rememberedLook(): PlanLook {
-  return rememberedChoice<PlanLook>(LOOK_KEY, "diagram", ["diagram", "tree", "operations"]);
+  return rememberedChoice<PlanLook>(LOOK_KEY, "diagram", ALL_LOOKS);
 }
 
 export function rememberLook(look: PlanLook): void {
@@ -41,13 +44,24 @@ const LOOKS: { look: PlanLook; label: () => string; icon: typeof Network; hint: 
   { look: "diagram", label: () => t("ui.plan_surface.diagram"), icon: Network, hint: () => t("ui.plan_surface.diagram_hint") },
   { look: "tree", label: () => t("ui.plan_surface.tree"), icon: ListTree, hint: () => t("ui.plan_surface.tree_hint") },
   { look: "operations", label: () => t("ui.plan_surface.operations"), icon: TableProperties, hint: () => t("ui.plan_surface.operations_hint") },
+  { look: "objects", label: () => t("ui.plan_surface.objects"), icon: Database, hint: () => t("ui.plan_surface.objects_hint") },
+  { look: "raw", label: () => t("ui.plan_surface.raw"), icon: FileCode, hint: () => t("ui.plan_surface.raw_hint") },
 ];
 
-/** Diagram · Tree · Operations. */
-export function LookToggle({ look, onChange }: { look: PlanLook; onChange: (look: PlanLook) => void }) {
+/** Diagram · Tree · Operations · Tables · Raw. */
+export function LookToggle({
+  look,
+  onChange,
+  hasRaw = true,
+}: {
+  look: PlanLook;
+  onChange: (look: PlanLook) => void;
+  hasRaw?: boolean;
+}) {
+  const visibleLooks = hasRaw ? LOOKS : LOOKS.filter((item) => item.look !== "raw");
   return (
     <span className="seg look-toggle" role="tablist" aria-label={t("ui.plan_surface.label")} onKeyDown={tabListKeys}>
-      {LOOKS.map((l) => {
+      {visibleLooks.map((l) => {
         const Icon = l.icon;
         return (
           <button
@@ -101,6 +115,8 @@ export function PlanSurface({
       {look === "diagram" && <PlanDiagram plan={plan} query={query} focus={focus} selectedId={selected} onSelect={setSelected} badge={badge} />}
       {look === "tree" && <PlanView plan={plan} query={query} focus={focus} selectedId={selected} onSelect={setSelected} />}
       {look === "operations" && <OperationsPanel plan={plan} query={query} focus={focus} selected={selected ?? focus ?? null} onSelect={setSelected} />}
+      {look === "objects" && <ObjectsPanel plan={plan} query={query} focus={focus} selected={selected ?? focus ?? null} onSelect={setSelected} />}
+      {look === "raw" && <PlanRaw plan={plan} />}
     </div>
   );
 }
@@ -142,6 +158,51 @@ function OperationsPanel({
         <span className="muted">{t("ui.plan_surface.click_row")}</span>
       </div>
       <PlanOperations plan={plan} query={query} focus={focus} selectedId={current?.id ?? null} onSelect={onSelect} />
+      {current && (
+        <NodeDetails
+          plan={plan}
+          estimates={canPlanEstimates(plan.engine)}
+          actual={plan.kind === "actual"}
+          node={current}
+          share={shareOf(current.id)}
+          subtreeShare={shares.statedSubtree.get(current.id) ?? null}
+          noShare={shares.basis === "cost" ? (current.id === focus ? findingNoShareReason(plan, current, query) : noShareReason(plan, current, query)) : null}
+          insights={flagged.get(current.id)}
+        />
+      )}
+    </div>
+  );
+}
+
+function ObjectsPanel({
+  plan,
+  query,
+  focus,
+  selected,
+  onSelect,
+}: {
+  plan: Plan;
+  query?: QueryStat | null;
+  focus?: number | null;
+  selected: number | null;
+  onSelect: (id: number) => void;
+}) {
+  const shares = useMemo(() => planShares(plan, query), [plan, query]);
+  const nodes = useMemo(() => allNodes(plan.root), [plan]);
+  const flagged = useMemo(() => insightsByNode(plan), [plan]);
+  const shareOf = (id: number) => shares.stated.get(id) ?? null;
+  const firstWithObject = nodes.find((n) => n.object != null) ?? shares.hottest ?? plan.root;
+  const current = nodes.find((n) => n.id === (selected ?? firstWithObject.id)) ?? null;
+  return (
+    <div className="plan">
+      <div className="plan-head">
+        <span className="tag">{planKindLabel(plan)}</span>
+        <span>{t("ui.plan_surface.objects_hint")}</span>
+        <span className="spacer" />
+        <GitBranch size={12} className="muted" />
+        <span className="muted">{t("ui.plan_surface.click_row")}</span>
+      </div>
+      <PlanObjects plan={plan} query={query} selectedId={current?.id ?? null} onSelect={onSelect} />
       {current && (
         <NodeDetails
           plan={plan}

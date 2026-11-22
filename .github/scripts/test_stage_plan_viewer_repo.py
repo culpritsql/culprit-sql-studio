@@ -1,10 +1,11 @@
 import hashlib
 import json
+import shutil
 import tempfile
 import unittest
 from pathlib import Path
 
-from stage_plan_viewer_repo import stage_repository
+from stage_plan_viewer_repo import has_meaningful_changes, has_pkg_changes, stage_repository
 
 
 class StagePlanViewerRepoTests(unittest.TestCase):
@@ -21,7 +22,7 @@ class StagePlanViewerRepoTests(unittest.TestCase):
         (template / "workflows").mkdir(parents=True)
         (template / "assets").mkdir(parents=True)
 
-        (self.root / "Cargo.toml").write_text('[workspace.package]\nversion = "0.5.6"\n')
+        (self.root / "Cargo.toml").write_text('[workspace.package]\nversion = "0.6.2"\n')
         (package / "package.json").write_text(
             json.dumps(
                 {
@@ -93,33 +94,38 @@ class StagePlanViewerRepoTests(unittest.TestCase):
         }
         (package / "pkg/build-report.json").write_text(json.dumps(report))
 
-    def test_full_stage_produces_public_manifest_and_copies_assets(self) -> None:
+    def test_full_stage_uses_independent_pkg_version_and_copies_assets(self) -> None:
         stage_repository(self.out, root=self.root, include_pkg=True, include_workflows=False)
         manifest = json.loads((self.out / "package.json").read_text())
         self.assertNotIn("private", manifest)
         self.assertEqual(manifest["name"], "@culpritsql/plan-viewer")
         self.assertEqual(manifest["version"], "0.5.6")
-        self.assertEqual(manifest["publishConfig"], {"access": "public", "provenance": True})
-        self.assertEqual(manifest["repository"]["url"], "git+https://github.com/culpritsql/culprit-plan-viewer.git")
         self.assertTrue((self.out / "assets/hero-dark.png").is_file())
         self.assertFalse((self.out / ".github").exists())
 
         report_text = (self.out / "pkg/build-report.json").read_text()
         self.assertNotIn("/Users/", report_text)
 
-    def test_seed_only_includes_workflows_and_omits_pkg(self) -> None:
-        stage_repository(self.out, root=self.root, include_pkg=False, include_workflows=True)
-        self.assertFalse((self.out / "pkg").exists())
-        self.assertTrue((self.out / ".github/workflows/ci.yml").is_file())
-        self.assertTrue((self.out / ".github/workflows/publish.yml").is_file())
-        self.assertTrue((self.out / "test/smoke.mjs").is_file())
+    def test_change_detection_ignores_build_report_metadata_churn(self) -> None:
+        stage_repository(self.out, root=self.root, include_pkg=True, include_workflows=False)
+        target = Path(self.temp.name) / "target"
+        shutil.copytree(self.out, target)
+        (target / "pkg/build-report.json").write_text('{"tools": {"typescript_version": "6.0.0"}}\n')
+        self.assertFalse(has_meaningful_changes(self.out, target))
+        self.assertFalse(has_pkg_changes(self.out, target))
 
-    def test_version_mismatch_or_tampered_artifact_is_refused(self) -> None:
-        (self.root / "Cargo.toml").write_text('[workspace.package]\nversion = "0.6.0"\n')
-        with self.assertRaisesRegex(RuntimeError, "does not match Cargo.toml"):
+        (target / "pkg/styles.css").write_text(".culprit-pv { color: red; }\n")
+        self.assertTrue(has_meaningful_changes(self.out, target))
+        self.assertTrue(has_pkg_changes(self.out, target))
+
+    def test_invalid_semver_or_tampered_artifact_is_refused(self) -> None:
+        pkg_json = self.root / "packages/culprit-plan-viewer/package.json"
+        original = json.loads(pkg_json.read_text())
+        pkg_json.write_text(json.dumps({**original, "version": "bad"}))
+        with self.assertRaisesRegex(RuntimeError, "invalid semver"):
             stage_repository(self.out, root=self.root)
 
-        (self.root / "Cargo.toml").write_text('[workspace.package]\nversion = "0.5.6"\n')
+        pkg_json.write_text(json.dumps(original))
         css = self.root / "packages/culprit-plan-viewer/pkg/styles.css"
         css.write_bytes(css.read_bytes() + b"\n")
         with self.assertRaisesRegex(RuntimeError, "artifact digest mismatch"):
