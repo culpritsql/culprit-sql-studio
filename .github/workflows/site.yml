@@ -15,6 +15,8 @@ on:
       - "fixtures/checks.sample.json"
       - ".github/workflows/site.yml"
   workflow_dispatch:
+  repository_dispatch:
+    types: [blog-updated]
 
 permissions:
   contents: read
@@ -30,7 +32,21 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: culpritsql/culprit-blog
+          path: _blog_src
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@735343b667d3e6f658f44d0eca948eb6282f2b76 # v2.0.2
+      - name: Build blog
+        working-directory: _blog_src
+        run: |
+          bun install --frozen-lockfile
+          bun test
+          bun run build
       - name: Assemble the site
+        env:
+          BLOG_DIST: _blog_src/dist
         run: bash dev/site.sh
       - uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
       - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0

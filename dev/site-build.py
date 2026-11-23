@@ -11,6 +11,7 @@ import html
 import json
 from pathlib import Path
 import re
+import sys
 import tomllib
 from urllib.parse import unquote, urlsplit, urlunsplit
 
@@ -133,5 +134,40 @@ def build(root: Path) -> None:
     path.write_text(path.read_text().replace("__CHECK_COUNT__", str(checks)))
 
 
+def merge_blog(root: Path) -> None:
+    """Append built blog routes from _site/blog/posts.json into sitemap.xml and llms.txt."""
+    site = root / "_site"
+    manifest_path = site / "blog/posts.json"
+    if not manifest_path.exists():
+        return
+    posts = json.loads(manifest_path.read_text())
+    if not posts:
+        return
+
+    sitemap_path = site / "sitemap.xml"
+    if sitemap_path.exists():
+        latest = max((p["pubDate"] for p in posts), default="2026-11-23")
+        entries = [f"  <url><loc>https://culpritsql.com/blog/</loc><lastmod>{html.escape(latest)}</lastmod></url>"]
+        for p in posts:
+            entries.append(
+                f"  <url><loc>{html.escape(p['url'])}</loc><lastmod>{html.escape(p['pubDate'])}</lastmod></url>"
+            )
+        sitemap_text = sitemap_path.read_text()
+        sitemap_path.write_text(sitemap_text.replace("</urlset>", "\n".join(entries) + "\n</urlset>"))
+
+    llms_path = site / "llms.txt"
+    if llms_path.exists():
+        llms_text = llms_path.read_text()
+        if "## Blog" not in llms_text:
+            lines = ["\n## Blog\n"]
+            for p in posts:
+                lines.append(f"- [{p['title']}]({p['markdownUrl']}): {p['description']}")
+            llms_path.write_text(llms_text.rstrip() + "\n" + "\n".join(lines) + "\n")
+
+
 if __name__ == "__main__":
-    build(Path(__file__).resolve().parent.parent)
+    repo_root = Path(__file__).resolve().parent.parent
+    if "--merge-blog" in sys.argv[1:]:
+        merge_blog(repo_root)
+    else:
+        build(repo_root)
