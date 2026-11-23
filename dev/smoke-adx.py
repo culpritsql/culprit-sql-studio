@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """Functional Kusto correctness on an owned x86 Linux emulator. No credentials, cloud access or benchmarks."""
+import hashlib
 import json
 import platform
 import subprocess
 import time
 import urllib.error
 import urllib.request
-from telemetry_fixture import command, test_binary, run_test
+from telemetry_fixture import ROOT, command, test_binary, run_test
 
 IMAGE = "mcr.microsoft.com/azuredataexplorer/kustainer-linux@sha256:983a27314b6dfa91a950bdf8fb4c6c2b8ce0d61fecf7decbcf370b3fdbfaa3a7"
 TEST = "emulator::functional_contract_and_canonical_sets"
@@ -36,6 +37,8 @@ def main():
     # Refuse before compilation, image downloads or container creation. ARM emulation cannot establish this gate.
     if platform.system() != "Linux" or platform.machine().lower() not in ("x86_64", "amd64"):
         raise RuntimeError("Kusto correctness requires an x86 Linux runner; ARM is not supported")
+    template = ROOT / "crates/telemetry/culprit-store-adx/src/kql/friendly.kql"
+    template_digest = hashlib.sha256(template.read_bytes()).hexdigest()
     binary = test_binary("culprit-store-adx")
     container = command(["docker", "run", "--detach", "--rm", "--platform", "linux/amd64",
                          "--label", OWNER_LABEL, "--memory", "4g", "--cpus", "2",
@@ -47,7 +50,8 @@ def main():
             raise RuntimeError("The owned emulator must bind loopback only")
         port = int(mapping.rsplit(":", 1)[1])
         wait_for_engine(port)
-        run_test(binary, TEST, {"CULPRIT_TEST_KUSTO_PORT": str(port)})
+        run_test(binary, TEST, {"CULPRIT_TEST_KUSTO_PORT": str(port),
+                                "CULPRIT_TEST_KUSTO_FRIENDLY_SHA256": template_digest})
     except Exception:
         command(["docker", "logs", container], timeout=10)
         raise

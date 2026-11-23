@@ -26,7 +26,7 @@ struct Emulator {
     port: u16,
 }
 impl Emulator {
-    fn management(&self, database: bool, text: &str) {
+    fn management(&self, database: bool, text: &str) -> Value {
         let mut body = json!({"csl":text});
         if database {
             body["db"] = json!("CulpritFixture");
@@ -51,6 +51,7 @@ impl Emulator {
             .expect("complete emulator management reply");
         let reply: Value = serde_json::from_slice(&bytes).expect("emulator management JSON");
         assert!(reply.get("error").is_none() && reply.get("Exceptions").is_none(), "{reply}");
+        reply
     }
     fn ingest(&self, table: &str, bytes: &[u8]) {
         let text = std::str::from_utf8(bytes).unwrap();

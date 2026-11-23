@@ -1,3 +1,4 @@
+mod deployment;
 use super::*;
 use culprit_evidence::analytical::query_helpers::{QueryHelperBinding, QueryHelperPolicy};
 use culprit_evidence::analytical::test_support;
@@ -42,6 +43,7 @@ async fn assert_first_unavailable(emulator: &Emulator, label: &str, asof: &str) 
     assert_eq!(state, vec![vec![json!("first-observation-unavailable"), json!(1)]]);
 }
 pub(super) async fn run(emulator: &Arc<Emulator>, catalog: &SchemaCatalog) {
+    deployment::assert_compiled_template();
     let (source, output) = test_support::derived_diagnosis_output(false, false);
     assert_eq!(output.incidents[0].entry.revision, "1");
     assert_eq!(output.incidents[0].entry.lifecycle, DiagnosticLifecycle::Active);
@@ -56,16 +58,17 @@ pub(super) async fn run(emulator: &Arc<Emulator>, catalog: &SchemaCatalog) {
         emulator.clone(),
     )
     .await;
-    for command in crate::query_assets::configured(binding(
+    let commands = crate::query_assets::configured(binding(
         &first.range,
         output.description.analyzer.clone(),
         output.description.rules_version.clone(),
     ))
     .unwrap()
-    .commands
-    {
-        emulator.management(true, &command);
+    .commands;
+    for command in &commands {
+        emulator.management(true, command);
     }
+    deployment::assert_stored_bodies(emulator, &commands);
     first.dispatch(emulator).await;
     let contract = serde_json::to_string(&first.range.manifest().contract.id().unwrap()).unwrap();
     let store = serde_json::to_string(first.range.store_id()).unwrap();
@@ -86,6 +89,28 @@ pub(super) async fn run(emulator: &Arc<Emulator>, catalog: &SchemaCatalog) {
             "{stage} cannot promote an unpublished incident"
         );
     }
+    let selection = emulator
+        .values(
+            format!("FriendlySmokeResourceSelection({label},now()) | project MatchCount,ResourceId"),
+            BTreeMap::new(),
+            vec![
+                Column { column_name: "MatchCount".into(), column_type: "long".into() },
+                Column { column_name: "ResourceId".into(), column_type: "string".into() },
+            ],
+        )
+        .await;
+    assert_eq!(selection, vec![vec![json!(0), json!("")]], "an unpublished alias cannot select a resource");
+    let unpublished_window = format!("datetime({from}),datetime({until}),now()");
+    assert_eq!(
+        count(emulator, &format!("FriendlySmokeIncidentWindow({unpublished_window})")).await,
+        0,
+        "window projection cannot expose an unpublished head"
+    );
+    assert_eq!(
+        count(emulator, &format!("FriendlySmokeIncidents({label},{unpublished_window})")).await,
+        0,
+        "resource selection composed with window projection cannot expose unpublished rows"
+    );
     assert_eq!(
         count(emulator, &format!("FriendlySmokeIncidentsDuring({label},datetime({from}),datetime({until}))")).await,
         0,
