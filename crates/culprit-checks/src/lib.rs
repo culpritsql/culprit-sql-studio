@@ -142,6 +142,8 @@ pub use views::output_grant_retention;
 pub use views::provider_acquisition;
 pub use views::transaction_metadata;
 
+pub use views::readable_secondary_recovery;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -168,5 +170,3 @@ mod tests {
         }
     }
 }
-
-pub use views::readable_secondary_recovery;

@@ -379,6 +379,11 @@ fn parse_utc_instant(value: &str) -> Result<chrono::DateTime<chrono::Utc>> {
         .map_err(|_| crate::Error::invalid(crate::t!("collection.invalid_source")))
 }
 
+/// Preserve PostgreSQL's existing local database/process token. It grants no member or source authority.
+pub fn postgres_activity_epoch(database_oid: &str, started_at: &str, version: u32) -> String {
+    digest(format!("{database_oid}|{started_at}|{version}|pg-activity-v1").as_bytes())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -642,9 +647,4 @@ mod tests {
                 .is_none()
         );
     }
-}
-
-/// Preserve PostgreSQL's existing local database/process token. It grants no member or source authority.
-pub fn postgres_activity_epoch(database_oid: &str, started_at: &str, version: u32) -> String {
-    digest(format!("{database_oid}|{started_at}|{version}|pg-activity-v1").as_bytes())
 }

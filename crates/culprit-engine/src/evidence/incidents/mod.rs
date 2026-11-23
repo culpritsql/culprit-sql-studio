@@ -271,15 +271,14 @@ impl<'a> Assembly<'a> {
         {
             return Err(invalid());
         }
-        if let Some(metadata) = self.metadata.remove(range) {
-            if metadata.capture() != capture.capture()
+        if let Some(metadata) = self.metadata.remove(range)
+            && (metadata.capture() != capture.capture()
                 || metadata.capture_manifest_sha256() != capture.capture_manifest_sha256()
                 || metadata.source() != capture.source()
                 || metadata.collected_from() != capture.collected_from()
-                || metadata.collected_until() != capture.collected_until()
-            {
-                return Err(invalid());
-            }
+                || metadata.collected_until() != capture.collected_until())
+        {
+            return Err(invalid());
         }
         let capture = Arc::new(capture);
         self.captures.insert(range.into(), capture.clone());

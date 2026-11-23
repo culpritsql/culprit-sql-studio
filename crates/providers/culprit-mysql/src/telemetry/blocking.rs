@@ -280,8 +280,15 @@ async fn observe<R: QueryRead>(
     ordered(&root.at, &first.at)?;
     ordered(&first.at, &end.at)?;
     let request_end = participants::request_state(&end, focus);
-    let (frame, status) =
-        edges::correlate(root, first, &end, before, after, selection.limited, focus, budget.max_snapshot_rows)?;
+    let (frame, status) = edges::correlate(
+        root,
+        first,
+        &end,
+        edges::RosterPair { before, after },
+        selection.limited,
+        focus,
+        budget.max_snapshot_rows,
+    )?;
     Ok(Observation {
         frame,
         status,

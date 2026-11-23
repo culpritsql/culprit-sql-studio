@@ -113,7 +113,7 @@ impl Anchor {
 enum AnchorSelection {
     NotRequired,
     Unavailable(SynthesisContextIssue),
-    Ready(Anchor),
+    Ready(Box<Anchor>),
 }
 fn activity_purpose(source: &CollectionDescription, row: &TelemetryRecord) -> Option<Purpose> {
     let TelemetryRecord::Activity(actor) = row else { return None };
@@ -140,12 +140,12 @@ fn anchor(capture: &SynthesisCapture) -> Result<AnchorSelection> {
             return Ok(AnchorSelection::Unavailable(SynthesisContextIssue::UnqualifiedPointScope));
         };
         let at = instant(&context.observed_from).ok_or_else(integrity)?;
-        return Ok(AnchorSelection::Ready(Anchor {
+        return Ok(AnchorSelection::Ready(Box::new(Anchor {
             context,
             at,
             purpose: Purpose::TransactionMetadata,
             capture: capture.original().clone(),
-        }));
+        })));
     }
     let purpose = capture
         .records()
@@ -158,12 +158,12 @@ fn anchor(capture: &SynthesisCapture) -> Result<AnchorSelection> {
         return Ok(AnchorSelection::Unavailable(SynthesisContextIssue::UnknownPointClock));
     }
     let context = NativeReadContext::from_activity(capture.source())?;
-    Ok(AnchorSelection::Ready(Anchor {
+    Ok(AnchorSelection::Ready(Box::new(Anchor {
         context,
         at: instant(&header.at).ok_or_else(integrity)?,
         purpose,
         capture: capture.original().clone(),
-    }))
+    })))
 }
 
 pub(super) struct PointSelection {

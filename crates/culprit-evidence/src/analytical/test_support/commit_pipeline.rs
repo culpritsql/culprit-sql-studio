@@ -144,18 +144,17 @@ pub fn commit_pipeline_fixture(case: CommitPipelineCase) -> CommitPipelineFixtur
     mutate_after(&mut files_after, case);
     if matches!(case, CommitPipelineCase::FileReplaced | CommitPipelineCase::DuplicateFile) {
         for row in &mut files_after.records {
-            if let TelemetryRecord::Operational(point) = row {
-                if let OperationalFact::MssqlDatabaseFile(file) = &mut point.fact {
-                    if file.kind == FileKind::Log {
-                        if case == CommitPipelineCase::FileReplaced {
-                            file.file_id = "2001".into();
-                            file.file_guid = Some("new-native-file-generation".into());
-                        } else {
-                            file.file_id = "1".into();
-                        }
-                        point.key = file.key().unwrap();
-                    }
+            if let TelemetryRecord::Operational(point) = row
+                && let OperationalFact::MssqlDatabaseFile(file) = &mut point.fact
+                && file.kind == FileKind::Log
+            {
+                if case == CommitPipelineCase::FileReplaced {
+                    file.file_id = "2001".into();
+                    file.file_guid = Some("new-native-file-generation".into());
+                } else {
+                    file.file_id = "1".into();
                 }
+                point.key = file.key().unwrap();
             }
         }
     }

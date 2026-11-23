@@ -6,6 +6,11 @@ pub(super) struct Roster {
     edges: Vec<Edge>,
     limited: bool,
 }
+/// Paired selected native edge rosters retain their original acquisition order.
+pub(super) struct RosterPair {
+    pub before: Roster,
+    pub after: Roster,
+}
 pub(super) struct Participants {
     pub ids: Vec<u64>,
     pub limited: bool,
@@ -52,12 +57,12 @@ pub(super) fn correlate(
     root: participants::Frame,
     mut first: participants::Frame,
     end: &participants::Frame,
-    before: Roster,
-    after: Roster,
+    rosters: RosterPair,
     participant_limit: bool,
     focus: &ActivityRequestFocus,
     cap: u32,
 ) -> Result<(participants::Frame, BlockingClosureStatus)> {
+    let RosterPair { before, after } = rosters;
     if participants::request_state(&first, focus) != BlockingRequestState::SameStatement
         || participants::request_state(end, focus) != BlockingRequestState::SameStatement
     {

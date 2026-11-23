@@ -107,10 +107,10 @@ impl<R: NativeRead> ActivityReader<R> {
         if let Some(focus) = focus {
             super::participants::matches_owner(focus, &initial)?;
         }
-        if let Some(expected) = expected {
-            if !expected.matches_context(&initial.completed(&initial)?) {
-                return Err(CollectionStop::SourceChanged.error());
-            }
+        if let Some(expected) = expected
+            && !expected.matches_context(&initial.completed(&initial)?)
+        {
+            return Err(CollectionStop::SourceChanged.error());
         }
         let layout = fields::Layout::read(&mut self.io, &initial).await?;
         let limit = (self.options.budget.max_snapshot_rows as usize).min(MAX_REQUEST_MEMORY_OBSERVATIONS);

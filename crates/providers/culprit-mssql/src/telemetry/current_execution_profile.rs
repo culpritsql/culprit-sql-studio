@@ -21,7 +21,6 @@ pub(super) fn bounded_budget(caller: &CollectionBudget) -> CollectionBudget {
         max_queries: 15 + ReadSession::SESSION_SETUP_QUERIES,
         statement_timeout_ms: 1000,
         total_timeout_ms: 5000,
-        ..CollectionBudget::default()
     })
 }
 pub(super) struct CurrentExecutionProfileSource<R: NativeRead = ReadSession> {

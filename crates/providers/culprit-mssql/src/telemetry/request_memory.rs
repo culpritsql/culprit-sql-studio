@@ -37,13 +37,12 @@ impl<R: NativeRead> MemorySource<R> {
         ) {
             return Err(crate::read::invalid_data());
         }
-        if let CollectionSelection::SourceRead { focus, execution } = &request.selection {
-            if focus.output_request().is_none()
+        if let CollectionSelection::SourceRead { focus, execution } = &request.selection
+            && (focus.output_request().is_none()
                 || !execution.accepts_question(SourceReadQuestion::OutputGrantRetention)
-                || !execution.matches_target(&focus.target)
-            {
-                return Err(crate::read::invalid_data());
-            }
+                || !execution.matches_target(&focus.target))
+        {
+            return Err(crate::read::invalid_data());
         }
         Ok(Self { inner: culprit_read::FrozenSource::new(MemoryObservationReader { reader, context: None }, request)? })
     }

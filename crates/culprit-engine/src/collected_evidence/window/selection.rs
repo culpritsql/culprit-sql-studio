@@ -2,6 +2,9 @@
 use super::*;
 use std::collections::BTreeSet;
 
+type DefinitionKey = (u8, String);
+type EncodedDefinition = (DefinitionKey, Vec<u8>);
+
 pub(super) fn qualified(original: &dyn OriginalProjection) -> bool {
     original.source().is_partition_qualified()
         && (original.source().target.database().is_some_and(|database| database.incarnation.is_some())
@@ -168,7 +171,7 @@ pub(super) fn chains<'a>(
     }
     Ok(chains)
 }
-fn definition_conflict(original: &dyn OriginalProjection, known: &BTreeMap<(u8, String), Vec<u8>>) -> Result<bool> {
+fn definition_conflict(original: &dyn OriginalProjection, known: &BTreeMap<DefinitionKey, Vec<u8>>) -> Result<bool> {
     for (key, value) in definition_values(original)? {
         if known.get(&key).is_some_and(|previous| previous != &value) {
             return Ok(true);
@@ -176,11 +179,11 @@ fn definition_conflict(original: &dyn OriginalProjection, known: &BTreeMap<(u8, 
     }
     Ok(false)
 }
-fn remember_definitions(original: &dyn OriginalProjection, known: &mut BTreeMap<(u8, String), Vec<u8>>) -> Result<()> {
+fn remember_definitions(original: &dyn OriginalProjection, known: &mut BTreeMap<DefinitionKey, Vec<u8>>) -> Result<()> {
     known.extend(definition_values(original)?);
     Ok(())
 }
-fn definition_values(original: &dyn OriginalProjection) -> Result<Vec<((u8, String), Vec<u8>)>> {
+fn definition_values(original: &dyn OriginalProjection) -> Result<Vec<EncodedDefinition>> {
     original
         .records()
         .iter()

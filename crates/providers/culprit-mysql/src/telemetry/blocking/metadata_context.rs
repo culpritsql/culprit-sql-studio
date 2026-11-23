@@ -59,8 +59,15 @@ pub(super) async fn observe<R: QueryRead>(
     ordered(&last_tickets.at, &end.at)?;
     let point = point(meta, focus, &first, &end, &first_tickets, &last_tickets, selected.limited)?;
     let request_end = participants::request_state(&end, focus);
-    let (mut frame, status) =
-        edges::correlate(root, first.clone(), &end, before, after, selected.limited, focus, budget.max_snapshot_rows)?;
+    let (mut frame, status) = edges::correlate(
+        root,
+        first.clone(),
+        &end,
+        edges::RosterPair { before, after },
+        selected.limited,
+        focus,
+        budget.max_snapshot_rows,
+    )?;
     for row in &mut frame.rows {
         if row.key != focus.original.key
             && let Some(current) = first.rows.iter().find(|current| current.key == row.key)
