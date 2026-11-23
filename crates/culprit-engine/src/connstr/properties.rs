@@ -30,15 +30,11 @@ pub(super) fn parse(mut input: &str, grammar: Grammar) -> Result<Vec<(&str, Stri
             return Err(invalid());
         }
         let input_value = rest.trim_start();
-        let quoted = input_value.starts_with('\'') || matches!(grammar, Grammar::Ado) && input_value.starts_with('"');
         let (value, rest) = value(input_value, grammar)?;
-        if !quoted
-            && !matches!(key.to_ascii_lowercase().as_str(), "password" | "pwd")
-            && contains_following_assignment(&value)
-        {
+        if !matches!(key.to_ascii_lowercase().as_str(), "password" | "pwd") && value.contains_following_assignment() {
             return Err(invalid());
         }
-        properties.push((key, value));
+        properties.push((key, value.text));
         input = separator(rest, grammar)?;
     }
 }
@@ -52,13 +48,44 @@ fn valid_key(key: &str, grammar: Grammar) -> bool {
         })
 }
 
-fn contains_following_assignment(value: &str) -> bool {
-    value.match_indices('=').any(|(offset, _)| {
-        let before = value[..offset].trim_end();
-        before
-            .rsplit_once(|character: char| character.is_whitespace() || character == ';')
-            .is_some_and(|(_, key)| valid_key(key, Grammar::Libpq))
-    })
+/// Only characters actually read as syntax can introduce another property. Quotes and escapes own literals.
+#[derive(Default)]
+struct DecodedValue {
+    text: String,
+    syntax: Vec<(usize, char)>,
+}
+impl DecodedValue {
+    fn push_literal(&mut self, character: char) {
+        self.text.push(character);
+    }
+    fn push_unescaped(&mut self, character: char) {
+        if character == '=' || character == ';' || character.is_whitespace() {
+            self.syntax.push((self.text.len(), character));
+        }
+        self.text.push(character);
+    }
+    fn contains_following_assignment(&self) -> bool {
+        self.syntax.iter().enumerate().any(|(index, &(offset, character))| {
+            if character != '=' {
+                return false;
+            }
+            let prefix = &self.syntax[..index];
+            let mut end = offset;
+            for &(offset, character) in prefix.iter().rev() {
+                if character.is_whitespace() && offset + character.len_utf8() == end {
+                    end = offset;
+                } else {
+                    break;
+                }
+            }
+            prefix
+                .iter()
+                .rfind(|&&(offset, character)| offset < end && (character.is_whitespace() || character == ';'))
+                .is_some_and(|&(offset, character)| {
+                    valid_key(&self.text[offset + character.len_utf8()..end], Grammar::Libpq)
+                })
+        })
+    }
 }
 
 fn separator(input: &str, grammar: Grammar) -> Result<&str> {
@@ -75,7 +102,7 @@ fn separator(input: &str, grammar: Grammar) -> Result<&str> {
     }
 }
 
-fn value(input: &str, grammar: Grammar) -> Result<(String, &str)> {
+fn value(input: &str, grammar: Grammar) -> Result<(DecodedValue, &str)> {
     if let Some(quote) = input.chars().next()
         && (quote == '\'' || quote == '"' && matches!(grammar, Grammar::Ado))
     {
@@ -83,29 +110,37 @@ fn value(input: &str, grammar: Grammar) -> Result<(String, &str)> {
     }
     if matches!(grammar, Grammar::Ado) {
         let end = input.find(';').unwrap_or(input.len());
-        return Ok((input[..end].trim_end().to_owned(), &input[end..]));
+        let mut value = DecodedValue::default();
+        for character in input[..end].trim_end().chars() {
+            value.push_unescaped(character);
+        }
+        return Ok((value, &input[end..]));
     }
     let mut rest = input;
-    let mut value = String::new();
+    let mut value = DecodedValue::default();
     while rest.chars().next().is_some_and(|character| !character.is_whitespace()) {
         let character = take(&mut rest).ok_or_else(invalid)?;
-        value.push(if character == '\\' { take(&mut rest).ok_or_else(invalid)? } else { character });
+        if character == '\\' {
+            value.push_literal(take(&mut rest).ok_or_else(invalid)?);
+        } else {
+            value.push_unescaped(character);
+        }
     }
     Ok((value, rest))
 }
 
-fn quoted(mut input: &str, quote: char, grammar: Grammar) -> Result<(String, &str)> {
-    let mut value = String::new();
+fn quoted(mut input: &str, quote: char, grammar: Grammar) -> Result<(DecodedValue, &str)> {
+    let mut value = DecodedValue::default();
     while let Some(character) = take(&mut input) {
         if character == quote {
             if matches!(grammar, Grammar::Ado) && input.starts_with(quote) {
                 let _ = take(&mut input);
-                value.push(quote);
+                value.push_literal(quote);
                 continue;
             }
             return Ok((value, input));
         }
-        value.push(if character == '\\' && matches!(grammar, Grammar::Libpq) {
+        value.push_literal(if character == '\\' && matches!(grammar, Grammar::Libpq) {
             take(&mut input).ok_or_else(invalid)?
         } else {
             character

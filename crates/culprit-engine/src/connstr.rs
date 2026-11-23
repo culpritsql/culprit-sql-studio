@@ -486,6 +486,24 @@ mod tests {
     }
 
     #[test]
+    fn escaped_libpq_public_values_retain_literal_ownership_without_authorizing_later_raw_assignments() {
+        for (value, expected) in [
+            (r"my\ data\=store", "my data=store"),
+            (r"my\ data=store", "my data=store"),
+            ("'my data=store'", "my data=store"),
+            (r"my\;data=store", "my;data=store"),
+            ("'my;data=store'", "my;data=store"),
+        ] {
+            let input = format!("host=db dbname={value} user=app password=credential_owned_42");
+            let spec = parse(&input).unwrap();
+            assert_eq!(spec.database.as_deref(), Some(expected));
+            assert_eq!(spec.host, "db");
+            assert_eq!(spec.user.as_deref(), Some("app"));
+            assert_property_credentials(&input, "credential_owned_42");
+        }
+    }
+
+    #[test]
     fn malformed_mixed_or_unclosed_properties_refuse_before_any_raw_fragment_can_be_displayed() {
         for input in [
             "Host=db.example user=app password=credential_owned_42;tail",
@@ -495,6 +513,9 @@ mod tests {
             "Server=db.example Password=credential_owned_42",
             "Server=db.example;Database=shop password = credential_owned_42",
             "host=db.example user=app;password=credential_owned_42",
+            r"host=db.example user=a\pp;password=credential_owned_42",
+            r"host=db.example user=app\x;password=credential_owned_42",
+            r"host=db.example dbname=my\ data;password=credential_owned_42",
             "Password=credential_owned_42;host=db.example dbname=shop",
             "host=db.example password=credential_owned_42\\",
             "Server=db.example;Password='credential_owned_42''unterminated",
