@@ -4002,6 +4002,8 @@
   "engine.connection.yugabyte_not_rds": "YugabyteDB is not an Amazon RDS engine",
   "engine.connstr.bad_port": "'{port}' is not a valid port",
   "engine.connstr.empty": "Paste a connection string or a host name",
+  "engine.connstr.invalid_properties": "Use a complete connection string with matching quotes and separators.",
+  "engine.connstr.invalid_url": "Use a complete database URL with a supported scheme.",
   "engine.connstr.no_host": "The connection string has no host",
   "engine.connstr.sqlite_path": "A SQLite connection needs the database file's path",
   "engine.connstr.unclosed_ipv6": "Unclosed IPv6 address",

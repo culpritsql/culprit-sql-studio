@@ -2,73 +2,105 @@
 
 use culprit_core::{AuthKind, ConnectionSpec, Engine, Error, Result, t};
 
+mod properties;
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ConnectionSyntax {
+    Explicit,
+    ServerProperties,
+    Inferred,
+}
+
+struct ParsedInput {
+    syntax: ConnectionSyntax,
+    spec: Result<ConnectionSpec>,
+}
+
 pub fn parse(input: &str) -> Result<ConnectionSpec> {
-    read(input).map(|(spec, _)| spec)
+    read(input).spec
 }
 
 /// What a person pasted after picking the engine: the text's own word wins (a URL's scheme, libpq's key=value pairs, a
 /// SQLite file's name), and the pick settles what the text leaves open: a bare host or an unknown port, an ADO.NET
 /// string (SqlClient, Npgsql and MySqlConnector all read one), a path whatever its name.
 pub fn parse_as(input: &str, picked: Option<Engine>) -> Result<ConnectionSpec> {
-    match (picked, read(input)) {
-        (None, text) => text.map(|(spec, _)| spec),
-        (Some(Engine::Yugabyte), Ok((spec, _))) if spec.engine == Some(Engine::Postgres) => {
+    let ParsedInput { syntax, spec } = read(input);
+    match (picked, spec) {
+        (None, text) => text,
+        (Some(Engine::Yugabyte), Ok(spec)) if spec.engine == Some(Engine::Postgres) => {
             Ok(ConnectionSpec { engine: Some(Engine::Yugabyte), ..spec })
         }
-        (Some(_), Ok((spec, true))) => Ok(spec),
+        (Some(_), text) if syntax == ConnectionSyntax::Explicit => text,
+        (Some(Engine::Sqlite), text) if syntax == ConnectionSyntax::ServerProperties => text,
         (Some(Engine::Sqlite), _) => parse_sqlite(input),
-        (Some(engine), text) => text.map(|(spec, _)| ConnectionSpec { engine: Some(engine), ..spec }),
+        (Some(engine), text) => text.map(|spec| ConnectionSpec { engine: Some(engine), ..spec }),
     }
 }
 
-/// The spec, and whether the text named its engine rather than leaving it to a guess from the host or the port (or to
-/// SQL Server, for an ADO.NET string).
-fn read(input: &str) -> Result<(ConnectionSpec, bool)> {
+/// Keep syntax authority even when parsing fails: a named connection or server-property string must never
+/// become a literal file path merely because a different engine was selected.
+fn read(input: &str) -> ParsedInput {
     let input = input.trim();
     if input.is_empty() {
-        return Err(Error::invalid(t!("engine.connstr.empty")));
+        return ParsedInput {
+            syntax: ConnectionSyntax::Inferred,
+            spec: Err(Error::invalid(t!("engine.connstr.empty"))),
+        };
     }
     let lower = input.to_ascii_lowercase();
-    let named = |spec: Result<ConnectionSpec>| spec.map(|s| (s, true));
-    if let Some(rest) = strip_any(&lower, input, &["jdbc:sqlite:", "sqlite://", "sqlite:"]) {
-        return named(sqlite(rest.strip_prefix("file:").unwrap_or(rest)));
+    let explicit = |spec| ParsedInput { syntax: ConnectionSyntax::Explicit, spec };
+    if let Some(rest) = strip_any(&lower, input, &["jdbc:sqlite:", "sqlite://", "sqlite:", "file:"]) {
+        return explicit(sqlite(rest.strip_prefix("file:").unwrap_or(rest)));
     }
-    if is_sqlite_path(&lower) {
-        return named(sqlite(input));
+    if is_anchored_path(&lower) {
+        return if has_sqlite_extension(&lower) {
+            explicit(sqlite(input))
+        } else {
+            ParsedInput { syntax: ConnectionSyntax::Inferred, spec: parse_bare(input) }
+        };
     }
-    if let Some(rest) = strip_any(&lower, input, &["jdbc:sqlserver://"]) {
-        return named(parse_jdbc_sqlserver(rest));
+    if let Some(parsed) = read_server_url(input, &lower) {
+        return explicit(parsed);
     }
-    if let Some(rest) = strip_any(&lower, input, &["yugabyte://", "ysql://", "jdbc:yugabytedb://"]) {
-        return named(parse_url(Engine::Yugabyte, rest));
-    }
-    if let Some(rest) = strip_any(&lower, input, &["jdbc:postgresql://"]) {
-        return named(parse_url(Engine::Postgres, rest));
-    }
-    if let Some(rest) = strip_any(&lower, input, &["postgres://", "postgresql://"]) {
-        return named(parse_url(Engine::Postgres, rest));
-    }
-    if let Some(rest) = strip_any(&lower, input, &["mssql://", "sqlserver://"]) {
-        return named(parse_url(Engine::Mssql, rest));
-    }
-    if let Some(rest) = strip_any(&lower, input, &["mysql://", "mariadb://", "jdbc:mysql://", "jdbc:mariadb://"]) {
-        return named(parse_url(Engine::Mysql, rest));
-    }
-    if input.contains(';') && input.contains('=') {
-        return parse_ado(input).map(|s| (s, false));
+    if input.contains("://") {
+        return explicit(Err(Error::invalid(t!("engine.connstr.invalid_url"))));
     }
     if input.contains('=') {
-        return named(parse_libpq(input));
+        return read_properties(input);
     }
-    parse_bare(input).map(|s| (s, false))
+    if has_sqlite_extension(&lower) {
+        return explicit(sqlite(input));
+    }
+    ParsedInput { syntax: ConnectionSyntax::Inferred, spec: parse_bare(input) }
+}
+
+fn read_properties(input: &str) -> ParsedInput {
+    if let Ok(spec) = parse_libpq(input) {
+        return ParsedInput { syntax: ConnectionSyntax::Explicit, spec: Ok(spec) };
+    }
+    if let Ok(spec) = parse_ado(input) {
+        return ParsedInput { syntax: ConnectionSyntax::ServerProperties, spec: Ok(spec) };
+    }
+    ParsedInput { syntax: ConnectionSyntax::Explicit, spec: Err(properties::invalid()) }
 }
 
 /// A path as a SQLite file whatever its name (`db/production`), when the person said the engine is SQLite.
 pub fn parse_sqlite(input: &str) -> Result<ConnectionSpec> {
     let input = input.trim();
-    let lower = input.to_ascii_lowercase();
-    let path = strip_any(&lower, input, &["jdbc:sqlite:", "sqlite://", "sqlite:"]).unwrap_or(input);
-    sqlite(path.strip_prefix("file:").unwrap_or(path))
+    if let Some(path) = input.strip_prefix("file:") {
+        return sqlite(path);
+    }
+    if is_anchored_path(&input.to_ascii_lowercase()) {
+        return sqlite(input);
+    }
+    let ParsedInput { syntax, spec } = read(input);
+    if syntax != ConnectionSyntax::Inferred {
+        return match spec {
+            Ok(spec) if spec.engine == Some(Engine::Sqlite) => Ok(spec),
+            _ => Err(Error::invalid(t!("engine.connstr.sqlite_path"))),
+        };
+    }
+    sqlite(input)
 }
 
 /// A SQLite file: `sqlite:///abs/app.db`, `sqlite:app.db`, or a path ending in `.db`, `.sqlite` or `.sqlite3`. No host,
@@ -86,13 +118,52 @@ fn sqlite(path: &str) -> Result<ConnectionSpec> {
     })
 }
 
-fn is_sqlite_path(lower: &str) -> bool {
-    let looks_like_path = lower.starts_with('/')
+fn is_anchored_path(lower: &str) -> bool {
+    lower.starts_with('/')
         || lower.starts_with("./")
         || lower.starts_with("../")
         || lower.starts_with("~/")
-        || !lower.contains("://");
-    looks_like_path && [".db", ".sqlite", ".sqlite3", ".db3"].iter().any(|ext| lower.ends_with(ext))
+        || lower.starts_with("\\\\")
+        || matches!(lower.as_bytes(), [drive, b':', b'/' | b'\\', ..] if drive.is_ascii_alphabetic())
+}
+
+fn has_sqlite_extension(lower: &str) -> bool {
+    [".db", ".sqlite", ".sqlite3", ".db3"].iter().any(|extension| lower.ends_with(extension))
+}
+
+#[derive(Clone, Copy)]
+enum ServerUrlGrammar {
+    Authority(Engine),
+    SqlServerJdbc,
+}
+
+fn read_server_url(input: &str, lower: &str) -> Option<Result<ConnectionSpec>> {
+    use ServerUrlGrammar::{Authority, SqlServerJdbc};
+    const SCHEMES: &[(&str, ServerUrlGrammar)] = &[
+        ("jdbc:sqlserver:", SqlServerJdbc),
+        ("yugabyte:", Authority(Engine::Yugabyte)),
+        ("ysql:", Authority(Engine::Yugabyte)),
+        ("jdbc:yugabytedb:", Authority(Engine::Yugabyte)),
+        ("postgres:", Authority(Engine::Postgres)),
+        ("postgresql:", Authority(Engine::Postgres)),
+        ("jdbc:postgresql:", Authority(Engine::Postgres)),
+        ("mssql:", Authority(Engine::Mssql)),
+        ("sqlserver:", Authority(Engine::Mssql)),
+        ("mysql:", Authority(Engine::Mysql)),
+        ("mariadb:", Authority(Engine::Mysql)),
+        ("jdbc:mysql:", Authority(Engine::Mysql)),
+        ("jdbc:mariadb:", Authority(Engine::Mysql)),
+    ];
+    let (prefix, grammar) = SCHEMES.iter().find(|(prefix, _)| lower.starts_with(prefix))?;
+    let Some(rest) = input[prefix.len()..].strip_prefix("//") else {
+        return Some(Err(Error::invalid(t!("engine.connstr.invalid_url"))));
+    };
+    let parsed = match grammar {
+        Authority(engine) => parse_url(*engine, rest),
+        SqlServerJdbc => parse_jdbc_sqlserver(rest),
+    };
+    // A malformed authority can put userinfo where a port was expected. Never echo that token in an error.
+    Some(parsed.map_err(|_| Error::invalid(t!("engine.connstr.invalid_url"))))
 }
 
 fn strip_any<'a>(lower: &str, input: &'a str, prefixes: &[&str]) -> Option<&'a str> {
@@ -152,13 +223,8 @@ fn parse_url(engine: Engine, rest: &str) -> Result<ConnectionSpec> {
 fn parse_ado(input: &str) -> Result<ConnectionSpec> {
     let mut spec = ConnectionSpec { engine: Some(Engine::Mssql), ..Default::default() };
     let mut looks_postgres = false;
-    for segment in input.split(';') {
-        let Some((k, v)) = segment.split_once('=') else {
-            continue;
-        };
-        let key = k.trim().to_ascii_lowercase();
-        let value = v.trim().trim_matches('"').trim_matches('\'').to_string();
-        match key.as_str() {
+    for (key, value) in properties::parse(input, properties::Grammar::Ado)? {
+        match key.to_ascii_lowercase().as_str() {
             "server" | "data source" | "address" | "addr" | "network address" => {
                 let raw = value.trim_start_matches("tcp:");
                 let (host, port) = split_host_port(raw, ',')?;
@@ -169,17 +235,18 @@ fn parse_ado(input: &str) -> Result<ConnectionSpec> {
                 looks_postgres = true;
                 spec.host = value;
             }
-            "port" => spec.port = value.parse().ok(),
+            "port" => spec.port = Some(value.parse().map_err(|_| properties::invalid())?),
             "database" | "initial catalog" => spec.database = Some(value),
             "user id" | "uid" | "user" | "username" => spec.user = Some(value),
             "password" | "pwd" => spec.password = Some(value),
-            _ => absorb_option(&mut spec, k.trim(), &value),
+            "dbname" | "hostaddr" => return Err(properties::invalid()),
+            _ => absorb_option(&mut spec, key, &value),
         }
     }
     if looks_postgres {
         spec.engine = Some(Engine::Postgres);
     }
-    finish(spec)
+    finish_properties(spec)
 }
 
 fn parse_jdbc_sqlserver(rest: &str) -> Result<ConnectionSpec> {
@@ -202,19 +269,26 @@ fn parse_jdbc_sqlserver(rest: &str) -> Result<ConnectionSpec> {
 
 fn parse_libpq(input: &str) -> Result<ConnectionSpec> {
     let mut spec = ConnectionSpec { engine: Some(Engine::Postgres), ..Default::default() };
-    for pair in input.split_whitespace() {
-        let Some((k, v)) = pair.split_once('=') else {
-            continue;
-        };
-        let value = v.trim_matches('\'').to_string();
-        match k {
+    for (key, value) in properties::parse(input, properties::Grammar::Libpq)? {
+        if key.bytes().any(|byte| byte.is_ascii_uppercase()) {
+            return Err(properties::invalid());
+        }
+        match key {
             "host" | "hostaddr" => spec.host = value,
-            "port" => spec.port = value.parse().ok(),
+            "port" => spec.port = Some(value.parse().map_err(|_| properties::invalid())?),
             "dbname" => spec.database = Some(value),
             "user" => spec.user = Some(value),
             "password" => spec.password = Some(value),
-            _ => absorb_option(&mut spec, k, &value),
+            "server" | "database" | "uid" | "pwd" | "username" => return Err(properties::invalid()),
+            _ => absorb_option(&mut spec, key, &value),
         }
+    }
+    finish_properties(spec)
+}
+
+fn finish_properties(spec: ConnectionSpec) -> Result<ConnectionSpec> {
+    if spec.host.chars().any(char::is_whitespace) || spec.host.contains(['=', ';', '@']) {
+        return Err(properties::invalid());
     }
     finish(spec)
 }
@@ -348,6 +422,101 @@ pub fn describe(spec: &ConnectionSpec) -> String {
 mod tests {
     use super::*;
 
+    fn assert_property_credentials(input: &str, password: &str) {
+        for picked in [
+            None,
+            Some(Engine::Mssql),
+            Some(Engine::Postgres),
+            Some(Engine::Mysql),
+            Some(Engine::Sqlite),
+            Some(Engine::Yugabyte),
+        ] {
+            let spec = parse_as(input, picked).unwrap();
+            assert_eq!(spec.password.as_deref(), Some(password));
+            let preview = crate::connection::parse_connection(input, picked, false).unwrap();
+            assert!(preview.has_password);
+            let shown = serde_json::to_string(&preview).unwrap();
+            assert!(!shown.contains("credential_owned_42"));
+            assert!(!describe(&spec).contains("credential_owned_42"));
+        }
+        assert!(parse_sqlite(input).is_err());
+    }
+
+    #[test]
+    fn complete_property_grammars_keep_semicolons_quotes_and_escapes_in_the_password_owner() {
+        for (input, password) in [
+            ("host=db.example dbname=shop user=app password=credential_owned_42;tail", "credential_owned_42;tail"),
+            ("password=credential_owned_42;tail host=db.example dbname=shop user=app", "credential_owned_42;tail"),
+            (
+                r"host = db.example password = 'credential_owned_42; space\'quote\\slash' dbname=shop user=app",
+                r"credential_owned_42; space'quote\slash",
+            ),
+            (
+                r"host=db.example password=credential_owned_42\ with\ spaces\\slash dbname=shop user=app",
+                r"credential_owned_42 with spaces\slash",
+            ),
+            (
+                r#"Server=db.example;Database=shop;User ID=app;Password="credential_owned_42; double""quote\slash"  "#,
+                "credential_owned_42; double\"quote\\slash",
+            ),
+            (
+                r"Pwd='credential_owned_42; single''quote\slash';Server=db.example;Database=shop;Uid=app;",
+                r"credential_owned_42; single'quote\slash",
+            ),
+        ] {
+            assert_property_credentials(input, password);
+        }
+    }
+
+    #[test]
+    fn property_values_preserve_quoted_names_and_both_native_separator_grammars() {
+        let postgres =
+            parse("host='db.example' user='app user' dbname='shop;scope password=public_name' password='credential_owned_42' ").unwrap();
+        assert_eq!(postgres.engine, Some(Engine::Postgres));
+        assert_eq!(postgres.host, "db.example");
+        assert_eq!(postgres.user.as_deref(), Some("app user"));
+        assert_eq!(postgres.database.as_deref(), Some("shop;scope password=public_name"));
+        let ado = parse("Data Source='db.example,1433';Initial Catalog='shop;scope password=public_name';User ID='app user';Password='credential_owned_42';").unwrap();
+        assert_eq!(ado.engine, Some(Engine::Mssql));
+        assert_eq!(ado.host, "db.example");
+        assert_eq!(ado.port, Some(1433));
+        assert_eq!(ado.user.as_deref(), postgres.user.as_deref());
+        assert_eq!(ado.database.as_deref(), postgres.database.as_deref());
+        assert_eq!(ado.password.as_deref(), postgres.password.as_deref());
+    }
+
+    #[test]
+    fn malformed_mixed_or_unclosed_properties_refuse_before_any_raw_fragment_can_be_displayed() {
+        for input in [
+            "Host=db.example user=app password=credential_owned_42;tail",
+            "host=db.example; dbname=shop user=app password=credential_owned_42",
+            "host=db.example password='credential_owned_42",
+            "Server=db.example;Password=\"credential_owned_42\"tail;Database=shop",
+            "Server=db.example Password=credential_owned_42",
+            "Server=db.example;Database=shop password = credential_owned_42",
+            "host=db.example user=app;password=credential_owned_42",
+            "Password=credential_owned_42;host=db.example dbname=shop",
+            "host=db.example password=credential_owned_42\\",
+            "Server=db.example;Password='credential_owned_42''unterminated",
+            "Server=db.example,credential_owned_42;Password=other",
+        ] {
+            for picked in [
+                None,
+                Some(Engine::Mssql),
+                Some(Engine::Postgres),
+                Some(Engine::Mysql),
+                Some(Engine::Sqlite),
+                Some(Engine::Yugabyte),
+            ] {
+                let error = crate::connection::parse_connection(input, picked, false).unwrap_err();
+                assert_eq!(error.message, t!("engine.connstr.invalid_properties"));
+                assert!(!serde_json::to_string(&error).unwrap().contains("credential_owned_42"));
+            }
+            let error = parse_sqlite(input).unwrap_err();
+            assert!(!serde_json::to_string(&error).unwrap().contains("credential_owned_42"));
+        }
+    }
+
     #[test]
     fn sqlite_files() {
         let s = parse("sqlite:///Users/me/app.db").unwrap();
@@ -361,6 +530,68 @@ mod tests {
         assert_eq!(describe(&parse("sqlite:app.db").unwrap()), "app.db");
         // A host that happens to end in .db is still a host when it has a port or a scheme.
         assert_ne!(parse("postgres://reports.db:5432/x").unwrap().engine, Some(Engine::Sqlite));
+    }
+
+    #[test]
+    fn server_properties_keep_credentials_out_of_file_paths_even_with_a_sqlite_pick() {
+        for extension in [".db", ".Db", ".db3", ".sqlite", ".sqlite3"] {
+            let password = format!("credential_not_a_file{extension}");
+            for (input, engine) in [
+                (format!("host=server.example port=5432 dbname=shop user=app password={password}"), Engine::Postgres),
+                (format!("Server=server.example;Database=shop;User ID=app;Password={password}"), Engine::Mssql),
+            ] {
+                for picked in [None, Some(Engine::Sqlite)] {
+                    let spec = parse_as(&input, picked).unwrap();
+                    assert_eq!(spec.engine, Some(engine));
+                    assert_eq!(spec.password.as_deref(), Some(password.as_str()));
+                    assert!(!describe(&spec).contains(&password));
+                    let preview = crate::connection::parse_connection(&input, picked, false).unwrap();
+                    assert!(preview.has_password);
+                    assert!(!serde_json::to_string(&preview).unwrap().contains(&password));
+                }
+                assert!(parse_sqlite(&input).is_err(), "the file-only API must reject server properties");
+            }
+        }
+    }
+
+    #[test]
+    fn malformed_server_syntax_never_falls_back_to_a_literal_database_file() {
+        for input in [
+            "postgres://app:credential_not_a_file@server.example:invalid/shop",
+            "postgres://app:credential_not_a_file/not-encoded@server.example/shop",
+            "postgres:/app:credential_not_a_file@server.example/shop",
+            "postgres:app:credential_not_a_file@server.example",
+            "jdbc:mysql:/app:credential_not_a_file@server.example/shop",
+            "Server=;Password=credential_not_a_file.db",
+            "password=credential_not_a_file.db",
+            "unknown://app:credential_not_a_file@server.example/shop",
+        ] {
+            for result in [parse_as(input, None), parse_as(input, Some(Engine::Sqlite)), parse_sqlite(input)] {
+                let error = result.unwrap_err();
+                assert!(!serde_json::to_string(&error).unwrap().contains("credential_not_a_file"));
+            }
+        }
+        for path in [
+            "./data/user=tenant.db",
+            "../user=tenant.sqlite",
+            "/var/data/user=tenant.db",
+            "C:\\data\\user=tenant.db",
+            "\\\\server\\files\\user=tenant.db",
+        ] {
+            let spec = parse(path).unwrap();
+            assert_eq!(spec.engine, Some(Engine::Sqlite));
+            assert_eq!(spec.database.as_deref(), Some(path));
+        }
+        for path in
+            ["./data/user=tenant", "/var/data/user=tenant", "C:\\data\\user=tenant", "\\\\server\\files\\user=tenant"]
+        {
+            for input in [path.to_owned(), format!("file:{path}")] {
+                for spec in [parse_as(&input, Some(Engine::Sqlite)).unwrap(), parse_sqlite(&input).unwrap()] {
+                    assert_eq!(spec.engine, Some(Engine::Sqlite));
+                    assert_eq!(spec.database.as_deref(), Some(path));
+                }
+            }
+        }
     }
 
     #[test]
@@ -494,6 +725,6 @@ mod tests {
         assert_eq!(said("sqlite:"), "A SQLite connection needs the database file's path");
         assert_eq!(said("[::1"), "Unclosed IPv6 address");
         assert_eq!(said("db.example:abc"), "'abc' is not a valid port");
-        assert_eq!(said("postgres://"), "The connection string has no host");
+        assert_eq!(said("postgres://"), "Use a complete database URL with a supported scheme.");
     }
 }

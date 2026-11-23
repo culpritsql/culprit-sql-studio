@@ -18,6 +18,19 @@ fn config(cases: u32) -> ProptestConfig {
     }
 }
 
+fn contains_secret(value: &serde_json::Value, secret: &str) -> bool {
+    match value {
+        serde_json::Value::String(text) => text.contains(secret),
+        serde_json::Value::Array(values) => values.iter().any(|value| contains_secret(value, secret)),
+        serde_json::Value::Object(fields) => fields.values().any(|value| contains_secret(value, secret)),
+        _ => false,
+    }
+}
+
+fn url_userinfo(value: &str) -> String {
+    value.bytes().map(|byte| format!("%{byte:02X}")).collect()
+}
+
 /// Every plan the parser tests read: SQL Server XML, PostgreSQL text and JSON, MySQL JSON, tree and EXPLAIN ANALYZE,
 /// MariaDB, SQLite, TimescaleDB and YugabyteDB.
 fn plan_corpus() -> Vec<String> {
@@ -263,22 +276,32 @@ proptest! {
     /// A password in a pasted connection string never comes back in what the form shows.
     #[test]
     fn a_pasted_password_is_never_shown(
-        password in "[A-Za-z0-9!#%&*+_.~-]{10,24}",
+        password in prop_oneof![
+            "[A-Za-z0-9!#%&*+_.~-]{10,24}",
+            ("[A-Za-z0-9]{10,20}", prop::sample::select(vec![".db", ".Db", ".db3", ".sqlite", ".sqlite3"]))
+                .prop_map(|(password, extension)| format!("{password}{extension}")),
+            ("[A-Za-z0-9]{10,20}", prop::sample::select(vec![";tail", "'quoted", "\"quoted", "\\tail", " two words", "=part"]))
+                .prop_map(|(password, suffix)| format!("{password}{suffix}")),
+        ],
         user in "[a-z]{3,10}",
         host in "[a-z]{3,10}\\.example",
         style in 0..4usize,
+        picked in prop::sample::select(vec![None, Some(Engine::Sqlite), Some(Engine::Postgres), Some(Engine::Mssql), Some(Engine::Mysql), Some(Engine::Yugabyte)]),
     ) {
+        let uri_password = url_userinfo(&password);
+        let ado_password = password.replace('"', "\"\"");
+        let libpq_password = password.replace('\\', "\\\\").replace('\'', "\\'");
         let input = match style {
-            0 => format!("postgres://{user}:{password}@{host}:5432/shop"),
-            1 => format!("mysql://{user}:{password}@{host}/shop"),
-            2 => format!("Server=tcp:{host},1433;Database=shop;User ID={user};Password={password};Encrypt=True"),
-            _ => format!("host={host} port=5432 dbname=shop user={user} password={password}"),
+            0 => format!("postgres://{user}:{uri_password}@{host}:5432/shop"),
+            1 => format!("mysql://{user}:{uri_password}@{host}/shop"),
+            2 => format!("Server=tcp:{host},1433;Database=shop;User ID={user};Password=\"{ado_password}\";Encrypt=True"),
+            _ => format!("host={host} port=5432 dbname=shop user={user} password='{libpq_password}'"),
         };
-        if let Ok(parsed) = culprit_engine::parse_connection(&input, None) {
-            let shown = serde_json::to_string(&parsed).unwrap();
-            prop_assert!(!shown.contains(&password), "the password came back: {shown}");
-            prop_assert!(parsed.has_password, "{input}");
-        }
+        let parsed = culprit_engine::parse_connection(&input, picked)
+            .map_err(|error| TestCaseError::fail(error.to_string()))?;
+        let shown = serde_json::to_value(&parsed).unwrap();
+        prop_assert!(!contains_secret(&shown, &password), "the password came back: {shown}");
+        prop_assert!(parsed.has_password, "{input}");
     }
 
     /// Arbitrary text as a connection string: refused or read, never a crash.

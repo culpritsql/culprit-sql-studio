@@ -5,3 +5,4 @@
 # It is recommended to check this file in to source control so that
 # everyone who runs the test benefits from these saved cases.
 cc dc48558773212a7eebf5efefe7095a0bc650f9ff2b9e969560367e4164101389 # shrinks to before = "", a = "", b = "", x = 0, y = -1, engine = Mssql
+cc c82ec2f17c409bbdf9204d6dd503afc8184ed984f54bb363fa5359a6469cb92c # shrinks to password = "a00Aa0_.Db", user = "aaa", host = "aaa.example", style = 3
