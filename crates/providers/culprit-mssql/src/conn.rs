@@ -189,7 +189,12 @@ async fn open_tcp(
         accounting.check_profile()?;
     }
     work.begin_login();
-    Ok(native_phase(attempt, ReadConnectionStage::HandshakeAndLogin, Client::connect(config, tcp.compat_write())).await)
+    Ok(native_phase(
+        attempt,
+        ReadConnectionStage::HandshakeAndLogin,
+        Box::pin(Client::connect(config, tcp.compat_write())),
+    )
+    .await)
 }
 
 /// The TCP connection to `addr` didn't open in time: the message of the I/O error it becomes.
@@ -425,6 +430,17 @@ pub(crate) fn map_error(err: tiberius::error::Error) -> Error {
 mod tests {
     use super::*;
     use crate::statement_origin::{MONITORING_QUERY_MARKER, OWN_QUERY_MARKER};
+
+    #[test]
+    fn the_actual_native_connection_open_future_has_bounded_inline_storage_without_connecting() {
+        fn storage<A, F: std::future::Future>(_: impl FnOnce(A) -> F) -> usize {
+            std::mem::size_of::<F>()
+        }
+        let bytes = storage(|(config, work): (Config, &'static mut ConnectionWork<'static>)| {
+            open_tcp(config, None, work, None, None)
+        });
+        assert!(bytes <= 64 * 1024, "actual native connection-open future {bytes} bytes");
+    }
 
     struct Route(Mutex<Vec<(String, u16)>>);
     #[async_trait::async_trait]

@@ -120,10 +120,10 @@ pub(crate) fn columns_expression(index: bool, parent_alias: &str) -> String {
     let count = MAX_MSSQL_CONFIGURATION_PARTITIONS + 1;
     let index_id = if index { "i.index_id" } else { "0" };
     let prefix = crate::catalog_visibility::sql_literal(&format!(
-        "(SELECT TOP({count}) cp.object_id,cp.index_id,CONVERT(varchar(20),cp.partition_id) AS partition_id,cp.partition_number,CONVERT(varchar(20),cp.hobt_id) AS hobt_id,"
+        "ISNULL((SELECT TOP({count}) cp.object_id,cp.index_id,CONVERT(varchar(20),cp.partition_id) AS partition_id,cp.partition_number,CONVERT(varchar(20),cp.hobt_id) AS hobt_id,"
     ));
     let suffix = crate::catalog_visibility::sql_literal(&format!(
-        " FROM sys.partitions cp WHERE cp.object_id={parent_alias}.object_id AND cp.index_id={index_id} ORDER BY cp.partition_number FOR JSON PATH,INCLUDE_NULL_VALUES)"
+        " FROM sys.partitions cp WHERE cp.object_id={parent_alias}.object_id AND cp.index_id={index_id} ORDER BY cp.partition_number FOR JSON PATH,INCLUDE_NULL_VALUES),N'[]')"
     ));
     columns.push(format!("(CASE WHEN @culprit_cfg_partitions=0 THEN CAST({prefix} AS nvarchar(max))+{values}+{suffix} ELSE N'CAST(NULL AS nvarchar(max))' END)+N' AS configuration_partitions'"));
     columns.push("N'@culprit_cfg_partitions AS configuration_partition_identity_availability'".into());

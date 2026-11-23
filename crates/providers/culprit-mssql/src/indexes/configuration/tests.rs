@@ -149,3 +149,16 @@ fn missing_partition_layout_withholds_only_its_companion_not_the_original_index_
         assert_eq!(configuration.options.as_ref().unwrap().allow_row_locks, Some(true));
     }
 }
+
+#[test]
+fn an_available_empty_companion_keeps_a_non_heap_table_without_accepting_missing_partition_data() {
+    let native = crate::tables::tests::row();
+    let layout = crate::tables::Layout::new(true);
+    let table = crate::tables::decode(&native, &layout).unwrap();
+    assert_eq!(table.is_heap, Some(false));
+    assert!(table.heap_configuration.is_none());
+    let missing = replace(&native, &[("configuration_partitions", Val::Null)]);
+    assert!(crate::tables::decode(&missing, &layout).is_err());
+    let malformed = replace(&native, &[("configuration_partitions", Val::Text("not JSON".into()))]);
+    assert!(crate::tables::decode(&malformed, &layout).is_err());
+}
