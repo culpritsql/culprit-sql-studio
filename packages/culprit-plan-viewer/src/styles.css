@@ -1403,12 +1403,12 @@
   overflow: hidden;
   text-overflow: ellipsis;
   min-width: 0;
-  flex-shrink: 1;
+  flex: 0 1 auto;
 }
 
 .culprit-pv .pnode .obj {
   min-width: 0;
-  flex-shrink: 4;
+  flex: 0 9999 auto;
   color: var(--text-2);
   white-space: nowrap;
   overflow: hidden;
@@ -1515,7 +1515,7 @@
   color: var(--high-text);
 }
 
-@container plan-box (max-width: 560px) {
+@container plan-box (max-width: 580px) {
   .culprit-pv.plan,
   .culprit-pv .plan {
     --plan-cols: minmax(0, 1fr) 132px 72px;
@@ -1526,6 +1526,15 @@
   .culprit-pv .pnode {
     gap: 8px;
     padding-inline: 10px;
+  }
+
+  .culprit-pv .pnode .line1 {
+    flex-wrap: wrap;
+    row-gap: 1px;
+  }
+
+  .culprit-pv .pnode .obj {
+    flex: 1 1 100%;
   }
 
   .culprit-pv .heat {
