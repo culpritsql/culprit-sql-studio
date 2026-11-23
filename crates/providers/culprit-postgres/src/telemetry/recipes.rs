@@ -46,6 +46,7 @@ impl Route {
             Self::ReadableSecondaryRecovery => readable_secondary_recovery::bounded_budget(requested),
             Self::Snapshot(Recipe::Settings) => settings_profile::bounded_budget(requested),
             Self::Snapshot(Recipe::Statements) => statement_profile::bounded_budget(requested),
+            Self::Snapshot(Recipe::Definitions) => statement_profile::definitions_budget(requested),
             Self::Snapshot(_) => requested.clone(),
         }
     }
@@ -195,7 +196,7 @@ const REGISTRATIONS: &[Registration] = &[
         route: Route::Blocking,
     },
     Registration::snapshot("postgres.statement-counters", Recipe::Statements).version(3).baseline(),
-    Registration::snapshot("postgres.statement-definitions", Recipe::Definitions),
+    Registration::snapshot("postgres.statement-definitions", Recipe::Definitions).version(2),
     Registration::snapshot("postgres.operational", Recipe::Operational).version(2).baseline(),
     Registration::snapshot("postgres.instance-operational", Recipe::InstanceOperational)
         .shared(SharedResourceKind::Instance)

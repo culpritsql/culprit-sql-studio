@@ -14,6 +14,7 @@ pub(crate) mod catalogs;
 mod groups;
 mod populations;
 mod settings;
+pub(crate) mod statement_counters;
 mod validation;
 mod waits;
 pub(crate) use settings::{RetainedSettingsAnalysis, analyze_settings_original, settings_read};

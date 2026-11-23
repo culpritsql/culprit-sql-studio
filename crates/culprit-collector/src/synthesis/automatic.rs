@@ -3,7 +3,7 @@ use super::*;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
-pub const SYNTHESIS_CONTEXT_POLICY_VERSION: u32 = 2;
+pub const SYNTHESIS_CONTEXT_POLICY_VERSION: u32 = 3;
 pub const MAX_SYNTHESIS_CONTEXT_CAPTURES: usize = 16;
 pub const MAX_PENDING_SYNTHESIS_JOBS: u32 = 128;
 pub const MAX_SYNTHESIS_RETAINED_HEADS: u32 = 64;

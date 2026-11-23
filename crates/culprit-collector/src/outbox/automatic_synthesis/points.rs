@@ -6,6 +6,8 @@ mod selection;
 
 // This bounds retained enrichment freshness, not native sampling/causal duration or source cost.
 const MAX_POINT_DISTANCE_SECONDS: i64 = 300;
+// Same-owner statement definitions and prior counter rosters run on slower hourly/baseline cadences.
+const MAX_STATEMENT_CONTEXT_SECONDS: i64 = 86_400;
 
 fn dataset(source: &CollectionDescription) -> Option<SnapshotDataset> {
     match &source.observation {
@@ -24,6 +26,8 @@ fn dataset(source: &CollectionDescription) -> Option<SnapshotDataset> {
             | SnapshotDataset::Replication
             | SnapshotDataset::HyperscaleLogComponents
             | SnapshotDataset::MaintenanceProgress
+            | SnapshotDataset::StatementCounters
+            | SnapshotDataset::StatementDefinitions
     )
     .then_some(dataset)
 }
@@ -41,7 +45,10 @@ fn family(source: &CollectionDescription) -> Result<String> {
     crate::synthesis::synthesis_metadata_key(&("synthesis-native-point-family-v1", dataset, &source.source, sources))
 }
 fn native(source: &CollectionDescription) -> Option<NativeReadContext> {
-    let context = SourceReadExecutionScope::context_from_source(source).ok()?;
+    let context = match source.observation.snapshot_acquisition_context() {
+        Some(context) => context.clone(),
+        None => SourceReadExecutionScope::context_from_source(source).ok()?,
+    };
     context.has_qualified_local_owner().then_some(context)
 }
 fn scope(context: &NativeReadContext) -> Result<Option<String>> {
@@ -80,18 +87,20 @@ pub(super) fn retain(
     heads::retain(tx, original, source, &scope, &family(source)?, from, until)
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 enum Purpose {
     CommitPipeline,
     TransactionMetadata,
-    Both,
+    CommitAndTransaction,
+    StatementWorkload,
 }
 impl Purpose {
     fn including(self, other: Self) -> Self {
         match (self, other) {
             (Self::CommitPipeline, Self::CommitPipeline) => Self::CommitPipeline,
             (Self::TransactionMetadata, Self::TransactionMetadata) => Self::TransactionMetadata,
-            _ => Self::Both,
+            (Self::StatementWorkload, Self::StatementWorkload) => Self::StatementWorkload,
+            _ => Self::CommitAndTransaction,
         }
     }
 }
@@ -105,8 +114,18 @@ impl Anchor {
     fn accepts(&self, dataset: SnapshotDataset) -> bool {
         match self.purpose {
             Purpose::TransactionMetadata => dataset == SnapshotDataset::TransactionMetadata,
-            Purpose::CommitPipeline => dataset != SnapshotDataset::TransactionMetadata,
-            Purpose::Both => true,
+            Purpose::StatementWorkload => {
+                matches!(dataset, SnapshotDataset::StatementCounters | SnapshotDataset::StatementDefinitions)
+            }
+            Purpose::CommitPipeline => !matches!(
+                dataset,
+                SnapshotDataset::TransactionMetadata
+                    | SnapshotDataset::StatementCounters
+                    | SnapshotDataset::StatementDefinitions
+            ),
+            Purpose::CommitAndTransaction => {
+                !matches!(dataset, SnapshotDataset::StatementCounters | SnapshotDataset::StatementDefinitions)
+            }
         }
     }
 }
@@ -144,6 +163,18 @@ fn anchor(capture: &SynthesisCapture) -> Result<AnchorSelection> {
             context,
             at,
             purpose: Purpose::TransactionMetadata,
+            capture: capture.original().clone(),
+        })));
+    }
+    if dataset(capture.source()) == Some(SnapshotDataset::StatementCounters) {
+        let Some(context) = native(capture.source()) else {
+            return Ok(AnchorSelection::Unavailable(SynthesisContextIssue::UnqualifiedPointScope));
+        };
+        let at = instant(&context.observed_until).ok_or_else(integrity)?;
+        return Ok(AnchorSelection::Ready(Box::new(Anchor {
+            context,
+            at,
+            purpose: Purpose::StatementWorkload,
             capture: capture.original().clone(),
         })));
     }
@@ -196,14 +227,23 @@ fn owner_matches(point: &NativeReadContext, anchor: &NativeReadContext) -> bool 
 }
 fn role_matches(dataset: SnapshotDataset, point: &NativeReadContext, anchor: &NativeReadContext) -> bool {
     // The bounded transaction statistic can support producer subtraction only with known unchanged role.
-    // Other independent points retain their own role, including unknown/change, without granting continuity.
-    !matches!(dataset, SnapshotDataset::Cleanup | SnapshotDataset::TransactionMetadata)
-        || point.database_writable.is_some() && point.database_writable == anchor.database_writable
+    // Statement definitions and counter deltas also stay within the same observed primary/standby role.
+    !matches!(
+        dataset,
+        SnapshotDataset::Cleanup
+            | SnapshotDataset::TransactionMetadata
+            | SnapshotDataset::StatementCounters
+            | SnapshotDataset::StatementDefinitions
+    ) || point.database_writable.is_some() && point.database_writable == anchor.database_writable
 }
 fn near(point: &NativeReadContext, anchor: &Anchor) -> bool {
     let (Some(from), Some(until)) = (instant(&point.observed_from), instant(&point.observed_until)) else {
         return false;
     };
+    if anchor.purpose == Purpose::StatementWorkload {
+        return until <= anchor.at
+            && anchor.at.signed_duration_since(until) <= chrono::Duration::seconds(MAX_STATEMENT_CONTEXT_SECONDS);
+    }
     let distance = if anchor.at < from {
         from.signed_duration_since(anchor.at)
     } else if anchor.at > until {

@@ -345,7 +345,7 @@ impl<R: SnapshotIo> PostgresSnapshotReader<R> {
         }
         match self.recipe {
             Recipe::Settings => (),
-            Recipe::Statements => {
+            Recipe::Statements | Recipe::Definitions => {
                 native::statements::validate_guarded_counters(metadata, statement_profile::MAX_NATIVE_ENTRIES)?
             }
             _ => return Err(native::invalid()),
@@ -356,12 +356,12 @@ impl<R: SnapshotIo> PostgresSnapshotReader<R> {
         Ok(())
     }
     fn check_profile(&self) -> Result<()> {
+        let current = self.io.connection_generation();
         if let Some(profile) = &self.profile {
-            let current = self.io.connection_generation();
             profile.check_connection(current)?;
-            if self.generation.is_some_and(|original| current != Some(original)) {
-                return Err(CollectionStop::SourceChanged.error());
-            }
+        }
+        if self.generation.is_some_and(|original| current != Some(original)) {
+            return Err(CollectionStop::SourceChanged.error());
         }
         Ok(())
     }
@@ -393,6 +393,22 @@ impl<R: SnapshotIo> SnapshotReader for PostgresSnapshotReader<R> {
             self.check_profile()?;
             profile.bind_native(&owner.read_context()?, self.io.connection_generation())?;
             Some(owner)
+        } else if matches!(self.recipe, Recipe::Statements | Recipe::Definitions)
+            && request.budget.max_queries >= 6
+            && native::statements::validate_guarded_counters(&meta, statement_profile::MAX_NATIVE_ENTRIES).is_ok()
+        {
+            let generation = self.io.connection_generation().filter(|generation| *generation > 0);
+            if let (Some(original), Some(current)) = (opening, generation)
+                && original != current
+            {
+                return Err(CollectionStop::SourceChanged.error());
+            }
+            let observed = native::local_context::Context::observe(&mut self.io, &meta).await?;
+            if observed.is_some() {
+                self.generation = generation;
+                self.check_profile()?;
+            }
+            observed
         } else {
             None
         };
@@ -422,7 +438,7 @@ impl<R: SnapshotIo> SnapshotReader for PostgresSnapshotReader<R> {
         }
         let execution = acquisition.as_ref().map(native::local_context::Context::read_context).transpose()?;
         let description = CollectionDescription {
-            partition: if matches!(self.recipe, Recipe::Statements) {
+            partition: if matches!(self.recipe, Recipe::Statements | Recipe::Definitions) {
                 execution.as_ref().map_or(SourcePartition::Target, |execution| execution.partition.clone())
             } else {
                 SourcePartition::Target
@@ -473,15 +489,31 @@ impl<R: SnapshotIo> SnapshotReader for PostgresSnapshotReader<R> {
     fn decode(&self, row: &Row, description: &CollectionDescription) -> Result<SnapshotRecord> {
         let meta = self.metadata.as_ref().ok_or_else(native::invalid)?;
         let (source, record) = self.recipe.decode(row, meta, description, &self.budget)?;
-        if self.profile.is_some() && matches!(self.recipe, Recipe::Statements) {
-            let TelemetryRecord::Operational(OperationalObservation {
-                fact: OperationalFact::StatementCounters(sample),
-                ..
-            }) = &record
-            else {
-                return Err(native::invalid());
-            };
-            native::statements::validate_guarded_sample(sample, meta)?;
+        if self.acquisition.is_some() {
+            match self.recipe {
+                Recipe::Statements => {
+                    let TelemetryRecord::Operational(OperationalObservation {
+                        fact: OperationalFact::StatementCounters(sample),
+                        ..
+                    }) = &record
+                    else {
+                        return Err(native::invalid());
+                    };
+                    native::statements::validate_guarded_sample(sample, meta)?;
+                }
+                Recipe::Definitions => {
+                    let TelemetryRecord::ObjectDefinition(ObjectDefinitionRecord {
+                        fact: ObjectDefinitionFact::Statement(definition),
+                        ..
+                    }) = &record
+                    else {
+                        return Err(native::invalid());
+                    };
+                    let observed_at = native::text(row, "observed_at")?;
+                    native::statements::validate_guarded_definition(definition, &observed_at, meta, description)?;
+                }
+                _ => (),
+            }
         }
         let complete_scope =
             !matches!(self.recipe, Recipe::Cleanup) || native::cleanup::scope_complete(&source, meta.standby);
@@ -519,10 +551,9 @@ impl<R: SnapshotIo> SnapshotReader for PostgresSnapshotReader<R> {
                 .await?
                 .ok_or_else(|| CollectionStop::SourceChanged.error())?
                 .context;
-            self.profile
-                .as_ref()
-                .ok_or_else(native::invalid)?
-                .verify_final(&context, self.io.connection_generation())?;
+            if let Some(profile) = &self.profile {
+                profile.verify_final(&context, self.io.connection_generation())?;
+            }
             Some(Box::new(context))
         } else {
             None

@@ -1,66 +1,100 @@
 //! Counter-only originals retain an explicit application-analysis limitation instead of a healthy empty result.
-//! The existing point interpreter and checked metric projector remain the only owners of native counter meaning.
+//! When qualified same-owner SQL definitions accompany a guarded PostgreSQL counter roster, the shared pipeline
+//! evaluates ordinary performance checks without inventing intervals, origins or executable schema SQL.
 use super::*;
-use culprit_core::collected_analysis::CollectedAnalysisLimit;
+use crate::collected_evidence::{
+    catalogs::CatalogContext,
+    statement_counters::{StatementCounterOutcome, StatementFindingEvidence, analyze_statement_counters},
+};
+use std::collections::{BTreeMap, BTreeSet};
+
+pub(super) struct StatementCounterProjection {
+    pub findings: Vec<DerivedFinding>,
+    pub evaluations: DerivedFindingEvaluations,
+    pub evaluated: bool,
+}
 
 pub(super) fn supports(original: &dyn OriginalProjection) -> bool {
     original.source().observation.snapshot().is_some_and(|header| header.dataset == SnapshotDataset::StatementCounters)
 }
 
-pub(super) fn evaluations(original: &dyn OriginalProjection) -> Result<DerivedFindingEvaluations> {
-    let snapshot = snapshot(original)?;
-    culprit_checks::statement_work::explain(&snapshot, original.is_read_complete())?;
-    // These points contain no source-bound definition reference or native application classification. An adjacent
-    // SQL capture, identical queryid or acquisition role cannot supply that authority or a database denominator.
-    let mut limitations = vec![
-        CollectedAnalysisLimit::MissingQueryDefinition,
-        CollectedAnalysisLimit::UnknownStatementOrigin,
-        CollectedAnalysisLimit::RuntimeDenominatorUnavailable,
-        CollectedAnalysisLimit::ExecutionPopulationUnknown,
-    ];
-    if !original.is_read_complete() || !snapshot.coverage.complete_scope {
-        limitations.push(CollectedAnalysisLimit::RuntimeBounds);
-    }
-    for row in &snapshot.observations {
-        let OperationalFact::StatementCounters(sample) = &row.fact else { return Err(invalid()) };
-        if StatementQueryMetrics::from_sample(sample)?.is_none() {
-            let reason = if sample.totals.iter().any(|counter| {
-                matches!(counter.key, RuntimeMetricKey::Executions | RuntimeMetricKey::Duration)
-                    && counter.total.exact_real().is_none()
-            }) {
-                CollectedAnalysisLimit::CounterPrecision
-            } else {
-                CollectedAnalysisLimit::DurationUnavailable
-            };
-            if !limitations.contains(&reason) {
-                limitations.push(reason);
+pub(super) fn project(
+    primary: &dyn OriginalProjection,
+    originals: &[&dyn OriginalProjection],
+    description: &DerivedDiagnosisDescription,
+    pipeline: &culprit_checks::Pipeline,
+    catalogs: &CatalogContext,
+    budget: &mut OutputBudget,
+) -> Result<StatementCounterProjection> {
+    let engine = primary.source().target.engine();
+    let mut evaluations = evaluation::Evaluations::new();
+    match analyze_statement_counters(primary, originals, pipeline, catalogs)? {
+        StatementCounterOutcome::CounterOnly { limitations } => {
+            evaluations.add_statement_counters(limitations, &[], &[], &[], engine)?;
+            Ok(StatementCounterProjection { findings: vec![], evaluations: evaluations.finish(), evaluated: false })
+        }
+        StatementCounterOutcome::Evaluated(evaluated) => {
+            let mut reasons = Vec::new();
+            for limitation in &evaluated.limitations {
+                if !reasons.contains(&limitation.reason) {
+                    reasons.push(limitation.reason);
+                }
             }
+            evaluations.add_statement_counters(
+                reasons,
+                &evaluated.report.assessments,
+                &evaluated.report.locked,
+                catalogs.inputs(),
+                engine,
+            )?;
+            let database = primary.source().target.database().map(IncidentDatabaseSelector::from_route).transpose()?;
+            let mut findings = finding_rows::FindingRows::new();
+            for finding in &evaluated.report.findings {
+                let (query, inputs) = finding_evidence(finding, &evaluated.query_evidence)?;
+                let derived = DerivedFinding {
+                    analysis_id: description.analysis_id.clone(),
+                    database: database.clone(),
+                    display: description.display.clone(),
+                    finding: finding.clone(),
+                    inputs,
+                    query,
+                    cause: None,
+                    guidance: DerivedGuidance::HistoricalRequiresFreshVerification,
+                };
+                findings.admit(finding, derived, engine, budget)?;
+            }
+            Ok(StatementCounterProjection {
+                findings: findings.finish(),
+                evaluations: evaluations.finish(),
+                evaluated: true,
+            })
         }
     }
-    let mut evaluations = evaluation::Evaluations::new();
-    evaluations.add_statement_counters(limitations, original.source().target.engine())?;
-    Ok(evaluations.finish())
 }
 
-fn snapshot(original: &dyn OriginalProjection) -> Result<StatementCounterSnapshot> {
-    if !supports(original) || !original.original().is_valid() {
-        return Err(invalid());
+fn finding_evidence(
+    finding: &Finding,
+    evidence: &BTreeMap<String, StatementFindingEvidence>,
+) -> Result<(Option<DerivedQuery>, Vec<DiagnosticEvidenceRef>)> {
+    let matched: Vec<&StatementFindingEvidence> =
+        finding.queries.iter().filter_map(|query| evidence.get(&query.id)).collect();
+    let query = match matched.as_slice() {
+        [single] if finding.queries.len() == 1 => Some(DerivedQuery {
+            identity: single.identity.clone(),
+            reference: single.definition_ref.clone(),
+            sql: single.sql.clone(),
+        }),
+        _ => None,
+    };
+    let mut inputs = Vec::new();
+    let mut seen = BTreeSet::new();
+    for reference in matched.iter().flat_map(|item| &item.inputs) {
+        if seen.insert(reference.key()?) {
+            inputs.push(reference.clone());
+        }
+        if inputs.len() > MAX_DERIVED_REFERENCES {
+            return Err(capacity());
+        }
     }
-    let observations = original
-        .records()
-        .iter()
-        .map(|row| match &row.row().record {
-            TelemetryRecord::Operational(observation)
-                if matches!(observation.fact, OperationalFact::StatementCounters(_)) =>
-            {
-                Ok(observation.clone())
-            }
-            _ => Err(invalid()),
-        })
-        .collect::<Result<Vec<_>>>()?;
-    let snapshot = StatementCounterSnapshot::from_source(original.source(), observations)?;
-    if !snapshot.is_valid_read(original.is_read_complete()) {
-        return Err(invalid());
-    }
-    Ok(snapshot)
+    Ok((query, inputs))
 }

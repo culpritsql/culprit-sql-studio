@@ -217,28 +217,42 @@ fn settings_rows_stay_in_the_same_declared_stream_and_scope() {
 }
 
 #[test]
-fn counter_acquisition_uses_the_exact_member_population_without_a_global_database_incarnation() {
-    let mut source = source(false);
-    let SourceObservation::PagedSnapshotAcquisition { snapshot, execution, settings_context } = &mut source.observation
-    else {
-        panic!()
-    };
-    snapshot.dataset = SnapshotDataset::StatementCounters;
-    *settings_context = None;
-    source.partition = execution.partition.clone();
-    let mut final_read = completion(false);
-    let SourceCompletion::SnapshotAcquisition { snapshot, settings_context, .. } = &mut final_read else { panic!() };
-    snapshot.dataset = SnapshotDataset::StatementCounters;
-    *settings_context = None;
-    let final_source = source.completed(final_read).unwrap().unwrap();
-    assert!(final_source.partition_is_consistent());
-    assert_eq!(source.partition, final_source.partition);
-    assert!(final_source.target.database().unwrap().incarnation.is_none());
-    assert_eq!(final_source.observation.snapshot_acquisition_context().unwrap().database_writable, Some(false));
-    for partition in [SourcePartition::Target, SourcePartition::InstanceLocal { member: None, epoch: None }] {
-        let mut changed = source.clone();
-        changed.partition = partition;
-        assert!(!changed.partition_is_consistent());
+fn counter_and_definition_acquisitions_use_the_exact_member_population_without_a_global_database_incarnation() {
+    for (dataset, source_name, stream) in [
+        (SnapshotDataset::StatementCounters, "postgres-statement-counters", TelemetryStream::OperationalSamples),
+        (SnapshotDataset::StatementDefinitions, "postgres-statement-definitions", TelemetryStream::ObjectDefinitions),
+    ] {
+        let mut source = source(false);
+        source.source = source_name.into();
+        let SourceObservation::PagedSnapshotAcquisition { snapshot, execution, settings_context } =
+            &mut source.observation
+        else {
+            panic!()
+        };
+        snapshot.dataset = dataset;
+        snapshot.sources = vec!["pg_stat_statements".into()];
+        *settings_context = None;
+        source.partition = execution.partition.clone();
+        let mut final_read = completion(false);
+        let SourceCompletion::SnapshotAcquisition { snapshot, settings_context, .. } = &mut final_read else {
+            panic!()
+        };
+        snapshot.dataset = dataset;
+        snapshot.records = 1;
+        snapshot.sources = vec![StateSourceCoverage::collected("pg_stat_statements".into(), 1)];
+        *settings_context = None;
+        let final_source = source.completed(final_read).unwrap().unwrap();
+        assert!(final_source.partition_is_consistent());
+        assert_eq!(source.partition, final_source.partition);
+        assert!(final_source.target.database().unwrap().incarnation.is_none());
+        assert_eq!(final_source.observation.snapshot_acquisition_context().unwrap().database_writable, Some(false));
+        assert!(source.observation.accepts_snapshot_record(stream, "pg_stat_statements"));
+        assert!(final_source.observation.accepts_snapshot_record(stream, "pg_stat_statements"));
+        for partition in [SourcePartition::Target, SourcePartition::InstanceLocal { member: None, epoch: None }] {
+            let mut changed = source.clone();
+            changed.partition = partition;
+            assert!(!changed.partition_is_consistent());
+        }
     }
 }
 

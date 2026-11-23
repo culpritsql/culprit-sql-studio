@@ -362,3 +362,68 @@ async fn retirement_between_buffered_record_pages_withholds_remaining_rows_and_f
     assert_eq!(source.close().await, SourceShutdown::Quiescent);
     assert!(source.reader().io.original.closed);
 }
+
+#[tokio::test]
+async fn explicit_definitions_reader_binds_the_same_held_owner_and_native_entry_identity_while_staying_unqualified() {
+    let request = CollectionRequest {
+        subject: CollectionSubject::Database,
+        selection: CollectionSelection::Snapshot { dataset: SnapshotDataset::StatementDefinitions },
+        budget: statement_profile::definitions_budget(&CollectionBudget::default()),
+    };
+    let (mut reader, _) = reader(&request, true).await;
+    reader.profile = None;
+    reader.recipe = Recipe::Definitions;
+    let sql = "SELECT total_cents FROM public.orders WHERE customer_id = 9264";
+    reader.io.original.replies = [
+        Ok(vec![metadata_row(true, FROM, Some("5000"))]),
+        Ok(vec![test_support::member_at("127.0.0.1", INITIAL_MEMBER)]),
+        Ok(vec![
+            test_support::row(&[
+                ("userid", Some("10")),
+                ("dbid", Some("16384")),
+                ("queryid", Some("-9223372036854775808")),
+                ("toplevel", Some("t")),
+                ("observed_at", Some(POINT)),
+                ("stats_since", Some(ENTRY)),
+                ("minmax_stats_since", Some(EXTREMA)),
+                ("query", Some(sql)),
+                ("source_text_bytes", Some(&sql.len().to_string())),
+            ]),
+            test_support::row(&[
+                ("userid", Some("11")),
+                ("dbid", Some("16384")),
+                ("queryid", Some("-9223372036854775808")),
+                ("toplevel", Some("f")),
+                ("observed_at", Some(POINT)),
+                ("stats_since", Some(ENTRY)),
+                ("minmax_stats_since", Some(EXTREMA)),
+                ("query", Some("<insufficient privilege>")),
+                ("source_text_bytes", Some("24")),
+            ]),
+        ]),
+        Ok(vec![metadata_row(true, FINAL_METADATA, Some("5000"))]),
+        Ok(vec![test_support::member_at("127.0.0.1", UNTIL)]),
+    ]
+    .into();
+    let mut source = SnapshotSource::new(reader, &request).unwrap();
+    let original = source.describe().await.unwrap();
+    assert!(matches!(original.partition, SourcePartition::InstanceLocal { member: Some(_), epoch: Some(_) }));
+    let rows = read_stream(&mut source, TelemetryStream::ObjectDefinitions).await.unwrap();
+    assert_eq!(rows.len(), 2);
+    let completed = original.completed(source.finish().await.unwrap()).unwrap().unwrap();
+    assert_eq!(source.query_count(), 6);
+    assert_eq!(source.close().await, SourceShutdown::Quiescent);
+    let context = completed.observation.snapshot_acquisition_context().unwrap();
+    assert!(context.has_qualified_local_owner());
+    assert_eq!(context.database_writable, Some(true));
+    let TelemetryRecord::ObjectDefinition(first) = &rows[0] else { panic!() };
+    let ObjectDefinitionFact::Statement(first_def) = &first.fact else { panic!() };
+    assert_eq!(first_def.origin, StatementOrigin::Application);
+    assert!(first_def.sql.is_available());
+    assert!(!serde_json::to_string(&first_def.sql).unwrap().contains("9264"));
+    let TelemetryRecord::ObjectDefinition(second) = &rows[1] else { panic!() };
+    let ObjectDefinitionFact::Statement(second_def) = &second.fact else { panic!() };
+    assert_eq!(second_def.origin, StatementOrigin::Unknown);
+    assert_eq!(second_def.sql, DefinitionPayload::Unavailable { reason: PayloadUnavailable::Restricted });
+    assert_ne!(first_def.identity, second_def.identity);
+}

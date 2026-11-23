@@ -443,3 +443,69 @@ fn native_scan_identity_sql_retains_the_same_fractional_epoch_and_reset_columns_
     assert!(captured.contains(&format!("{} AS stats_since", super::super::iso("s.stats_since"))));
     assert!(captured.contains(&format!("{} AS minmax_stats_since", super::super::iso("s.minmax_stats_since"))));
 }
+
+#[test]
+fn restricted_disabled_and_culprit_tagged_definitions_preserve_honest_origin_and_guarded_entry_bounds() {
+    let meta = metadata(180_006);
+    let source = CollectionDescription {
+        target: meta.database.clone().into(),
+        partition: SourcePartition::InstanceLocal {
+            member: Some(SharedResourceIdentity {
+                engine: Engine::Postgres,
+                kind: SharedResourceKind::Instance,
+                namespace: NativeIdentity::new("42").qualified("kind", "postgres-system-identifier"),
+                native: NativeIdentity::new("127.0.0.1").qualified("port", "5432"),
+            }),
+            epoch: Some(meta.activity_epoch()),
+        },
+        source: "postgres-statement-definitions".into(),
+        continuity: SourceContinuity::Unverified,
+        observation: SourceObservation::PagedSnapshotAcquisition {
+            snapshot: PagedSnapshotDescription {
+                dataset: SnapshotDataset::StatementDefinitions,
+                observed_from: meta.at.clone(),
+                sources: vec!["pg_stat_statements".into()],
+            },
+            execution: Box::new(NativeReadContext {
+                target: meta.database.clone().into(),
+                partition: SourcePartition::InstanceLocal {
+                    member: Some(SharedResourceIdentity {
+                        engine: Engine::Postgres,
+                        kind: SharedResourceKind::Instance,
+                        namespace: NativeIdentity::new("42").qualified("kind", "postgres-system-identifier"),
+                        native: NativeIdentity::new("127.0.0.1").qualified("port", "5432"),
+                    }),
+                    epoch: Some(meta.activity_epoch()),
+                },
+                observed_from: meta.at.clone(),
+                observed_until: "2020-01-02T00:00:01Z".into(),
+                database_writable: Some(true),
+            }),
+            settings_context: None,
+        },
+    };
+    for (raw, expected_origin, expected_unavailable) in [
+        ("<insufficient privilege>", StatementOrigin::Unknown, Some(PayloadUnavailable::Restricted)),
+        ("<command string not enabled>", StatementOrigin::Unknown, Some(PayloadUnavailable::Missing)),
+        ("   ", StatementOrigin::Unknown, Some(PayloadUnavailable::Missing)),
+        ("/* culprit */ SELECT 1", StatementOrigin::Culprit, None),
+        ("/* culprit:monitor */ SELECT 1", StatementOrigin::CulpritMonitoring, None),
+        ("SELECT payload FROM orders WHERE id = $1", StatementOrigin::Application, None),
+    ] {
+        let original = row();
+        let native = Row::from_fields(
+            ["userid", "dbid", "queryid", "toplevel", "stats_since"]
+                .into_iter()
+                .map(|name| (name.into(), original.text(name)))
+                .chain([("query".into(), Some(raw.into())), ("source_text_bytes".into(), Some(raw.len().to_string()))]),
+        );
+        let decoded = definition(&native, &meta, &source, 1024).unwrap();
+        assert_eq!(decoded.origin, expected_origin, "{raw}");
+        match expected_unavailable {
+            Some(reason) => assert_eq!(decoded.sql, DefinitionPayload::Unavailable { reason }, "{raw}"),
+            None => assert!(decoded.sql.is_available(), "{raw}"),
+        }
+        assert!(validate_guarded_definition(&decoded, "2020-01-02T00:00:00.500Z", &meta, &source).is_ok());
+        assert!(validate_guarded_definition(&decoded, "2020-01-01T23:59:59Z", &meta, &source).is_err());
+    }
+}

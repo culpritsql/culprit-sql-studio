@@ -21,7 +21,7 @@ mod incidents;
 mod queries;
 
 // Advance this policy when retained interpretation changes, including builds sharing a package version.
-pub(crate) const BUILTIN_RULES_VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "/retained-diagnosis-6");
+pub(crate) const BUILTIN_RULES_VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "/retained-diagnosis-7");
 
 pub struct ChecksSynthesizer {
     pipeline: Arc<culprit_checks::Pipeline>,
@@ -141,9 +141,13 @@ impl ChecksSynthesizer {
             description.output_coverage.findings = DerivedOutputCoverage::Evaluated;
         }
         if statement_counters::supports(primary) {
-            description.finding_evaluations = statement_counters::evaluations(primary)?;
-            // The input point is retained and assessed, but missing native application definitions still prevent
-            // running query checks. Keep the existing visible AnalysisSourceUnavailable output limitation.
+            let projected =
+                statement_counters::project(primary, originals, &description, &self.pipeline, &catalogs, &mut budget)?;
+            output.findings = projected.findings;
+            description.finding_evaluations = projected.evaluations;
+            if projected.evaluated {
+                description.output_coverage.findings = DerivedOutputCoverage::Evaluated;
+            }
         }
         if primary.source().query_history().is_some() {
             let projected = queries::findings(primary, &description, &self.pipeline, &catalogs, &mut budget)?;

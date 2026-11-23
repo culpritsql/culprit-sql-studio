@@ -20,8 +20,10 @@ impl SourceObservation {
 }
 
 fn execution_is_valid(dataset: SnapshotDataset, from: &str, execution: &NativeReadContext) -> bool {
-    matches!(dataset, SnapshotDataset::Settings | SnapshotDataset::StatementCounters)
-        && execution.has_qualified_local_owner()
+    matches!(
+        dataset,
+        SnapshotDataset::Settings | SnapshotDataset::StatementCounters | SnapshotDataset::StatementDefinitions
+    ) && execution.has_qualified_local_owner()
         && execution.target.database().is_some()
         && execution.database_writable.is_some()
         && matches!(&execution.partition, SourcePartition::InstanceLocal { member: Some(member), .. }
@@ -67,7 +69,9 @@ pub(super) fn source_is_consistent(source: &CollectionDescription) -> Option<boo
     };
     let namespace_matches = match dataset {
         SnapshotDataset::Settings => source.partition == SourcePartition::Target,
-        SnapshotDataset::StatementCounters => source.partition == execution.partition,
+        SnapshotDataset::StatementCounters | SnapshotDataset::StatementDefinitions => {
+            source.partition == execution.partition
+        }
         _ => false,
     };
     Some(valid && namespace_matches && source.target == execution.target)

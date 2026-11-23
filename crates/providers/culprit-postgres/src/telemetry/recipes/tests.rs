@@ -89,7 +89,7 @@ fn every_public_declaration_has_one_actual_offline_constructor_and_no_native_cos
                 Route::MaintenanceProgress
                 | Route::TransactionMetadata
                 | Route::CurrentRequestWork
-                | Route::Snapshot(Recipe::Operational | Recipe::Settings) => 2,
+                | Route::Snapshot(Recipe::Operational | Recipe::Settings | Recipe::Definitions) => 2,
                 _ => 1,
             }
         );
@@ -157,6 +157,18 @@ fn focused_sources_preserve_native_profiles_while_generic_recipes_keep_larger_va
             assert_eq!(bounded.budget.page_rows, 500);
             assert_eq!(bounded.budget.page_bytes, 512 * 1024);
             assert_eq!(bounded.budget.total_bytes, 8 * 1024 * 1024);
+            assert_eq!(bounded.budget.statement_timeout_ms, 1000);
+            assert_eq!(bounded.budget.total_timeout_ms, 5000);
+        } else if matches!(registration.route, Route::Snapshot(Recipe::Definitions)) {
+            assert_eq!(bounded.budget, super::super::statement_profile::definitions_budget(&maximum));
+            assert_eq!(registration.descriptor().purpose, RecipePurpose::Investigation);
+            assert!(matches!(registration.descriptor().admission, RecipeAdmission::Unqualified));
+            assert_eq!(bounded.budget.max_queries, 6);
+            assert_eq!(bounded.budget.max_snapshot_rows, 5000);
+            assert_eq!(bounded.budget.page_rows, 500);
+            assert_eq!(bounded.budget.page_bytes, 512 * 1024);
+            assert_eq!(bounded.budget.total_bytes, 16 * 1024 * 1024);
+            assert_eq!(bounded.budget.max_sql_bytes, 16 * 1024);
             assert_eq!(bounded.budget.statement_timeout_ms, 1000);
             assert_eq!(bounded.budget.total_timeout_ms, 5000);
         } else if matches!(registration.route, Route::Snapshot(Recipe::Settings)) {

@@ -278,22 +278,53 @@ pub(crate) fn validate_guarded_counters(meta: &Metadata, max_entries: u32) -> Re
 /// Guarded snapshots retain native entry/reset identity, not a fabricated execution interval. A saved entry
 /// may precede this postmaster start; its own stats_since remains the only per-entry reset witness.
 pub(crate) fn validate_guarded_sample(sample: &StatementCounterSample, meta: &Metadata) -> Result<()> {
-    let identity = &sample.identity;
-    let Some(since) = identity.qualifiers.get("stats_since") else { return Err(invalid()) };
+    validate_guarded_entry(&sample.identity, &sample.observed_at, meta)?;
+    let Some(since) = sample.identity.qualifiers.get("stats_since") else { return Err(invalid()) };
     let since = canonical_time(since)?;
-    let started_at = canonical_time(&meta.started_at)?;
     if sample.member.is_some()
         || sample.scope != culprit_core::MeasurementScope::Database
-        || identity.qualifiers.get("dbid") != Some(&meta.database_oid)
-        || identity.qualifiers.get("postmaster_started_at") != Some(&started_at)
-        || !identity.qualifiers.get("userid").is_some_and(|user| user.parse::<u32>().is_ok_and(|user| user > 0))
-        || !matches!(identity.qualifiers.get("toplevel").map(String::as_str), Some("true" | "false"))
-        || sample.reset != ResetMarker::At(since.clone())
-        || ObservationBounds::new(&since, &sample.observed_at).is_none()
+        || sample.reset != ResetMarker::At(since)
         || sample.distributions.iter().any(|distribution| match &distribution.extrema_reset {
             ResetMarker::At(at) => ObservationBounds::new(at, &sample.observed_at).is_none(),
             ResetMarker::Unknown | ResetMarker::Generation(_) => true,
         })
+    {
+        return Err(invalid());
+    }
+    Ok(())
+}
+
+pub(crate) fn validate_guarded_definition(
+    definition: &QueryDefinition,
+    observed_at: &str,
+    meta: &Metadata,
+    source: &CollectionDescription,
+) -> Result<()> {
+    let observed_at = canonical_time(observed_at)?;
+    validate_guarded_entry(&definition.identity, &observed_at, meta)?;
+    if let Some(header) = match &source.observation {
+        SourceObservation::PagedSnapshot(header)
+        | SourceObservation::PagedSnapshotAcquisition { snapshot: header, .. } => Some(header),
+        _ => None,
+    } && ObservationBounds::new(&header.observed_from, &observed_at).is_none()
+    {
+        return Err(invalid());
+    }
+    if definition.id != definition.identity.definition_id(source)? {
+        return Err(invalid());
+    }
+    Ok(())
+}
+
+fn validate_guarded_entry(identity: &NativeQueryIdentity, observed_at: &str, meta: &Metadata) -> Result<()> {
+    let Some(since) = identity.qualifiers.get("stats_since") else { return Err(invalid()) };
+    let since = canonical_time(since)?;
+    let started_at = canonical_time(&meta.started_at)?;
+    if identity.qualifiers.get("dbid") != Some(&meta.database_oid)
+        || identity.qualifiers.get("postmaster_started_at") != Some(&started_at)
+        || !identity.qualifiers.get("userid").is_some_and(|user| user.parse::<u32>().is_ok_and(|user| user > 0))
+        || !matches!(identity.qualifiers.get("toplevel").map(String::as_str), Some("true" | "false"))
+        || ObservationBounds::new(&since, observed_at).is_none()
     {
         return Err(invalid());
     }
@@ -457,21 +488,35 @@ pub(crate) fn definition(
 ) -> Result<QueryDefinition> {
     let identity = identity(row, meta)?;
     let source_text_bytes = row.text("source_text_bytes");
-    let text = row.text("query");
-    let (origin, monitoring_template_id) = StatementOrigin::from_sql(text.as_deref(), Engine::Postgres);
-    let sql = match &text {
-        Some(text) => DefinitionPayload::sql(text, Engine::Postgres),
-        None => DefinitionPayload::Unavailable {
-            reason: if source_text_bytes
-                .as_deref()
-                .and_then(|value| value.parse::<usize>().ok())
-                .is_some_and(|bytes| bytes > max_sql_bytes)
-            {
-                PayloadUnavailable::Oversized
-            } else {
-                PayloadUnavailable::Missing
+    let raw = row.text("query");
+    let ((origin, monitoring_template_id), sql) = match raw.as_deref() {
+        Some("<insufficient privilege>") => (
+            (StatementOrigin::Unknown, None),
+            DefinitionPayload::Unavailable { reason: PayloadUnavailable::Restricted },
+        ),
+        Some("<command string not enabled>") => {
+            ((StatementOrigin::Unknown, None), DefinitionPayload::Unavailable { reason: PayloadUnavailable::Missing })
+        }
+        Some(text) if text.trim().is_empty() => {
+            ((StatementOrigin::Unknown, None), DefinitionPayload::Unavailable { reason: PayloadUnavailable::Missing })
+        }
+        Some(text) => {
+            (StatementOrigin::from_sql(Some(text), Engine::Postgres), DefinitionPayload::sql(text, Engine::Postgres))
+        }
+        None => (
+            (StatementOrigin::Unknown, None),
+            DefinitionPayload::Unavailable {
+                reason: if source_text_bytes
+                    .as_deref()
+                    .and_then(|value| value.parse::<usize>().ok())
+                    .is_some_and(|bytes| bytes > max_sql_bytes)
+                {
+                    PayloadUnavailable::Oversized
+                } else {
+                    PayloadUnavailable::Missing
+                },
             },
-        },
+        ),
     };
     Ok(QueryDefinition {
         variant_family: None,

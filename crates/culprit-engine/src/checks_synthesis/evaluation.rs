@@ -53,6 +53,9 @@ impl Evaluations {
     pub fn add_statement_counters(
         &mut self,
         limitations: Vec<culprit_core::collected_analysis::CollectedAnalysisLimit>,
+        assessments: &[CheckAssessment],
+        locked: &[LockedCheck],
+        catalog_inputs: &[u16],
         engine: Engine,
     ) -> Result<()> {
         self.append(
@@ -61,10 +64,10 @@ impl Evaluations {
                 scope: DerivedFindingScope::StatementCounters,
                 checks: vec![],
                 limitations,
-                catalog_inputs: vec![],
+                catalog_inputs: catalog_inputs.to_vec(),
             },
-            &[],
-            &[],
+            assessments,
+            locked,
             engine,
         )
     }
