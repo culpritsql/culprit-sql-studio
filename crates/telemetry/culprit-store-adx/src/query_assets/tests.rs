@@ -150,12 +150,8 @@ fn namespace_membership_retains_the_published_resource_for_every_gold_family_whi
 fn first_observation_consistency_precedes_its_window_and_is_shared_by_heads_alerts_and_status() {
     let assets = configured(binding()).unwrap();
     let definitions = &assets.commands;
-    let original = definitions
-        .iter()
-        .find(|command| {
-            command.contains("VIEW PilotConsistentOriginals ") || command.contains("function PilotConsistentOriginals(")
-        })
-        .unwrap();
+    let original =
+        definitions.iter().find(|command| command.contains("function PilotConsistentOriginalKeys(")).unwrap();
     for field in ["RevisionId", "OriginalRecordedAt", "Lifecycle", "OriginalReference"] {
         assert!(original.contains(field), "{field}");
     }
@@ -164,7 +160,9 @@ fn first_observation_consistency_precedes_its_window_and_is_shared_by_heads_aler
         .iter()
         .find(|command| command.contains("VIEW PilotHeadBasis ") || command.contains("function PilotHeadBasis("))
         .unwrap();
-    assert!(head.contains("max(Revision)") && head.contains("PilotConsistentOriginals("));
+    assert!(head.contains("max(Revision)") && head.contains("PilotConsistentOriginalKeys(Rows)"));
+    assert!(head.contains("PilotIncidentCompleteness(asof)"));
+    assert!(!head.contains("PilotCompleteness(asof)"));
     let alert = definitions
         .iter()
         .find(|command| {

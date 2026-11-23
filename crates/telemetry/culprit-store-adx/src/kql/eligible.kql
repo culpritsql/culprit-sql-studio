@@ -1,11 +1,10 @@
 .create function $TABLE$SCOPEEligible(contract:string,store:string,$RESOURCE_ARGcaptured_from:datetime,asof:datetime) {
-let Published=CulpritPublished$SCOPEV1(contract,store,$RESOURCE_VALUEcaptured_from,asof);
-let Membership=Published
+let Membership=materialize(CulpritPublished$SCOPEV1(contract,store,$RESOURCE_VALUEcaptured_from,asof)
     | mv-expand Batch=Batches
     | where tostring(Batch.table) == "$TABLE" and tobool(Batch.delivery_required)
     | project RangeId,$RESOURCE_MEMBERSHIP BatchId=tostring(Batch.batch_id), ExpectedRows=tolong(Batch.rows),
         PublishedKind=ResourceKind, PublishedManifest=ManifestSha256, PublishedSchema=SchemaDigest, PublishedOutbox=OutboxId,
-        PublishedEpoch=OwnerEpoch, PublishedSequence=CaptureSequence, PublishedReferencesComplete=ReferencesComplete;
+        PublishedEpoch=OwnerEpoch, PublishedSequence=CaptureSequence, PublishedReferencesComplete=ReferencesComplete);
 let Rows=materialize(
     $TABLE
     | where ContractId == contract and $RESOURCE_FILTER

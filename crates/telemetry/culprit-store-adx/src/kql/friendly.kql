@@ -33,30 +33,42 @@ CulpritFindingsV1NamespaceRows($CONTRACT,$STORE,$FROM,asof)
 CulpritChangesV1NamespaceRows($CONTRACT,$STORE,$FROM,asof)
 }
 
-.create-or-alter function $NCompleteness(asof:datetime) {
+.create-or-alter function $NIncidentCompleteness(asof:datetime) {
 let Incidents=$NIncidentRows(asof) | summarize IncidentRows=count() by RangeId;
+$NHeaders(asof)
+| join kind=leftouter Incidents on RangeId
+| extend IncidentRowsComplete=coalesce(IncidentRows,0) == tolong(Header.counts.incidents)
+}
+
+.create-or-alter function $NCompleteness(asof:datetime) {
 let Findings=$NFindingRows(asof) | summarize FindingRows=count() by RangeId;
 let Changes=$NChangeRows(asof) | summarize ChangeRows=count() by RangeId;
-$NHeaders(asof)
-| join kind=leftouter Incidents on RangeId | join kind=leftouter Findings on RangeId | join kind=leftouter Changes on RangeId
-| extend IncidentRowsComplete=coalesce(IncidentRows,0) == tolong(Header.counts.incidents),
-    OutputRowsComplete=coalesce(IncidentRows,0) == tolong(Header.counts.incidents) and coalesce(FindingRows,0) == tolong(Header.counts.findings) and coalesce(ChangeRows,0) == tolong(Header.counts.changes)
+$NIncidentCompleteness(asof)
+| join kind=leftouter Findings on RangeId | join kind=leftouter Changes on RangeId
+| extend OutputRowsComplete=IncidentRowsComplete and coalesce(FindingRows,0) == tolong(Header.counts.findings) and coalesce(ChangeRows,0) == tolong(Header.counts.changes)
+}
+
+.create-or-alter function $NConsistentOriginalKeys(Rows:(ResourceId:string,TargetId:string,OriginalScopeId:string,OriginalSource:string,EpisodeId:string,ControllerVersion:long,Revision:decimal,RevisionId:string,OriginalRecordedAt:datetime,Lifecycle:string,OriginalReference:dynamic)) {
+let Originals=materialize(Rows | project ResourceId,TargetId,OriginalScopeId,OriginalSource,EpisodeId,ControllerVersion,Revision,RevisionId,OriginalRecordedAt,Lifecycle,OriginalReference=tostring(OriginalReference));
+let Stable=Originals
+    | distinct ResourceId,TargetId,OriginalScopeId,OriginalSource,EpisodeId,ControllerVersion,Revision,RevisionId,OriginalRecordedAt,Lifecycle,OriginalReference
+    | summarize Variants=count() by ResourceId,TargetId,OriginalScopeId,OriginalSource,EpisodeId,ControllerVersion,Revision | where Variants == 1;
+Originals | join kind=leftsemi Stable on ResourceId,TargetId,OriginalScopeId,OriginalSource,EpisodeId,ControllerVersion,Revision
+| where isnotempty(RevisionId) and isnotnull(OriginalRecordedAt) and Lifecycle in ("active","resolved","uncertain") and isnotnull(OriginalReference) and isnotempty(tostring(OriginalReference)) and tostring(OriginalReference) !in ("null","{}")
+| distinct ResourceId,TargetId,OriginalScopeId,OriginalSource,EpisodeId,ControllerVersion,Revision
 }
 
 .create-or-alter function $NConsistentOriginals(asof:datetime) {
 let Rows=materialize($NIncidentRows(asof));
-let Stable=Rows | project ResourceId,TargetId,OriginalScopeId,OriginalSource,EpisodeId,ControllerVersion,Revision,RevisionId,OriginalRecordedAt,Lifecycle,OriginalReference=tostring(OriginalReference)
-    | distinct ResourceId,TargetId,OriginalScopeId,OriginalSource,EpisodeId,ControllerVersion,Revision,RevisionId,OriginalRecordedAt,Lifecycle,OriginalReference
-    | summarize Variants=count() by ResourceId,TargetId,OriginalScopeId,OriginalSource,EpisodeId,ControllerVersion,Revision | where Variants == 1;
-Rows | join kind=leftsemi Stable on ResourceId,TargetId,OriginalScopeId,OriginalSource,EpisodeId,ControllerVersion,Revision
-| where isnotempty(RevisionId) and isnotnull(OriginalRecordedAt) and Lifecycle in ("active","resolved","uncertain") and isnotnull(OriginalReference) and isnotempty(tostring(OriginalReference)) and tostring(OriginalReference) !in ("null","{}")
+Rows | join kind=leftsemi ($NConsistentOriginalKeys(Rows)) on ResourceId,TargetId,OriginalScopeId,OriginalSource,EpisodeId,ControllerVersion,Revision
 }
 
 .create-or-alter function $NHeadBasis(asof:datetime) {
-let CompleteResources=$NCompleteness(asof) | summarize Missing=countif(not(IncidentRowsComplete)) by ResourceId | where Missing == 0;
+let CompleteResources=$NIncidentCompleteness(asof) | summarize Missing=countif(not(IncidentRowsComplete)) by ResourceId | where Missing == 0;
 let Rows=materialize($NIncidentRows(asof) | join kind=leftsemi CompleteResources on ResourceId);
 let Versions=Rows | summarize Revision=max(Revision) by ResourceId,TargetId,OriginalScopeId,OriginalSource,EpisodeId,ControllerVersion;
-$NConsistentOriginals(asof) | join kind=leftsemi Versions on ResourceId,TargetId,OriginalScopeId,OriginalSource,EpisodeId,ControllerVersion,Revision
+Rows | join kind=leftsemi ($NConsistentOriginalKeys(Rows)) on ResourceId,TargetId,OriginalScopeId,OriginalSource,EpisodeId,ControllerVersion,Revision
+| join kind=leftsemi Versions on ResourceId,TargetId,OriginalScopeId,OriginalSource,EpisodeId,ControllerVersion,Revision
 }
 
 .create-or-alter function $NHeads(asof:datetime) {
