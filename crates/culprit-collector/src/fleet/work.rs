@@ -94,8 +94,10 @@ pub(super) async fn execute(
     if retention_gap
         && request.collection() == TelemetryCollection::ResourceHistory
         && manifest.description.as_ref().is_none_or(|description| {
-            !matches!(&description.observation, SourceObservation::RetainedSamples(history)
-                if history.coverage_stop() == Some(CollectionStop::RetentionGap))
+            description
+                .observation
+                .sample_history()
+                .is_none_or(|history| history.coverage_stop() != Some(CollectionStop::RetentionGap))
         })
     {
         return failure(job, FleetWork::Capture, CollectionStop::InvalidPage.error(), gap);

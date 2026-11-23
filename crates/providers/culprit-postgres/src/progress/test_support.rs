@@ -16,6 +16,9 @@ pub(crate) fn metadata_on_version(version: u32, standby: &str, started: &str) ->
     metadata_with_visibility(version, standby, started, true)
 }
 pub(crate) fn metadata_with_visibility(version: u32, standby: &str, started: &str, visible: bool) -> Row {
+    metadata_at(version, standby, started, visible, AT)
+}
+pub(crate) fn metadata_at(version: u32, standby: &str, started: &str, visible: bool, at: &str) -> Row {
     let build = format!("PostgreSQL {}.0", version / 10_000);
     let version = version.to_string();
     row(&[
@@ -26,7 +29,7 @@ pub(crate) fn metadata_with_visibility(version: u32, standby: &str, started: &st
         ("block_bytes", Some("8192")),
         ("standby", Some(standby)),
         ("started_at", Some(started)),
-        ("observed_at", Some(AT)),
+        ("observed_at", Some(at)),
         ("full_visibility", Some(if visible { "t" } else { "f" })),
         ("replay_pause_requested_access", Some("f")),
         ("replay_pause_state_access", Some("f")),
@@ -36,11 +39,14 @@ pub(crate) fn metadata_with_visibility(version: u32, standby: &str, started: &st
     ])
 }
 pub(crate) fn member(address: &str) -> Row {
+    member_at(address, AT)
+}
+pub(crate) fn member_at(address: &str, at: &str) -> Row {
     row(&[
         ("address", Some(address)),
         ("port", Some("5432")),
         ("system_identifier", Some("42")),
-        ("observed_at", Some(AT)),
+        ("observed_at", Some(at)),
     ])
 }
 pub(crate) fn actor(backend: &str, query: &str) -> Row {

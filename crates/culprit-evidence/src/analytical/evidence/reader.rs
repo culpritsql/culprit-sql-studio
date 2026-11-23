@@ -18,6 +18,8 @@ use culprit_core::{Result, telemetry::*};
 use serde_json::Value;
 use std::{collections::BTreeSet, sync::Arc, time::Duration};
 
+mod selected;
+
 pub struct EvidenceReader {
     store: Arc<dyn AnalyticalReadStore>,
     indexes: Arc<ProjectionIndexes>,
@@ -204,12 +206,28 @@ impl EvidenceReader {
                 });
             }
             for batch in batches {
-                self.batch(range, batch, catalog.as_ref(), &mut state, &mut capture.records, &mut capture.gaps).await?;
+                self.batch(
+                    range,
+                    batch,
+                    catalog.as_ref(),
+                    &mut state,
+                    BatchSelection::All,
+                    ReadRows { records: &mut capture.records, gaps: &mut capture.gaps },
+                )
+                .await?;
             }
         }
         if let Some(budget) = budget.recovery_payloads {
             let recovery = recovery.ok_or_else(|| DeliveryProblem::InvalidContract.error())?;
-            super::hydration::restore(range, recovery, budget, &mut capture).await?;
+            super::hydration::restore(
+                range,
+                recovery,
+                budget,
+                &mut capture.records,
+                &mut capture.gaps,
+                &mut capture.metrics,
+            )
+            .await?;
         }
         capture
             .records
@@ -306,8 +324,8 @@ impl EvidenceReader {
         batch: &BatchManifest,
         catalog: &dyn ProjectionCatalog,
         state: &mut ReadState<'_>,
-        records: &mut Vec<VerifiedEvidenceRecord>,
-        gaps: &mut Vec<EvidenceGap>,
+        selection: BatchSelection<'_>,
+        rows: ReadRows<'_>,
     ) -> Result<()> {
         if batch.rows.is_empty() {
             return Ok(());
@@ -318,7 +336,7 @@ impl EvidenceReader {
         let expected = match self.indexes.read(&key).await {
             Ok(expected) => expected,
             Err(error) if error.detail == Some(culprit_core::ErrorDetail::Delivery(DeliveryProblem::NotReady)) => {
-                gaps.push(gap(batch, None, EvidenceGapReason::ProjectionProofUnavailable));
+                rows.gaps.push(gap(batch, None, EvidenceGapReason::ProjectionProofUnavailable));
                 return Ok(());
             }
             Err(error) => return Err(error),
@@ -326,8 +344,9 @@ impl EvidenceReader {
         let ordinal_column =
             schema.columns().iter().position(|column| column.name == "RowOrdinal").ok_or_else(invalid)?;
         let mut after = 0;
-        while after < expected.len() {
-            let until = state.page_end(&expected, after)?;
+        while let Some(start) = selection.next_after(after, expected.len())? {
+            after = start;
+            let until = selection.page_until(after, state.page_end(&expected, after)?)?;
             state.query()?;
             state.metrics.pages += 1;
             let page = self.store.rows(range, &batch.batch_id, after, until, state.byte_limit()?).await?;
@@ -353,23 +372,63 @@ impl EvidenceReader {
                 }
                 let values = self.store.logical_values(batch.stream, &row)?;
                 match decode::record(range, batch.stream, &values, &batch.rows[ordinal - 1])? {
-                    Decoded::Record(row) => records.push(VerifiedEvidenceRecord {
+                    Decoded::Record(row) => rows.records.push(VerifiedEvidenceRecord {
                         batch_id: batch.batch_id.clone(),
                         row_ordinal: ordinal as u32,
                         native_payload_sha256: batch.rows[ordinal - 1].payload_digest.clone(),
                         row: *row,
                     }),
-                    Decoded::Unavailable(reason) => gaps.push(gap(batch, Some(ordinal), reason)),
+                    Decoded::Unavailable(reason) => rows.gaps.push(gap(batch, Some(ordinal), reason)),
                 }
             }
             for ordinal in after + 1..=until {
                 if !seen.contains(&ordinal) {
-                    gaps.push(gap(batch, Some(ordinal), EvidenceGapReason::MissingRows));
+                    rows.gaps.push(gap(batch, Some(ordinal), EvidenceGapReason::MissingRows));
                 }
             }
             after = until;
         }
         Ok(())
+    }
+}
+
+struct ReadRows<'a> {
+    records: &'a mut Vec<VerifiedEvidenceRecord>,
+    gaps: &'a mut Vec<EvidenceGap>,
+}
+#[derive(Clone, Copy)]
+enum BatchSelection<'a> {
+    All,
+    Ordinals(&'a BTreeSet<usize>),
+}
+impl BatchSelection<'_> {
+    fn next_after(self, after: usize, total: usize) -> Result<Option<usize>> {
+        match self {
+            Self::All => Ok((after < total).then_some(after)),
+            Self::Ordinals(wanted) => wanted
+                .range((std::ops::Bound::Excluded(after), std::ops::Bound::Unbounded))
+                .next()
+                .map(|ordinal| ordinal.checked_sub(1).ok_or_else(invalid))
+                .transpose(),
+        }
+    }
+    fn page_until(self, after: usize, maximum: usize) -> Result<usize> {
+        match self {
+            Self::All => Ok(maximum),
+            Self::Ordinals(wanted) => {
+                let mut until = after;
+                for &ordinal in wanted.range(after + 1..=maximum) {
+                    if ordinal != until + 1 {
+                        break;
+                    }
+                    until = ordinal;
+                }
+                if until == after {
+                    return Err(capacity());
+                }
+                Ok(until)
+            }
+        }
     }
 }
 

@@ -20,6 +20,18 @@ pub struct RequestMemorySnapshot {
 }
 
 impl RequestMemorySnapshot {
+    /// Native memory measurements use their original acquisition context; logical history snapshots keep their own policy.
+    pub fn acquisition_context(source: &CollectionDescription) -> Result<NativeReadContext> {
+        if source.observation.snapshot().is_none_or(|header| header.dataset != SnapshotDataset::CurrentRequestMemory) {
+            return Err(CollectionStop::InvalidPage.error());
+        }
+        match &source.observation {
+            SourceObservation::SourceRead { .. } | SourceObservation::MetadataLockContext { .. } => {
+                SourceReadExecutionScope::context_from_source(source)
+            }
+            _ => NativeReadContext::from_snapshot(source),
+        }
+    }
     pub fn is_valid(&self) -> bool {
         let Ok(at) = canonical_time(&self.observed_at) else { return false };
         let Some(database) = self.context.target.database() else { return false };
@@ -269,7 +281,7 @@ impl ExecutionGrantObservation {
                 .observation
                 .snapshot()
                 .is_some_and(|header| header.dataset == SnapshotDataset::CurrentRequestMemory)
-                && NativeReadContext::from_snapshot(source).is_ok_and(|context| self.fits_context(&context))
+                && RequestMemorySnapshot::acquisition_context(source).is_ok_and(|context| self.fits_context(&context))
     }
 }
 

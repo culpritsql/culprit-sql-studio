@@ -1,6 +1,7 @@
 //! SQL Server and Azure SQL.
 
 use super::*;
+mod execution_profile;
 mod performance_counters;
 use crate::dialect::{NewIndex, Online, included, keys, unique};
 use crate::model::Capability;
@@ -8,6 +9,26 @@ use crate::model::Capability;
 pub(super) struct Mssql;
 
 impl EngineSpec for Mssql {
+    fn execution_task_wait(&self, native_type: &str) -> Option<crate::telemetry::ExecutionTaskWaitKind> {
+        execution_profile::wait_kind(native_type)
+    }
+    fn commit_counter_kind(
+        &self,
+        source: &str,
+        set: &crate::telemetry::NativeCounterSet,
+        counter: &crate::telemetry::NativeCounterSample,
+    ) -> Option<crate::CommitPipelineCounterKind> {
+        commit_pipeline::counter_kind(source, set, counter)
+    }
+    fn commit_wait_stage(&self, native_type: &str) -> Option<crate::CommitPipelineStage> {
+        commit_pipeline::wait_stage(native_type).or_else(|| match self.native_wait_mechanism(native_type) {
+            Some(crate::telemetry::WaitMechanism::LogRateGovernance(component)) => {
+                Some(crate::CommitPipelineStage::RateGovernance { component: Some(component) })
+            }
+            _ => None,
+        })
+    }
+
     fn default_port(&self) -> Option<u16> {
         Some(1433)
     }
@@ -309,3 +330,5 @@ impl QueryStoreReadMode {
         matches!(self, Self::ReadWrite | Self::ReadCaptureSecondary)
     }
 }
+
+mod commit_pipeline;

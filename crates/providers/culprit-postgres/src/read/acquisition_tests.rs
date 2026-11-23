@@ -42,4 +42,7 @@ fn native_telemetry_constructor_keeps_its_original_budget_and_no_normal_observer
     let reader = ReadSession::new(connector(), budget.clone());
     assert_eq!(reader.budget, budget);
     assert!(reader.observation.is_none());
+    assert!(reader.connection_work.as_ref().unwrap().snapshot().is_none());
+    assert_eq!(reader.queries, 0);
+    assert!(reader.client.is_none());
 }

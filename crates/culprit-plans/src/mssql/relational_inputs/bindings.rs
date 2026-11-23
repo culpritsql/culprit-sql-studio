@@ -2,7 +2,10 @@
 //! another scope's variable kind merely because its Table or Alias has the same spelling.
 use super::{LocalName, Node};
 use culprit_core::{
-    sql::{MssqlRelationName, MssqlRelationReference, identifier_parts, mssql_relational_references},
+    sql::{
+        MssqlRelationName, MssqlRelationReference, identifier_parts, mssql_redacted_relational_references,
+        mssql_relational_references,
+    },
     telemetry::CollectionTarget,
 };
 use std::collections::{BTreeMap, BTreeSet};
@@ -14,7 +17,11 @@ pub(super) enum Namespace<'a> {
 }
 
 pub(super) fn parameters(statement: Node<'_, '_>, namespace: Namespace<'_>) -> Option<BTreeMap<u32, String>> {
-    let references = mssql_relational_references(statement.attribute("StatementText")?)?;
+    let text = statement.attribute("StatementText")?;
+    let references = match &namespace {
+        Namespace::Retained => mssql_redacted_relational_references(text),
+        Namespace::Unknown | Namespace::Original(_) => mssql_relational_references(text),
+    }?;
     // Stored XML removes native database names. An authenticated outer target cannot reconstruct those names;
     // positive archived named-relation binding needs typed proof retained before redaction.
     if matches!(namespace, Namespace::Unknown)

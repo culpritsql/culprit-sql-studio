@@ -46,7 +46,9 @@ pub fn resource_governor_candidate(sample: &NativeCounterSet) -> bool {
 
 /// A requested population with no returned rows is unavailable, never an empty healthy group inventory.
 pub fn resource_governor_requested_rows(sample: &NativeCounterSet) -> Result<Option<u32>> {
-    let Some(requested) = sample.properties.get(MSSQL_RESOURCE_GOVERNOR_REQUEST_PROPERTY) else { return Ok(None) };
+    let Some(requested) = sample.properties.get(MSSQL_RESOURCE_GOVERNOR_REQUEST_PROPERTY) else {
+        return Ok(None);
+    };
     if requested != "true" || resource_governor_counter_set(sample) {
         return Err(invalid());
     }
@@ -135,30 +137,54 @@ impl<'a> MssqlResourceGovernorCounterSet<'a> {
 }
 
 pub fn resource_governor_fits_source(sample: &NativeCounterSet, source: &CollectionDescription) -> bool {
-    source.observation.snapshot().is_some_and(|snapshot| snapshot.dataset == SnapshotDataset::Operational)
-        && NativeReadContext::from_snapshot(source)
-            .is_ok_and(|context| MssqlResourceGovernorCounterSet::fits_context(sample, &context))
+    if !source.observation.snapshot().is_some_and(|snapshot| snapshot.dataset == SnapshotDataset::Operational) {
+        return false;
+    }
+    match observer(sample) {
+        Ok(Observer::Instance { .. }) => NativeReadContext::from_snapshot(source)
+            .is_ok_and(|context| MssqlResourceGovernorCounterSet::fits_context(sample, &context)),
+        Ok(Observer::Pool) => mssql_pool_current_authority(source)
+            .is_ok_and(|authority| authority.is_some_and(|authority| authority.accepts_governor_sample(sample))),
+        Err(_) => false,
+    }
 }
 impl MssqlResourceGovernorCounterSet<'_> {
-    /// The request marker and each native group/pool set belong to this exact original observer and process.
+    /// Context-only callers cannot supply the additional private native pool anchor/epoch authority.
     pub fn fits_context(sample: &NativeCounterSet, context: &NativeReadContext) -> bool {
-        let Ok((instance, epoch)) = observer(sample) else { return false };
+        let Ok(Observer::Instance { instance, epoch }) = observer(sample) else {
+            return false;
+        };
         sample
             .properties
             .get(PERFORMANCE_COUNTER_CLOCK_PROPERTY)
             .is_some_and(|at| context.contains_instance_point(crate::Engine::Mssql, instance, epoch, at))
     }
 }
-fn observer(sample: &NativeCounterSet) -> Result<(&str, &str)> {
+enum Observer<'a> {
+    Instance { instance: &'a str, epoch: &'a str },
+    Pool,
+}
+fn observer(sample: &NativeCounterSet) -> Result<Observer<'_>> {
     let properties =
         if resource_governor_counter_set(sample) { &sample.identity.qualifiers } else { &sample.properties };
-    let instance = properties.get("resource_governor_instance_id").ok_or_else(invalid)?;
-    let epoch = properties.get("resource_governor_instance_epoch").ok_or_else(invalid)?;
-    if !valid_digest(instance) || !valid_digest(epoch) {
-        return Err(invalid());
+    let instance = properties.get("resource_governor_instance_id");
+    let epoch = properties.get("resource_governor_instance_epoch");
+    let pool = properties.get("resource_governor_elastic_pool_id");
+    let anchor = properties.get("resource_governor_anchor_id");
+    let pool_epoch = properties.get("resource_governor_pool_process_epoch");
+    match (instance, epoch, pool, anchor, pool_epoch) {
+        (Some(instance), Some(epoch), None, None, None) if valid_digest(instance) && valid_digest(epoch) => {
+            Ok(Observer::Instance { instance, epoch })
+        }
+        (None, None, Some(pool), Some(anchor), Some(epoch))
+            if [pool, anchor, epoch].into_iter().all(|value| valid_digest(value)) =>
+        {
+            Ok(Observer::Pool)
+        }
+        _ => Err(invalid()),
     }
-    Ok((instance, epoch))
 }
+
 fn optional_id(sample: &NativeCounterSet, key: &str) -> Result<Option<String>> {
     sample
         .properties

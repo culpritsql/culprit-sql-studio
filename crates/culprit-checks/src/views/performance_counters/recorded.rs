@@ -56,7 +56,7 @@ pub fn unavailable(
                 t!("view.performance_counters.limit.historical"),
                 t!("view.performance_counters.limit.original"),
             ],
-            PerformanceCounterPopulation::SharedServer => {
+            PerformanceCounterPopulation::SharedServer | PerformanceCounterPopulation::SharedPool => {
                 vec![t!("view.performance_counters.limit.scope"), t!("view.performance_counters.limit.original")]
             }
         },

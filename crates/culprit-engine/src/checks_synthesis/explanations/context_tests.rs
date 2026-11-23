@@ -1,3 +1,5 @@
+mod commit_log;
+mod readable_secondary_recovery;
 mod transaction_metadata;
 use super::*;
 use crate::collected_evidence::RetainedEvidenceFixture as Fixture;
@@ -42,8 +44,11 @@ async fn retained(source: CollectionDescription, records: Vec<TelemetryRecord>, 
         .await
 }
 async fn history(episode: DiagnosticEpisode, sequence: u64) -> EvidenceCapture {
-    let parent = episode.latest.capture_ref();
     let revision = DiagnosticRevision::between(None, episode, "2020-01-01T12:00:20Z").unwrap().unwrap();
+    history_revision(revision, sequence).await
+}
+async fn history_revision(revision: DiagnosticRevision, sequence: u64) -> EvidenceCapture {
+    let parent = revision.episode.latest.capture_ref();
     let checkpoint = active_checkpoint(&revision);
     let source = CollectionDescription {
         target: revision.episode.scope.target.clone(),
@@ -90,12 +95,19 @@ fn active_checkpoint(revision: &DiagnosticRevision) -> DiagnosticCheckpointPart 
     checkpoint
 }
 fn project(captures: &[&EvidenceCapture], issues: Vec<DerivedContextIssue>) -> Result<DerivedDiagnosis> {
+    project_at(captures, issues, "2020-01-01T12:01:00Z")
+}
+fn project_at(
+    captures: &[&EvidenceCapture],
+    issues: Vec<DerivedContextIssue>,
+    recorded_at: &str,
+) -> Result<DerivedDiagnosis> {
     let originals = captures.iter().map(|capture| capture.verified_original()).collect::<Result<Vec<_>>>()?;
     let borrowed = originals.iter().map(|original| original as &dyn OriginalProjection).collect::<Vec<_>>();
     ChecksSynthesizer::new(Arc::new(culprit_checks::Pipeline::builtin()), "incident-context-policy-1")?
         .analyze_originals(
             &borrowed,
-            "2020-01-01T12:01:00Z",
+            recorded_at,
             &DerivedDisplayContext { connection_alias: "saved-route".into(), environment: None, database_name: None },
             issues,
         )
@@ -431,4 +443,14 @@ async fn current_request_work_preserves_native_coverage_limits_without_inventing
     assert_eq!(explanation.attribution_status(), DerivedAttributionStatus::Unestablished);
 }
 
+mod execution_profiles;
+mod profile_reuse;
 mod workers;
+
+mod output_blocking;
+mod output_grant;
+
+#[cfg(feature = "mssql-native-tests")]
+mod native_serial_tvp;
+
+mod mysql_metadata_context;

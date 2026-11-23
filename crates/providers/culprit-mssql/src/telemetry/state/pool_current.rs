@@ -39,7 +39,9 @@ pub(super) async fn closing<R: NativeRead>(
     reader: &mut R,
     from: &str,
 ) -> Result<Option<(String, bool, MssqlPoolCurrentAuthority)>> {
-    let subject::Identity::PoolCurrent(before) = owner else { return Ok(None) };
+    let subject::Identity::PoolCurrent(before) = owner else {
+        return Ok(None);
+    };
     let after = before.recheck(reader).await?;
     if !before.confirms(&after, from) {
         return Err(CollectionStop::SourceChanged.error());
@@ -47,7 +49,7 @@ pub(super) async fn closing<R: NativeRead>(
     Ok(Some((
         after.point.observed_at.clone(),
         after.metadata_visible,
-        MssqlPoolCurrentAuthority { before: before.point.clone(), after: after.point },
+        MssqlPoolCurrentAuthority { before: before.point.clone(), after: after.point, native: None },
     )))
 }
 

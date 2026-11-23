@@ -29,8 +29,10 @@ pub(super) async fn parents(
         return Ok(Some(original));
     };
     let context = outbox.diagnostic_input(&prerequisite.capture.observation_id, DIAGNOSTIC_CONTROLLER_VERSION).await?;
-    let participant = context.source.observation.focus().ok_or_else(|| DeliveryProblem::Integrity.error())?;
-    if !verify_focus_parent(outbox, &input.connection, participant, recovery, cancellation).await? {
+    if let Some(participant) =
+        focus.prerequisite.activity_participant(&context.source).map_err(|_| DeliveryProblem::Integrity.error())?
+        && !verify_focus_parent(outbox, &input.connection, participant, recovery, cancellation).await?
+    {
         return Ok(None);
     }
     let rows = context
@@ -50,7 +52,7 @@ pub(super) async fn parents(
 }
 
 pub(super) fn analyze(input: &DiagnosticInput, original: &OriginalBasis, at: &str) -> Result<Option<DiagnosticUpdate>> {
-    if !matches!(input.source.observation, SourceObservation::SourceRead { .. })
+    if !input.source.observation.is_source_read_result()
         || !crate::outbox::source_read_retains_rows(&input.source, input.investigation.as_ref())?
             && !input.rows.is_empty()
     {
@@ -68,7 +70,7 @@ pub(super) fn analyze(input: &DiagnosticInput, original: &OriginalBasis, at: &st
     let DiagnosticFocus::SourceRead { focus } = &intent.focus else {
         return Err(DeliveryProblem::Integrity.error());
     };
-    let stage = before.source_reads.get(focus.question).ok_or_else(|| DeliveryProblem::Integrity.error())?;
+    let stage = before.source_reads.get_focus(focus).ok_or_else(|| DeliveryProblem::Integrity.error())?;
     if stage.focus != **focus {
         return Err(DeliveryProblem::Integrity.error());
     }

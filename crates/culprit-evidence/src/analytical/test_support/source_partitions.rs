@@ -239,3 +239,46 @@ fn workload_plan(sql: &str, actual: bool, index: u32) -> String {
         r#"<ShowPlanXML><BatchSequence><Batch><Statements><StmtSimple StatementText="{sql}" QueryHash="0x0123456789ABCDE{index}" StatementType="SELECT"><QueryPlan><RelOp NodeId="0" PhysicalOp="Table Scan" LogicalOp="Table Scan" EstimateRows="1" Parallel="false">{runtime}<TableScan><Object Database="[db]" Schema="[dbo]" Table="[marker]" /></TableScan></RelOp></QueryPlan></StmtSimple></Statements></Batch></BatchSequence></ShowPlanXML>"#
     )
 }
+
+/// A controlled whole-instance original uses the canonical EOF/receipt path; this is no native MI/cost qualification.
+pub fn instance_activity_evidence_cases() -> Vec<(CollectionDescription, Vec<TelemetryRecord>)> {
+    let (baseline, mut rows) = activity_evidence_cases().remove(0);
+    for (index, row) in rows.iter_mut().enumerate() {
+        let TelemetryRecord::Activity(row) = row else { unreachable!() };
+        row.scope = ActivityScopeBasis::InstanceMember;
+        if index == 1 {
+            row.database = Some("database-reported-other-db".into());
+        }
+    }
+    [(rows.clone(), true), (rows[..2].to_vec(), false), (vec![], true)]
+        .into_iter()
+        .map(|(rows, complete)| {
+            let mut source = baseline.clone();
+            let member = SharedResourceIdentity {
+                engine: culprit_core::Engine::Mssql,
+                kind: SharedResourceKind::Instance,
+                namespace: NativeIdentity::new("controlled-native-instance-namespace"),
+                native: NativeIdentity::new("controlled-native-instance-member"),
+            };
+            source.target = CollectionTarget::Shared(member.clone());
+            source.partition = SourcePartition::InstanceLocal {
+                member: Some(member),
+                epoch: Some(digest(b"controlled-native-instance-process")),
+            };
+            let SourceObservation::Activity(frame) = &mut source.observation else { unreachable!() };
+            frame.epoch = source.partition.native_epoch().map(str::to_owned);
+            frame.scope = culprit_core::MeasurementScope::Server;
+            frame.population = ActivityPopulation::UserSessionsCurrentRequestsAndBlockers;
+            frame.database_writable = None;
+            frame.native_rows = rows.len() as u32;
+            frame.observations = rows.len() as u32;
+            frame.coverage = StateSourceCoverage::observed(source.source.clone(), rows.len() as u32, complete);
+            if !complete {
+                frame.coverage.stopped = Some(CollectionStop::RowLimit);
+            }
+            assert!(source.has_qualified_instance_activity());
+            assert!(source.partition_is_consistent());
+            (source, rows)
+        })
+        .collect()
+}

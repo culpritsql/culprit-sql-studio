@@ -2,8 +2,10 @@ use super::*;
 
 #[tokio::test]
 async fn activity_readback_preserves_exact_originals_unknowns_empty_populations_and_native_coverage() {
-    for (source, records) in
-        test_support::activity_evidence_cases().into_iter().chain([test_support::scalar_blocking_activity_evidence()])
+    for (source, records) in test_support::activity_evidence_cases()
+        .into_iter()
+        .chain([test_support::scalar_blocking_activity_evidence()])
+        .chain(test_support::instance_activity_evidence_cases())
     {
         let fixture =
             Fixture::new_for_stream(source.clone(), records.clone(), TelemetryStream::ActivityObservations).await;
@@ -28,6 +30,7 @@ async fn activity_readback_preserves_exact_originals_unknowns_empty_populations_
             for (pointer, value) in [
                 ("/statement_identity/qualifiers/database_id", json!("another-native-database")),
                 ("/open_transactions", json!(0)),
+                ("/scope", json!("session-database")),
             ] {
                 let mut changed = first.clone();
                 let mut facts: Value = serde_json::from_str(changed[column].as_str().unwrap()).unwrap();

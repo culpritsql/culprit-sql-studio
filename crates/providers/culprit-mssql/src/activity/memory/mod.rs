@@ -72,9 +72,13 @@ impl<R: NativeRead> ActivityReader<R> {
         Ok(MemoryCapture { context, owner, complete_scope, observations: frame.into_observations()? })
     }
     pub(crate) async fn observe_memory(&mut self) -> Result<MemoryFrame> {
-        self.observe_memory_for(None).await
+        self.observe_memory_for(None, None).await
     }
-    async fn observe_memory_for(&mut self, focus: Option<&ActivityRequestFocus>) -> Result<MemoryFrame> {
+    async fn observe_memory_for(
+        &mut self,
+        focus: Option<&ActivityRequestFocus>,
+        expected: Option<&SourceReadExecutionScope>,
+    ) -> Result<MemoryFrame> {
         if self.observed {
             return Err(invalid_data());
         }
@@ -102,6 +106,11 @@ impl<R: NativeRead> ActivityReader<R> {
         }
         if let Some(focus) = focus {
             super::participants::matches_owner(focus, &initial)?;
+        }
+        if let Some(expected) = expected {
+            if !expected.matches_context(&initial.completed(&initial)?) {
+                return Err(CollectionStop::SourceChanged.error());
+            }
         }
         let layout = fields::Layout::read(&mut self.io, &initial).await?;
         let limit = (self.options.budget.max_snapshot_rows as usize).min(MAX_REQUEST_MEMORY_OBSERVATIONS);

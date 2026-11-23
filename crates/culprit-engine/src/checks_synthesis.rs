@@ -17,8 +17,7 @@ mod incidents;
 mod queries;
 
 // Advance this policy when retained interpretation changes, including builds sharing a package version.
-#[cfg(feature = "collector")]
-pub(crate) const BUILTIN_RULES_VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "/retained-diagnosis-3");
+pub(crate) const BUILTIN_RULES_VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "/retained-diagnosis-4");
 
 pub struct ChecksSynthesizer {
     pipeline: Arc<culprit_checks::Pipeline>,
@@ -55,6 +54,9 @@ impl ChecksSynthesizer {
         self.analyze_originals(&borrowed, recorded_at, display, vec![])
     }
     fn analyzer(&self) -> ComponentVersion {
+        Self::builtin_analyzer()
+    }
+    pub(crate) fn builtin_analyzer() -> ComponentVersion {
         ComponentVersion::package(
             "culprit-checks",
             env!("CARGO_PKG_VERSION"),

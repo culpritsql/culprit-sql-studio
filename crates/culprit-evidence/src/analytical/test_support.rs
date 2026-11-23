@@ -5,6 +5,9 @@ use crate::delivery::{
 };
 use culprit_core::telemetry::*;
 
+mod collector_connections;
+pub use collector_connections::{CollectorConnectionCase, collector_connection_evidence};
+
 mod suspect_pages;
 pub use suspect_pages::{SuspectPageHistoryCase, assert_suspect_page_history_capture, suspect_page_history_evidence};
 mod backup_history;
@@ -53,7 +56,7 @@ pub use resource_io::{rbio_wait_evidence, resource_io_evidence, resource_role_ev
 pub use wait_counters::{PoolWaitCounterCase, WaitCounterCase, pool_wait_counter_evidence, wait_counter_evidence};
 mod activity;
 mod session_census;
-pub use session_census::{SessionCensusCase, session_census_evidence};
+pub use session_census::{RecentClientCase, SessionCensusCase, recent_client_evidence, session_census_evidence};
 mod compilation_definitions;
 mod compilation_intervals;
 pub use activity::{
@@ -61,7 +64,16 @@ pub use activity::{
 };
 pub use compilation_definitions::{CompilationDefinitionCase, compilation_definition_evidence_cases};
 mod metadata_queue;
+mod mssql_metadata_queue;
+mod mysql_metadata_context;
 pub use metadata_queue::{MetadataQueueCase, metadata_queue_evidence, metadata_queue_evidence_cases};
+pub use mssql_metadata_queue::{
+    MssqlMetadataQueueCase, mssql_metadata_queue_evidence, mssql_metadata_queue_evidence_cases,
+};
+pub use mysql_metadata_context::{
+    MetadataLockContextCase, MetadataLockOriginal, assert_metadata_lock_context_capture,
+    metadata_lock_context_evidence, metadata_lock_context_result, metadata_lock_original,
+};
 mod blocking;
 pub use blocking::{BlockingCase, assert_blocking_capture, blocking_evidence, blocking_evidence_cases};
 pub use compilation_intervals::compilation_interval_evidence;
@@ -74,8 +86,11 @@ pub use query_compilation_followup::{
     query_compilation_followup_evidence, query_compilation_followup_original, query_compilation_followup_result,
 };
 pub use transaction_metadata::{
-    TransactionMetadataCase, TransactionMetadataOriginal, transaction_metadata_answer, transaction_metadata_evidence,
-    transaction_metadata_original, transaction_metadata_result,
+    TransactionMetadataCase, TransactionMetadataContinuationCase, TransactionMetadataObservation,
+    TransactionMetadataOriginal, TransactionMetadataSlruCase, transaction_metadata_answer,
+    transaction_metadata_continuation_history, transaction_metadata_continuation_result, transaction_metadata_evidence,
+    transaction_metadata_original, transaction_metadata_original_at, transaction_metadata_result,
+    transaction_metadata_result_at, transaction_metadata_slru_original, transaction_metadata_slru_pair,
 };
 mod source_overhead;
 pub use source_overhead::{
@@ -84,8 +99,8 @@ pub use source_overhead::{
 };
 mod source_partitions;
 pub use source_partitions::{
-    assert_replica_activity_capture, replica_activity_evidence_cases, replica_workload_evidence_cases,
-    replicated_history_evidence_cases,
+    assert_replica_activity_capture, instance_activity_evidence_cases, replica_activity_evidence_cases,
+    replica_workload_evidence_cases, replicated_history_evidence_cases,
 };
 mod investigations;
 pub use investigations::{
@@ -225,6 +240,7 @@ pub fn assert_memory_participants_capture(
     let dataset = source.observation.snapshot().expect("native memory snapshot").dataset;
     match &source.target {
         CollectionTarget::Database(_) => assert_eq!(dataset, SnapshotDataset::CurrentRequestMemory),
+        CollectionTarget::ConfiguredConnection(_) => panic!("native memory fixture cannot represent collector control"),
         CollectionTarget::Shared(resource) => {
             assert_eq!(dataset, SnapshotDataset::SessionMemory);
             assert_eq!(resource.kind, SharedResourceKind::Instance);
@@ -1084,7 +1100,9 @@ pub use incident_history::{IncidentHistoryCase, assert_incident_history_capture,
 mod diagnostic_originals;
 pub use diagnostic_originals::{DiagnosticOriginalCase, diagnostic_original_evidence};
 
+mod current_execution_profile;
 mod temporary_resources;
+pub use current_execution_profile::*;
 mod worker_starvation;
 pub use temporary_resources::{temporary_resource_basis, temporary_resource_history, temporary_resource_result};
 pub use worker_starvation::{
@@ -1109,3 +1127,21 @@ pub use mssql_schema_catalogs::{MssqlSchemaCatalogCase, mssql_schema_catalog_evi
 
 mod job_executions;
 pub use job_executions::{JobExecutionCase, job_execution_evidence, job_execution_evidence_cases};
+
+mod commit_pipeline;
+pub use commit_pipeline::{
+    CommitPipelineCase, CommitPipelineFixture, CommitPipelineIntervalCase, CommitPipelineOriginalFixture,
+    commit_pipeline_fixture, commit_pipeline_interval_fixture,
+};
+mod output_grant;
+pub use output_grant::*;
+mod output_blocking;
+pub use output_blocking::{OutputBlockingCaseFixture, OutputBlockingFixture, output_blocking_fixture};
+mod readable_secondary_recovery;
+pub use readable_secondary_recovery::{
+    ReadableSecondaryCase, ReadableSecondaryOriginal, readable_secondary_answer, readable_secondary_evidence,
+    readable_secondary_original, readable_secondary_result,
+};
+
+mod readable_resource_history;
+pub use readable_resource_history::readable_resource_history_case;

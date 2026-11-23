@@ -9,7 +9,7 @@ mod transition;
 
 pub const MAX_DIAGNOSTIC_EPISODES: usize = 4_096;
 pub const MAX_DIAGNOSTIC_INPUTS: usize = 256;
-pub const DIAGNOSTIC_CONTROLLER_VERSION: u32 = 19;
+pub const DIAGNOSTIC_CONTROLLER_VERSION: u32 = 20;
 pub const DIAGNOSTICS_SOURCE: &str = "culprit-diagnostics";
 
 #[derive(Serialize, Deserialize, TS, Clone, Debug, PartialEq, Eq)]
@@ -365,6 +365,10 @@ pub enum DiagnosticSignal {
         key: ActivityKey,
         statement_identity: Option<NativeIdentity>,
     },
+    ClientResultOutput {
+        key: ActivityKey,
+        statement_identity: Option<NativeIdentity>,
+    },
     TransactionMetadataWait {
         key: ActivityKey,
         statement_identity: Option<NativeIdentity>,
@@ -394,6 +398,7 @@ impl DiagnosticSignal {
                 Self::LockWait { key } => key.request.is_some(),
                 Self::RequestMemory { key, statement_identity }
                 | Self::LogRateGovernance { key, statement_identity }
+                | Self::ClientResultOutput { key, statement_identity }
                 | Self::TransactionMetadataWait { key, statement_identity, .. }
                 | Self::CompilationAdmission { key, statement_identity }
                 | Self::WorkerStarvation { key, statement_identity } => {
@@ -432,6 +437,7 @@ impl DiagnosticSignal {
             | Self::PageTaskWait { key, .. }
             | Self::RequestMemory { key, .. }
             | Self::LogRateGovernance { key, .. }
+            | Self::ClientResultOutput { key, .. }
             | Self::TransactionMetadataWait { key, .. }
             | Self::CompilationAdmission { key, .. }
             | Self::WorkerStarvation { key, .. } => Some(key),
@@ -590,7 +596,7 @@ impl DiagnosticEpisode {
                 self.is_valid()
                     && self
                         .source_reads
-                        .get(focus.question)
+                        .get_focus(focus)
                         .is_some_and(|stage| stage.focus == **focus && stage.matches_episode(self))
             }
             DiagnosticFocus::Blocking { focus } => self.matches_blocking_focus(focus),
@@ -630,8 +636,11 @@ impl DiagnosticEpisode {
                 if *key == focus.original.key && statement_identity.as_ref() == Some(&focus.statement_identity))
     }
     pub(super) fn matches_request_origin(&self, focus: &ActivityRequestFocus) -> bool {
-        self.is_valid()
-            && focus.is_valid()
+        self.is_valid() && self.matches_recorded_request_origin(focus)
+    }
+    /// Stage validation reuses the native-origin comparisons without recursively validating the episode.
+    pub(super) fn matches_recorded_request_origin(&self, focus: &ActivityRequestFocus) -> bool {
+        focus.is_valid()
             && self.signal.activity_key() == Some(&focus.original.key)
             && self.scope.source == focus.source
             && self.scope.native_epoch.as_deref() == Some(focus.epoch.as_str())

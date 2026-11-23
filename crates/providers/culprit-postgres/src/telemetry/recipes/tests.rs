@@ -43,6 +43,14 @@ fn request(registration: &Registration, budget: CollectionBudget) -> CollectionR
             Route::CurrentRequestWork => CollectionSelection::CurrentRequestWork {
                 focus: Box::new(crate::progress::test_support::original_focus()),
             },
+            Route::ReadableSecondaryRecovery => {
+                let original =
+                    culprit_evidence::analytical::test_support::readable_secondary_original(Engine::Postgres);
+                CollectionSelection::SourceRead {
+                    focus: Box::new(original.focus),
+                    execution: Box::new(original.execution),
+                }
+            }
             Route::TransactionMetadata => {
                 let original = culprit_evidence::analytical::test_support::transaction_metadata_original(
                     TransactionMetadataWait::Subtransaction,
@@ -76,8 +84,10 @@ fn every_public_declaration_has_one_actual_offline_constructor_and_no_native_cos
             descriptor.version,
             match registration.route {
                 Route::Activity => 4,
-                Route::Jobs | Route::Blocking => 3,
+                Route::Jobs => 3,
+                Route::Blocking => 4,
                 Route::MaintenanceProgress
+                | Route::TransactionMetadata
                 | Route::CurrentRequestWork
                 | Route::Snapshot(Recipe::Operational | Recipe::Statements) => 2,
                 _ => 1,
@@ -158,6 +168,15 @@ fn focused_sources_preserve_native_profiles_while_generic_recipes_keep_larger_va
             assert_eq!(bounded.budget.max_snapshot_rows, 1);
             assert_eq!(bounded.budget.page_rows, 1);
             assert_eq!(bounded.budget.max_sql_bytes, MAX_CURRENT_REQUEST_WORK_SQL_BYTES as u32);
+            assert_eq!(bounded.budget.statement_timeout_ms, 1_000);
+            assert_eq!(bounded.budget.total_timeout_ms, 5_000);
+            assert_eq!(registration.descriptor().purpose, RecipePurpose::Investigation);
+        } else if matches!(registration.route, Route::ReadableSecondaryRecovery) {
+            assert_eq!(bounded.budget, super::super::readable_secondary_recovery::bounded_budget(&maximum));
+            assert_eq!(bounded.budget.max_queries, 9);
+            assert_eq!((bounded.budget.max_snapshot_rows, bounded.budget.page_rows), (1, 1));
+            assert_eq!(bounded.budget.page_bytes, 64 * 1024);
+            assert_eq!(bounded.budget.total_bytes, 256 * 1024);
             assert_eq!(bounded.budget.statement_timeout_ms, 1_000);
             assert_eq!(bounded.budget.total_timeout_ms, 5_000);
             assert_eq!(registration.descriptor().purpose, RecipePurpose::Investigation);

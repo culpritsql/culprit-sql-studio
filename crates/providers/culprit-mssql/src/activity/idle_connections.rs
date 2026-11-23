@@ -33,9 +33,13 @@ const RELATION: &str = r#"
  ) candidate
  ) pc"#;
 
-pub(super) fn query(identity: IdentityDetail, availability: Availability) -> String {
+pub(super) fn query(
+    identity: IdentityDetail,
+    availability: Availability,
+    scope: &super::census_scope::CensusScope,
+) -> String {
     let select = |columns, relation| {
-        let rows = sql::metadata_rows(availability, columns, relation);
+        let rows = sql::census_rows(availability, columns, relation, scope);
         sql::request_frame_select_with_context(&rows, identity, sql::QueryPolicy::Activity, "")
     };
     format!(

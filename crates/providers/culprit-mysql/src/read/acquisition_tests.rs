@@ -45,5 +45,8 @@ fn source_readers_with_no_normal_context_keep_their_original_telemetry_accountin
     let reader = ReadSession::new(Arc::new(connector()), budget.clone(), Scope::Server);
     assert_eq!(reader.accounting.budget, budget);
     assert!(reader.observation.is_none());
+    assert!(reader.accounting.connection_work.as_ref().unwrap().snapshot().is_none());
+    assert_eq!(reader.query_count(), 0);
+    assert!(reader.peer.is_none());
     assert!(reader.accounting.observation.is_none());
 }

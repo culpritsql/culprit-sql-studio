@@ -10,6 +10,8 @@ pub enum NativeLogFormat {
     PostgresJson,
     PostgresCsv13,
     PostgresCsv,
+    /// Explicit XML exported from Extended Events; binary .xel files are not decoded.
+    MssqlExtendedEventsXml,
 }
 
 #[derive(Serialize, Deserialize, TS, Clone, Copy, Debug, PartialEq, Eq)]
@@ -47,11 +49,13 @@ pub enum NativeLogProblem {
     RecordBytes,
     FieldBytes,
     InvalidUtf8,
+    InvalidEncoding,
     MalformedRecord,
     DuplicateField,
     InvalidField(String),
     CsvColumnCount,
     NativeShape,
+    UnsupportedEvent,
 }
 
 #[derive(Serialize, Deserialize, TS, Clone, Debug, PartialEq, Eq)]
@@ -86,6 +90,8 @@ pub struct NativeLogAnalysis {
     pub issues: Vec<NativeLogIssue>,
     pub stopped: Option<NativeLogProblem>,
     pub report: RetainedFailureReport,
+    /// Supplied XML is an unverified artifact, not a qualified native feed or current database owner.
+    pub native_events: Option<ImportedNativeEvents>,
 }
 impl NativeLogAnalysis {
     /// Only the requested local intake/decoding is complete. Native retention, incident counts and ownership remain
@@ -96,4 +102,21 @@ impl NativeLogAnalysis {
             && self.stopped.is_none()
             && matches!(self.source.state, SourceState::Collected | SourceState::Empty)
     }
+}
+
+/// UTC placement uses only the event's own explicit offset. Unplaced positions retain their native clock in evidence.
+#[derive(Serialize, Deserialize, TS, Clone, Debug, PartialEq)]
+#[ts(export)]
+pub struct ImportedNativeEvents {
+    pub timeline: Vec<crate::ChangeEvent>,
+    pub unplaced_positions: Vec<u32>,
+    pub deadlocks: Vec<ImportedEventDeadlock>,
+}
+
+#[derive(Serialize, Deserialize, TS, Clone, Debug, PartialEq)]
+#[ts(export)]
+pub struct ImportedEventDeadlock {
+    /// Position in this artifact only; graph IDs do not prove a distinct native occurrence across imports.
+    pub position: u32,
+    pub graph: crate::Deadlock,
 }

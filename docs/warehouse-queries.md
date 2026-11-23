@@ -19,13 +19,81 @@ Generation opens the configured original-evidence root through the existing boun
 the actual namespace. Contract, schema and store IDs are embedded in the functions/views; operators do not enter
 those values for each query. No deployment is performed. ClickHouse helpers explicitly use SQL SECURITY INVOKER; existing underlying read permissions remain required. Hidden binding values are convenience, not an authorization boundary. Apply the returned script explicitly to the same existing
 warehouse database using its deployment permissions, after the normal `collect schema` assets. JSON output also
-contains the binding, store-owned executable script, commands and eight example queries. Only the named helper functions/views are replaced by explicit deployment. No landing table, cloud service or telemetry source is added.
+contains the binding, store-owned executable script, commands, ordinary parameterized examples and an importable operator dashboard/paused alert pack. See [the operator pack](operator-pack.md). Only the named helper functions/views are replaced by explicit deployment. No landing table, cloud service or telemetry source is added.
 
 The namespace view is dynamic. New published resources become visible without regenerating a database roster.
 Its publication, batch membership, exact row-count, conflict, owner and reference checks use the same renderer as
 the existing resource-scoped views. Existing scalar-resource queries keep their policy. These server-side views
 preserve logical eligibility; the EvidenceService remains the owner of cryptographic original/EOF authentication
 when a person or agent opens an incident.
+
+## Routine resource-and-window queries
+
+After the operator installs the namespace-bound script, normal diagnosis reads use an approved human label and a
+UTC window. The wrapper supplies the current warehouse query clock as `asof`; there are no contract/store/schema
+IDs or repeated interpretation-clock arguments to enter:
+
+```kusto
+PilotIncidentsDuring("Orders production", ago(1h), now())
+PilotFindingsDuring("Orders production", ago(1h), now())
+PilotChangesDuring("Orders production", ago(1h), now())
+PilotStatusNow("Orders production", 30m)
+```
+
+```sql
+SELECT * FROM PilotIncidentsDuring(resource='Orders production',
+    window_from=now64(9,'UTC')-INTERVAL 1 HOUR, window_until=now64(9,'UTC'));
+SELECT * FROM PilotFindingsDuring(resource='Orders production',
+    window_from=now64(9,'UTC')-INTERVAL 1 HOUR, window_until=now64(9,'UTC'));
+SELECT * FROM PilotChangesDuring(resource='Orders production',
+    window_from=now64(9,'UTC')-INTERVAL 1 HOUR, window_until=now64(9,'UTC'));
+SELECT * FROM PilotStatusNow(resource='Orders production', max_age_seconds=1800);
+```
+
+These wrappers call the existing published eligibility, exact incident-head and family projection owners. They do
+not reinterpret raw telemetry, join current database names or infer a cause from SQL text. Existing explicit-`asof`
+functions below remain useful for a reproducible historical read. The wrapper's current `asof` permits a later
+resolved revision to suppress an older active alert, even when the requested window is historical.
+
+The JSON asset output includes the closed `incident-window`, `finding-window`, `change-window`,
+`recorded-incident-alert-window` and `evidence-availability-alert` pack entries. Their values are externally bound
+query parameters; user labels never become identifiers or substituted SQL/KQL. For example, the incident pack is:
+
+```kusto
+declare query_parameters(resource:string,window_from:datetime,window_until:datetime);
+PilotIncidentsDuring(resource,window_from,window_until)
+```
+
+```sql
+SELECT * FROM PilotIncidentsDuring(resource={resource:String},
+    window_from={window_from:DateTime64(9, 'UTC')}, window_until={window_until:DateTime64(9, 'UTC')});
+```
+
+Bind these three product inputs through the warehouse client's parameter API. All five normal wrappers return
+`PublicationTimeKnown=false`: the existing publication contract establishes completed publication/membership, but
+retains no publication wall-clock timestamp. It cannot supply a publication-latency SLO. Original observation bounds,
+`InterpretationRecordedAt` and the incident's original recorded clock remain distinct. Status now also retains the
+interpretation clock separately from the original-input clock used for staleness; a fresh reanalysis never refreshes
+that original clock. No arrival/ingestion timestamp is substituted for a missing native or publication clock.
+
+The normal alert pack reads recorded answers through the same current-head/first-observation guards. It keeps native lifecycle and enrichment separate, and retains an available original Query Store interval alongside the acquisition and recorded clocks:
+
+```kusto
+PilotRecordedIncidentAlertsDuring("Orders production", ago(5m), now())
+```
+
+```sql
+SELECT * FROM PilotRecordedIncidentAlertsDuring(resource='Orders production',
+    window_from=now64(9,'UTC')-INTERVAL 5 MINUTE, window_until=now64(9,'UTC'));
+```
+
+In an existing alert system, use a positive row count as a recorded-incident notification and retain deduplication
+state using `TargetId, OriginalScopeId, OriginalSource, EpisodeId, ControllerVersion`. Do not reset this key for a
+new interpretation, rule version or revision. This is not proof of a new outage or its onset, and missing publication
+time does not become freshness. Replayed/backfilled old first observations stay old, and resolved/uncertain heads
+remain suppressed. The separate evidence-availability pack calls `StatusNow` and preserves stale, partial,
+ambiguous, missing-rule and missing-publication states. A query failure also requires availability handling; no rows
+alone means neither health nor recovery. No alert runtime, acknowledgement store or automatic remediation is added.
 
 ## Browse by an approved recorded label
 
@@ -128,3 +196,10 @@ Primary syntax: [Kusto stored functions](https://learn.microsoft.com/en-us/kusto
 [ClickHouse parameterized views](https://clickhouse.com/docs/sql-reference/statements/create/view#parameterized-view),
 and [ClickHouse window functions](https://clickhouse.com/docs/sql-reference/window-functions). Deployment/runtime
 validation is separate from asset generation; no actual warehouse execution is implied by this documentation.
+
+
+The convenience clock is a warehouse selection clock only. Kusto documents that `now()` is fixed within a query;
+ClickHouse documents `now64` as a query-analysis constant, with an explicit UTC zone here. Neither is an observation
+of the source database. See [Kusto now](https://learn.microsoft.com/en-us/kusto/query/now-function),
+[ClickHouse now64](https://clickhouse.com/docs/reference/functions/regular-functions/date-time-functions#now64),
+and [Kusto query parameters](https://learn.microsoft.com/en-us/kusto/query/query-parameters-statement).

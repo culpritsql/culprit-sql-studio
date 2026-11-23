@@ -1,8 +1,8 @@
 //! Prepare bounded questions from retained native evidence. This module never opens a source or grants admission.
 use super::{
-    RouteBindings,
+    FOCUSED_COOLDOWN_SECONDS, RouteBindings,
     evidence::resolve_optional_evidence,
-    routes::{PlanningPosition, RouteBinding},
+    routes::{PlanningPosition, PlanningQuestionCursor, RouteBinding},
 };
 use crate::delivery::recovery::RecoveryStore;
 use crate::fleet::FleetBackend;
@@ -26,7 +26,9 @@ const MAX_CHECKPOINTS_PER_PASS: usize = 8;
 const MAX_EPISODES_PER_PASS: usize = 128;
 const MAX_QUESTIONS_PER_PASS: usize = 8;
 pub(super) const PLANNING_TIME: Duration = Duration::from_secs(2);
-const FOCUSED_COOLDOWN_SECONDS: u32 = 60;
+/// The closed primary roster has at most two questions for one fixed incident signal. Source questions have
+/// their own unique finite slots. This bounds settled metadata; it grants neither a route nor native work.
+pub(in crate::fleet) const MAX_PRIMARY_STAGES_PER_EPISODE: usize = 2;
 
 pub(super) struct PreparedInvestigation {
     pub intent: DiagnosticInvestigationIntent,
@@ -152,6 +154,7 @@ async fn bounded(
                         | DiagnosticSignal::PageTaskWait { .. }
                         | DiagnosticSignal::LockWait { .. }
                         | DiagnosticSignal::RequestMemory { .. }
+                        | DiagnosticSignal::ClientResultOutput { .. }
                         | DiagnosticSignal::CompilationAdmission { .. }
                         | DiagnosticSignal::LogRateGovernance { .. }
                         | DiagnosticSignal::TransactionMetadataWait { .. }
@@ -187,23 +190,27 @@ async fn bounded(
                     if !selected_resources.insert(binding.source.target.telemetry_id()?) {
                         continue;
                     }
-                    let question_offset = if target_index == resume_target { resume_question } else { 0 };
-                    for (question_index, question) in
-                        possible_questions(episode).into_iter().enumerate().skip(question_offset)
-                    {
+                    let available = possible_questions(episode);
+                    let selectors = available.iter().map(|question| question.selector()).collect::<Vec<_>>();
+                    let question_offset = if target_index == resume_target {
+                        resume_question.as_ref().map_or(0, |cursor| cursor.offset(episode, &selectors))
+                    } else {
+                        0
+                    };
+                    for question in available.into_iter().skip(question_offset) {
                         if cancellation.is_cancelled() || questions == MAX_QUESTIONS_PER_PASS {
                             return Ok(prepared);
                         }
                         // Each inspected question pays before metadata or recovery work. The cursor only ensures
                         // fairness; native identity and admission are always checked again through their owners.
                         questions += 1;
+                        let requested = question.selector();
                         bindings.set_planning_position(PlanningPosition {
                             checkpoint: cursor.clone(),
                             episode: offset,
                             target: target_index,
-                            question: question_index + 1,
+                            question: Some(PlanningQuestionCursor::after(episode, requested)),
                         });
-                        let requested = question.selector();
                         let requested_key = route_key(target, requested)?;
                         if !routes.contains_key(&requested_key) {
                             routes.insert(
@@ -266,7 +273,7 @@ async fn bounded(
                         checkpoint: cursor.clone(),
                         episode: offset,
                         target: target_index + 1,
-                        question: 0,
+                        question: None,
                     });
                     // One saved route owns each physical resource question. Refusal never probes its aliases.
                 }
@@ -276,14 +283,14 @@ async fn bounded(
             }
             offset += 1;
             resume_target = 0;
-            resume_question = 0;
+            resume_question = None;
             bindings.set_planning_position(PlanningPosition::at_episode(cursor.clone(), offset));
             tokio::task::yield_now().await;
         }
         cursor = page.next_cursor;
         offset = 0;
         resume_target = 0;
-        resume_question = 0;
+        resume_question = None;
         bindings.set_planning_position(PlanningPosition::at_episode(cursor.clone(), 0));
         if cursor.is_none() {
             break;
@@ -293,31 +300,29 @@ async fn bounded(
 }
 
 fn possible_questions(episode: &DiagnosticEpisode) -> Vec<EpisodeQuestion<'_>> {
-    if !episode.source_reads.is_empty() {
-        return episode
-            .source_reads
-            .iter()
-            .filter(|stage| stage.needs_admission())
-            .map(EpisodeQuestion::Followup)
-            .collect();
-    }
-    let primary = match &episode.signal {
-        DiagnosticSignal::LockWait { .. } => vec![RecipeSelector::FocusedBlocking],
-        DiagnosticSignal::PageTaskWait { .. } => vec![RecipeSelector::FocusedPageTaskHolders],
+    primary_questions(episode)
+        .into_iter()
+        .flatten()
+        .map(EpisodeQuestion::Primary)
+        .chain(episode.source_read_admission_order().into_iter().map(EpisodeQuestion::Followup))
+        .collect()
+}
+
+fn primary_questions(episode: &DiagnosticEpisode) -> [Option<RecipeSelector>; MAX_PRIMARY_STAGES_PER_EPISODE] {
+    match &episode.signal {
+        DiagnosticSignal::LockWait { .. } => [Some(RecipeSelector::FocusedBlocking), None],
+        DiagnosticSignal::PageTaskWait { .. } => [Some(RecipeSelector::FocusedPageTaskHolders), None],
         DiagnosticSignal::Activity { condition: ActivityCondition::LongRunning, .. } => {
-            vec![RecipeSelector::CurrentRequestWork, RecipeSelector::PageWaitTasks]
+            [Some(RecipeSelector::CurrentRequestWork), Some(RecipeSelector::PageWaitTasks)]
         }
-        DiagnosticSignal::RequestMemory { .. } => vec![RecipeSelector::FocusedRequestMemory],
-        DiagnosticSignal::CompilationAdmission { .. } => {
-            vec![RecipeSelector::FocusedCompilationAdmission]
-        }
+        DiagnosticSignal::RequestMemory { .. } => [Some(RecipeSelector::FocusedRequestMemory), None],
+        DiagnosticSignal::CompilationAdmission { .. } => [Some(RecipeSelector::FocusedCompilationAdmission), None],
         DiagnosticSignal::PageWait { .. } if matches!(episode.report, Some(DiagnosticReport::PageWait { .. })) => {
-            vec![RecipeSelector::FocusedPageWaitWriters, RecipeSelector::FocusedPageWait]
+            [Some(RecipeSelector::FocusedPageWaitWriters), Some(RecipeSelector::FocusedPageWait)]
         }
-        DiagnosticSignal::PageWait { .. } => vec![RecipeSelector::FocusedPageWait],
-        _ => vec![],
-    };
-    primary.into_iter().map(EpisodeQuestion::Primary).collect()
+        DiagnosticSignal::PageWait { .. } => [Some(RecipeSelector::FocusedPageWait), None],
+        _ => [None, None],
+    }
 }
 
 fn route_key(target: &FleetTarget, selector: RecipeSelector) -> Result<(String, Vec<u8>)> {

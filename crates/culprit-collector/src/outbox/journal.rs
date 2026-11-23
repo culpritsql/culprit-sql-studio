@@ -8,7 +8,7 @@ use culprit_core::{Result, telemetry::*};
 use rusqlite::{Connection, OpenFlags, OptionalExtension, Transaction, params};
 use std::{collections::BTreeSet, path::Path};
 
-const JOURNAL_VERSION: i64 = 33;
+const JOURNAL_VERSION: i64 = 34;
 const APPLICATION_ID: i64 = 0x43554c54;
 const JOURNAL_PAGES: i64 = 4096;
 
@@ -29,6 +29,9 @@ pub(super) struct Capture {
     request_bytes: u64,
 }
 impl Capture {
+    pub(super) fn reservation_charge(&self) -> Result<u64> {
+        reservation_charge(&self.request, self.request_bytes)
+    }
     pub(super) fn charge_artifacts(&self, bytes: u64) -> Result<u64> {
         bytes
             .checked_add(CAPTURE_ACCOUNTING)
@@ -65,7 +68,11 @@ impl Journal {
           CREATE TABLE captures(observation_id TEXT PRIMARY KEY,epoch INTEGER NOT NULL,sequence INTEGER NOT NULL,
             connection TEXT NOT NULL,collection TEXT NOT NULL,request_json TEXT NOT NULL CHECK(length(CAST(request_json AS BLOB))<={MAX_REQUEST_BYTES}),state TEXT NOT NULL,
             source_work TEXT NOT NULL,charged_bytes INTEGER NOT NULL CHECK(charged_bytes>=0),problem TEXT,
-            manifest_sha TEXT,range_json TEXT,archive_range TEXT,archive_digest TEXT, UNIQUE(epoch,sequence));
+            manifest_sha TEXT,range_json TEXT,archive_range TEXT,archive_digest TEXT,
+            connection_pending_json TEXT CHECK(length(CAST(connection_pending_json AS BLOB))<=69632),
+            connection_empty_original INTEGER NOT NULL DEFAULT 0 CHECK(connection_empty_original IN(0,1)),
+            connection_result_json TEXT CHECK(length(CAST(connection_result_json AS BLOB))<=69632),
+            CHECK(connection_pending_json IS NULL OR connection_result_json IS NULL), UNIQUE(epoch,sequence));
           CREATE TABLE batches(batch_id TEXT PRIMARY KEY,observation_id TEXT NOT NULL REFERENCES captures(observation_id),
             stream TEXT NOT NULL,file TEXT NOT NULL,sha TEXT NOT NULL,rows INTEGER NOT NULL,bytes INTEGER NOT NULL);
           CREATE TABLE range_heads(range_key TEXT PRIMARY KEY,observation_id TEXT NOT NULL REFERENCES captures(observation_id));
@@ -118,13 +125,11 @@ impl Journal {
         connection: &str,
         request: &CollectionRequest,
         owner_epoch: &mut Option<i64>,
+        control: Option<&super::connection_control::Registration>,
     ) -> Result<Capture> {
         let request_json = encode_request(request)?;
         let request_bytes = request_json.len() as u64;
-        let charge = u64::from(request.budget.total_bytes)
-            .checked_add(CAPTURE_ALLOWANCE)
-            .and_then(|bytes| bytes.checked_add(request_bytes))
-            .ok_or_else(|| problem(OutboxProblem::Capacity))?;
+        let charge = reservation_charge(request, request_bytes)?;
         let tx = self.conn.transaction().map_err(storage)?;
         let (count, used): (u32, i64) = tx
             .query_row("SELECT count(*),coalesce(sum(charged_bytes),0) FROM captures", [], |row| {
@@ -160,6 +165,7 @@ impl Journal {
             return Err(problem(OutboxProblem::Capacity));
         }
         super::automatic_synthesis::reserve_allowance(&tx, request, count, used, charge, &self.limits)?;
+        super::connection_control::reserve_allowance(&tx, request, control, count, used, charge, &self.limits)?;
         let (epoch, sequence): (i64, i64) = tx
             .query_row("SELECT owner_epoch,sequence FROM metadata", [], |row| Ok((row.get(0)?, row.get(1)?)))
             .map_err(storage)?;
@@ -190,6 +196,15 @@ impl Journal {
         tx.execute("INSERT INTO captures(observation_id,epoch,sequence,connection,request_json,state,source_work,charged_bytes,collection)
           VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9)",params![identity.observation_id,epoch,sequence,connection,request_json,
             encode(&OutboxCaptureState::Capturing)?,encode(&source_work)?,bytes_to_sql(charge)?,encode(&request.collection())?]).map_err(storage)?;
+        if let Some(control) = control {
+            tx.execute(
+                "UPDATE captures SET connection_pending_json=?1 WHERE observation_id=?2",
+                params![super::connection_control::enrolled(control)?, identity.observation_id],
+            )
+            .map_err(storage)?;
+            super::connection_control::pin(&tx, &identity.observation_id)?;
+        }
+        super::connection_control::allocated_output(&tx, request, &identity)?;
         let mut prerequisites = std::collections::BTreeSet::new();
         if let Some(focus) = DiagnosticFocus::from_selection(&request.selection) {
             prerequisites.extend(focus.references().map(|reference| reference.capture.observation_id.clone()));
@@ -321,6 +336,13 @@ impl Journal {
         }
         super::investigations::journal::prepare_commit(&tx, capture, validated)?;
         super::synthesized_output::complete_output(&tx, validated)?;
+        super::connection_control::seal(
+            &tx,
+            &current,
+            OutboxCaptureState::Ready,
+            Some((&validated.manifest, &validated.manifest_sha, false)),
+        )?;
+        super::connection_control::complete_output(&tx, validated)?;
         super::automatic_synthesis::committed(&tx, capture, validated)?;
         let capture_bytes: i64 = tx
             .query_row("SELECT coalesce(sum(charged_bytes),0) FROM captures", [], |row| row.get(0))
@@ -386,12 +408,13 @@ impl Journal {
         state: OutboxCaptureState,
         reason: Option<OutboxProblem>,
         bytes: u64,
-        terminal_manifest_sha: Option<&str>,
+        terminal_manifest: Option<(&CollectionManifest, &str, bool)>,
     ) -> Result<()> {
+        let terminal_manifest_sha = terminal_manifest.map(|(_, sha, _)| sha);
         if let Some(sha) = terminal_manifest_sha {
             let current = self.capture(&capture.identity.observation_id)?;
             if !valid_digest(sha)
-                || state != OutboxCaptureState::Incomplete
+                || !matches!(state, OutboxCaptureState::Incomplete | OutboxCaptureState::Interrupted)
                 || current.identity != capture.identity
                 || current.state != OutboxCaptureState::Capturing
             {
@@ -424,6 +447,7 @@ impl Journal {
             ],
         )
         .map_err(storage)?;
+        super::connection_control::seal(&tx, capture, state, terminal_manifest)?;
         if matches!(
             state,
             OutboxCaptureState::Incomplete | OutboxCaptureState::Interrupted | OutboxCaptureState::Quarantined
@@ -557,12 +581,24 @@ impl Journal {
                 )
                 .map_err(storage)?,
             unfinished,
+            connection_controls_pending: tx
+                .query_row("SELECT count(*) FROM captures WHERE connection_pending_json IS NOT NULL", [], |row| {
+                    row.get(0)
+                })
+                .map_err(storage)?,
             charged_bytes,
             entries,
             next_cursor: if has_more { last.map(|cursor| encode(&cursor)).transpose()? } else { None },
         })
     }
 }
+fn reservation_charge(request: &CollectionRequest, request_bytes: u64) -> Result<u64> {
+    u64::from(request.budget.total_bytes)
+        .checked_add(CAPTURE_ALLOWANCE)
+        .and_then(|bytes| bytes.checked_add(request_bytes))
+        .ok_or_else(|| problem(OutboxProblem::Capacity))
+}
+
 fn open(path: &Path, owner: bool) -> Result<Connection> {
     durable_fs::regular_file(path).map_err(storage)?;
     let flags = if owner { OpenFlags::SQLITE_OPEN_READ_WRITE } else { OpenFlags::SQLITE_OPEN_READ_ONLY };
@@ -629,8 +665,10 @@ pub(super) fn metadata_bytes(conn: &Connection) -> Result<u64> {
     let synthesis_bytes = super::synthesized_output::charged_bytes(conn)?
         .checked_add(super::automatic_synthesis::charged_bytes(conn)?)
         .ok_or_else(|| problem(OutboxProblem::Capacity))?;
+    let connection_bytes = super::connection_control::charged_bytes(conn)?;
     super::investigations::journal::charged_bytes(conn)?
         .checked_add(super::qualifications::journal::charged_bytes(conn)?)
         .and_then(|bytes| bytes.checked_add(synthesis_bytes))
+        .and_then(|bytes| bytes.checked_add(connection_bytes))
         .ok_or_else(|| problem(OutboxProblem::Capacity))
 }

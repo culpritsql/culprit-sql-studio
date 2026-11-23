@@ -2,7 +2,7 @@
 use super::*;
 
 pub fn native_failure_evidence_cases() -> Vec<(CollectionDescription, Vec<TelemetryRecord>)> {
-    vec![mysql(), postgres()]
+    vec![mysql(), postgres(), mssql()]
 }
 
 fn mysql() -> (CollectionDescription, Vec<TelemetryRecord>) {
@@ -129,9 +129,46 @@ fn capture(
                     (row.key().unwrap(), OperationalFact::MysqlErrorLog(Box::new(row)))
                 }
                 NativeFailureRecord::PostgresLog(row) => (row.key().unwrap(), OperationalFact::PostgresLog(row)),
+                NativeFailureRecord::MssqlExtendedEvent(row) => {
+                    (row.key().unwrap(), OperationalFact::MssqlExtendedEvent(row))
+                }
             };
             TelemetryRecord::Operational(OperationalObservation { source: native_source.into(), key, fact })
         })
         .collect();
     (manifest.source, records)
+}
+
+fn mssql() -> (CollectionDescription, Vec<TelemetryRecord>) {
+    let mut attention = MssqlExtendedEventObservation {
+        position: 0,
+        kind: MssqlExtendedEventKind::Attention { native_duration: Some("9007199254740993".into()) },
+        timestamp: Some("2020-01-01T12:00:00.1234567Z".into()),
+        timestamp_utc: Some("2020-01-01T12:00:00.123456700Z".into()),
+        event_sequence: Some(u64::MAX.to_string()),
+        session_id: Some("59".into()),
+        request_id: None,
+        transaction_id: Some("0".into()),
+        database_id: Some("8".into()),
+        database: Some("native-context-only".into()),
+        client: Some(ActivityClient { application: Some("native-client-label".into()), user: None, host: None }),
+        statement: DefinitionPayload::sql("SELECT 'private-xe-canary' WHERE 1=42", culprit_core::Engine::Mssql),
+    };
+    assert!(attention.is_valid());
+    let mut rows = vec![NativeFailureRecord::MssqlExtendedEvent(Box::new(attention.clone()))];
+    attention.position = 1;
+    attention.kind = MssqlExtendedEventKind::ErrorReported {
+        number: 701,
+        severity: 17,
+        state: 1,
+        intercepted: Some(false),
+        user_defined: None,
+    };
+    attention.timestamp = Some("2020-01-01T12:00:00".into());
+    attention.timestamp_utc = None;
+    rows.push(NativeFailureRecord::MssqlExtendedEvent(Box::new(attention.clone())));
+    attention.position = 2;
+    attention.kind = MssqlExtendedEventKind::DeadlockReport { graphs: 1 };
+    rows.push(NativeFailureRecord::MssqlExtendedEvent(Box::new(attention)));
+    capture(culprit_core::Engine::Mssql, "retained-event-format-corpus", rows, false)
 }

@@ -76,6 +76,7 @@ impl Files {
         let request = CollectionRequest {
             subject: match &controller_target {
                 CollectionTarget::Database(_) => CollectionSubject::Database,
+                CollectionTarget::ConfiguredConnection(_) => return Err(DeliveryProblem::UnsupportedSchema.error()),
                 CollectionTarget::Shared(resource) => CollectionSubject::Shared { resource: resource.clone() },
             },
             selection: CollectionSelection::Diagnostics {

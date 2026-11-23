@@ -28,7 +28,12 @@ pub(crate) fn session_census(report: &SessionCensusReport) -> String {
                 presented = format::digits(report.presented_rows.to_string()),
                 printed = format::digits(report.entries.len().min(super::super::BRIEF_FINDING_LIMIT).to_string())
             ));
-            render_client_groups(text, &report.client_groups);
+            render_client_groups(text, &report.client_groups, None);
+            render_client_groups(
+                text,
+                &report.recent_clients.groups,
+                Some(std::slice::from_ref(&report.recent_clients.source)),
+            );
             for entry in report.entries.iter().take(super::super::BRIEF_FINDING_LIMIT) {
                 text.push_str("\n\n");
                 text.push_str(&entry.title);
@@ -40,11 +45,18 @@ pub(crate) fn session_census(report: &SessionCensusReport) -> String {
     )
 }
 
-fn render_client_groups(text: &mut String, groups: &culprit_core::SessionCensusClientGroups) {
+fn render_client_groups(
+    text: &mut String,
+    groups: &culprit_core::SessionCensusClientGroups,
+    sources: Option<&[culprit_core::SourceOutcome]>,
+) {
     text.push_str("\n\n");
     text.push_str(&groups.title);
     text.push('\n');
     text.push_str(&groups.summary);
+    if let Some(sources) = sources {
+        super::append_native_sources(text, sources);
+    }
     text.push('\n');
     text.push_str(&t!(
         "view.session_census.groups.cli.presented",
@@ -55,6 +67,9 @@ fn render_client_groups(text: &mut String, groups: &culprit_core::SessionCensusC
         text.push('\n');
         text.push_str(limitation);
     }
+    render_group_entries(text, groups);
+}
+fn render_group_entries(text: &mut String, groups: &culprit_core::SessionCensusClientGroups) {
     for group in groups.entries.iter().take(super::super::BRIEF_FINDING_LIMIT) {
         text.push('\n');
         for limitation in &group.limitations {

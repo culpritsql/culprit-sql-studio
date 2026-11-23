@@ -184,6 +184,11 @@ fn evidence_links(
             availability: availability.clone(),
         });
     }
+    for stage in episode.source_reads.iter() {
+        if let Some(reference) = episode.source_read_context_reuse(&stage.focus) {
+            evidence.push(link(t!("view.execution_profile.reuse_evidence"), reference, &availability));
+        }
+    }
     for capture in episode.source_read_captures() {
         evidence.push(IncidentHistoryEvidence {
             label: t!("view.incident_history.evidence.followup"),
@@ -217,6 +222,11 @@ fn recorded_reasons(revision: &DiagnosticRevision, predecessor_selected: bool) -
         reasons.push(t!("view.incident_history.limit.predecessor"));
     }
     for stage in episode.source_reads.iter() {
+        if episode.source_read_context_reuse(&stage.focus).is_some() {
+            reasons.push(t!("view.relational_input_question.question"));
+            reasons.push(t!("view.execution_profile.reused_input_context"));
+            continue;
+        }
         reasons.push(t!(
             "view.incident_history.source_stage",
             state = match &stage.state {
@@ -235,11 +245,24 @@ fn recorded_reasons(revision: &DiagnosticRevision, predecessor_selected: bool) -
         if stage.focus.question == SourceReadQuestion::TemporarySpaceContributors {
             reasons.push(t!("view.tempdb_question.question"));
         }
+        if stage.focus.question == SourceReadQuestion::CurrentExecutionProfile {
+            reasons.push(t!("view.execution_profile.question"));
+        }
         if stage.focus.question == SourceReadQuestion::RelationalInputContext {
             reasons.push(t!("view.relational_input_question.question"));
         }
+        if stage.focus.question == SourceReadQuestion::ReadableSecondaryRecovery {
+            reasons.push(t!("view.secondary_recovery.question"));
+        }
         if stage.focus.question == SourceReadQuestion::TransactionMetadata {
             reasons.push(t!("view.transaction_metadata.title"));
+            if matches!(
+                stage.focus.prerequisite,
+                SourceReadPrerequisite::ObservedTransactionMetadataContinuation { .. }
+            ) {
+                reasons.push(t!("view.transaction_metadata.continuation.question"));
+                reasons.push(t!("view.transaction_metadata.continuation.limit"));
+            }
         }
         if matches!(stage.focus.prerequisite, SourceReadPrerequisite::ObservedQueryHistoryFailure { .. }) {
             reasons.push(t!("view.incident_history.compilation.question"));
@@ -248,6 +271,11 @@ fn recorded_reasons(revision: &DiagnosticRevision, predecessor_selected: bool) -
             match answer.as_ref() {
                 SourceReadAnswer::TemporaryResources(answer) => reasons.extend(temporary_resources::explain(answer)),
                 SourceReadAnswer::QueryCompilation(answer) => compilation::append(answer, &mut reasons),
+                SourceReadAnswer::OutputGrantRetention(_) => reasons.push(t!("view.output_grant_retention.recorded")),
+                SourceReadAnswer::MetadataLockContext(_) => reasons.push(t!("view.metadata_queue.candidate.recorded")),
+                SourceReadAnswer::ReadableSecondaryRecovery(answer) => {
+                    reasons.extend(super::readable_secondary_recovery::answer_reasons(answer))
+                }
                 SourceReadAnswer::TransactionMetadata(answer) => {
                     reasons.extend(super::transaction_metadata::answer_reasons(answer))
                 }
@@ -256,6 +284,10 @@ fn recorded_reasons(revision: &DiagnosticRevision, predecessor_selected: bool) -
                     reasons.extend(super::worker_starvation::limitations(&answer.evidence));
                 }
                 SourceReadAnswer::RelationalInputs(answer) => relational_inputs::append(answer, &mut reasons),
+                SourceReadAnswer::CurrentExecutionProfile(answer) => {
+                    reasons.push(super::current_execution_profile::summary(answer));
+                    reasons.extend(super::current_execution_profile::limitations(answer));
+                }
             }
         }
         match &stage.state {
@@ -322,6 +354,7 @@ fn question_label(signal: &DiagnosticSignal) -> String {
         DiagnosticSignal::Activity { condition: ActivityCondition::IdleBlocker, .. } => "idle-blocker",
         DiagnosticSignal::LockWait { .. } => "lock",
         DiagnosticSignal::RequestMemory { .. } => "memory",
+        DiagnosticSignal::ClientResultOutput { .. } => return t!("view.output_grant_retention.title"),
         DiagnosticSignal::CompilationAdmission { .. } => "compilation",
         DiagnosticSignal::LogRateGovernance { .. } => "log",
         DiagnosticSignal::TransactionMetadataWait { .. } => return t!("view.transaction_metadata.title"),

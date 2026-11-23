@@ -86,6 +86,13 @@ fn actor(pid: &str, mechanism: Option<TransactionMetadataWait>) -> ActivityObser
     actor
 }
 pub fn transaction_metadata_original(mechanism: TransactionMetadataWait) -> TransactionMetadataOriginal {
+    transaction_metadata_original_at(mechanism, "2020-01-01T12:00:00Z", "2020-01-01T12:00:01Z")
+}
+pub fn transaction_metadata_original_at(
+    mechanism: TransactionMetadataWait,
+    at: &str,
+    analyzed_at: &str,
+) -> TransactionMetadataOriginal {
     let actor = actor("42", Some(mechanism));
     let source = CollectionDescription {
         target: culprit_core::DatabaseIdentity::server(Engine::Postgres, "db", "fixture.invalid", 5432, None).into(),
@@ -103,9 +110,9 @@ pub fn transaction_metadata_original(mechanism: TransactionMetadataWait) -> Tran
         observation: SourceObservation::Activity(ActivitySnapshotDescription {
             epoch: Some("transaction-metadata-process".into()),
             database_writable: Some(true),
-            observed_from: "2020-01-01T12:00:00Z".into(),
-            observed_until: "2020-01-01T12:00:00Z".into(),
-            at: "2020-01-01T12:00:00Z".into(),
+            observed_from: at.into(),
+            observed_until: at.into(),
+            at: at.into(),
             scope: MeasurementScope::Database,
             population: ActivityPopulation::ClientBackends,
             native_rows: 1,
@@ -131,7 +138,7 @@ pub fn transaction_metadata_original(mechanism: TransactionMetadataWait) -> Tran
         &[DiagnosticActivityRow { reference: &basis, observation: &actor }],
         None,
         &ActivityPolicy::default(),
-        "2020-01-01T12:00:01Z",
+        analyzed_at,
     )
     .unwrap();
     let [episode] = update.checkpoint.episodes.as_slice() else {
@@ -170,14 +177,29 @@ pub fn transaction_metadata_result(
     execution: &SourceReadExecutionScope,
     case: TransactionMetadataCase,
 ) -> (CollectionDescription, Vec<TelemetryRecord>) {
+    transaction_metadata_result_at(
+        focus,
+        execution,
+        case,
+        "2020-01-01T12:00:02Z",
+        "2020-01-01T12:00:03Z",
+        "2020-01-01T12:00:04Z",
+    )
+}
+pub fn transaction_metadata_result_at(
+    focus: &SourceReadFocus,
+    execution: &SourceReadExecutionScope,
+    case: TransactionMetadataCase,
+    from: &str,
+    at: &str,
+    until: &str,
+) -> (CollectionDescription, Vec<TelemetryRecord>) {
     use TransactionMetadataCase::*;
-    let SourceReadPrerequisite::ObservedTransactionMetadataWait { key, mechanism, .. } = &focus.prerequisite else {
-        unreachable!()
-    };
+    let (key, _, mechanism) = focus.transaction_metadata_participant().unwrap();
     let mut caches = vec![
         PostgresSubtransactionCache {
             backend_id: 7,
-            actor: actor("42", Some(*mechanism)),
+            actor: actor("42", Some(mechanism)),
             transaction_started_at: Some("2020-01-01T11:30:00Z".into()),
             cached_subxids: Some(0),
             overflowed: Some(false),
@@ -217,7 +239,7 @@ pub fn transaction_metadata_result(
         })
         .collect::<Vec<_>>();
     for holder in &mut holders {
-        holder.observed_at = "2020-01-01T12:00:03Z".into();
+        holder.observed_at = at.into();
     }
     let retention = RetentionSnapshot {
         holders,
@@ -238,7 +260,7 @@ pub fn transaction_metadata_result(
         coverage,
     };
     let mut point = PostgresTransactionMetadata {
-        observed_at: "2020-01-01T12:00:03Z".into(),
+        observed_at: at.into(),
         database_oid: "16384".into(),
         database: "db".into(),
         focus: key.clone(),
@@ -250,7 +272,13 @@ pub fn transaction_metadata_result(
         cache_rows: if case == Partial { 3 } else { caches.len() as u32 },
         cache_limited: case == Partial,
         caches,
-        slrus: slrus(),
+        slrus: slrus()
+            .into_iter()
+            .map(|mut row| {
+                row.observed_at = at.into();
+                row
+            })
+            .collect(),
         retainer_rows: retention.holders.len() as u32,
         retention,
         retainer_limited: false,
@@ -286,8 +314,8 @@ pub fn transaction_metadata_result(
         target: focus.target.clone(),
         partition: execution.partition().clone(),
         database_writable: execution.database_writable(),
-        observed_from: "2020-01-01T12:00:02Z".into(),
-        observed_until: "2020-01-01T12:00:04Z".into(),
+        observed_from: from.into(),
+        observed_until: until.into(),
     };
     let source = CollectionDescription {
         target: focus.target.clone(),
@@ -376,3 +404,119 @@ pub fn transaction_metadata_answer(
     });
     (answer, point)
 }
+
+/// Independent canonical point inputs; they confer no native wait or cost qualification.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TransactionMetadataSlruCase {
+    Continued,
+    Zero,
+    UnknownReset,
+    ChangedReset,
+    ResetAfterPoint,
+    Decreased,
+    MissingCounter,
+    Partial,
+    ForeignMember,
+    Restart,
+    ChangedRole,
+    Overlapping,
+    LatePoint,
+}
+impl TransactionMetadataSlruCase {
+    pub const ALL: &'static [Self] = &[
+        Self::Continued,
+        Self::Zero,
+        Self::UnknownReset,
+        Self::ChangedReset,
+        Self::ResetAfterPoint,
+        Self::Decreased,
+        Self::MissingCounter,
+        Self::Partial,
+        Self::ForeignMember,
+        Self::Restart,
+        Self::ChangedRole,
+        Self::Overlapping,
+        Self::LatePoint,
+    ];
+}
+pub fn transaction_metadata_slru_pair(
+    focus: &SourceReadFocus,
+    execution: &SourceReadExecutionScope,
+    case: TransactionMetadataSlruCase,
+) -> [(CollectionDescription, Vec<TelemetryRecord>); 2] {
+    use TransactionMetadataSlruCase::*;
+    let before = transaction_metadata_slru_original();
+    let (mut earlier, mut rows) = transaction_metadata_result(
+        &before.focus,
+        &before.execution,
+        if case == Partial { TransactionMetadataCase::Partial } else { TransactionMetadataCase::Overflow },
+    );
+    let (later, current) = transaction_metadata_result(focus, execution, TransactionMetadataCase::Overflow);
+    let SourceObservation::SourceRead { snapshot, execution, .. } = &mut earlier.observation else { unreachable!() };
+    let (from, at, until) = match case {
+        Overlapping => ("2020-01-01T12:00:01Z", "2020-01-01T12:00:02Z", "2020-01-01T12:00:03Z"),
+        LatePoint => ("2020-01-01T12:00:05Z", "2020-01-01T12:00:06Z", "2020-01-01T12:00:07Z"),
+        _ => ("2020-01-01T11:59:54Z", "2020-01-01T11:59:55Z", "2020-01-01T11:59:56Z"),
+    };
+    execution.observed_from = from.into();
+    execution.observed_until = until.into();
+    snapshot.observed_from = from.into();
+    snapshot.observed_until = until.into();
+    if case == ForeignMember {
+        let SourcePartition::InstanceLocal { member: Some(member), .. } = &mut execution.partition else {
+            unreachable!()
+        };
+        member.native = NativeIdentity::new("another-transaction-metadata-member");
+    }
+    if case == Restart {
+        let SourcePartition::InstanceLocal { epoch, .. } = &mut execution.partition else { unreachable!() };
+        *epoch = Some("another-native-process".into());
+    }
+    if case == ChangedRole {
+        execution.database_writable = Some(false);
+    }
+    let TelemetryRecord::Operational(row) = &mut rows[0] else { unreachable!() };
+    let OperationalFact::PostgresTransactionMetadata(point) = &mut row.fact else { unreachable!() };
+    point.observed_at = at.into();
+    // Another point's actor/xmin evidence is deliberately distinguishable and must never be projected as
+    // the answered request's candidate/retainer population by an SLRU-only comparison.
+    point.caches[1].actor = actor("49", None);
+    for holder in &mut point.retention.holders {
+        holder.observed_at = at.into();
+        for horizon in &mut holder.horizons {
+            horizon.native_value = "9999".into();
+        }
+    }
+    for counter in &mut point.slrus {
+        counter.observed_at = at.into();
+        if !matches!(case, Zero | LatePoint) {
+            counter.blocks_hit = Some("9223372036854775800".into());
+            counter.blocks_read = Some("40".into());
+            counter.blocks_written = Some("1".into());
+        }
+        if case == LatePoint {
+            counter.blocks_read = Some("45".into());
+        }
+    }
+    match case {
+        UnknownReset => point.slrus[0].stats_reset = None,
+        ChangedReset => point.slrus[0].stats_reset = Some("2020-01-01T10:00:00.000001Z".into()),
+        ResetAfterPoint => point.slrus[0].stats_reset = Some("2020-01-01T12:00:00Z".into()),
+        Decreased => point.slrus[0].blocks_read = Some("43".into()),
+        MissingCounter => point.slrus[0].blocks_read = None,
+        _ => (),
+    }
+    row.key = point.key().unwrap();
+    assert!(rows.iter().all(TelemetryRecord::is_valid));
+    assert!(
+        matches!(&rows[0],TelemetryRecord::Operational(OperationalObservation{fact:OperationalFact::PostgresTransactionMetadata(point),..}) if point.fits_source_scope(&earlier))
+    );
+    [(earlier, rows), (later, current)]
+}
+
+pub fn transaction_metadata_slru_original() -> TransactionMetadataOriginal {
+    transaction_metadata_original_at(TransactionMetadataWait::MultiXact, "2020-01-01T11:59:50Z", "2020-01-01T11:59:51Z")
+}
+
+mod continuation;
+pub use continuation::*;

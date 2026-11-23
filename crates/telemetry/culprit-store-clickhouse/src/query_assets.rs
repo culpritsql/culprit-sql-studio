@@ -20,6 +20,9 @@ pub fn configured(binding: QueryHelperBinding) -> Result<QueryHelperAssets> {
         commands.push(eligibility::eligible(schema, EligibilityScope::Namespace));
         commands.push(eligibility::rows(schema, EligibilityScope::Namespace, false));
     }
+    let deadlocks = catalog.get(culprit_core::telemetry::TelemetryStream::DeadlockEvents)?;
+    commands.push(eligibility::eligible(deadlocks, EligibilityScope::Namespace));
+    commands.push(eligibility::rows(deadlocks, EligibilityScope::Namespace, true));
     let analyzer = |field: &str| {
         format!(
             "JSONExtractString({field},'component')={} AND JSONExtractString({field},'version')={} AND JSONExtractString({field},'revision')={}",
@@ -45,11 +48,13 @@ pub fn configured(binding: QueryHelperBinding) -> Result<QueryHelperAssets> {
         ],
     )?;
     commands.extend(
-        text.split(";\n\n").filter(|part| !part.trim().is_empty()).map(|part| part.trim_end_matches(';').to_string()),
+        text.split(";\n\n")
+            .filter(|part| !part.trim().is_empty())
+            .map(|part| part.trim().trim_end_matches(';').to_string()),
     );
     let n = &binding.policy.name;
     let args = "resource='orders',from=now64(9)-INTERVAL 1 HOUR,until=now64(9),asof=now64(9)";
-    let examples = vec![
+    let mut examples = vec![
         QueryExample { name: "resources", query: format!("SELECT * FROM {n}Resources(asof=now64(9))") },
         QueryExample {
             name: "status",
@@ -72,8 +77,32 @@ pub fn configured(binding: QueryHelperBinding) -> Result<QueryHelperAssets> {
             ),
         },
     ];
+    let window = "resource={resource:String},window_from={window_from:DateTime64(9, 'UTC')},window_until={window_until:DateTime64(9, 'UTC')}";
+    for (label, function) in [
+        ("incident-window", "IncidentsDuring"),
+        ("finding-window", "FindingsDuring"),
+        ("change-window", "ChangesDuring"),
+        ("recorded-incident-alert-window", "RecordedIncidentAlertsDuring"),
+    ] {
+        examples.push(QueryExample { name: label, query: format!("SELECT * FROM {n}{function}({window})") });
+    }
+    examples.push(QueryExample {
+        name: "evidence-availability-alert",
+        query: format!("SELECT * FROM {n}StatusNow(resource={{resource:String}},max_age_seconds={{max_age_seconds:UInt32}}) WHERE State!='observed' OR NOT InputReadComplete OR length(JSONExtractArrayRaw(ContextIssues))>0"),
+    });
+    examples.push(QueryExample {
+        name: "native-deadlock-window",
+        query: format!("SELECT * FROM {n}DeadlocksDuring({window})"),
+    });
+    examples.push(QueryExample { name: "high-severity-findings", query: format!("SELECT * FROM {n}FindingsDuring({window}) WHERE Severity='high' AND Actionability IN ('needs-attention','optional-improvement') AND NOT Inactive") });
+    examples.push(QueryExample {
+        name: "published-collection-status",
+        query: format!("SELECT * FROM {n}CollectionStatus(asof=now64(9,'UTC'),max_age_seconds=1800)"),
+    });
     let script = format!("{};\n", commands.join(";\n\n"));
-    Ok(QueryHelperAssets { binding, commands, script, examples })
+    let operator = operators::assets(&binding)?;
+    Ok(QueryHelperAssets { binding, commands, script, examples, operator })
 }
+mod operators;
 #[cfg(test)]
 mod tests;

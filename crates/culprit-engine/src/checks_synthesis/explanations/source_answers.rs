@@ -1,5 +1,9 @@
 //! A retained answer selects already checked native context, never an allocating statement or a cause.
 use super::*;
+mod execution_profiles;
+mod metadata_locks;
+mod output_grant;
+mod readable_secondary_recovery;
 mod relational_inputs;
 mod transaction_metadata;
 mod workers;
@@ -11,14 +15,25 @@ pub(super) fn append(
 ) -> Result<()> {
     for stage in episode.source_reads.iter() {
         let SourceReadStageState::Answered { answer } = &stage.state else { continue };
+        if episode.source_reads.get(stage.focus.question) != Some(stage) {
+            continue;
+        }
         let mut followup = Explanation::default();
         match answer.as_ref() {
             SourceReadAnswer::TemporaryResources(answer) => temporary(originals, answer, &mut followup),
+            SourceReadAnswer::OutputGrantRetention(answer) => output_grant::append(originals, answer, &mut followup),
+            SourceReadAnswer::MetadataLockContext(answer) => metadata_locks::append(originals, answer, &mut followup),
+            SourceReadAnswer::ReadableSecondaryRecovery(answer) => {
+                readable_secondary_recovery::append(originals, answer, &mut followup)
+            }
             SourceReadAnswer::TransactionMetadata(answer) => {
-                transaction_metadata::append(originals, answer, &mut followup)
+                transaction_metadata::append(originals, episode, answer, &mut followup)
             }
             SourceReadAnswer::WorkerStarvation(answer) => workers::append(originals, answer, &mut followup),
             SourceReadAnswer::RelationalInputs(answer) => relational_inputs::append(originals, answer, &mut followup),
+            SourceReadAnswer::CurrentExecutionProfile(answer) => {
+                execution_profiles::append(originals, answer, &mut followup)
+            }
             // Compilation totals do not identify a historical execution's caller, runtime inputs or harmful reuse.
             SourceReadAnswer::QueryCompilation(_) => Ok(()),
         }?;

@@ -3,6 +3,8 @@ use super::*;
 mod groups;
 mod mysql;
 mod postgres;
+mod recent;
+pub use recent::{RecentClientCase, recent_client_evidence};
 
 #[derive(Clone, Copy, Debug)]
 pub enum SessionCensusCase {

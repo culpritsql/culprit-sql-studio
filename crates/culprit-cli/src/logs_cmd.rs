@@ -30,6 +30,8 @@ enum InputFormat {
     Json,
     Csv13,
     Csv,
+    // Supplied Extended Events XML, not a binary .xel file.
+    MssqlXeXml,
 }
 impl From<InputFormat> for NativeLogFormat {
     fn from(format: InputFormat) -> Self {
@@ -37,6 +39,7 @@ impl From<InputFormat> for NativeLogFormat {
             InputFormat::Json => Self::PostgresJson,
             InputFormat::Csv13 => Self::PostgresCsv13,
             InputFormat::Csv => Self::PostgresCsv,
+            InputFormat::MssqlXeXml => Self::MssqlExtendedEventsXml,
         }
     }
 }
@@ -60,15 +63,20 @@ impl LogsArgs {
 pub(crate) async fn run(args: LogsArgs, out: &Out) -> Result<u8> {
     let limits = args.limits(out.format())?;
     let output_limit = args.max_output_bytes;
-    let analysis = culprit_engine::run_blocking(move || {
-        culprit_engine::native_logs::analyze_file(&args.file, args.input_format.into(), limits)
-    })
-    .await?;
+    let analysis = culprit_engine::native_logs::open_selected_file(args.file, args.input_format.into(), limits).await?;
     if out.format() == Format::Json {
         let bytes = bounded_output::json(&analysis, output_limit)?;
         std::io::stdout().lock().write_all(&bytes).map_err(|_| Error::internal(t!("cli.output_failed")))?;
     } else {
         println!("{}", observations::retained(&analysis.report));
+        if let Some(events) = &analysis.native_events {
+            for event in &events.timeline {
+                println!("{}: {}", event.when(), event.title.text());
+            }
+            if !events.unplaced_positions.is_empty() {
+                println!("{}", t!("native_logs.mssql.unplaced"));
+            }
+        }
         if !analysis.is_read_complete() {
             println!("{}", t!("native_logs.cli.incomplete"));
         }
@@ -90,8 +98,12 @@ mod tests {
     #[test]
     fn native_layout_must_be_explicit_and_does_not_conflict_with_global_output_format() {
         assert!(Command::try_parse_from(["logs", "input.json"]).is_err());
-        for (name, expected) in [("json", InputFormat::Json), ("csv13", InputFormat::Csv13), ("csv", InputFormat::Csv)]
-        {
+        for (name, expected) in [
+            ("json", InputFormat::Json),
+            ("csv13", InputFormat::Csv13),
+            ("csv", InputFormat::Csv),
+            ("mssql-xe-xml", InputFormat::MssqlXeXml),
+        ] {
             let command = Command::try_parse_from(["logs", "not-an-identity.csv", "--input-format", name]).unwrap();
             assert_eq!(command.args.input_format, expected);
             assert!(command.args.limits(Format::Json).is_ok());

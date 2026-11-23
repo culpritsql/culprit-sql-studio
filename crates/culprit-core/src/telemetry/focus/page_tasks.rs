@@ -82,7 +82,7 @@ impl DiagnosticEpisode {
         if !self.is_valid() {
             return Err(CollectionStop::InvalidPage.error());
         }
-        if !self.analysis.needs_work()
+        if !self.owes_primary_analysis()
             || !matches!(self.signal, DiagnosticSignal::Activity { condition: ActivityCondition::LongRunning, .. })
         {
             return Ok(DiagnosticFocusPlan::NotRequired);

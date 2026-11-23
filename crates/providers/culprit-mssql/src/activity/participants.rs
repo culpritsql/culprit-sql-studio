@@ -121,7 +121,7 @@ impl Check {
     }
 
     /// Compact original selectors use the same native generations and SQL locator as full activity rows.
-    pub(super) fn selector_state(&self, key: &ActivityKey, statement: &NativeIdentity) -> RequestState {
+    pub(crate) fn selector_state(&self, key: &ActivityKey, statement: &NativeIdentity) -> RequestState {
         self.matches_selector(key, RequestLocator::from_identity(statement).as_ref(), None)
     }
 
@@ -297,4 +297,25 @@ pub(crate) fn matches_owner(focus: &ActivityRequestFocus, owner: &crate::local_s
         return Err(CollectionStop::SourceChanged.error());
     }
     Ok(())
+}
+
+/// Selected request check uses the same parameterization, native key decoder and role guard as enrichment.
+pub(crate) async fn selected_check<R: NativeRead>(
+    reader: &mut R,
+    focus: &ActivityRequestFocus,
+    role: Option<bool>,
+) -> Result<Check> {
+    let sql =
+        participant_query(",CONVERT(nvarchar(60),DATABASEPROPERTYEX(DB_NAME(),N'Updateability')) AS updateability", "");
+    let rows = reader
+        .query(&sql, vec![Parameter::Text(selector_keys(&[(0, &focus.original.key)])?)], 2)
+        .await
+        .map_err(ReadError::into_error)?;
+    let [row] = rows.as_slice() else { return Err(invalid_data()) };
+    crate::cached_statements::acquisition_frame::require_role(row, role)?;
+    let check = Check::decode(row)?;
+    if check.ordinal != 0 {
+        return Err(invalid_data());
+    }
+    Ok(check)
 }

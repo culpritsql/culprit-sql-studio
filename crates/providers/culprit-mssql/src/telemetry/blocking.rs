@@ -8,8 +8,9 @@ use culprit_core::{Result, telemetry::*};
 use std::sync::Arc;
 
 // One SET + two three-query boxed authority bounds + one Activity frame + at most one batched current
-// SQL enrichment + one exact original participant check. No additional observer or native reader exists.
-const MAX_BLOCKING_QUERIES: u32 = 10;
+// SQL enrichment + one exact original participant check. Only a selected schema-lock victim adds two
+// bounded native endpoint snapshots on this same held reader; ordinary blocking still uses at most ten.
+const MAX_BLOCKING_QUERIES: u32 = 12;
 pub(super) fn bounded_budget(requested: &CollectionBudget) -> CollectionBudget {
     let mut budget = super::activity::bounded_budget(requested);
     budget.max_queries = requested.max_queries.min(MAX_BLOCKING_QUERIES);

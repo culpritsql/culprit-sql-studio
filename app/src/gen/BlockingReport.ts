@@ -9,6 +9,7 @@ import type { FocusedRequestMembership } from "./FocusedRequestMembership";
 import type { MaintenanceReport } from "./MaintenanceReport";
 import type { MetadataQueueReport } from "./MetadataQueueReport";
 import type { NativeReadContext } from "./NativeReadContext";
+import type { OutputBlockingReport } from "./OutputBlockingReport";
 import type { SourceState } from "./SourceState";
 
-export type BlockingReport = { source: string, context: NativeReadContext, source_state: SourceState, source_reason: string | null, read_complete: boolean, native_rows: number, observed_rows: number, original: DiagnosticEvidenceRef, binding: FocusedRequestBinding, membership: FocusedRequestMembership, request_end: BlockingRequestState, closure: BlockingClosureDescription, relationships: Array<BlockingObservation>, blocking: Blocking | null, maintenance: MaintenanceReport | null, metadata_queue: MetadataQueueReport, title: string, summary: string, limitations: Array<string>, investigation: string, verify: string, };
+export type BlockingReport = { source: string, context: NativeReadContext, source_state: SourceState, source_reason: string | null, read_complete: boolean, native_rows: number, observed_rows: number, original: DiagnosticEvidenceRef, binding: FocusedRequestBinding, membership: FocusedRequestMembership, request_end: BlockingRequestState, closure: BlockingClosureDescription, relationships: Array<BlockingObservation>, blocking: Blocking | null, maintenance: MaintenanceReport | null, metadata_queue: MetadataQueueReport, output_retention: OutputBlockingReport, title: string, summary: string, limitations: Array<string>, investigation: string, verify: string, };

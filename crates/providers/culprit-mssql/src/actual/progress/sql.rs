@@ -65,16 +65,45 @@ OPTION(MAXDOP 1);
     )
 }
 
+#[derive(Clone, Copy)]
+pub(super) enum ProfileProjection {
+    Nodes,
+    Threads { limit: usize },
+}
+
 pub(super) fn profiles() -> String {
+    profiles_for(ProfileProjection::Nodes)
+}
+
+pub(super) fn profiles_for(projection: ProfileProjection) -> String {
     // The selected request's generation and locator constrain the operator aggregation. The final SELECT always
     // emits one guard, even if profiling is empty, so a vanished or recycled participant cannot bypass proof.
+    let (limit, schema, columns, grouping, started, clock, request_selection) = match projection {
+        ProfileProjection::Nodes => (
+            MAX_NODES + 1,
+            "node_id int NOT NULL,row_count bigint,estimate_row_count bigint,elapsed_ms bigint,cpu_ms bigint,logical_reads bigint,end_of_scans bigint,replays bigint,closed int",
+            "p.node_id,SUM(p.row_count) AS row_count,MAX(p.estimate_row_count) AS estimate_row_count,\n MAX(p.elapsed_time_ms) AS elapsed_ms,SUM(p.cpu_time_ms) AS cpu_ms,SUM(p.logical_read_count) AS logical_reads,\n SUM(p.end_of_scan_count) AS end_of_scans,SUM(p.rebind_count)+SUM(p.rewind_count) AS replays,\n MIN(CASE WHEN p.close_time>0 THEN 1 ELSE 0 END) AS closed",
+            "GROUP BY p.node_id ",
+            "",
+            "",
+            "",
+        ),
+        ProfileProjection::Threads { limit } => (
+            limit + 1,
+            "node_id int NOT NULL,thread_id int,task_address varchar(16),physical_operator_name nvarchar(256),row_count bigint,actual_read_row_count bigint,estimate_row_count bigint,elapsed_time_ms bigint,cpu_time_ms bigint,logical_read_count bigint,physical_read_count bigint,read_ahead_count bigint,write_page_count bigint,end_of_scan_count bigint,scan_count bigint,rebind_count bigint,rewind_count bigint,open_time bigint,close_time bigint,database_id smallint,object_id int,index_id int",
+            "p.node_id,p.thread_id,CONVERT(varchar(16),p.task_address,2) AS task_address,\n p.physical_operator_name,p.row_count,p.actual_read_row_count,p.estimate_row_count,p.elapsed_time_ms,p.cpu_time_ms,\n p.logical_read_count,p.physical_read_count,p.read_ahead_count,p.write_page_count,p.end_of_scan_count,p.scan_count,\n p.rebind_count,p.rewind_count,p.open_time,p.close_time,p.database_id,p.object_id,p.index_id",
+            "",
+            "\nDECLARE @profile_started datetime2=SYSUTCDATETIME();",
+            "CONVERT(varchar(40),@profile_started,126)+'Z' AS profiles_observed_from,",
+            " AND ar.request_id=@P2",
+        ),
+    };
     format!(
         r#"
-DECLARE /* culprit */ @at datetime2;
-SELECT TOP({limit}) 'profile' AS row_kind,p.node_id,SUM(p.row_count) AS row_count,MAX(p.estimate_row_count) AS estimate_row_count,
- MAX(p.elapsed_time_ms) AS elapsed_ms,SUM(p.cpu_time_ms) AS cpu_ms,SUM(p.logical_read_count) AS logical_reads,
- SUM(p.end_of_scan_count) AS end_of_scans,SUM(p.rebind_count)+SUM(p.rewind_count) AS replays,
- MIN(CASE WHEN p.close_time>0 THEN 1 ELSE 0 END) AS closed
+DECLARE /* culprit */ @at datetime2;{started}
+DECLARE @profiles TABLE({schema});
+INSERT INTO @profiles
+SELECT TOP({limit}) {columns}
 FROM sys.dm_exec_query_profiles p
 JOIN sys.dm_exec_requests r ON r.session_id=p.session_id AND r.request_id=p.request_id
  AND r.sql_handle=p.sql_handle AND r.plan_handle=p.plan_handle
@@ -82,20 +111,25 @@ JOIN sys.dm_exec_sessions s ON s.session_id=r.session_id
 WHERE r.session_id=@P1 AND r.request_id=@P2 AND r.database_id=DB_ID() AND r.database_id=@P9
  AND r.session_id<>@@SPID AND s.is_user_process=1
  AND {ESTABLISHED_SESSION_SQL}
- AND s.login_time=CONVERT(datetime,@P3,126) AND r.start_time=CONVERT(datetime,@P4,126)
+  AND {same_session_generation} AND {same_request_generation}
  AND r.sql_handle=CONVERT(varbinary(64),@P5,2) AND r.plan_handle=CONVERT(varbinary(64),@P6,2)
  AND r.statement_start_offset=@P7 AND r.statement_end_offset=@P8
-GROUP BY p.node_id OPTION(MAXDOP 1);
+{grouping}OPTION(MAXDOP 1);
 SET @at=SYSUTCDATETIME();
-SELECT 'guard' AS row_kind,{CHECK_COLUMNS},{SCOPE_COLUMNS},{capability} AS request_page_server_read_capability,
+SELECT CASE WHEN p.node_id IS NULL THEN 'guard' ELSE 'profile' END AS row_kind,{clock}p.*,g.*
+FROM @profiles p
+FULL OUTER JOIN (
+SELECT {CHECK_COLUMNS},{SCOPE_COLUMNS},{capability} AS request_page_server_read_capability,
  CAST(CASE WHEN {ESTABLISHED_SESSION_SQL} THEN 1 ELSE 0 END AS bit) AS session_established,
- (SELECT COUNT(*) FROM sys.dm_exec_requests ar WHERE ar.session_id=@P1 AND ar.database_id=DB_ID()) AS request_count
+ (SELECT COUNT(*) FROM sys.dm_exec_requests ar WHERE ar.session_id=@P1 AND ar.database_id=DB_ID(){request_selection}) AS request_count
 FROM(SELECT 0 AS ordinal)a
 LEFT JOIN sys.dm_exec_sessions s ON s.session_id=@P1 AND s.is_user_process=1 AND s.session_id<>@@SPID
 LEFT JOIN sys.dm_exec_requests r ON r.session_id=s.session_id AND r.request_id=@P2 AND r.database_id=DB_ID()
+)g ON 1=0
 OPTION(MAXDOP 1);
 "#,
-        limit = MAX_NODES + 1,
         capability = page_server_reads::CAPABILITY,
+        same_session_generation = crate::sql_time::native_time_matches("s.login_time", "@P3"),
+        same_request_generation = crate::sql_time::native_time_matches("r.start_time", "@P4"),
     )
 }

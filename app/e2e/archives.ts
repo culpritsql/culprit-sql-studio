@@ -1,35 +1,44 @@
+import type { WarehouseArtifactQuery } from "../src/gen/WarehouseArtifactQuery";
+import type { Plan } from "../src/gen/Plan";
 import { expect, type Locator, type Page } from "@playwright/test";
 import type { SaveWarehouseConnection } from "../src/gen/SaveWarehouseConnection";
 import type { WarehouseConnectionInfo } from "../src/gen/WarehouseConnectionInfo";
 import type { WarehouseConnectionRef } from "../src/gen/WarehouseConnectionRef";
 import type { PublishedResourceRequest } from "../src/gen/PublishedResourceRequest";
+import type { WarehouseWindowQuery } from "../src/gen/WarehouseWindowQuery";
 import type { PublishedResourceSelector } from "../src/gen/PublishedResourceSelector";
 import english from "../../locales/en.json" with { type: "json" };
 
-export type HeldArchivePhase = "begin" | "resources" | "incident" | "save";
+export type HeldArchivePhase = "begin" | "resources" | "incident" | "window" | "artifacts" | "save";
 export type ArchiveBrowserState = {
   commands: Array<{ command: string; requestId?: string }>;
   nativeCalls: string[];
   drafts: SaveWarehouseConnection[];
   resources: Array<{ connection: WarehouseConnectionRef; request: PublishedResourceRequest; requestId: string }>;
   incidents: Array<{ connection: WarehouseConnectionRef; resource: PublishedResourceSelector; around: string; requestId: string }>;
+  windows: Array<{ connection: WarehouseConnectionRef; request: WarehouseWindowQuery; requestId: string }>;
+  artifacts: Array<{ connection: WarehouseConnectionRef; request: WarehouseArtifactQuery; requestId: string }>;
   finished: Record<HeldArchivePhase, number>;
 };
-export async function installArchiveApi(page: Page, { saved = true, nativeView = false }: { saved?: boolean; nativeView?: boolean } = {}) {
+export async function installArchiveApi(page: Page, { saved = true, nativeView = false, artifactPlan = null }: { saved?: boolean; nativeView?: boolean; artifactPlan?: Plan | null } = {}) {
   await page.goto("/");
   await expect(page.getByRole("complementary").getByRole("button", { name: / mssql-demo \d+$/ })).toBeVisible();
   await page.locator(".language-select").selectOption("en");
-  await page.evaluate(async ({ saved, nativeView }) => {
+  await page.evaluate(async ({ saved, nativeView, artifactPlan }) => {
     const apiPath = "/src/lib/api.ts", storePath = "/src/lib/store.ts";
     const adapterPath = "/src/lib/api/warehouses.ts", fixturePath = "/src/test/warehouse-incidents.ts";
     const { api } = await import(apiPath) as typeof import("../src/lib/api");
     const { setState, loadConnections } = await import(storePath) as typeof import("../src/lib/store");
     const { desktopWarehouses } = await import(adapterPath) as typeof import("../src/lib/api/warehouses");
     const { warehouseIncidentCase } = await import(fixturePath) as typeof import("../src/test/warehouse-incidents");
-    type Phase = "begin" | "resources" | "incident" | "save";
+    const windowFixturePath = "/src/test/warehouse-windows.ts";
+    const { warehouseWindowCase } = await import(windowFixturePath) as typeof import("../src/test/warehouse-windows");
+    const artifactFixturePath = "/src/test/warehouse-artifacts.ts";
+    const { warehouseArtifactCase } = await import(artifactFixturePath) as typeof import("../src/test/warehouse-artifacts");
+    type Phase = "begin" | "resources" | "incident" | "window" | "artifacts" | "save";
     const state: ArchiveBrowserState = {
-      commands: [], nativeCalls: [], drafts: [], resources: [], incidents: [],
-      finished: { begin: 0, resources: 0, incident: 0, save: 0 },
+      commands: [], nativeCalls: [], drafts: [], resources: [], incidents: [], windows: [], artifacts: [],
+      finished: { begin: 0, resources: 0, incident: 0, window: 0, artifacts: 0, save: 0 },
     };
     const held = new Set<Phase>();
     const pending = new Map<Phase, (marker?: string) => void>();
@@ -99,6 +108,22 @@ export async function installArchiveApi(page: Page, { saved = true, nativeView =
           state.resources.push({ connection: structuredClone(connection), request: structuredClone(request), requestId: requestId! });
           return await response("resources", resources(connection, request), (value, marker) => { value.resources[0]!.database_name = marker; }) as T;
         }
+        case "warehouse_window": {
+          const connection = args!.connection as WarehouseConnectionRef;
+          const request = args!.request as WarehouseWindowQuery;
+          state.windows.push({ connection: structuredClone(connection), request: structuredClone(request), requestId: requestId! });
+          return await response("window", warehouseWindowCase(request, request.after == null ? "FIRST_WINDOW_PAGE" : "SECOND_WINDOW_PAGE"),
+            (value, marker) => { value.published[0]!.findings[0]!.finding.finding.title = marker; }) as T;
+        }
+        case "warehouse_artifacts": {
+          const connection = args!.connection as WarehouseConnectionRef;
+          const request = args!.request as WarehouseArtifactQuery;
+          state.artifacts.push({ connection: structuredClone(connection), request: structuredClone(request), requestId: requestId! });
+          return await response("artifacts", warehouseArtifactCase(request, undefined, artifactPlan), (value, marker) => {
+            const payload = value.records[0]!.artifacts[0]!.payload;
+            if (payload.kind === "complete" && payload.payload.state === "available") payload.payload.text = marker;
+          }) as T;
+        }
         case "warehouse_incident": {
           const connection = args!.connection as WarehouseConnectionRef;
           const resource = args!.resource as PublishedResourceSelector;
@@ -139,7 +164,7 @@ export async function installArchiveApi(page: Page, { saved = true, nativeView =
         release(marker);
       },
     } });
-  }, { saved, nativeView });
+  }, { saved, nativeView, artifactPlan });
 }
 export async function openArchives(page: Page) {
   await page.getByRole("complementary").getByRole("button", { name: english["ui.archives.title"], exact: true }).click();

@@ -97,44 +97,13 @@ impl<'a> Definitions<'a> {
     }
 
     pub fn join(&self, references: &StatementReferences) -> Result<Joined<'a>> {
-        let Some(query_reference) = &references.query else {
-            return Ok(Joined { query: None, plan: None });
-        };
-        let query_identity = NativeQueryIdentity {
-            query_id: query_reference.native.id.clone(),
-            qualifiers: query_reference.native.qualifiers.clone(),
-        };
-        let Some(query_id) = &query_reference.definition_id else {
-            return Ok(Joined { query: None, plan: None });
-        };
-        if query_identity.definition_id(self.source)? != *query_id {
-            return Err(invalid());
-        }
-        let query = self.queries.get(query_id.as_str()).copied();
-        if query.is_some_and(|query| query.identity != query_identity) {
-            return Err(invalid());
-        }
-        let Some(plan_reference) = &references.plan else {
-            return Ok(Joined { query, plan: None });
-        };
-        let Some(plan_id) = &plan_reference.definition_id else {
-            return Ok(Joined { query, plan: None });
-        };
-        let identity = NativePlanIdentity {
-            plan_id: plan_reference.native.id.clone(),
-            query: query_identity,
-            qualifiers: plan_reference.native.qualifiers.clone(),
-        };
-        if identity.definition_id(self.source)? != *plan_id {
-            return Err(invalid());
-        }
-        let plan = self.plans.get(plan_id.as_str()).copied();
-        if plan.is_some_and(|plan| {
-            plan.identity != identity || plan.query_definition_id.as_ref().is_some_and(|parent| parent != query_id)
-        }) {
-            return Err(invalid());
-        }
-        Ok(Joined { query, plan: plan.filter(|plan| plan.query_definition_id.as_ref() == Some(query_id)) })
+        let query_id = references.query.as_ref().and_then(|reference| reference.definition_id.as_deref());
+        let plan_id = references.plan.as_ref().and_then(|reference| reference.definition_id.as_deref());
+        let query = query_id.and_then(|id| self.queries.get(id).copied());
+        let plan = plan_id.and_then(|id| self.plans.get(id).copied());
+        let query = references.bind_query_definition(self.source, query).map_err(|_| invalid())?;
+        let plan = references.bind_plan_definition(self.source, plan).map_err(|_| invalid())?;
+        Ok(Joined { query, plan })
     }
 }
 

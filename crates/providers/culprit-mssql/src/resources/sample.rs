@@ -25,6 +25,12 @@ pub(crate) enum Metric {
     CpuLimit,
 }
 
+impl Metric {
+    pub(super) fn native_column(self) -> &'static str {
+        FIELDS[self as usize].column
+    }
+}
+
 const METRIC_COUNT: usize = 11;
 
 struct ResourceField {

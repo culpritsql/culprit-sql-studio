@@ -103,3 +103,78 @@ async fn changed_public_focus_binding_closure_or_process_scope_is_not_accepted_a
         assert_eq!(fixture.recovery.object_reads.load(Ordering::SeqCst), opened);
     }
 }
+
+#[tokio::test]
+async fn original_schema_resource_transaction_and_wait_pointer_cannot_be_changed_by_a_published_projection() {
+    let (source, records) = test_support::mssql_metadata_queue_evidence(test_support::MssqlMetadataQueueCase::Observed);
+    let fixture = Fixture::new(source, records).await;
+    let opened = fixture.recovery.object_reads.load(Ordering::SeqCst);
+    let schema = fixture.catalog.get(TelemetryStream::ActivityObservations).unwrap();
+    let column = schema.columns().iter().position(|column| column.name == "ActivityFacts").unwrap();
+    for (pointer, value) in [
+        ("/wait/resources/0/native/data/resource/lock_partition", json!(1)),
+        ("/wait/resources/0/native/data/blockers/0/transaction/id", json!("9999")),
+        ("/wait/resources/0/native/data/blockers/0/native_wait_edges/0/owner_address", json!("0000000000009999")),
+        ("/wait/resources/0/native/data/settled_at", json!("2020-01-01T12:00:01.9Z")),
+        ("/wait/resources/0/native/data/waiter_settled", json!(false)),
+    ] {
+        let mut rows = fixture.rows.clone();
+        let mut facts: Value = serde_json::from_str(rows[0][column].as_str().unwrap()).unwrap();
+        *facts.pointer_mut(pointer).expect("actual original native schema-lock fact") = value;
+        rows[0][column] = json!(serde_json::to_string(&facts).unwrap());
+        fixture.replies(vec![rows]);
+        let error = fixture
+            .reader()
+            .read_capture(&fixture.range, FAMILY, EvidenceReadBudget::default(), None)
+            .await
+            .unwrap_err();
+        assert_eq!(error.detail, Some(culprit_core::ErrorDetail::Delivery(DeliveryProblem::Integrity)), "{pointer}");
+        assert_eq!(fixture.recovery.object_reads.load(Ordering::SeqCst), opened);
+    }
+}
+
+#[tokio::test]
+async fn selected_metadata_ticket_cohorts_keep_candidates_and_native_limits_through_the_same_canonical_activity_stream()
+{
+    for &case in test_support::MetadataLockContextCase::ALL {
+        let (source, records) = test_support::metadata_lock_context_evidence(case);
+        let fixture = Fixture::new(source.clone(), records.clone()).await;
+        let opened = fixture.recovery.object_reads.load(Ordering::SeqCst);
+        fixture.replies(fixture.rows.iter().map(|row| vec![row.clone()]).collect());
+        let capture = fixture
+            .reader()
+            .read_capture(&fixture.range, FAMILY, EvidenceReadBudget { page_rows: 1, ..Default::default() }, None)
+            .await
+            .unwrap();
+        test_support::assert_metadata_lock_context_capture(&capture, &source, &records);
+        assert_eq!(fixture.recovery.object_reads.load(Ordering::SeqCst), opened);
+    }
+}
+#[tokio::test]
+async fn ticket_requesting_event_pointer_generation_or_transaction_change_cannot_bypass_the_original_receipt() {
+    let (source, records) = test_support::metadata_lock_context_evidence(test_support::MetadataLockContextCase::Mysql);
+    let fixture = Fixture::new(source.clone(), records.clone()).await;
+    let opened = fixture.recovery.object_reads.load(Ordering::SeqCst);
+    let schema = fixture.catalog.get(TelemetryStream::ActivityObservations).unwrap();
+    let column = schema.columns().iter().position(|column| column.name == "ActivityFacts").unwrap();
+    for (pointer, value) in [
+        ("/wait/resources/0/native/data/tickets/1/owner_event_id", json!("3")),
+        ("/wait/resources/0/native/data/tickets/1/address", json!("987654")),
+        ("/wait/resources/0/native/data/tickets/1/owner_thread_id", json!("99999")),
+        ("/wait/resources/0/native/data/tickets/1/transaction/timer_start", json!("9001")),
+        ("/wait/resources/0/native/data/tickets/1/settled", json!(false)),
+    ] {
+        let mut rows = fixture.rows.clone();
+        let mut facts: Value = serde_json::from_str(rows[0][column].as_str().unwrap()).unwrap();
+        *facts.pointer_mut(pointer).expect("original native ticket field") = value;
+        rows[0][column] = json!(serde_json::to_string(&facts).unwrap());
+        fixture.replies(vec![rows]);
+        let error = fixture
+            .reader()
+            .read_capture(&fixture.range, FAMILY, EvidenceReadBudget::default(), None)
+            .await
+            .unwrap_err();
+        assert_eq!(error.detail, Some(culprit_core::ErrorDetail::Delivery(DeliveryProblem::Integrity)), "{pointer}");
+        assert_eq!(fixture.recovery.object_reads.load(Ordering::SeqCst), opened);
+    }
+}

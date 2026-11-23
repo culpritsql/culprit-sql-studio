@@ -68,11 +68,69 @@ pub(super) async fn run(emulator: &Arc<Emulator>, catalog: &SchemaCatalog) {
     }
     first.dispatch(emulator).await;
     assert_eq!(
+        count(emulator, &format!("FriendlySmokeIncidentsDuring({label},datetime({from}),datetime({until}))")).await,
+        0,
+        "a convenience wrapper cannot expose an unpublished Gold row or resource label"
+    );
+    assert_eq!(
         count(emulator, &format!("FriendlySmokeResources(datetime({after}))")).await,
         0,
         "unpublished names are not visible"
     );
     first.publish(emulator).await;
+    let window = format!("{label},datetime({from}),datetime({until})");
+    assert_eq!(count(emulator, &format!("FriendlySmokeIncidentsDuring({window})")).await, 1);
+    assert_eq!(
+        count(emulator, &format!("FriendlySmokeIncidentWindow(datetime({from}),datetime({until}),datetime({after}))"))
+            .await,
+        1
+    );
+    assert_eq!(
+        count(
+            emulator,
+            &format!("FriendlySmokeNewIncidentWindow(datetime({from}),datetime({until}),datetime({after}))")
+        )
+        .await,
+        1
+    );
+    assert_eq!(
+        count(emulator, &format!("FriendlySmokeCollectionStatus(datetime({after}),3650d)")).await,
+        0,
+        "publishing Gold does not prove a fresh source acquisition"
+    );
+
+    for family in ["Findings", "Changes"] {
+        assert_eq!(
+            count(emulator, &format!("FriendlySmoke{family}During({label},datetime(2019),datetime({after}))")).await,
+            1
+        );
+    }
+
+    assert_eq!(count(emulator, &format!("FriendlySmokeRecordedIncidentAlertsDuring({window})")).await, 1);
+    assert_eq!(
+        count(emulator, &format!("FriendlySmokeRecordedIncidentAlertsDuring({label},ago(5m),now())")).await,
+        0,
+        "an original from2020 published now is not a newly observed current outage"
+    );
+    let provenance = emulator
+        .values(
+            format!("FriendlySmokeIncidentsDuring({window}) | project PublicationTimeKnown"),
+            BTreeMap::new(),
+            vec![Column { column_name: "PublicationTimeKnown".into(), column_type: "bool".into() }],
+        )
+        .await;
+    assert_eq!(provenance, vec![vec![json!(false)]]);
+    let unknown = emulator
+        .values(
+            "FriendlySmokeStatusNow(\"not-observed\",30m) | project State,PublicationTimeKnown".into(),
+            BTreeMap::new(),
+            vec![
+                Column { column_name: "State".into(), column_type: "string".into() },
+                Column { column_name: "PublicationTimeKnown".into(), column_type: "bool".into() },
+            ],
+        )
+        .await;
+    assert_eq!(unknown, vec![vec![json!("unknown-label"), json!(false)]]);
     // Exercise the actual namespace renderer with only its native row input changed. Keeping the
     // published RangeId/batch/ordinal intact prevents a conflict guard from masking the owner check.
     let schema = catalog.get(TelemetryStream::DerivedIncidents).unwrap();
@@ -180,6 +238,22 @@ pub(super) async fn run(emulator: &Arc<Emulator>, catalog: &SchemaCatalog) {
     resolved.dispatch(emulator).await;
     resolved.publish(emulator).await;
     assert_eq!(count(emulator, &new_call).await, 0, "later resolution suppresses old active onset");
+    assert_eq!(
+        count(
+            emulator,
+            &format!("FriendlySmokeNewIncidentWindow(datetime({from}),datetime({until}),datetime({after}))")
+        )
+        .await,
+        0
+    );
+    assert_eq!(count(emulator, &format!("FriendlySmokeIncidentWindow(datetime({from}),datetime({until}),datetime({after})) | where Lifecycle == \"resolved\"")).await, 1);
+
+    assert_eq!(count(emulator, &format!("FriendlySmokeRecordedIncidentAlertsDuring({window})")).await, 0);
+    assert_eq!(
+        count(emulator, &format!("FriendlySmokeIncidentsDuring({window}) | where Lifecycle == \"resolved\"")).await,
+        1
+    );
+
     assert_eq!(count(emulator,&format!("FriendlySmokeIncidents({label},datetime(2019),datetime({after}),datetime({after})) | where Lifecycle == \"resolved\"")).await,1);
     assert!(
         count(

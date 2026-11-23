@@ -1,5 +1,5 @@
 use super::*;
-fn cache(count: Option<u32>, overflow: Option<bool>) -> PostgresSubtransactionCache {
+pub(in crate::telemetry) fn cache(count: Option<u32>, overflow: Option<bool>) -> PostgresSubtransactionCache {
     let mut actor = super::super::activity::tests::request("42");
     actor.key.session.generation = "2020-01-01T10:00:00Z".into();
     actor.key.request =
@@ -28,7 +28,7 @@ fn cache(count: Option<u32>, overflow: Option<bool>) -> PostgresSubtransactionCa
         overflowed: overflow,
     }
 }
-fn slru() -> PostgresSlruCounters {
+pub(in crate::telemetry) fn slru() -> PostgresSlruCounters {
     PostgresSlruCounters {
         kind: PostgresSlruKind::Subtransaction,
         native_name: "subtransaction".into(),

@@ -122,6 +122,81 @@ impl Workspace {
         )
         .await
     }
+    pub async fn warehouse_window(
+        &self,
+        reference: &WarehouseConnectionRef,
+        request: &WarehouseWindowQuery,
+        cancellation: &CollectionCancellation,
+    ) -> Result<WarehouseWindowReport> {
+        self.read_warehouse_window(reference, request, cancellation, None).await
+    }
+    pub async fn warehouse_window_with_permit(
+        &self,
+        reference: &WarehouseConnectionRef,
+        request: &WarehouseWindowQuery,
+        cancellation: &CollectionCancellation,
+        permit: crate::evidence::EvidenceReadPermit,
+    ) -> Result<WarehouseWindowReport> {
+        self.read_warehouse_window(reference, request, cancellation, Some(permit)).await
+    }
+    async fn read_warehouse_window(
+        &self,
+        reference: &WarehouseConnectionRef,
+        request: &WarehouseWindowQuery,
+        cancellation: &CollectionCancellation,
+        permit: Option<crate::evidence::EvidenceReadPermit>,
+    ) -> Result<WarehouseWindowReport> {
+        self.with_warehouse_read(
+            reference,
+            cancellation,
+            crate::evidence::IncidentRequest::default_budget(),
+            |service, budget| async move {
+                match permit {
+                    Some(permit) => service.window_with_permit(request, budget, cancellation, permit).await,
+                    None => service.window(request, budget, cancellation).await,
+                }
+            },
+        )
+        .await
+    }
+    pub async fn warehouse_artifacts(
+        &self,
+        reference: &WarehouseConnectionRef,
+        request: &WarehouseArtifactQuery,
+        cancellation: &CollectionCancellation,
+    ) -> Result<WarehouseArtifactReport> {
+        self.read_warehouse_artifacts(reference, request, cancellation, None).await
+    }
+    pub async fn warehouse_artifacts_with_permit(
+        &self,
+        reference: &WarehouseConnectionRef,
+        request: &WarehouseArtifactQuery,
+        cancellation: &CollectionCancellation,
+        permit: crate::evidence::EvidenceReadPermit,
+    ) -> Result<WarehouseArtifactReport> {
+        self.read_warehouse_artifacts(reference, request, cancellation, Some(permit)).await
+    }
+    async fn read_warehouse_artifacts(
+        &self,
+        reference: &WarehouseConnectionRef,
+        request: &WarehouseArtifactQuery,
+        cancellation: &CollectionCancellation,
+        permit: Option<crate::evidence::EvidenceReadPermit>,
+    ) -> Result<WarehouseArtifactReport> {
+        request.validate()?;
+        self.with_warehouse_read(
+            reference,
+            cancellation,
+            EvidenceService::artifact_budget(request),
+            |service, budget| async move {
+                match permit {
+                    Some(permit) => service.artifacts_with_permit(request, budget, cancellation, permit).await,
+                    None => service.artifacts(request, budget, cancellation).await,
+                }
+            },
+        )
+        .await
+    }
     async fn with_warehouse_read<T, F, Reading>(
         &self,
         reference: &WarehouseConnectionRef,
@@ -134,7 +209,7 @@ impl Workspace {
         Reading: std::future::Future<Output = Result<T>>,
     {
         let deadline = Instant::now() + Duration::from_millis(u64::from(budget.timeout_ms));
-        let reading = async {
+        let preparing = async {
             check(cancellation, deadline)?;
             let manager = self.warehouse.clone();
             let selected = reference.clone();
@@ -144,12 +219,21 @@ impl Workspace {
                 crate::run_blocking(move || manager.prepare(&selected, secrets, &preparing, deadline)).await?;
             self.require_warehouse(reference).await?;
             check(cancellation, deadline)?;
-            let report = read(service, remaining(budget, deadline)?).await?;
-            self.require_warehouse(reference).await?;
-            check(cancellation, deadline)?;
-            Ok(report)
+            Ok::<_, Error>(service)
         };
-        tokio::select! {biased;_=cancellation.cancelled()=>Err(CollectionStop::Cancelled.error()),result=tokio::time::timeout_at(deadline,reading)=>result.map_err(|_|CollectionStop::TimedOut.error())?}
+        // Preparation retains its existing bounded command/client owner. Once admitted, the service owns the
+        // remaining action deadline and cooperatively settles its read/CPU work instead of losing its awaiter.
+        let service = tokio::select! {
+            biased;
+            _ = cancellation.cancelled() => return Err(CollectionStop::Cancelled.error()),
+            result = tokio::time::timeout_at(deadline, preparing) => {
+                result.map_err(|_| CollectionStop::TimedOut.error())??
+            }
+        };
+        let report = read(service, remaining(budget, deadline)?).await?;
+        self.require_warehouse(reference).await?;
+        check(cancellation, deadline)?;
+        Ok(report)
     }
     async fn require_warehouse(&self, reference: &WarehouseConnectionRef) -> Result<()> {
         let storage = self.warehouse.storage.clone();

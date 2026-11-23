@@ -12,6 +12,8 @@ mod activity;
 mod activity_census;
 pub use activity_census::ActivityCensusRead;
 pub(crate) mod activity_frame;
+mod metadata_lock_context;
+pub use metadata_lock_context::*;
 mod admission;
 mod blocking;
 mod cache_entry_memory;
@@ -76,6 +78,8 @@ pub use tempdb_metadata_memory::*;
 mod counters;
 mod performance_counters;
 pub use performance_counters::*;
+mod current_execution_profile;
+pub use current_execution_profile::*;
 mod current_request_work;
 mod definitions;
 mod delivery;
@@ -116,6 +120,7 @@ mod outbox;
 mod page_waits;
 mod partitions;
 mod payloads;
+pub use payloads::DefinitionContentKind;
 mod persistent_versions;
 mod query_history_completion;
 mod query_populations;
@@ -137,19 +142,23 @@ mod retained_plans;
 mod retention;
 mod runtime;
 pub use query_history_read::*;
+mod readable_secondary_recovery;
 mod runtime_distributions;
 mod session_memory;
 mod settings;
 mod source_read;
+pub use readable_secondary_recovery::*;
 mod transaction_metadata;
 use source_read::same_time;
 pub use source_read::{
-    LocalResourceReadScope, NativeSourceReadScope, QueryCompilationAnswer, QueryCompilationGap,
-    QueryCompilationSelection, RelationalInputAnswer, RelationalInputGap, RelationalInputSelection,
-    SharedResourceReadScope, SourceReadAnswer, SourceReadExecutionScope, SourceReadFocus, SourceReadPrerequisite,
-    SourceReadQuestion, SourceReadStage, SourceReadStageState, SourceReadStages, TemporaryResourceAnswer,
-    TemporaryResourceContribution, TemporaryResourceMechanism, TransactionMetadataAnswer, WorkerStarvationAnswer,
-    local_resource_header_is_valid,
+    CurrentExecutionProfileAnswer, LocalResourceReadScope, MAX_SOURCE_READ_STAGES,
+    MAX_TRANSACTION_METADATA_OBSERVATIONS, MetadataLockContextAnswer, NativeSourceReadScope,
+    OutputGrantRetentionAnswer, OutputGrantRetentionReport, OutputGrantRetentionStatus, QueryCompilationAnswer,
+    QueryCompilationGap, QueryCompilationSelection, ReadableSecondaryRecoveryAnswer, RelationalInputAnswer,
+    RelationalInputGap, RelationalInputSelection, SharedResourceReadScope, SourceReadAnswer, SourceReadExecutionScope,
+    SourceReadFocus, SourceReadPrerequisite, SourceReadQuestion, SourceReadStage, SourceReadStageState,
+    SourceReadStages, TemporaryResourceAnswer, TemporaryResourceContribution, TemporaryResourceMechanism,
+    TransactionMetadataAnswer, TransactionMetadataContinuation, WorkerStarvationAnswer, local_resource_header_is_valid,
 };
 pub use transaction_metadata::*;
 mod instance_resources;
@@ -374,7 +383,17 @@ impl CollectionRequest {
     pub fn validate(&self) -> Result<()> {
         self.subject.validate()?;
         self.budget.validate()?;
+        if matches!(self.subject, CollectionSubject::ConfiguredConnection { .. })
+            != matches!(self.selection, CollectionSelection::CollectorConnection { .. })
+        {
+            return Err(CollectionStop::InvalidPage.error());
+        }
         match &self.selection {
+            CollectionSelection::CollectorConnection { attempt } => {
+                if !attempt.is_valid() {
+                    return Err(CollectionStop::InvalidPage.error());
+                }
+            }
             CollectionSelection::ResourcePoolSettings => {
                 if !matches!(&self.subject, CollectionSubject::Database)
                     && !matches!(&self.subject, CollectionSubject::Shared { resource }
@@ -605,6 +624,7 @@ pub enum TelemetryStream {
     DerivedIncidents,
     DerivedFindings,
     DerivedChanges,
+    CollectorConnections,
 }
 
 impl TelemetryStream {
@@ -613,7 +633,7 @@ impl TelemetryStream {
         self != Self::DiagnosticCheckpoints
     }
 
-    pub const ALL: [Self; 17] = [
+    pub const ALL: [Self; 18] = [
         Self::QueryRuntime,
         Self::QueryWaits,
         Self::QueryDefinitions,
@@ -631,6 +651,7 @@ impl TelemetryStream {
         Self::DerivedIncidents,
         Self::DerivedFindings,
         Self::DerivedChanges,
+        Self::CollectorConnections,
     ];
 
     pub fn file_name(self) -> &'static str {
@@ -652,6 +673,7 @@ impl TelemetryStream {
             Self::DerivedIncidents => "derived-incidents.ndjson",
             Self::DerivedFindings => "derived-findings.ndjson",
             Self::DerivedChanges => "derived-changes.ndjson",
+            Self::CollectorConnections => "collector-connections.ndjson",
         }
     }
 }
@@ -707,6 +729,8 @@ pub enum TelemetryRecord {
     DerivedFinding(Box<DerivedFinding>),
     #[serde(rename = "derived-changes")]
     DerivedChange(Box<DerivedChange>),
+    #[serde(rename = "collector-connections")]
+    CollectorConnection(Box<CollectorConnectionObservation>),
 }
 
 /// Identity within one source interval and observation; it does not prove continuity across source resets.
@@ -755,6 +779,10 @@ pub enum NativeRecordIdentity {
     ObjectDefinition {
         source: String,
         key: String,
+    },
+    /// Collector control identity is the original allocated attempt, never a native execution or health sample.
+    CollectorConnection {
+        attempt: String,
     },
     /// Derived identities never claim to be native DMV row identities.
     DerivedIncident {
@@ -805,6 +833,9 @@ impl TelemetryRecord {
             Self::ResourceSample(row) => {
                 row.at = canonical_time(&row.at)?;
                 match &source.observation {
+                    SourceObservation::MssqlReadableResources(history) => {
+                        history.matches_source(source) && history.accepts(row)
+                    }
                     SourceObservation::MssqlManagedInstanceResources(history) => {
                         history.matches_source(source) && history.accepts(row)
                     }
@@ -817,12 +848,10 @@ impl TelemetryRecord {
                     && row.native_locks_fit_source(source)
                     && match &source.observation {
                         SourceObservation::FocusedBlocking { result, .. } => result.accepts_row(row),
+                        SourceObservation::MetadataLockContext { result, .. } => result.accepts_row(row),
                         _ => true,
                     }
-                    && source
-                        .target
-                        .database()
-                        .is_none_or(|database| row.database_context_is_consistent(&database.database))
+                    && row.fits_source_scope(source)
             }
             Self::DiagnosticCheckpoint(row) => match &source.observation {
                 SourceObservation::Diagnostics(description) => {
@@ -843,6 +872,10 @@ impl TelemetryRecord {
                 row.fact.redact(source.target.engine());
                 let accepted = source.observation.accepts_snapshot_record(row.stream(), &row.source);
                 match (&source.observation, &row.fact) {
+                    (SourceObservation::MssqlPoolCurrent { authority, .. }, _) if authority.native.is_some() => {
+                        accepted && authority.accepts_operational(row)
+                    }
+                    _ if mssql_pool_operational_candidate(source) => false,
                     (SourceObservation::Snapshot(header), _) if header.dataset == SnapshotDataset::ProcessCpu => {
                         accepted && cpu_profile_observation_fits(row, source)
                     }
@@ -867,6 +900,33 @@ impl TelemetryRecord {
                         | OperationalFact::MssqlAgentHistory(_)
                         | OperationalFact::MssqlAgentContext(_),
                     ) => false,
+                    (
+                        SourceObservation::SourceRead { snapshot, execution, .. },
+                        OperationalFact::ExecutionGrant(grant),
+                    ) if snapshot.dataset == SnapshotDataset::CurrentRequestMemory => {
+                        accepted
+                            && RequestMemorySnapshot::acquisition_context(source)
+                                .is_ok_and(|context| context == **execution)
+                            && grant.fits_context(execution)
+                            && grant.fits_source(source)
+                            && ObservationBounds::new(&execution.observed_from, &execution.observed_until)
+                                .is_some_and(|bounds| bounds.contains(&grant.observed_at))
+                            && source
+                                .target
+                                .database()
+                                .is_some_and(|database| grant.fits_database_capture(&database.database))
+                    }
+                    (SourceObservation::SourceRead { snapshot, .. }, _)
+                        if snapshot.dataset == SnapshotDataset::CurrentRequestMemory =>
+                    {
+                        false
+                    }
+                    (_, OperationalFact::ReadableSecondaryRecovery(point)) => accepted && point.fits_source(source),
+                    (SourceObservation::SourceRead { snapshot, .. }, _)
+                        if snapshot.dataset == SnapshotDataset::ReadableSecondaryRecovery =>
+                    {
+                        false
+                    }
                     (_, OperationalFact::PostgresTransactionMetadata(point)) => {
                         accepted && point.fits_source_scope(source)
                     }
@@ -899,8 +959,12 @@ impl TelemetryRecord {
                     (_, OperationalFact::MariadbGalera(point)) => accepted && point.fits_source(source),
                     (SourceObservation::Galera { .. }, _) => false,
                     (_, OperationalFact::MssqlWorkerStarvation(point)) => accepted && point.fits_source(source),
+                    (_, OperationalFact::MssqlCurrentExecutionProfile(point)) => accepted && point.fits_source(source),
                     (SourceObservation::SourceRead { snapshot, .. }, _)
-                        if snapshot.dataset == SnapshotDataset::WorkerStarvation =>
+                        if matches!(
+                            snapshot.dataset,
+                            SnapshotDataset::WorkerStarvation | SnapshotDataset::CurrentExecutionProfile
+                        ) =>
                     {
                         false
                     }
@@ -1023,6 +1087,7 @@ impl TelemetryRecord {
                 source.accepts_measurement(&row.key) && row.page_server_reads_match_source(source)
             }
             Self::QueryWaits(row) => source.accepts_measurement(&row.key),
+            Self::CollectorConnection(row) => row.fits_source(source),
             Self::DerivedIncident(row) => {
                 row.redact(source.target.engine());
                 matches!(&source.observation, SourceObservation::DerivedDiagnosis(header)
@@ -1046,6 +1111,9 @@ impl TelemetryRecord {
     }
     pub fn native_identity(&self) -> NativeRecordIdentity {
         match self {
+            Self::CollectorConnection(row) => {
+                NativeRecordIdentity::CollectorConnection { attempt: row.original.capture.observation_id.clone() }
+            }
             Self::DerivedIncident(row) => {
                 NativeRecordIdentity::DerivedIncident { analysis_id: row.analysis_id.clone(), key: row.key() }
             }
@@ -1109,6 +1177,7 @@ impl TelemetryRecord {
             Self::DerivedIncident(row) => row.is_valid(),
             Self::DerivedFinding(row) => row.is_valid(),
             Self::DerivedChange(row) => row.is_valid(),
+            Self::CollectorConnection(row) => row.is_valid(),
         }
     }
 
@@ -1131,6 +1200,7 @@ impl TelemetryRecord {
             Self::DerivedIncident(_) => TelemetryStream::DerivedIncidents,
             Self::DerivedFinding(_) => TelemetryStream::DerivedFindings,
             Self::DerivedChange(_) => TelemetryStream::DerivedChanges,
+            Self::CollectorConnection(_) => TelemetryStream::CollectorConnections,
         }
     }
 
@@ -1209,7 +1279,15 @@ pub enum SourceCompletion {
     Verified,
     QueryHistory(Box<QueryHistoryDescription>),
     Snapshot(StateSnapshotDescription),
-    SourceRead { snapshot: StateSnapshotDescription, execution: Box<NativeReadContext> },
+    /// A local catalog closes through the same snapshot worker with its final native acquisition owner.
+    LocalResource {
+        snapshot: StateSnapshotDescription,
+        execution: Box<NativeReadContext>,
+    },
+    SourceRead {
+        snapshot: StateSnapshotDescription,
+        execution: Box<NativeReadContext>,
+    },
     Changed,
 }
 impl SourceCompletion {
@@ -1384,7 +1462,9 @@ pub use group_replication::*;
 mod galera;
 pub use galera::*;
 
+mod connection_control;
 mod read_connections;
+pub use connection_control::*;
 pub use read_connections::*;
 mod read_connection_accounting;
 pub use read_connection_accounting::{ReadConnectionAttemptRecorder, ReadConnectionPhaseGuard, ReadConnectionRecorder};

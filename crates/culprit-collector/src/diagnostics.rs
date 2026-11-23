@@ -1,7 +1,7 @@
 //! Offline analysis runs on sealed evidence. This module has no provider, credential or native query dependency.
 mod original_history;
 mod planning;
-pub(crate) use planning::long_running_question;
+pub(crate) use planning::{continuation_due, long_running_question};
 mod source_reads;
 mod tasks;
 mod transition;
@@ -142,7 +142,10 @@ async fn analyze_input(
     let Some(input) = Box::pin(original_history::reconcile(outbox, input, recovery, cancellation)).await? else {
         return Ok(false);
     };
-    if matches!(input.source.observation, SourceObservation::SourceRead { .. }) {
+    if matches!(
+        input.source.observation,
+        SourceObservation::SourceRead { .. } | SourceObservation::MetadataLockContext { .. }
+    ) {
         let Some(original) = source_reads::parents(outbox, &input, recovery, cancellation).await? else {
             return Ok(false);
         };

@@ -9,6 +9,7 @@ mod derived;
 mod expressions;
 mod options;
 mod projection;
+mod table_hints;
 
 /// An original SQL reference, retaining spelling and case. A named relation is not proof of its resolved object.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -27,19 +28,32 @@ pub struct MssqlRelationReference {
 /// Recognize a deliberately small SELECT/JOIN grammar, with agreement under every supported lexical mode.
 /// Only bounded grouping, known built-ins, closed passthroughs and one direct-column CROSS APPLY are admitted.
 /// A closed terminal OPTION may contain only the admitted relation-neutral execution hints.
-/// Other nested statements, unknown functions, rowset-changing APPLY, implicit joins and hints are not resolved.
+/// Only explicit supported join/locking hints are consumed; other nested statements, unknown functions,
+/// rowset-changing APPLY, implicit joins and unknown hints are not resolved.
 /// Multiple relations require distinct explicit aliases. Nothing here infers variable kind or default schema.
 pub fn mssql_relational_references(text: &str) -> Option<Vec<MssqlRelationReference>> {
+    inventory(text, options::TextForm::Original)
+}
+
+/// Structural replay of redacted SQL. This establishes no original kind or hint meaning: a caller must validate
+/// the original native proof and compare its complete binding set before retaining any positive classification.
+pub fn mssql_redacted_relational_references(text: &str) -> Option<Vec<MssqlRelationReference>> {
+    inventory(text, options::TextForm::Redacted)
+}
+
+fn inventory(text: &str, form: options::TextForm) -> Option<Vec<MssqlRelationReference>> {
     if text.len() > MAX_RELATIONAL_SQL_BYTES {
         return None;
     }
     let readings = readings(text, Engine::Mssql).ok()?;
-    let mut candidates = readings.iter().map(|tokens| options::statement(text, tokens).and_then(references));
+    let mut candidates = readings
+        .iter()
+        .map(|tokens| options::statement(text, tokens, form).and_then(|scope| references(scope.text, scope.tokens)));
     let first = candidates.next()??;
     candidates.all(|candidate| candidate.as_ref() == Some(&first)).then_some(first)
 }
 
-fn references(tokens: &[Token<'_>]) -> Option<Vec<MssqlRelationReference>> {
+fn references(text: &str, tokens: &[Token<'_>]) -> Option<Vec<MssqlRelationReference>> {
     let start = tokens.iter().take_while(|token| matches!(token, Token::Semicolon(_))).count();
     let end = tokens.iter().rposition(|token| !matches!(token, Token::Semicolon(_)))? + 1;
     let tokens = &tokens[start..end];
@@ -57,7 +71,8 @@ fn references(tokens: &[Token<'_>]) -> Option<Vec<MssqlRelationReference>> {
     let input_start = at;
     let mut derived = None;
     let mut applied = None;
-    let mut relations = vec![input(tokens, &mut at, &mut derived, &mut cte)?];
+    let mut table_hints = Vec::new();
+    let mut relations = vec![input(text, tokens, &mut at, &mut derived, &mut cte, &mut table_hints)?];
     while at < tokens.len() && !tail_clause(&tokens[at]) {
         if apply::starts(tokens, at) {
             if derived.is_some() || cte.is_some() || relations.len() != 1 || !word(tokens.get(input_start + 1), "AS") {
@@ -73,7 +88,7 @@ fn references(tokens: &[Token<'_>]) -> Option<Vec<MssqlRelationReference>> {
         if relations.len() == MAX_RELATIONAL_REFERENCES {
             return None;
         }
-        relations.push(input(tokens, &mut at, &mut derived, &mut cte)?);
+        relations.push(input(text, tokens, &mut at, &mut derived, &mut cte, &mut table_hints)?);
         if predicate {
             if !word(tokens.get(at), "ON") {
                 return None;
@@ -94,7 +109,7 @@ fn references(tokens: &[Token<'_>]) -> Option<Vec<MssqlRelationReference>> {
         .map(|scope| scope.alias())
         .chain(applied.iter().map(|scope| scope.alias()))
         .chain(cte.iter().flat_map(|scope| scope.aliases()));
-    if !closed_scope(tokens, derived.as_ref(), applied.as_ref())
+    if !closed_scope(tokens, derived.as_ref(), applied.as_ref(), &table_hints)
         || !distinct_aliases(&relations, scope_aliases)
         || cte.as_ref().is_some_and(|scope| !scope.is_bound(&relations))
     {
@@ -104,14 +119,19 @@ fn references(tokens: &[Token<'_>]) -> Option<Vec<MssqlRelationReference>> {
 }
 
 fn input(
+    text: &str,
     tokens: &[Token<'_>],
     at: &mut usize,
     derived: &mut Option<derived::DerivedRelation>,
     cte: &mut Option<cte::CteRelation>,
+    table_hints: &mut Vec<std::ops::Range<usize>>,
 ) -> Option<MssqlRelationReference> {
     if tokens.get(*at) != Some(&Token::Punct('(')) {
         let start = *at;
         let reference = relation(tokens, at)?;
+        if word(tokens.get(*at), "WITH") {
+            table_hints.push(table_hints::read(text, tokens, at)?);
+        }
         return match cte {
             Some(scope) => scope.resolve(reference, word(tokens.get(start + 1), "AS")),
             None => Some(reference),
@@ -129,15 +149,18 @@ fn closed_scope(
     tokens: &[Token<'_>],
     derived: Option<&derived::DerivedRelation>,
     applied: Option<&apply::AppliedProjection>,
+    table_hints: &[std::ops::Range<usize>],
 ) -> bool {
     // Only fully parsed closed scopes may be excluded. Other nested SELECTs still fail the outer grammar.
     let outer;
-    let tokens = if derived.is_some() || applied.is_some() {
+    let tokens = if derived.is_some() || applied.is_some() || !table_hints.is_empty() {
         outer = tokens
             .iter()
             .enumerate()
             .filter(|(at, _)| {
-                !derived.is_some_and(|scope| scope.contains(*at)) && !applied.is_some_and(|scope| scope.contains(*at))
+                !derived.is_some_and(|scope| scope.contains(*at))
+                    && !applied.is_some_and(|scope| scope.contains(*at))
+                    && !table_hints.iter().any(|scope| scope.contains(at))
             })
             .map(|(_, token)| *token)
             .collect::<Vec<_>>();
@@ -213,7 +236,8 @@ fn identifier(token: &Token<'_>) -> Option<String> {
 }
 
 fn join(tokens: &[Token<'_>], at: &mut usize) -> Option<bool> {
-    let predicate = !word(tokens.get(*at), "CROSS");
+    let cross = word(tokens.get(*at), "CROSS");
+    let no_loop = ["RIGHT", "FULL"].iter().any(|value| word(tokens.get(*at), value));
     if ["INNER", "LEFT", "RIGHT", "FULL", "CROSS"].iter().any(|value| word(tokens.get(*at), value)) {
         let outer = ["LEFT", "RIGHT", "FULL"].iter().any(|value| word(tokens.get(*at), value));
         *at += 1;
@@ -221,11 +245,17 @@ fn join(tokens: &[Token<'_>], at: &mut usize) -> Option<bool> {
             *at += 1;
         }
     }
+    if ["HASH", "LOOP", "MERGE"].iter().any(|value| word(tokens.get(*at), value)) {
+        if cross || no_loop && word(tokens.get(*at), "LOOP") {
+            return None;
+        }
+        *at += 1;
+    }
     if !word(tokens.get(*at), "JOIN") {
         return None;
     }
     *at += 1;
-    Some(predicate)
+    Some(!cross)
 }
 
 fn unsupported(token: &Token<'_>) -> bool {
@@ -252,7 +282,11 @@ fn predicate_end(tokens: &[Token<'_>], start: usize) -> Option<usize> {
     let mut depth = 0usize;
     for (at, token) in tokens.iter().enumerate().skip(start) {
         if depth == 0 {
-            if join_start(token) || tail_clause(token) {
+            if join_start(token)
+                || tail_clause(token)
+                || ["HASH", "LOOP", "MERGE"].iter().any(|value| word(Some(token), value))
+                    && word(tokens.get(at + 1), "JOIN")
+            {
                 return Some(at);
             }
             if *token == Token::Punct(',') || word(Some(token), "ON") {
@@ -271,7 +305,7 @@ fn predicate_end(tokens: &[Token<'_>], start: usize) -> Option<usize> {
 fn reserved(name: &str) -> bool {
     [
         "FROM", "AS", "ON", "JOIN", "INNER", "LEFT", "RIGHT", "FULL", "CROSS", "OUTER", "APPLY", "WHERE", "GROUP",
-        "HAVING", "ORDER", "OFFSET", "FETCH",
+        "HAVING", "ORDER", "OFFSET", "FETCH", "WITH", "HASH", "LOOP", "MERGE",
     ]
     .iter()
     .any(|value| name.eq_ignore_ascii_case(value))

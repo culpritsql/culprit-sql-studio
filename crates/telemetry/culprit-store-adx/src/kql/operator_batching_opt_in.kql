@@ -1,0 +1,2 @@
+.alter-merge tables (CulpritIncidentsV1,CulpritFindingsV1,CulpritChangesV1,CulpritPublishedRangesV1)
+policy ingestionbatching '{"MaximumBatchingTimeSpan":"00:00:30"}'

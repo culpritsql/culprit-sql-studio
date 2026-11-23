@@ -267,13 +267,13 @@ impl SourceReadFocus {
     }
 }
 
-struct CurrentPlanPoint<'a> {
-    focus: &'a ActivityRequestFocus,
-    context: &'a CachedStatementContext,
-    from: &'a str,
-    until: &'a str,
+pub(super) struct CurrentPlanPoint<'a> {
+    pub focus: &'a ActivityRequestFocus,
+    pub context: &'a CachedStatementContext,
+    pub from: &'a str,
+    pub until: &'a str,
 }
-fn current_plan_point<'a>(
+pub(super) fn current_plan_point<'a>(
     source: &'a CollectionDescription,
     record: &'a TelemetryRecord,
 ) -> Option<CurrentPlanPoint<'a>> {

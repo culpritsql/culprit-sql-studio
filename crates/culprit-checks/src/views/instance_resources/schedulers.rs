@@ -14,7 +14,8 @@ pub(super) fn explain_source(
     read_complete: bool,
 ) -> Result<SchedulerReport> {
     let context = NativeReadContext::from_snapshot(source)?;
-    if !valid_owner(&context)
+    let pool = mssql_pool_current_authority(source)?.filter(|authority| authority.native.is_some());
+    if !valid_owner(&context) && pool.is_none()
         || source.observation.snapshot().is_none_or(|header| {
             header.dataset != SnapshotDataset::Operational || !header.sources.iter().any(|value| value == coverage)
         })
@@ -31,7 +32,12 @@ pub(super) fn explain_source(
         if !row.is_valid() || row.source != coverage.source {
             return Err(invalid());
         }
-        let OperationalFact::CounterSet(sample) = &row.fact else { return Err(invalid()) };
+        if pool.is_some_and(|authority| !authority.accepts_operational(row)) {
+            return Err(invalid());
+        }
+        let OperationalFact::CounterSet(sample) = &row.fact else {
+            return Err(invalid());
+        };
         samples.push(sample.as_ref());
     }
     let mut report = render(&samples, coverage.state)?;
@@ -46,6 +52,9 @@ pub(super) fn explain_source(
     }
     if !context.has_qualified_local_owner() {
         report.limitations.push(t!("view.schedulers.limit.owner"));
+    }
+    if pool.is_some() {
+        report.limitations.push(t!("view.pool_operational.limit.scope"));
     }
     qualify(&mut report);
     Ok(report)

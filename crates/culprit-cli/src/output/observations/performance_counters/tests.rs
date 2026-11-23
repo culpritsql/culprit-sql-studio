@@ -305,3 +305,16 @@ fn common_fraction_native_labels_use_the_existing_bounded_terminal_escape_withou
     assert!(text.contains("表🦀"));
     assert_eq!(serde_json::to_value(&report).unwrap(), original);
 }
+
+#[test]
+fn unavailable_pool_output_retains_scope_and_unknowns_without_fabricating_a_database() {
+    let reason = culprit_core::message!("view.pool_operational.limit.epoch");
+    let report = culprit_checks::performance_counters::unavailable(PerformanceCounterPopulation::SharedPool, &reason);
+    let before = serde_json::to_value(&report).unwrap();
+    let text = performance_counters(&report);
+    assert!(text.contains(&t!("view.performance_counters.pool_scope")));
+    assert!(text.contains(&reason.render()));
+    assert!(report.database.is_none() && report.native_database_id.is_none());
+    assert!(report.native_counter_rows.is_none());
+    assert_eq!(serde_json::to_value(&report).unwrap(), before);
+}

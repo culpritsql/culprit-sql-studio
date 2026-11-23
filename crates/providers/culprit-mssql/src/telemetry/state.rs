@@ -15,6 +15,8 @@ const SNAPSHOT_CLOCK_QUERIES: u32 = 2;
 mod database_counters;
 mod local_point;
 mod operational_files;
+pub(crate) mod pool_operational;
+pub(super) use pool_operational::bounded_budget as pool_operational_budget;
 mod pool_current;
 pub(super) use pool_current::bounded_budget as pool_current_budget;
 mod numa_nodes;
@@ -31,7 +33,11 @@ pub(super) use settings::bounded_budget as settings_budget;
 pub(super) use tuning::bounded_budget as tuning_budget;
 
 fn native_budget(request: &CollectionRequest) -> CollectionBudget {
-    if pool_current::selected(request) {
+    if pool_operational::selected(request) {
+        pool_operational_budget(&request.budget)
+    } else if request.selection == (CollectionSelection::Snapshot { dataset: SnapshotDataset::MissingIndexes }) {
+        super::streamed::catalog_budget(&request.budget)
+    } else if pool_current::selected(request) {
         pool_current_budget(&request.budget)
     } else if request.selection == (CollectionSelection::Snapshot { dataset: SnapshotDataset::ProcessCpu }) {
         process_cpu_budget(&request.budget)
@@ -99,7 +105,8 @@ impl<R: NativeRead> StateSource<R> {
         subject::validate_dataset(&request.subject, dataset)?;
         let database_authority = subject::DatabaseAuthority::for_source(dataset, &request.subject)?;
         let mut request = request.clone();
-        if pool_current::selected(&request)
+        if pool_operational::selected(&request)
+            || pool_current::selected(&request)
             || matches!(
                 dataset,
                 SnapshotDataset::ProcessCpu
@@ -108,6 +115,7 @@ impl<R: NativeRead> StateSource<R> {
                     | SnapshotDataset::Settings
                     | SnapshotDataset::DatabasePerformanceCounters
                     | SnapshotDataset::SuspectPages
+                    | SnapshotDataset::MissingIndexes
             )
         {
             request.budget = native_budget(&request);
@@ -261,6 +269,21 @@ impl<R: NativeRead> TelemetrySource for StateSource<R> {
         }
         self.progress = Progress::Failed;
         let dataset = pool_settings::dataset(&self.request.selection)?;
+        if pool_operational::selected(&self.request) {
+            let CollectionSubject::Shared { resource } = &self.request.subject else {
+                return Err(invalid_data());
+            };
+            let captured = pool_operational::read(&mut self.io, resource, &self.request.budget).await?;
+            if !captured.read.source.matches_request(&self.request) {
+                return Err(invalid_data());
+            }
+            self.rows = captured.read.observations.into_iter().map(TelemetryRecord::Operational).collect();
+            self.identity = Some(subject::Identity::PoolNative(Box::new(captured.owner)));
+            let source = captured.read.source;
+            self.description = Some(source.clone());
+            self.progress = Progress::Ready;
+            return Ok(source);
+        }
         let shared = subject::is_shared(&self.request.subject)?;
         let families = if pool_current::selected(&self.request) {
             vec![point::Family::WaitCounters]
@@ -441,6 +464,9 @@ impl<R: NativeRead> TelemetrySource for StateSource<R> {
                     | SnapshotDataset::CheckConstraints
                     | SnapshotDataset::QueryCompilation
                     | SnapshotDataset::WorkerStarvation
+                    | SnapshotDataset::TransactionMetadata
+                    | SnapshotDataset::CurrentExecutionProfile
+                    | SnapshotDataset::ReadableSecondaryRecovery
                     | SnapshotDataset::CompilerAdmission
                     | SnapshotDataset::MaintenanceProgress
                     | SnapshotDataset::CurrentRequestWork
@@ -468,8 +494,7 @@ impl<R: NativeRead> TelemetrySource for StateSource<R> {
                     | SnapshotDataset::PageWaitTargets
                     | SnapshotDataset::TaskSpace
                     | SnapshotDataset::PageWaitWriters
-                    | SnapshotDataset::PageTaskHolders
-                    | SnapshotDataset::TransactionMetadata => return Err(invalid_data()),
+                    | SnapshotDataset::PageTaskHolders => return Err(invalid_data()),
                 }
             }
             .into(),

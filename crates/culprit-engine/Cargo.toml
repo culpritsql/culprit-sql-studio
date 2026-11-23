@@ -30,6 +30,8 @@ evidence-azure = ["evidence", "dep:culprit-blob-azure"]
 evidence-s3 = ["evidence", "dep:culprit-blob-s3"]
 # Explicit ignored-test fixture only. Normal/default/no-default source and desktop dependencies are unchanged.
 postgres-native-tests = ["collector", "postgres", "culprit-postgres/native-test-support"]
+mysql-native-tests = ["collector", "mysql", "culprit-mysql/native-test-support"]
+mssql-native-tests = ["collector", "mssql", "culprit-mssql/native-test-support"]
 store-adx = ["collector", "warehouse-adx", "culprit-store-adx/write", "dep:culprit-blob-azure", "culprit-blob-azure/write"]
 store-clickhouse = ["collector", "warehouse-clickhouse", "culprit-store-clickhouse/write"]
 recovery-azure = ["collector", "evidence-azure", "culprit-blob-azure/write"]

@@ -146,3 +146,6 @@ pub(super) fn direct_statement_scope(statement: Node<'_, '_>) -> bool {
                 && node.descendants().any(|descendant| descendant.has_tag_name_local("RelOp"))
     })
 }
+
+#[cfg(test)]
+mod hints;

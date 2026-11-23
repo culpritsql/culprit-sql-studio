@@ -223,6 +223,19 @@ pub enum NativeSessionReadWork {
     MssqlSession(Box<MssqlSessionReadWork>),
 }
 impl NativeSessionReadWork {
+    // A failed fresh acquisition may retain an explicit unavailable-accounting record without ever
+    // observing a native session. Other unavailable states can follow native work and are not empty.
+    pub(super) fn is_unobserved_after_failed_acquisition(&self) -> bool {
+        self.is_valid()
+            && match self {
+                Self::MssqlSession(work) => {
+                    work.settlement == NativeReadSettlement::Quiescent
+                        && work.issue == Some(NativeReadWorkIssue::NativeScopeUnqualified)
+                        && work.interval.is_none()
+                        && work.qualification_work.is_none()
+                }
+            }
+    }
     pub fn is_valid(&self) -> bool {
         (match self {
             Self::MssqlSession(work) => work.is_valid(),

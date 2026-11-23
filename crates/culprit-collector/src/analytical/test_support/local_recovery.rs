@@ -77,6 +77,7 @@ pub async fn collected_resource_recovery(
         }
     };
     let subject = match &source.target {
+        CollectionTarget::ConfiguredConnection(_) => panic!("native fixture cannot represent collector control"),
         CollectionTarget::Database(_) => CollectionSubject::Database,
         CollectionTarget::Shared(resource) => CollectionSubject::Shared { resource: resource.clone() },
     };

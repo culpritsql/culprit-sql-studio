@@ -1434,3 +1434,6 @@ mod mssql_current_request_work_tests {
         assert!(!text.contains("private-current-request-secret"));
     }
 }
+
+mod window;
+pub(crate) use window::{artifacts, window};

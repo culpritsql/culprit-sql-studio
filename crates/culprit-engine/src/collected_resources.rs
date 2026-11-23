@@ -158,6 +158,7 @@ pub fn native_failures(capture: &EvidenceCapture) -> Result<CollectedRetainedFai
         .map(|observation| match &observation.fact {
             OperationalFact::MysqlErrorLog(row) => Ok(NativeFailureRecord::MysqlErrorLog(row.as_ref().clone())),
             OperationalFact::PostgresLog(row) => Ok(NativeFailureRecord::PostgresLog(row.clone())),
+            OperationalFact::MssqlExtendedEvent(row) => Ok(NativeFailureRecord::MssqlExtendedEvent(row.clone())),
             _ => Err(invalid()),
         })
         .collect::<Result<Vec<_>>>()?;

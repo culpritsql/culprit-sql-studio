@@ -250,6 +250,7 @@ impl RangeManifest {
         let request = CollectionRequest {
             subject: match &self.source.target {
                 CollectionTarget::Database(_) => CollectionSubject::Database,
+                CollectionTarget::ConfiguredConnection(_) => return Err(DeliveryProblem::UnsupportedSchema.error()),
                 CollectionTarget::Shared(resource) => CollectionSubject::Shared { resource: resource.clone() },
             },
             selection: intent.selection()?,

@@ -10,6 +10,10 @@ publish.workspace = true
 # Its doc comments hold no Rust examples: rustdoc would have nothing to test.
 doctest = false
 
+[features]
+# Explicit owned actor fixture only; no Collector/Evidence dependency enters provider builds.
+native-test-support = []
+
 [dependencies]
 culprit-plans.workspace = true
 culprit-core.workspace = true

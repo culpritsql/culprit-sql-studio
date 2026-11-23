@@ -66,7 +66,10 @@ async fn derived_projection_is_dispatched_by_the_same_catalog_and_keeps_partial_
 #[test]
 fn every_derived_table_requires_the_common_developer_contract_and_does_not_modify_raw_field_schemas() {
     let catalog = LogicalCatalog::new().unwrap();
-    assert_eq!(catalog.schemas().count(), 16);
+    assert_eq!(
+        catalog.schemas().count(),
+        TelemetryStream::ALL.into_iter().filter(|stream| stream.delivery_required()).count()
+    );
     for (stream, name) in [
         (TelemetryStream::DerivedIncidents, "CulpritIncidentsV1"),
         (TelemetryStream::DerivedFindings, "CulpritFindingsV1"),

@@ -1,5 +1,6 @@
 //! Versioned columns from the existing sender/recovery/slot reads; no connection options are projected.
 use super::*;
+use crate::native::metadata::Metadata;
 
 pub(crate) fn query(
     version: u32,
@@ -112,4 +113,17 @@ fn recovery(version: u32, common: &str, pause_access: ReplayPauseAccess) -> Stri
         pause_state = version >= 140_000,
         receiver_locations = if version >= 130_000 { "written_lsn,flushed_lsn" } else { "received_lsn" },
     )
+}
+
+/// The selected recovery profile shares this exact projection/decoder, without its unrelated slot inventory.
+pub(crate) fn selected_recovery(meta: &Metadata, observed_at: &str) -> Result<String> {
+    if meta.version / 10000 != 18 || !meta.standby {
+        return Err(invalid());
+    }
+    let database = meta.database_oid.parse::<u32>().ok().filter(|value| *value > 0).ok_or_else(invalid)?;
+    let common = format!(
+        "'server_version_num','{}','read_database_oid','{database}','read_standby',pg_catalog.pg_is_in_recovery(),'observed_at',{observed_at},'full_visibility',{}",
+        meta.version, meta.full_visibility
+    );
+    Ok(recovery(meta.version, &common, meta.replay_pause_access))
 }

@@ -13,12 +13,32 @@ pub(in crate::fleet) struct PlanningPosition {
     pub checkpoint: Option<String>,
     pub episode: usize,
     pub target: usize,
-    pub question: usize,
+    pub question: Option<PlanningQuestionCursor>,
 }
 
 impl PlanningPosition {
     pub fn at_episode(checkpoint: Option<String>, episode: usize) -> Self {
-        Self { checkpoint, episode, target: 0, question: 0 }
+        Self { checkpoint, episode, target: 0, question: None }
+    }
+}
+
+/// A fairness continuation for one exact recorded episode revision, never native admission or a stage key.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(in crate::fleet) struct PlanningQuestionCursor {
+    episode: String,
+    revision: String,
+    selector: RecipeSelector,
+}
+impl PlanningQuestionCursor {
+    pub fn after(episode: &DiagnosticEpisode, selector: RecipeSelector) -> Self {
+        Self { episode: episode.id.clone(), revision: episode.revision.clone(), selector }
+    }
+    pub fn offset(&self, episode: &DiagnosticEpisode, selectors: &[RecipeSelector]) -> usize {
+        if self.episode != episode.id || self.revision != episode.revision {
+            return 0;
+        }
+        // A removed question cannot stand in for the next question at its old numeric position.
+        selectors.iter().position(|selector| *selector == self.selector).map_or(0, |position| position + 1)
     }
 }
 

@@ -39,3 +39,34 @@ async fn focused_native_activity_publishes_its_boundary_and_opaque_parent_key_wi
         }
     }
 }
+
+#[tokio::test]
+async fn selected_ticket_context_projects_only_opaque_focus_execution_and_bounded_cohort_metadata() {
+    let (source, records) = test_support::metadata_lock_context_evidence(test_support::MetadataLockContextCase::Mysql);
+    let catalog = PhysicalCatalog::<test_support::JsonProjection>::new().unwrap();
+    let recovery =
+        test_support::Recovery::capture("fixture:metadata-context", catalog.digest(), source.clone(), records, 982_921);
+    let range = reopen(&recovery, &recovery.manifest.range_id).await.unwrap();
+    let published = super::super::super::input(&catalog, &range).unwrap();
+    let SourceObservation::MetadataLockContext { focus_key, execution, result, .. } = &source.observation else {
+        panic!()
+    };
+    let public = &published["source"]["observation"];
+    assert_eq!(public["kind"], "metadata-lock-context");
+    assert_eq!(public["data"]["focus_key"], *focus_key);
+    assert_eq!(public["data"]["cohort_rows"], 3);
+    assert_eq!(
+        public["data"]["execution_key"],
+        SourceReadExecutionScope::from_context(SourceReadQuestion::MetadataLockContext, execution)
+            .unwrap()
+            .key()
+            .unwrap()
+    );
+    assert_eq!(result.cohort.len(), 3);
+    assert!(serde_json::from_value::<SourceObservation>(public.clone()).is_err());
+    for key in ["execution", "result", "cohort", "original", "statement", "parent", "tickets"] {
+        assert!(public["data"].get(key).is_none(), "{key}");
+    }
+    assert!(!published.to_string().contains("mdl-private-canary"));
+    assert!(!published.to_string().contains("native-login-701"));
+}

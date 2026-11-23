@@ -58,6 +58,7 @@ pub fn explain_frame(frame: &ActivityFrameEvidence<'_>) -> Result<SessionCensusR
     if limited {
         limitations.push(t!("view.session_census.limit.presentation"));
     }
+    let clients = client_groups::explain(frame);
     Ok(SessionCensusReport {
         context: frame.context(),
         observed_at: native.at.clone(),
@@ -95,7 +96,8 @@ pub fn explain_frame(frame: &ActivityFrameEvidence<'_>) -> Result<SessionCensusR
         },
         limitations,
         entries,
-        client_groups: client_groups::explain(frame),
+        client_groups: clients.captured,
+        recent_clients: clients.recent,
     })
 }
 

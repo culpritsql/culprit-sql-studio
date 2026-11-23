@@ -109,7 +109,7 @@ async fn unknown_original_scope_or_role_refuses_before_reader_work_and_declared_
     }
     let recipe = crate::telemetry::recipes().into_iter().find(|r| r.id == "mssql.current-request-work").unwrap();
     assert_eq!(recipe.admission, RecipeAdmission::Unqualified);
-    assert_eq!(recipe.version, 1);
+    assert_eq!(recipe.version, 2);
     assert_eq!(recipe.budget.max_queries, 11);
 }
 

@@ -17,6 +17,9 @@ pub fn configured(binding: QueryHelperBinding) -> Result<QueryHelperAssets> {
         commands.push(eligibility::eligible(schema, EligibilityScope::Namespace));
         commands.push(eligibility::rows(schema, EligibilityScope::Namespace, false));
     }
+    let deadlocks = catalog.get(culprit_core::telemetry::TelemetryStream::DeadlockEvents)?;
+    commands.push(eligibility::eligible(deadlocks, EligibilityScope::Namespace));
+    commands.push(eligibility::rows(deadlocks, EligibilityScope::Namespace, true));
     let string = |value: &str| {
         serde_json::to_string(value).map_err(|_| culprit_core::telemetry::DeliveryProblem::InvalidContract.error())
     };
@@ -49,7 +52,7 @@ pub fn configured(binding: QueryHelperBinding) -> Result<QueryHelperAssets> {
             .map(|(i, part)| if i == 0 { part.to_string() } else { format!(".create{part}") }),
     );
     let name = &binding.policy.name;
-    let examples = vec![
+    let mut examples = vec![
         QueryExample { name: "resources", query: format!("{name}Resources(now())") },
         QueryExample { name: "status", query: format!("{name}Status(\"orders\",now(),30m)") },
         QueryExample { name: "incidents", query: format!("{name}Incidents(\"orders\",ago(1h),now(),now())") },
@@ -67,8 +70,39 @@ pub fn configured(binding: QueryHelperBinding) -> Result<QueryHelperAssets> {
             ),
         },
     ];
+    let window = "declare query_parameters(resource:string,window_from:datetime,window_until:datetime);\n";
+    for (label, function) in [
+        ("incident-window", "IncidentsDuring"),
+        ("finding-window", "FindingsDuring"),
+        ("change-window", "ChangesDuring"),
+        ("recorded-incident-alert-window", "RecordedIncidentAlertsDuring"),
+    ] {
+        examples.push(QueryExample {
+            name: label,
+            query: format!("{window}{name}{function}(resource,window_from,window_until)"),
+        });
+    }
+    examples.push(QueryExample {
+        name: "evidence-availability-alert",
+        query: format!("declare query_parameters(resource:string,max_age:timespan);\n{name}StatusNow(resource,max_age) | where State != \"observed\" or not(InputReadComplete) or array_length(ContextIssues)>0"),
+    });
+    examples.push(QueryExample {
+        name: "native-deadlock-window",
+        query: format!("{window}{name}DeadlocksDuring(resource,window_from,window_until)"),
+    });
+    examples.push(QueryExample { name: "high-severity-findings", query: format!("{window}{name}FindingsDuring(resource,window_from,window_until) | where Severity == \"high\" and Actionability in (\"needs-attention\",\"optional-improvement\") and not(Inactive)") });
+    examples.push(QueryExample {
+        name: "published-collection-status",
+        query: format!("{name}CollectionStatus(now(),30m)"),
+    });
+    examples.push(QueryExample {
+        name: "opt-in-adx-queued-batching",
+        query: include_str!("kql/operator_batching_opt_in.kql").into(),
+    });
     let script = format!(".execute database script with (ContinueOnErrors=false) <|\n{}\n", commands.join("\n\n"));
-    Ok(QueryHelperAssets { binding, commands, script, examples })
+    let operator = operators::assets(&binding)?;
+    Ok(QueryHelperAssets { binding, commands, script, examples, operator })
 }
+mod operators;
 #[cfg(test)]
 mod tests;

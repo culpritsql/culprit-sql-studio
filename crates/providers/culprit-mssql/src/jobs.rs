@@ -50,6 +50,7 @@ pub(crate) fn source(
     }
     if !match &request.subject {
         CollectionSubject::Database => true,
+        CollectionSubject::ConfiguredConnection { .. } => false,
         CollectionSubject::Shared { resource } => resource.kind == SharedResourceKind::Instance,
     } {
         return Err(unsupported());

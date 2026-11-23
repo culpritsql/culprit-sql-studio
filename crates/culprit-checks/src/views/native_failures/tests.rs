@@ -163,3 +163,38 @@ fn postgres_duplicate_rows_foreign_database_context_and_unknown_clocks_remain_re
     );
     assert!(!serde_json::to_string(&report).unwrap().contains("foreign-db"), "native rows own affected context once");
 }
+
+#[test]
+fn native_attention_and_intercepted_informational_errors_never_turn_into_timeout_or_query_cause_verdicts() {
+    use culprit_core::telemetry::{MssqlExtendedEventKind, MssqlExtendedEventObservation};
+    let mut row = MssqlExtendedEventObservation {
+        position: 0,
+        kind: MssqlExtendedEventKind::Attention { native_duration: Some("30000000".into()) },
+        timestamp: Some("2026-10-25T03:30:00".into()),
+        timestamp_utc: None,
+        event_sequence: None,
+        session_id: Some("59".into()),
+        request_id: None,
+        transaction_id: None,
+        database_id: None,
+        database: None,
+        client: None,
+        statement: DefinitionPayload::sql("SELECT 'message-says-timeout'", culprit_core::Engine::Mssql),
+    };
+    let first = NativeFailureRecord::MssqlExtendedEvent(Box::new(row.clone()));
+    row.position = 1;
+    row.kind = MssqlExtendedEventKind::ErrorReported {
+        number: 50001,
+        severity: 10,
+        state: 1,
+        intercepted: Some(true),
+        user_defined: None,
+    };
+    let evidence = evidence(vec![first, NativeFailureRecord::MssqlExtendedEvent(Box::new(row))]);
+    let report = explain(&evidence, Some(&source(&evidence, SourceState::Collected))).unwrap();
+    assert_eq!(report.entries[0].explanation, t!("native_logs.mssql.attention.explanation"));
+    assert_eq!(report.entries[1].explanation, t!("native_logs.mssql.error.explanation"));
+    assert!(report.limitations.contains(&t!("native_logs.mssql.limit.scope")));
+    assert!(report.limitations.contains(&t!("native_logs.mssql.unplaced")));
+    assert!(!serde_json::to_string(&report).unwrap().contains("message-says-timeout"));
+}

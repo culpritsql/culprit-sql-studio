@@ -9,6 +9,7 @@ enum Route {
     MaintenanceProgress,
     CurrentRequestWork,
     TransactionMetadata,
+    ReadableSecondaryRecovery,
     Snapshot(Recipe),
 }
 impl Route {
@@ -20,6 +21,9 @@ impl Route {
             Self::MaintenanceProgress => TelemetryCollection::Snapshot(SnapshotDataset::MaintenanceProgress),
             Self::CurrentRequestWork => TelemetryCollection::Snapshot(SnapshotDataset::CurrentRequestWork),
             Self::TransactionMetadata => TelemetryCollection::Snapshot(SnapshotDataset::TransactionMetadata),
+            Self::ReadableSecondaryRecovery => {
+                TelemetryCollection::Snapshot(SnapshotDataset::ReadableSecondaryRecovery)
+            }
             Self::Snapshot(recipe) => TelemetryCollection::Snapshot(recipe.dataset()),
         }
     }
@@ -39,6 +43,7 @@ impl Route {
             Self::MaintenanceProgress => crate::progress::bounded_budget(requested),
             Self::CurrentRequestWork => crate::progress::current_work_budget(requested),
             Self::TransactionMetadata => transaction_metadata::bounded_budget(requested),
+            Self::ReadableSecondaryRecovery => readable_secondary_recovery::bounded_budget(requested),
             Self::Snapshot(_) => requested.clone(),
         }
     }
@@ -47,6 +52,7 @@ impl Route {
             Self::Jobs => crate::jobs::source(connector, request),
             Self::Activity => activity::source(connector, request),
             Self::TransactionMetadata => transaction_metadata::source(connector, request),
+            Self::ReadableSecondaryRecovery => readable_secondary_recovery::source(connector, request),
             Self::Blocking => blocking::source(connector, request),
             Self::MaintenanceProgress | Self::CurrentRequestWork => crate::progress::source(connector, request),
             Self::Snapshot(recipe) => snapshot_source(connector, request, recipe),
@@ -116,8 +122,15 @@ impl Registration {
 
 const REGISTRATIONS: &[Registration] = &[
     Registration {
-        id: "postgres.transaction-metadata",
+        id: "postgres.readable-secondary-recovery",
         version: 1,
+        purpose: RecipePurpose::Investigation,
+        subject: RecipeSubject::Database,
+        route: Route::ReadableSecondaryRecovery,
+    },
+    Registration {
+        id: "postgres.transaction-metadata",
+        version: 2,
         purpose: RecipePurpose::Investigation,
         subject: RecipeSubject::Database,
         route: Route::TransactionMetadata,
@@ -152,7 +165,7 @@ const REGISTRATIONS: &[Registration] = &[
     },
     Registration {
         id: "postgres.blocking",
-        version: 3,
+        version: 4,
         purpose: RecipePurpose::Investigation,
         subject: RecipeSubject::Database,
         route: Route::Blocking,

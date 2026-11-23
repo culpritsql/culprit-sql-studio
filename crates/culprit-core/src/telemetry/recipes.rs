@@ -44,6 +44,7 @@ pub enum RecipeSelector {
     Collection(TelemetryCollection),
     ResourcePoolSettings,
     FocusedBlocking,
+    FocusedMetadataLocks,
     CacheEntryMemory,
     ColumnstoreRowgroups,
     TableMemory,
@@ -65,6 +66,14 @@ mod tests;
 impl RecipeSelector {
     pub fn matches(&self, request: &CollectionRequest) -> bool {
         match (self, &request.selection) {
+            (Self::FocusedMetadataLocks, CollectionSelection::SourceRead { focus, .. }) => {
+                focus.question == SourceReadQuestion::MetadataLockContext
+            }
+            (Self::Collection(_), CollectionSelection::SourceRead { focus, .. })
+                if focus.question == SourceReadQuestion::MetadataLockContext =>
+            {
+                false
+            }
             (Self::WorkerStarvation, CollectionSelection::SourceRead { focus, .. }) => {
                 focus.question == SourceReadQuestion::WorkerStarvation
             }

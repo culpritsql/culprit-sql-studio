@@ -16,8 +16,11 @@ pub fn memory_clerk_source_is_valid(source: &StateSourceCoverage) -> bool {
 impl super::CapturedOperationalRead {
     /// The original shared instance owns this family. A selected database or current member never replaces it.
     pub fn memory_clerk_source(&self) -> crate::Result<&StateSourceCoverage> {
+        let pool =
+            super::mssql_pool_current_authority(&self.description)?.is_some_and(|authority| authority.native.is_some());
         if !self.is_valid()
-            || !matches!(&self.description.target, super::CollectionTarget::Shared(resource)
+            || !pool
+                && !matches!(&self.description.target, super::CollectionTarget::Shared(resource)
                 if resource.kind == super::SharedResourceKind::Instance)
         {
             return Err(super::CollectionStop::InvalidPage.error());

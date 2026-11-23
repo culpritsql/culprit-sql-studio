@@ -1,5 +1,7 @@
 //! Current pool-native visibility and anchor membership. Neither a pool incarnation nor historical membership.
 use super::*;
+mod native;
+pub use native::*;
 
 pub const MSSQL_POOL_CURRENT_SOURCE: &str = "azure-pool-wait-counter-state";
 
@@ -29,6 +31,10 @@ pub enum MssqlPoolScopeQualification {
 }
 impl MssqlPoolCurrentPoint {
     pub fn is_valid(&self) -> bool {
+        self.database_writable && self.is_valid_for_operational()
+    }
+    /// The independent operational profile accepts either actual known role. Wait/history policies remain primary-only.
+    pub fn is_valid_for_operational(&self) -> bool {
         self.engine_edition == 5
             && self.pool.is_valid()
             && self.pool.engine == crate::Engine::Mssql
@@ -53,7 +59,6 @@ impl MssqlPoolCurrentPoint {
                 .native_tier
                 .as_ref()
                 .is_none_or(|tier| !tier.trim().is_empty() && tier.len() <= 128 && !tier.chars().any(char::is_control))
-            && self.database_writable
             && self.observed_at.len() <= 64
             && canonical_time(&self.observed_at).is_ok()
     }
@@ -71,8 +76,11 @@ impl MssqlPoolCurrentPoint {
         MssqlPoolScopeQualification::Qualified
     }
     pub fn same_membership(&self, other: &Self) -> bool {
-        self.is_valid()
-            && other.is_valid()
+        self.is_valid() && other.is_valid() && self.same_operational_membership(other)
+    }
+    pub fn same_operational_membership(&self, other: &Self) -> bool {
+        self.is_valid_for_operational()
+            && other.is_valid_for_operational()
             && self.pool == other.pool
             && self.member == other.member
             && self.database_id == other.database_id
@@ -89,13 +97,24 @@ impl MssqlPoolCurrentPoint {
 pub struct MssqlPoolCurrentAuthority {
     pub before: MssqlPoolCurrentPoint,
     pub after: MssqlPoolCurrentPoint,
+    /// Present only for the explicit current operational pool profile. Wait-only reads do not acquire it.
+    #[serde(deserialize_with = "Option::deserialize")]
+    pub native: Option<Box<MssqlPoolNativeAuthority>>,
 }
 impl MssqlPoolCurrentAuthority {
     pub fn is_valid(&self) -> bool {
-        self.before.same_membership(&self.after)
-            && ObservationBounds::new(&self.before.observed_at, &self.after.observed_at).is_some()
+        (if self.native.is_some() {
+            self.before.same_operational_membership(&self.after)
+        } else {
+            self.before.same_membership(&self.after)
+        }) && ObservationBounds::new(&self.before.observed_at, &self.after.observed_at).is_some()
+            && (self.native.is_some() || self.before.database_writable)
+            && self.native.as_deref().is_none_or(|native| native.is_valid_for(&self.before))
     }
     pub fn accepts_sources(&self, sources: &[StateSourceCoverage]) -> bool {
+        if let Some(native) = &self.native {
+            return native.accepts_sources(sources);
+        }
         sources.len() == 1
             && sources[0].is_valid()
             && sources[0].source == crate::source_id::WAITS
@@ -107,32 +126,43 @@ impl MssqlPoolCurrentAuthority {
     pub fn matches_snapshot(&self, snapshot: &StateSnapshotDescription) -> bool {
         if !self.is_valid()
             || !snapshot.is_valid()
-            || snapshot.dataset != SnapshotDataset::WaitCounters
+            || snapshot.dataset != self.dataset()
             || !self.accepts_sources(&snapshot.sources)
             || ObservationBounds::new(&self.before.observed_at, &snapshot.observed_from).is_none()
             || canonical_time(&self.after.observed_at).ok() != canonical_time(&snapshot.observed_until).ok()
         {
             return false;
         }
-        self.before.scope_qualification() == MssqlPoolScopeQualification::Qualified
+        self.native.is_some()
+            || self.before.scope_qualification() == MssqlPoolScopeQualification::Qualified
             || snapshot.records == 0
                 && snapshot.sources[0].records == 0
                 && snapshot.sources[0].state == crate::SourceState::Unavailable
                 && !snapshot.sources[0].complete_scope
+    }
+    pub fn dataset(&self) -> SnapshotDataset {
+        if self.native.is_some() { SnapshotDataset::Operational } else { SnapshotDataset::WaitCounters }
     }
     pub fn matches_context(&self, context: &NativeReadContext) -> bool {
         self.is_valid()
             && context.is_valid()
             && context.partition == SourcePartition::Target
             && context.target == CollectionTarget::Shared(self.before.pool.clone())
-            && context.database_writable == Some(true)
+            && context.database_writable == Some(self.before.database_writable)
             && ObservationBounds::new(&self.before.observed_at, &context.observed_from).is_some()
             && canonical_time(&self.after.observed_at).ok() == canonical_time(&context.observed_until).ok()
     }
 }
 pub fn mssql_pool_current_authority(source: &CollectionDescription) -> Result<Option<&MssqlPoolCurrentAuthority>> {
-    let SourceObservation::MssqlPoolCurrent { snapshot, authority } = &source.observation else { return Ok(None) };
-    if source.source != MSSQL_POOL_CURRENT_SOURCE
+    let SourceObservation::MssqlPoolCurrent { snapshot, authority } = &source.observation else {
+        if mssql_pool_operational_candidate(source) {
+            return Err(CollectionStop::InvalidPage.error());
+        }
+        return Ok(None);
+    };
+    let expected_source =
+        if authority.native.is_some() { MSSQL_POOL_OPERATIONAL_SOURCE } else { MSSQL_POOL_CURRENT_SOURCE };
+    if source.source != expected_source
         || source.partition != SourcePartition::Target
         || source.continuity != SourceContinuity::Unverified
         || source.target != CollectionTarget::Shared(authority.before.pool.clone())

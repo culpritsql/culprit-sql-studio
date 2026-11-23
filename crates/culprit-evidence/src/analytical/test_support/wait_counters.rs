@@ -142,7 +142,7 @@ pub fn pool_wait_counter_evidence(case: PoolWaitCounterCase) -> (CollectionDescr
     source.continuity = SourceContinuity::Unverified;
     source.observation = SourceObservation::MssqlPoolCurrent {
         snapshot,
-        authority: Box::new(MssqlPoolCurrentAuthority { before, after }),
+        authority: Box::new(MssqlPoolCurrentAuthority { before, after, native: None }),
     };
     assert!(source.partition_is_consistent());
     (source, rows)

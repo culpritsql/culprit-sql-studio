@@ -67,6 +67,16 @@ pub(crate) async fn focus() -> ActivityRequestFocus {
     focus_for_role(true).await
 }
 pub(crate) async fn focus_for_role(writable: bool) -> ActivityRequestFocus {
+    focus_for_original(writable, None).await
+}
+pub(crate) async fn focus_for_statement(
+    writable: bool,
+    statement: &NativeIdentity,
+    text: &str,
+) -> ActivityRequestFocus {
+    focus_for_original(writable, Some((statement, text))).await
+}
+async fn focus_for_original(writable: bool, statement: Option<(&NativeIdentity, &str)>) -> ActivityRequestFocus {
     let role = if writable { "READ_WRITE" } else { "READ_ONLY" };
     let mut reader =
         io(vec![Ok(vec![metadata()]), Ok(vec![epoch(100)]), Ok(vec![authority("2020-01-01T06:00:00Z", Some(role))])]);
@@ -85,6 +95,11 @@ pub(crate) async fn focus_for_role(writable: bool) -> ActivityRequestFocus {
     focus.source = culprit_core::source_id::SESSIONS.into();
     focus.original.database = Some(owner.activity.database.database.clone());
     focus.original_observed_at = "2020-01-01T05:59:59Z".into();
+    if let Some((identity, text)) = statement {
+        focus.statement_identity = identity.clone();
+        focus.original.statement_identity = Some(identity.clone());
+        focus.original.statement = DefinitionPayload::sql(text, Engine::Mssql);
+    }
     let parent = CollectionDescription {
         target: focus.target.clone(),
         partition: focus.partition.clone(),
@@ -162,7 +177,7 @@ pub(crate) fn cache(at: &str, generation: i64) -> Rec {
         ("text_complete", Val::Bool(true)),
         ("text_prefix", Val::Text(SQL.into())),
         ("engine_internal", Val::Int(0)),
-        ("cloud_internal", Val::Null),
+        ("cloud_internal", Val::Int(0)),
         ("statement_bytes", Val::Int((SQL.encode_utf16().count() * 2) as i64)),
         ("statement", Val::Text(SQL.into())),
         ("plan_bytes", Val::Int((XML.encode_utf16().count() * 2) as i64)),

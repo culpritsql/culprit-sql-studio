@@ -1,17 +1,32 @@
 //! Native qualification only on owned loopback databases. Workloads exist solely inside nonce fixture databases.
+#[cfg(test)]
 mod contention;
+#[cfg(test)]
 mod current_request_work;
+#[cfg(test)]
 mod durable_capture;
 pub(crate) mod fixture;
+#[cfg(test)]
 mod focused;
+#[cfg(test)]
 mod holders;
+#[cfg(test)]
+mod schema_queue;
+#[cfg(feature = "native-test-support")]
+pub(crate) mod serial_input_profile;
+#[cfg(test)]
 mod shared_tempdb;
+#[cfg(test)]
 mod topology;
 pub(crate) mod workload;
+#[cfg(test)]
 mod writers;
+#[cfg(test)]
 use super::*;
+#[cfg(test)]
 use crate::activity::{IdentityDetail, ReadOptions};
 
+#[cfg(test)]
 #[tokio::test]
 #[ignore = "requires disposable loopback SQL Server and CULPRIT_MSSQL_SOURCE_TEST_PORT / CULPRIT_MSSQL_SOURCE_TEST_PASSWORD"]
 async fn local_limited_header_projection_preserves_native_file_epoch_and_bounded_empty_capture() {

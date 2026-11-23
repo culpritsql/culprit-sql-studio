@@ -15,6 +15,11 @@ mod groups;
 mod populations;
 mod validation;
 mod waits;
+mod window;
+pub use window::analyze_window;
+pub(crate) use window::analyze_window_with;
+#[cfg(all(test, feature = "store-adx", feature = "recovery-azure"))]
+pub(crate) use window::tests::case as window_test_original;
 
 const MAX_RETAINED_ANALYSIS_BYTES: usize = 256 * 1024 * 1024;
 
@@ -141,6 +146,24 @@ fn analyze_population(
     rows: &populations::NativeRows<'_>,
     policy: &AnalysisPolicy<'_>,
 ) -> Result<CollectedQueryAnalysisResult> {
+    let prepared = prepare_population(capture, definitions, population, rows)?;
+    finish_population(capture, database, prepared, policy)
+}
+
+struct PreparedPopulation {
+    population: CollectedQueryPopulation,
+    totals: Option<groups::CapturedTotals>,
+    query_inputs: Vec<CollectedQueryInput>,
+    workload: Option<Workload>,
+    partial: bool,
+    limitations: Vec<CollectedAnalysisLimitation>,
+}
+fn prepare_population(
+    capture: &dyn OriginalProjection,
+    definitions: &validation::Definitions<'_>,
+    population: CollectedQueryPopulation,
+    rows: &populations::NativeRows<'_>,
+) -> Result<PreparedPopulation> {
     let mut limitations = vec![
         limit(None, CollectedAnalysisLimit::MissingCurrentServerMetadata),
         limit(None, CollectedAnalysisLimit::MissingSchema),
@@ -152,7 +175,6 @@ fn analyze_population(
     } else {
         groups::captured_totals(capture, definitions, rows)?
     };
-    let runtime_totals = totals.as_ref().map(groups::CapturedTotals::report);
     let (workload, query_inputs, partial) = if population == CollectedQueryPopulation::Unknown {
         limitations.push(limit(None, CollectedAnalysisLimit::ExecutionPopulationUnknown));
         (None, vec![], true)
@@ -165,7 +187,24 @@ fn analyze_population(
         .query_history()
         .and_then(|history| history.population_catalog.as_ref())
         .is_some_and(|catalog| !catalog.has_complete_membership());
-    let mut snapshot = snapshot(capture, database.clone(), workload, partial || membership_incomplete, policy);
+    Ok(PreparedPopulation {
+        population,
+        totals,
+        query_inputs,
+        workload,
+        partial: partial || membership_incomplete,
+        limitations,
+    })
+}
+fn finish_population(
+    capture: &dyn OriginalProjection,
+    database: &culprit_core::DatabaseIdentity,
+    prepared: PreparedPopulation,
+    policy: &AnalysisPolicy<'_>,
+) -> Result<CollectedQueryAnalysisResult> {
+    let PreparedPopulation { population, totals, query_inputs, workload, partial, mut limitations } = prepared;
+    let runtime_totals = totals.as_ref().map(groups::CapturedTotals::report);
+    let mut snapshot = snapshot(capture, database.clone(), workload, partial, policy);
     policy.catalogs.apply(&mut snapshot);
     if policy.catalogs.settings_complete() {
         limitations.retain(|limitation| limitation.reason != CollectedAnalysisLimit::MissingSettings);
@@ -203,7 +242,7 @@ fn workload(
         limitations.push(limit(None, CollectedAnalysisLimit::RuntimeDenominatorUnavailable));
         return Ok(None);
     };
-    let Some(time_ms) = totals.time_ms.filter(|_| totals.executions <= groups::MAX_EXACT_COUNT) else {
+    let Some(time_ms) = totals.time_ms.filter(|_| totals.executions <= u128::from(groups::MAX_EXACT_COUNT)) else {
         limitations.push(limit(None, CollectedAnalysisLimit::RuntimeDenominatorUnavailable));
         return Ok(None);
     };
@@ -224,7 +263,7 @@ fn workload(
         total_time_ms: time_ms,
         total_cpu_ms: totals.cpu_ms,
         total_executions: totals.executions as f64,
-        query_count: totals.queries as f64,
+        query_count: totals.queries.len() as f64,
         queries,
         timeline: None,
         untracked_time_ms: None,

@@ -245,13 +245,37 @@ impl LocalCaptureFixture {
     }
 
     pub async fn with_shutdown(
+        source: CollectionDescription,
+        records: Vec<TelemetryRecord>,
+        shutdown: SourceShutdown,
+    ) -> Self {
+        Self::capture_with_synthesis(source, records, shutdown, None).await
+    }
+
+    /// Install the normal pure analyzer before any native fixture reservation. No source behavior changes.
+    pub async fn with_automatic_synthesis(
+        source: CollectionDescription,
+        records: Vec<TelemetryRecord>,
+        automatic: &crate::synthesis::AutomaticSynthesis,
+    ) -> Self {
+        Self::capture_with_synthesis(source, records, SourceShutdown::Quiescent, Some(automatic)).await
+    }
+
+    async fn capture_with_synthesis(
         mut source: CollectionDescription,
         records: Vec<TelemetryRecord>,
         shutdown: SourceShutdown,
+        automatic: Option<&crate::synthesis::AutomaticSynthesis>,
     ) -> Self {
         let temporary = tempfile::tempdir().unwrap();
         let directory = temporary.path().join("outbox");
         let mut outbox = Outbox::create(&directory, OutboxLimits::default()).unwrap();
+        if let Some(automatic) = automatic {
+            let operation =
+                culprit_core::limits::OperationGuard::new(crate::outbox::CompletedCaptureBudget::default().timeout)
+                    .unwrap();
+            outbox.register_automatic_synthesis(automatic, operation.handle(), ()).await.unwrap();
+        }
         retain_focused_parent(&mut outbox, &mut source).await;
         let selection = selection(&source);
         let (capture_directory, manifest) = collect_original(&mut outbox, source, records, selection, shutdown).await;
@@ -314,6 +338,12 @@ fn selection(source: &CollectionDescription) -> CollectionSelection {
         SourceObservation::FocusedBlocking { result, .. } => {
             CollectionSelection::FocusedBlocking { focus: Box::new(result.focus.clone()) }
         }
+        SourceObservation::MetadataLockContext { result, execution, .. } => CollectionSelection::SourceRead {
+            focus: Box::new(SourceReadFocus::for_metadata_lock_request(result.request.focus.clone()).unwrap()),
+            execution: Box::new(
+                SourceReadExecutionScope::from_context(SourceReadQuestion::MetadataLockContext, execution).unwrap(),
+            ),
+        },
         SourceObservation::FocusedRequestMemory { result, .. } => {
             CollectionSelection::FocusedRequestMemory { focus: Box::new(result.focus.clone()) }
         }
@@ -353,6 +383,7 @@ async fn collect_original_mode(
 ) -> (PathBuf, CollectionManifest) {
     let request = CollectionRequest {
         subject: match &source.target {
+            CollectionTarget::ConfiguredConnection(_) => panic!("native fixture cannot represent collector control"),
             CollectionTarget::Database(_) => CollectionSubject::Database,
             CollectionTarget::Shared(resource) => CollectionSubject::Shared { resource: resource.clone() },
         },
@@ -395,6 +426,7 @@ async fn collect_original_mode(
 async fn retain_focused_parent(outbox: &mut Outbox, source: &mut CollectionDescription) {
     let focus = match &mut source.observation {
         SourceObservation::FocusedBlocking { result, .. } => &mut result.focus,
+        SourceObservation::MetadataLockContext { result, .. } => &mut result.request.focus,
         SourceObservation::FocusedRequestMemory { result, .. } => &mut result.focus,
         SourceObservation::MaintenanceProgress { result, .. }
         | SourceObservation::CurrentRequestWork { result, .. } => {
@@ -432,9 +464,9 @@ async fn retain_focused_parent(outbox: &mut Outbox, source: &mut CollectionDescr
     let file = manifest.files.iter().find(|file| file.stream == TelemetryStream::ActivityObservations).unwrap();
     let rows = std::fs::read_to_string(directory.join(&file.file)).unwrap();
     let row: ExportedRecord = serde_json::from_str(rows.lines().next().unwrap()).unwrap();
-    let source = manifest.description.as_ref().unwrap();
+    let parent_source = manifest.description.as_ref().unwrap();
     let reference = DiagnosticEvidenceRef::from_export(
-        source,
+        parent_source,
         &digest(&std::fs::read(directory.join("manifest.json")).unwrap()),
         &row,
         0,
@@ -444,7 +476,10 @@ async fn retain_focused_parent(outbox: &mut Outbox, source: &mut CollectionDescr
     focus.parent = reference;
     focus.original = *original;
     focus.statement_identity = focus.original.statement_identity.clone().unwrap();
-    assert!(focus.matches_parent(source, &focus.original, &focus.parent));
+    assert!(focus.matches_parent(parent_source, &focus.original, &focus.parent));
+    if let SourceObservation::MetadataLockContext { result, focus_key, .. } = &mut source.observation {
+        *focus_key = SourceReadFocus::for_metadata_lock_request(result.request.focus.clone()).unwrap().key().unwrap();
+    }
 }
 
 fn outbox_path(directory: &std::path::Path) -> &std::path::Path {

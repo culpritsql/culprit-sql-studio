@@ -14,7 +14,7 @@ impl DiagnosticEpisode {
         original: &ActivityObservation,
         reference: &DiagnosticEvidenceRef,
     ) -> Result<DiagnosticFocusPlan> {
-        if !self.analysis.needs_work() || !matches!(self.signal, DiagnosticSignal::LockWait { .. }) {
+        if !self.owes_primary_analysis() || !matches!(self.signal, DiagnosticSignal::LockWait { .. }) {
             return Ok(DiagnosticFocusPlan::NotRequired);
         }
         let Some(focus) = self.original_request_focus(source, original, reference)? else {

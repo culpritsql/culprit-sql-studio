@@ -55,5 +55,7 @@ pub(crate) fn iso(expression: &str) -> String {
     format!("pg_catalog.to_char(({expression}) AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"')")
 }
 
+pub(crate) mod readable_secondary_recovery;
+
 #[cfg(test)]
 mod tests;

@@ -123,3 +123,33 @@ async fn cold_reads_retain_the_exact_original_capture_and_refuse_an_ordinary_act
         "a baseline alone is never a focused blocking closure"
     );
 }
+
+#[tokio::test]
+async fn selected_ticket_context_reopens_the_exact_original_and_keeps_candidates_across_cold_local_reads() {
+    for case in [
+        culprit_evidence::analytical::test_support::MetadataLockContextCase::Mysql,
+        culprit_evidence::analytical::test_support::MetadataLockContextCase::Mariadb,
+    ] {
+        let (source, rows) = culprit_evidence::analytical::test_support::metadata_lock_context_evidence(case);
+        let mut fixture = LocalCaptureFixture::activity(source, rows).await;
+        let reader = OutboxCaptureReader::delivery(
+            fixture.outbox.as_ref().unwrap().delivery(),
+            CompletedCaptureBudget::default(),
+        )
+        .unwrap();
+        let first = analyze(&reader, &fixture.manifest.capture.observation_id).await.unwrap();
+        assert_eq!(first.original().capture(), &first.report().original.capture_ref());
+        assert_eq!(first.report().metadata_queue.evidence.candidates.len(), 1);
+        assert!(first.report().metadata_queue.evidence.cascades.is_empty());
+        assert!(first.report().relationships.is_empty());
+        let original = first.original().capture().clone();
+        let report = serde_json::to_value(first.report()).unwrap();
+        drop(reader);
+        drop(fixture.outbox.take());
+        let reader =
+            OutboxCaptureReader::directory(fixture.directory.clone(), CompletedCaptureBudget::default()).unwrap();
+        let cold = analyze(&reader, &fixture.manifest.capture.observation_id).await.unwrap();
+        assert_eq!(cold.original().capture(), &original);
+        assert_eq!(serde_json::to_value(cold.report()).unwrap(), report);
+    }
+}

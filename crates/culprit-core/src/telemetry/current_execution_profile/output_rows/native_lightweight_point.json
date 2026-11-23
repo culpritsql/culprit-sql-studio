@@ -1,0 +1,642 @@
+{
+  "binding": "matched",
+  "checked_until": "2026-11-22T20:45:37.684278300Z",
+  "context": {
+    "database_writable": true,
+    "observed_from": "2026-11-22T20:45:37.518324800Z",
+    "observed_until": "2026-11-22T20:45:37.693458800Z",
+    "partition": {
+      "epoch": "2f29c97134d06c001bfb557ef3c12e4cda57d438c824ea0fb6eff5dfdfc33eb9",
+      "kind": "instance-local",
+      "member": {
+        "engine": "mssql",
+        "kind": "instance",
+        "namespace": {
+          "id": "mbf503553db1e71",
+          "qualifiers": {
+            "kind": "sql-server-network-machine"
+          }
+        },
+        "native": {
+          "id": "mbf503553db1e71",
+          "qualifiers": {
+            "kind": "sql-server-instance"
+          }
+        }
+      }
+    },
+    "target": {
+      "identity": {
+        "database": "culprit_page_contention_88054_1795380335246646",
+        "engine": "mssql",
+        "incarnation": null,
+        "location": {
+          "host": "127.0.0.1",
+          "instance": null,
+          "kind": "server",
+          "port": 32830
+        }
+      },
+      "scope": "database"
+    }
+  },
+  "focus": {
+    "database_writable": true,
+    "epoch": "2f29c97134d06c001bfb557ef3c12e4cda57d438c824ea0fb6eff5dfdfc33eb9",
+    "original": {
+      "blocking_status": "known",
+      "client": {
+        "application": "serial-tvp-owned-actor",
+        "host": "owned-fixture-client",
+        "user": "sa"
+      },
+      "command": "SELECT",
+      "database": "culprit_page_contention_88054_1795380335246646",
+      "elapsed_ms": "1500",
+      "idle": false,
+      "key": {
+        "request": {
+          "generation": "2026-11-22T20:45:35.7200000",
+          "id": "0"
+        },
+        "session": {
+          "generation": "2026-11-22T20:45:35.6666667",
+          "id": "70"
+        },
+        "transaction": null
+      },
+      "last_request_age_ms": "1498",
+      "open_transactions": 0,
+      "query_hash": "E1B4F3DD05EF4DCD",
+      "request_counters": {
+        "cpu_ms": "9",
+        "logical_reads": "1363",
+        "physical_reads": "0",
+        "writes": "7"
+      },
+      "scope": "request-database",
+      "session_context": {
+        "client_library": "",
+        "client_process_id": "0",
+        "last_request_end_age_ms": "1514",
+        "lifecycle": "running",
+        "login_age_ms": "1551",
+        "native": {
+          "data": {
+            "elapsed_ms": "34",
+            "has_current_request": true,
+            "idle_connection": null,
+            "login_established": true,
+            "native_state": "running",
+            "request_connection_id": "A63B5DA2-2873-4593-A46A-E08D043F3BB4",
+            "request_database_id": "6",
+            "session_database_id": "6",
+            "session_database_name": "culprit_page_contention_88054_1795380335246646",
+            "tds_protocol_version": "7",
+            "times": {
+              "last_request_end_without_offset": "2026-11-22T20:45:35.7033333",
+              "last_request_start_without_offset": "2026-11-22T20:45:35.7200000",
+              "login_without_offset": "2026-11-22T20:45:35.6666667"
+            }
+          },
+          "kind": "mssql"
+        }
+      },
+      "session_counters": {
+        "cpu_ms": "21",
+        "logical_reads": "1154",
+        "physical_reads": "32",
+        "writes": "5"
+      },
+      "state": "suspended",
+      "statement": {
+        "reason": "not-collected",
+        "state": "unavailable"
+      },
+      "statement_identity": {
+        "id": "030006004468463FD91C56010AB5000001000000000000000000000000000000000000000000000000000000",
+        "qualifiers": {
+          "database_id": "6",
+          "native_object": "sys.dm_exec_requests.sql_handle",
+          "statement_end_offset": "538",
+          "statement_start_offset": "160"
+        }
+      },
+      "transaction_age_ms": null,
+      "wait": {
+        "class": null,
+        "elapsed_ms": "1490",
+        "identified_resources": [],
+        "native_type": "LCK_M_S",
+        "owners": [
+          {
+            "generation": "2026-11-22T20:45:35.7100000",
+            "id": "72",
+            "kind": "session"
+          }
+        ],
+        "resources": null
+      },
+      "waiting_on_lock": true
+    },
+    "original_observed_at": "2026-11-22T20:45:37.218180500Z",
+    "parent": {
+      "batch_id": "a8c157e377834d5280170937250ee92f6667cb5bf62353025f71ed84c18aa255",
+      "capture": {
+        "observation_id": "d66422864d6cd9d3d9a184817296dcaa",
+        "revision": {
+          "outbox_id": "6518614747b8cd902fece3f8df339e6c",
+          "owner_epoch": "1",
+          "sequence": "1"
+        }
+      },
+      "manifest_sha256": "975fbc670b74274f1ea8e98b40bd0aab07756ea9c8f65ebabdd9013eb15ecf87",
+      "native_key": {
+        "data": {
+          "request": {
+            "generation": "2026-11-22T20:45:35.7200000",
+            "id": "0"
+          },
+          "session": {
+            "generation": "2026-11-22T20:45:35.6666667",
+            "id": "70"
+          },
+          "transaction": null
+        },
+        "kind": "activity"
+      },
+      "payload_sha256": "2f0fc43bfb002b5763cd684bce09a384e81c4b23f6f08c91f99514fbc697c2c2",
+      "record_id": "f256a82bb57cba608f598fec303830230c240f6f5c46f2a656299e2f4c823ebc",
+      "representation_version": 3,
+      "row_ordinal": 0,
+      "source_scope_id": "f8081bcf131d58b7e374375430d557a5163c073e38d45d13561af90a55f7426a",
+      "stream": "activity-observations"
+    },
+    "partition": {
+      "epoch": "2f29c97134d06c001bfb557ef3c12e4cda57d438c824ea0fb6eff5dfdfc33eb9",
+      "kind": "instance-local",
+      "member": {
+        "engine": "mssql",
+        "kind": "instance",
+        "namespace": {
+          "id": "mbf503553db1e71",
+          "qualifiers": {
+            "kind": "sql-server-network-machine"
+          }
+        },
+        "native": {
+          "id": "mbf503553db1e71",
+          "qualifiers": {
+            "kind": "sql-server-instance"
+          }
+        }
+      }
+    },
+    "source": "sessions",
+    "statement_identity": {
+      "id": "030006004468463FD91C56010AB5000001000000000000000000000000000000000000000000000000000000",
+      "qualifiers": {
+        "database_id": "6",
+        "native_object": "sys.dm_exec_requests.sql_handle",
+        "statement_end_offset": "538",
+        "statement_start_offset": "160"
+      }
+    },
+    "target": {
+      "identity": {
+        "database": "culprit_page_contention_88054_1795380335246646",
+        "engine": "mssql",
+        "incarnation": null,
+        "location": {
+          "host": "127.0.0.1",
+          "instance": null,
+          "kind": "server",
+          "port": 32830
+        }
+      },
+      "scope": "database"
+    }
+  },
+  "membership": "observed",
+  "observed_at": "2026-11-22T20:45:37.523873500Z",
+  "profiles": {
+    "limited": false,
+    "observed_from": "2026-11-22T20:45:37.649578400Z",
+    "observed_until": "2026-11-22T20:45:37.660767400Z",
+    "operators": {
+      "context": {
+        "database_id": 6,
+        "identity": {
+          "created_without_offset": "2026-11-22T20:45:35.6800000",
+          "plan_generation": "1",
+          "plan_handle": "0x050006004468463F601950050C00000001000000000000000000000000000000000000000000000000000000",
+          "sql_handle": "0x030006004468463FD91C56010AB5000001000000000000000000000000000000000000000000000000000000",
+          "statement_end_bytes": 538,
+          "statement_start_bytes": 160
+        },
+        "monitoring_template_id": null,
+        "origin": "application",
+        "query_hash": "0xE1B4F3DD05EF4DCD",
+        "source_text_bytes": "540",
+        "source_text_complete": true
+      },
+      "nodes": [
+        {
+          "hash_build_input": null,
+          "index": null,
+          "inner_join": null,
+          "kind": "aggregate",
+          "native_operator": "Stream Aggregate",
+          "node_id": 0,
+          "object": null,
+          "parallel": false,
+          "parent_node_id": null,
+          "predicate": {
+            "reason": "not-collected",
+            "state": "unavailable"
+          },
+          "relational_input": null,
+          "seek_predicate": {
+            "reason": "not-collected",
+            "state": "unavailable"
+          }
+        },
+        {
+          "hash_build_input": 2,
+          "index": null,
+          "inner_join": true,
+          "kind": "join",
+          "native_operator": "Hash Match",
+          "node_id": 1,
+          "object": null,
+          "parallel": false,
+          "parent_node_id": 0,
+          "predicate": {
+            "reason": "not-collected",
+            "state": "unavailable"
+          },
+          "relational_input": null,
+          "seek_predicate": {
+            "reason": "not-collected",
+            "state": "unavailable"
+          }
+        },
+        {
+          "hash_build_input": null,
+          "index": "PK__#A4C4FD4__3213E83F750675A2",
+          "inner_join": null,
+          "kind": "scan",
+          "native_operator": "Clustered Index Scan",
+          "node_id": 2,
+          "object": "@Rows",
+          "parallel": false,
+          "parent_node_id": 1,
+          "predicate": {
+            "reason": "not-collected",
+            "state": "unavailable"
+          },
+          "relational_input": {
+            "kind": "unknown",
+            "provenance": "unresolved"
+          },
+          "seek_predicate": {
+            "reason": "not-collected",
+            "state": "unavailable"
+          }
+        },
+        {
+          "hash_build_input": null,
+          "index": "PK__page_fix__3213E83FD37E89E3",
+          "inner_join": null,
+          "kind": "scan",
+          "native_operator": "Clustered Index Scan",
+          "node_id": 3,
+          "object": "dbo.page_fixture_select",
+          "parallel": false,
+          "parent_node_id": 1,
+          "predicate": {
+            "reason": "not-collected",
+            "state": "unavailable"
+          },
+          "relational_input": null,
+          "seek_predicate": {
+            "reason": "not-collected",
+            "state": "unavailable"
+          }
+        }
+      ],
+      "plan_sha256": "d29c24ecc2a74a787a7b8c313851304b5e130a0e03a7e8380e2d46f6cad24f55",
+      "state": "observed"
+    },
+    "rows": [
+      {
+        "close_ticks": "0",
+        "counters": {
+          "cpu_ms": "0",
+          "elapsed_ms": "0",
+          "end_of_scans": "0",
+          "estimated_rows": "1",
+          "logical_reads": null,
+          "physical_reads": null,
+          "read_ahead_reads": null,
+          "rebinds": "1",
+          "rewinds": "0",
+          "rows_read": null,
+          "rows_returned": "0",
+          "scans": null,
+          "spill_write_pages": null
+        },
+        "database_id": null,
+        "index_id": null,
+        "node_id": 0,
+        "object_id": null,
+        "open_ticks": "0",
+        "physical_operator": "Stream Aggregate",
+        "task_address": "0000000C00079848",
+        "thread_id": 0
+      },
+      {
+        "close_ticks": "0",
+        "counters": {
+          "cpu_ms": "0",
+          "elapsed_ms": "0",
+          "end_of_scans": "0",
+          "estimated_rows": "1",
+          "logical_reads": "0",
+          "physical_reads": "0",
+          "read_ahead_reads": "0",
+          "rebinds": "1",
+          "rewinds": "0",
+          "rows_read": "0",
+          "rows_returned": "0",
+          "scans": "0",
+          "spill_write_pages": "0"
+        },
+        "database_id": 0,
+        "index_id": 0,
+        "node_id": 1,
+        "object_id": 0,
+        "open_ticks": "0",
+        "physical_operator": "Hash Match",
+        "task_address": "0000000C00079848",
+        "thread_id": 0
+      },
+      {
+        "close_ticks": "0",
+        "counters": {
+          "cpu_ms": "0",
+          "elapsed_ms": "0",
+          "end_of_scans": "1",
+          "estimated_rows": "1",
+          "logical_reads": null,
+          "physical_reads": null,
+          "read_ahead_reads": null,
+          "rebinds": "1",
+          "rewinds": "0",
+          "rows_read": null,
+          "rows_returned": "512",
+          "scans": null,
+          "spill_write_pages": null
+        },
+        "database_id": null,
+        "index_id": null,
+        "node_id": 2,
+        "object_id": null,
+        "open_ticks": "0",
+        "physical_operator": "Clustered Index Scan",
+        "task_address": "0000000C00079848",
+        "thread_id": 0
+      },
+      {
+        "close_ticks": "0",
+        "counters": {
+          "cpu_ms": "0",
+          "elapsed_ms": "0",
+          "end_of_scans": "0",
+          "estimated_rows": "100",
+          "logical_reads": null,
+          "physical_reads": null,
+          "read_ahead_reads": null,
+          "rebinds": "1",
+          "rewinds": "0",
+          "rows_read": null,
+          "rows_returned": "0",
+          "scans": null,
+          "spill_write_pages": null
+        },
+        "database_id": null,
+        "index_id": null,
+        "node_id": 3,
+        "object_id": null,
+        "open_ticks": "0",
+        "physical_operator": "Clustered Index Scan",
+        "task_address": "0000000C00079848",
+        "thread_id": 0
+      }
+    ],
+    "state": "observed"
+  },
+  "relational_inputs": {
+    "context": {
+      "database_id": 6,
+      "identity": {
+        "created_without_offset": "2026-11-22T20:45:35.6800000",
+        "plan_generation": "1",
+        "plan_handle": "0x050006004468463F601950050C00000001000000000000000000000000000000000000000000000000000000",
+        "sql_handle": "0x030006004468463FD91C56010AB5000001000000000000000000000000000000000000000000000000000000",
+        "statement_end_bytes": 538,
+        "statement_start_bytes": 160
+      },
+      "monitoring_template_id": null,
+      "origin": "application",
+      "query_hash": "0xE1B4F3DD05EF4DCD",
+      "source_text_bytes": "540",
+      "source_text_complete": true
+    },
+    "module_parameters": {
+      "database_id": 6,
+      "module_number": 1,
+      "object_id": 1061578820,
+      "sql_handle": "0x030006004468463FD91C56010AB5000001000000000000000000000000000000000000000000000000000000",
+      "table_parameters": {
+        "@Rows": [
+          "dbo",
+          "CulpritSerialRows"
+        ]
+      }
+    },
+    "plan_native_sha256": "d53be92d78517e382bfcee6e514cef550f43aba119a56bcedd037c8d81529e0a",
+    "plan_utf16_bytes": "10448",
+    "proof": null,
+    "statement_native_sha256": "414d02c5cac3f056a67deff4559b3aa7359586831678b8847564d85fd5339dfc",
+    "statement_utf16_bytes": "380"
+  },
+  "statement": {
+    "redaction_version": 1,
+    "sha256": "51a818b99c99d59921a0107edce1549ad335f5881552354fb56e9f2bbf0b240c",
+    "state": "available",
+    "text": "SELECT COUNT_BIG(*) AS completed FROM @Rows AS r INNER HASH JOIN dbo.page_fixture_select AS s WITH(READCOMMITTEDLOCK) ON s.id=r.id OPTION(FORCE ORDER,MAXDOP 1,USE HINT('?'))"
+  },
+  "work": {
+    "checked_until": "2026-11-22T20:45:37.684278300Z",
+    "cpu_ms": 9,
+    "current_plan": {
+      "context": {
+        "database_id": 6,
+        "identity": {
+          "created_without_offset": "2026-11-22T20:45:35.6800000",
+          "plan_generation": "1",
+          "plan_handle": "0x050006004468463F601950050C00000001000000000000000000000000000000000000000000000000000000",
+          "sql_handle": "0x030006004468463FD91C56010AB5000001000000000000000000000000000000000000000000000000000000",
+          "statement_end_bytes": 538,
+          "statement_start_bytes": 160
+        },
+        "monitoring_template_id": null,
+        "origin": "application",
+        "query_hash": "0xE1B4F3DD05EF4DCD",
+        "source_text_bytes": "540",
+        "source_text_complete": true
+      },
+      "kind": "observed",
+      "observed_from": "2026-11-22T20:45:37.645030300Z",
+      "observed_until": "2026-11-22T20:45:37.684278300Z",
+      "plan": {
+        "redaction_version": 1,
+        "sha256": "d29c24ecc2a74a787a7b8c313851304b5e130a0e03a7e8380e2d46f6cad24f55",
+        "state": "available",
+        "text": "<ShowPlanXML xmlns=\"http://schemas.microsoft.com/sqlserver/2004/07/showplan\" Version=\"1.564\" Build=\"16.0.4325.4\"><BatchSequence><Batch><Statements><StmtSimple StatementText=\"SELECT COUNT_BIG(*) AS completed FROM @Rows AS r INNER HASH JOIN dbo.page_fixture_select AS s WITH(READCOMMITTEDLOCK) ON s.id=r.id OPTION(FORCE ORDER,MAXDOP 1,USE HINT(&apos;?&apos;))\" StatementId=\"1\" StatementCompId=\"5\" StatementType=\"SELECT\" StatementSqlHandle=\"0x09003AF7D37EB1FD0DF4A248B32193536F850000000000000000000000000000000000000000000000000000\" DatabaseContextSettingsId=\"1\" ParentObjectId=\"1061578820\" BatchSqlHandle=\"0x030006004468463FD91C56010AB5000001000000000000000000000000000000000000000000000000000000\" StatementParameterizationType=\"0\" RetrievedFromCache=\"true\" StatementSubTreeCost=\"0.0248972\" StatementEstRows=\"1\" SecurityPolicyApplied=\"false\" StatementOptmLevel=\"FULL\" QueryHash=\"0xE1B4F3DD05EF4DCD\" QueryPlanHash=\"0xF267A63D408622C0\" StatementOptmEarlyAbortReason=\"GoodEnoughPlanFound\" CardinalityEstimationModelVersion=\"160\"><StatementSetOptions QUOTED_IDENTIFIER=\"true\" ARITHABORT=\"false\" CONCAT_NULL_YIELDS_NULL=\"true\" ANSI_NULLS=\"true\" ANSI_PADDING=\"true\" ANSI_WARNINGS=\"true\" NUMERIC_ROUNDABORT=\"false\"></StatementSetOptions><QueryPlan NonParallelPlanReason=\"MaxDOPSetToOne\" CachedPlanSize=\"40\" CompileTime=\"16\" CompileCPU=\"15\" CompileMemory=\"216\"><MemoryGrantInfo SerialRequiredMemory=\"1024\" SerialDesiredMemory=\"1056\" GrantedMemory=\"0\" MaxUsedMemory=\"0\"></MemoryGrantInfo><OptimizerHardwareDependentProperties EstimatedAvailableMemoryGrant=\"17978\" EstimatedPagesCached=\"15731\" EstimatedAvailableDegreeOfParallelism=\"1\" MaxCompileMemory=\"954144\"></OptimizerHardwareDependentProperties><OptimizerStatsUsage><StatisticsInfo LastUpdate=\"2026-11-22T20:45:35.69\" ModificationCount=\"0\" SamplingPercent=\"100\" Statistics=\"[PK__page_fix__3213E83FD37E89E3]\" Table=\"[page_fixture_select]\" Schema=\"[dbo]\" Database=\"[database]\"></StatisticsInfo></OptimizerStatsUsage><RelOp NodeId=\"0\" PhysicalOp=\"Stream Aggregate\" LogicalOp=\"Aggregate\" EstimateRows=\"1\" EstimateIO=\"0\" EstimateCPU=\"1.1e-06\" AvgRowSize=\"15\" EstimatedTotalSubtreeCost=\"0.0248972\" Parallel=\"0\" EstimateRebinds=\"0\" EstimateRewinds=\"0\" EstimatedExecutionMode=\"Row\"><OutputList><ColumnReference Column=\"Expr1002\"></ColumnReference></OutputList><StreamAggregate><DefinedValues><DefinedValue><ColumnReference Column=\"Expr1002\"></ColumnReference><ScalarOperator ScalarString=\"Count(*)\"><Aggregate AggType=\"countstar\" Distinct=\"0\"></Aggregate></ScalarOperator></DefinedValue></DefinedValues><RelOp NodeId=\"1\" PhysicalOp=\"Hash Match\" LogicalOp=\"Inner Join\" EstimateRows=\"1\" EstimateIO=\"0\" EstimateCPU=\"0.018218\" AvgRowSize=\"9\" EstimatedTotalSubtreeCost=\"0.0248961\" Parallel=\"0\" EstimateRebinds=\"0\" EstimateRewinds=\"0\" EstimatedExecutionMode=\"Row\"><OutputList></OutputList><MemoryFractions Input=\"1\" Output=\"1\"></MemoryFractions><Hash><DefinedValues></DefinedValues><HashKeysBuild><ColumnReference Table=\"@Rows\" Alias=\"[r]\" Column=\"id\"></ColumnReference></HashKeysBuild><HashKeysProbe><ColumnReference Database=\"[database]\" Schema=\"[dbo]\" Table=\"[page_fixture_select]\" Alias=\"[s]\" Column=\"id\"></ColumnReference></HashKeysProbe><RelOp NodeId=\"2\" PhysicalOp=\"Clustered Index Scan\" LogicalOp=\"Clustered Index Scan\" EstimateRows=\"1\" EstimatedRowsRead=\"1\" EstimateIO=\"0.003125\" EstimateCPU=\"0.0001581\" AvgRowSize=\"11\" EstimatedTotalSubtreeCost=\"0.0032831\" TableCardinality=\"1\" Parallel=\"0\" EstimateRebinds=\"0\" EstimateRewinds=\"0\" EstimatedExecutionMode=\"Row\"><OutputList><ColumnReference Table=\"@Rows\" Alias=\"[r]\" Column=\"id\"></ColumnReference></OutputList><IndexScan Ordered=\"0\" ForcedIndex=\"0\" ForceScan=\"0\" NoExpandHint=\"0\" Storage=\"RowStore\"><DefinedValues><DefinedValue><ColumnReference Table=\"@Rows\" Alias=\"[r]\" Column=\"id\"></ColumnReference></DefinedValue></DefinedValues><Object Table=\"[@Rows]\" Index=\"[PK__#A4C4FD4__3213E83F750675A2]\" Alias=\"[r]\" Storage=\"RowStore\"></Object></IndexScan></RelOp><RelOp NodeId=\"3\" PhysicalOp=\"Clustered Index Scan\" LogicalOp=\"Clustered Index Scan\" EstimateRows=\"100\" EstimatedRowsRead=\"100\" EstimateIO=\"0.003125\" EstimateCPU=\"0.000267\" AvgRowSize=\"11\" EstimatedTotalSubtreeCost=\"0.003392\" TableCardinality=\"100\" Parallel=\"0\" EstimateRebinds=\"0\" EstimateRewinds=\"0\" EstimatedExecutionMode=\"Row\"><OutputList><ColumnReference Database=\"[database]\" Schema=\"[dbo]\" Table=\"[page_fixture_select]\" Alias=\"[s]\" Column=\"id\"></ColumnReference></OutputList><IndexScan Ordered=\"0\" ForcedIndex=\"0\" ForceScan=\"0\" NoExpandHint=\"0\" Storage=\"RowStore\"><DefinedValues><DefinedValue><ColumnReference Database=\"[database]\" Schema=\"[dbo]\" Table=\"[page_fixture_select]\" Alias=\"[s]\" Column=\"id\"></ColumnReference></DefinedValue></DefinedValues><Object Database=\"[database]\" Schema=\"[dbo]\" Table=\"[page_fixture_select]\" Index=\"[PK__page_fix__3213E83FD37E89E3]\" Alias=\"[s]\" IndexKind=\"Clustered\" Storage=\"RowStore\"></Object></IndexScan></RelOp></Hash></RelOp></StreamAggregate></RelOp></QueryPlan></StmtSimple></Statements></Batch></BatchSequence></ShowPlanXML>"
+      }
+    },
+    "elapsed_ms": 1801,
+    "logical_reads": "1363",
+    "native_database_id": 6,
+    "reads": "0",
+    "request_plan": {
+      "id": "050006004468463F601950050C00000001000000000000000000000000000000000000000000000000000000",
+      "qualifiers": {
+        "native_object": "sys.dm_exec_requests.plan_handle",
+        "query_plan_hash": "F267A63D408622C0"
+      }
+    },
+    "rows_returned": "512",
+    "writes": "7"
+  },
+  "workers_after": {
+    "limited": false,
+    "observed_at": "2026-11-22T20:45:37.678644800Z",
+    "tasks": [
+      {
+        "address": "0000000C00079848",
+        "execution_context_id": 0,
+        "parent_node_id": 0,
+        "request": {
+          "request": {
+            "generation": "2026-11-22T20:45:35.7200000",
+            "id": "0"
+          },
+          "session": {
+            "generation": "2026-11-22T20:45:35.6666667",
+            "id": "70"
+          },
+          "transaction": null
+        },
+        "request_id": 0,
+        "scheduler_id": 0,
+        "scheduler_work_queue_count": "0",
+        "session_id": 70,
+        "state": "SUSPENDED",
+        "wait": {
+          "blocking_execution_context_id": null,
+          "blocking_session_id": 72,
+          "blocking_task_address": null,
+          "elapsed_ms": "1951",
+          "execution_context_id": 0,
+          "native_type": "LCK_M_S",
+          "parent_node_id": 0,
+          "request": {
+            "request": {
+              "generation": "2026-11-22T20:45:35.7200000",
+              "id": "0"
+            },
+            "session": {
+              "generation": "2026-11-22T20:45:35.6666667",
+              "id": "70"
+            },
+            "transaction": null
+          },
+          "request_id": 0,
+          "scheduler_id": 0,
+          "session_id": 70,
+          "task_address": "0000000C00079848"
+        },
+        "worker": {
+          "address": "0000000C09AB8180",
+          "created_ms_ticks": "280228035",
+          "is_preemptive": false,
+          "state": "SUSPENDED",
+          "task_address": "0000000C00079848",
+          "task_bound_ms_ticks": "280241394"
+        }
+      }
+    ]
+  },
+  "workers_before": {
+    "limited": false,
+    "observed_at": "2026-11-22T20:45:37.561036200Z",
+    "tasks": [
+      {
+        "address": "0000000C00079848",
+        "execution_context_id": 0,
+        "parent_node_id": 0,
+        "request": {
+          "request": {
+            "generation": "2026-11-22T20:45:35.7200000",
+            "id": "0"
+          },
+          "session": {
+            "generation": "2026-11-22T20:45:35.6666667",
+            "id": "70"
+          },
+          "transaction": null
+        },
+        "request_id": 0,
+        "scheduler_id": 0,
+        "scheduler_work_queue_count": "0",
+        "session_id": 70,
+        "state": "SUSPENDED",
+        "wait": {
+          "blocking_execution_context_id": null,
+          "blocking_session_id": 72,
+          "blocking_task_address": null,
+          "elapsed_ms": "1835",
+          "execution_context_id": 0,
+          "native_type": "LCK_M_S",
+          "parent_node_id": 0,
+          "request": {
+            "request": {
+              "generation": "2026-11-22T20:45:35.7200000",
+              "id": "0"
+            },
+            "session": {
+              "generation": "2026-11-22T20:45:35.6666667",
+              "id": "70"
+            },
+            "transaction": null
+          },
+          "request_id": 0,
+          "scheduler_id": 0,
+          "session_id": 70,
+          "task_address": "0000000C00079848"
+        },
+        "worker": {
+          "address": "0000000C09AB8180",
+          "created_ms_ticks": "280228035",
+          "is_preemptive": false,
+          "state": "SUSPENDED",
+          "task_address": "0000000C00079848",
+          "task_bound_ms_ticks": "280241394"
+        }
+      }
+    ]
+  }
+}

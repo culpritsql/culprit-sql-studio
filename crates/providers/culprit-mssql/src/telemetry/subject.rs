@@ -1,5 +1,5 @@
 //! Native subject resolution is shared by current-state capture and its final consistency check.
-use super::description;
+use super::{database_acquisition::DatabaseAcquisition, description};
 use crate::{
     instance, local_source,
     read::{NativeRead, invalid_data},
@@ -11,9 +11,11 @@ use culprit_core::{DatabaseIdentity, Error, ErrorCode, Result, telemetry::*};
 pub(super) enum Identity {
     Database { database: DatabaseIdentity, physical: String },
     LocalDatabase(Box<local_source::Context>),
+    CatalogDatabase(Box<DatabaseAcquisition>),
     Instance(instance::Context),
     Pool(pool::Context),
     PoolCurrent(Box<pool::CurrentContext>),
+    PoolNative(Box<pool::native::Context>),
     ResourcePoolSettings(Box<pool::SettingsContext>),
 }
 impl Identity {
@@ -21,36 +23,51 @@ impl Identity {
         match self {
             Self::Database { database, .. } => database.clone().into(),
             Self::LocalDatabase(context) => context.activity.database.clone().into(),
+            Self::CatalogDatabase(owner) => owner.target(),
             Self::Instance(context) => CollectionTarget::Shared(context.identity.clone()),
             Self::Pool(context) => CollectionTarget::Shared(context.identity.clone()),
             Self::PoolCurrent(context) => CollectionTarget::Shared(context.point.pool.clone()),
+            Self::PoolNative(context) => CollectionTarget::Shared(context.current.point.pool.clone()),
             Self::ResourcePoolSettings(context) => context.target.clone(),
         }
     }
     pub fn partition(&self) -> Result<SourcePartition> {
         Ok(match self {
             Self::LocalDatabase(context) => context.source_partition()?,
+            Self::CatalogDatabase(owner) => owner.owner()?.partition,
             Self::Instance(context) => SourcePartition::InstanceLocal {
                 member: Some(context.identity.clone()),
                 epoch: Some(context.capture_epoch()?),
             },
-            Self::Database { .. } | Self::Pool(_) | Self::PoolCurrent(_) | Self::ResourcePoolSettings(_) => {
-                SourcePartition::Target
-            }
+            Self::Database { .. }
+            | Self::Pool(_)
+            | Self::PoolCurrent(_)
+            | Self::PoolNative(_)
+            | Self::ResourcePoolSettings(_) => SourcePartition::Target,
         })
     }
     pub async fn admit<R: NativeRead>(&self, reader: &mut R) -> Result<()> {
         match self {
+            Self::CatalogDatabase(owner) => return owner.admit(reader).await,
             Self::LocalDatabase(_) => crate::resources::admit_instance_resources(reader).await,
             Self::Database { .. } | Self::Pool(_) | Self::PoolCurrent(_) | Self::ResourcePoolSettings(_) => {
                 crate::resources::admit_resources(reader).await
             }
+            Self::PoolNative(_) => crate::resources::admit_pool_resources(reader).await,
             Self::Instance(_) => return Ok(()),
         }
         .map_err(crate::read::ReadError::into_error)
     }
     pub fn accepts_observation_bounds(&self, from: &str, until: &str) -> bool {
         match self {
+            Self::PoolNative(context) => {
+                ObservationBounds::new(&context.current.point.observed_at, from).is_some()
+                    && ObservationBounds::new(from, until).is_some()
+            }
+            Self::CatalogDatabase(owner) => owner.owner().is_ok_and(|context| {
+                ObservationBounds::new(&context.observed_from, from).is_some()
+                    && ObservationBounds::new(from, until).is_some()
+            }),
             Self::PoolCurrent(context) => {
                 ObservationBounds::new(&context.point.observed_at, from).is_some()
                     && ObservationBounds::new(from, until).is_some()
@@ -64,6 +81,13 @@ impl Identity {
     }
     pub fn confirmed_by(&self, after: &Self, observed_until: &str) -> bool {
         match (self, after) {
+            (Self::PoolNative(before), Self::PoolNative(after)) => before.confirms(after, observed_until),
+            (Self::CatalogDatabase(before), Self::CatalogDatabase(after)) => {
+                before.completed(after).is_ok_and(|context| {
+                    context.database_writable == Some(true)
+                        && ObservationBounds::new(observed_until, &context.observed_until).is_some()
+                })
+            }
             (Self::PoolCurrent(before), Self::PoolCurrent(after)) => before.confirms(after, observed_until),
             (Self::ResourcePoolSettings(original), Self::ResourcePoolSettings(after)) => {
                 original.confirmed_by(after, observed_until)
@@ -92,7 +116,11 @@ impl Identity {
     }
     pub async fn recheck<R: NativeRead>(&self, reader: &mut R, host: &str, port: u16) -> Result<Self> {
         match self {
+            Self::CatalogDatabase(original) => {
+                Ok(Self::CatalogDatabase(Box::new(original.recheck(reader, host, port).await?)))
+            }
             Self::PoolCurrent(original) => Ok(Self::PoolCurrent(Box::new(original.recheck(reader).await?))),
+            Self::PoolNative(original) => Ok(Self::PoolNative(Box::new(original.recheck(reader).await?))),
             Self::ResourcePoolSettings(original) => {
                 Ok(Self::ResourcePoolSettings(Box::new(original.recheck(reader).await?)))
             }
@@ -116,9 +144,14 @@ pub(super) enum DatabaseAuthority {
     AzureOnly,
     LocalDatabase,
     LocalFiles,
+    Catalog,
 }
 impl DatabaseAuthority {
     pub fn for_source(dataset: SnapshotDataset, subject: &CollectionSubject) -> Result<Self> {
+        if dataset == SnapshotDataset::MissingIndexes {
+            subject.require_database()?;
+            return Ok(Self::Catalog);
+        }
         if dataset == SnapshotDataset::Operational && matches!(subject, CollectionSubject::Database) {
             return Ok(Self::LocalFiles);
         }
@@ -148,9 +181,21 @@ impl DatabaseAuthority {
     ) -> Result<SubjectRead> {
         let profile = match self {
             Self::AzureOnly => description::supported_profile(reader, detail).await?,
-            Self::LocalDatabase | Self::LocalFiles => description::observed_profile(reader, detail).await?,
+            Self::LocalDatabase | Self::LocalFiles | Self::Catalog => {
+                description::observed_profile(reader, detail).await?
+            }
         };
         if profile.edition != crate::probe::ENGINE_EDITION_AZURE_SQL_DATABASE {
+            if matches!(self, Self::Catalog) {
+                let owner = DatabaseAcquisition::read_catalog(reader, host, port, profile.edition).await?;
+                if owner.owner()?.database_writable != Some(true) {
+                    return Err(Error::new(ErrorCode::Unsupported, culprit_core::t!("collection.unsupported")));
+                }
+                return Ok(SubjectRead {
+                    identity: Identity::CatalogDatabase(Box::new(owner)),
+                    configured_log_rates: Ok(None),
+                });
+            }
             let generation = reader.connection_generation();
             let context = local_source::Context::read(reader, host, port).await?;
             if matches!(self, Self::LocalDatabase) && context.activity.writable != Some(true) {
@@ -216,7 +261,10 @@ pub(super) fn validate_dataset(subject: &CollectionSubject, dataset: SnapshotDat
     if (matches!(subject, CollectionSubject::Shared { resource } if resource.kind == SharedResourceKind::Pool)
         && !matches!(
             dataset,
-            SnapshotDataset::MemoryFailures | SnapshotDataset::Settings | SnapshotDataset::WaitCounters
+            SnapshotDataset::MemoryFailures
+                | SnapshotDataset::Settings
+                | SnapshotDataset::WaitCounters
+                | SnapshotDataset::Operational
         ))
         || (dataset == SnapshotDataset::MemoryFailures && matches!(subject, CollectionSubject::Database))
     {

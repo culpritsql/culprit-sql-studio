@@ -9,12 +9,14 @@ use ts_rs::TS;
 #[ts(export)]
 pub enum PerformanceCounterPopulation {
     SharedServer,
+    /// The native bodies keep Server scope; an authenticated pool anchor owns this current population.
+    SharedPool,
     SelectedDatabase,
 }
 impl PerformanceCounterPopulation {
     pub fn scope(self) -> MeasurementScope {
         match self {
-            Self::SharedServer => MeasurementScope::Server,
+            Self::SharedServer | Self::SharedPool => MeasurementScope::Server,
             Self::SelectedDatabase => MeasurementScope::Database,
         }
     }

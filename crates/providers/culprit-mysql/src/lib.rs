@@ -1,7 +1,9 @@
 //! MySQL and MariaDB provider for Culprit: read-only snapshots from performance_schema, information_schema and the
 //! slow query log table, plans via EXPLAIN (and MariaDB's ANALYZE), live sessions with lock waits.
 
+mod builtin_safety;
 mod cancellation;
+pub use builtin_safety::verify as verify_builtin_safety;
 mod catalog;
 mod collect;
 mod connect;
@@ -10,6 +12,8 @@ pub mod fingerprint;
 mod jobs;
 mod native;
 mod native_failures;
+#[cfg(feature = "native-test-support")]
+pub mod native_test_support;
 mod operations;
 mod pressure;
 mod preview;
@@ -180,6 +184,18 @@ fn parameter_error(e: Error) -> Error {
 
 #[async_trait]
 impl Provider for MysqlProvider {
+    fn telemetry_source_for_safety(
+        &self,
+        request: &culprit_core::telemetry::CollectionRequest,
+        profile: &culprit_core::telemetry::SourceProfileAdmission,
+    ) -> Result<Box<dyn culprit_core::telemetry::TelemetrySource>> {
+        let policy =
+            profile.builtin_policy().ok_or_else(|| culprit_core::telemetry::CollectionStop::SourceChanged.error())?;
+        if !builtin_safety::verify(policy)? {
+            return Err(culprit_core::telemetry::CollectionStop::SourceChanged.error());
+        }
+        telemetry::safety_source(self.connector.clone(), request, profile)
+    }
     fn collector_version(&self) -> culprit_core::ComponentVersion {
         component_version()
     }

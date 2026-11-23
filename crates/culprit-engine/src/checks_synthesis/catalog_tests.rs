@@ -10,6 +10,7 @@ use culprit_evidence::{
 use std::sync::atomic::{AtomicBool, Ordering};
 
 mod fixture;
+mod local_owner;
 mod schema;
 use fixture::*;
 

@@ -6,7 +6,8 @@ use super::{
 use culprit_core::{telemetry::*, *};
 use culprit_evidence::{
     analytical::evidence::{
-        EvidenceReadBudget, EvidenceReadMetrics, PublishedResourceHint, PublishedResourceQuery, resource_namespace_id,
+        EvidenceCaptureMetadata, EvidenceReadBudget, EvidenceReadMetrics, PublishedResourceClock,
+        PublishedResourceContent, PublishedResourceHint, PublishedResourceQuery, resource_namespace_id,
     },
     delivery::{
         object_store::ObjectRecoveryReader,
@@ -48,32 +49,63 @@ impl EvidenceSession<'_> {
     }
     /// Pagination can share this same cumulative action with incident or selected-capture reads.
     pub async fn resources(&mut self, request: &PublishedResourceRequest) -> Result<PublishedResources> {
+        Ok(self
+            .selected_resources(request, None, PublishedResourceClock::Acquisition, PublishedResourceContent::All)
+            .await?
+            .report)
+    }
+
+    /// Window selection uses the same publication proof and metadata accounting as ordinary resource discovery.
+    /// The caller can retain these exact headers for subsequent body/ancestry selection in this same session.
+    pub(super) async fn selected_resources(
+        &mut self,
+        request: &PublishedResourceRequest,
+        database: Option<IncidentDatabaseSelector>,
+        clock: PublishedResourceClock,
+        content: PublishedResourceContent,
+    ) -> Result<SelectedPublications> {
         self.perform(
             |budget| {
                 request.validate()?;
                 budget.validate()
             },
-            |service, budget, fence| async move { discover(service, request, budget, fence).await },
+            |service, budget, fence| async move {
+                discover(service, request, database, clock, content, budget, fence).await
+            },
         )
         .await
     }
 }
+pub(super) struct SelectedPublications {
+    pub(super) report: PublishedResources,
+    pub(super) metadata: Vec<EvidenceCaptureMetadata>,
+}
 async fn discover(
     service: &EvidenceService,
     selection: &PublishedResourceRequest,
+    database: Option<IncidentDatabaseSelector>,
+    clock: PublishedResourceClock,
+    content: PublishedResourceContent,
     budget: EvidenceReadBudget,
     fence: ReadFence,
-) -> Result<(PublishedResources, SessionUsage)> {
+) -> Result<(SelectedPublications, SessionUsage)> {
     let accounting =
         MetadataAccounting::new(service.recovery.clone(), budget.max_queries, budget.max_proof_bytes, fence.clone());
     // The actual namespace is learned from its bounded authoritative root, never a config label or candidate row.
     let recovery = ObjectRecoveryReader::open(accounting.clone(), service.contract.clone()).await?;
-    let request = PublishedResourceQuery { selection: selection.clone(), recovery_store_id: recovery.id().into() };
+    let request = PublishedResourceQuery {
+        selection: selection.clone(),
+        recovery_store_id: recovery.id().into(),
+        database,
+        clock,
+        content,
+    };
     fence.check()?;
     let page = service.reader.resource_candidates(&service.contract, &request, budget).await?;
     let mut remaining = deduct(budget, &page.metrics)?;
     let mut metrics = page.metrics;
     let mut resources = Vec::new();
+    let mut selected_metadata = Vec::new();
     let mut gaps = Vec::new();
     for hint in page.candidates {
         fence.check()?;
@@ -85,10 +117,14 @@ async fn discover(
             }
             Err(error) => return Err(error),
         };
-        if !hint.matches_original(&range)? {
+        if !hint.matches_original(&range)? || !content.accepts_source(&range.manifest().source) {
             return Err(DeliveryProblem::Integrity.error());
         }
-        if !request.selection.accepts_acquisition(&range.manifest().collected_from, &range.manifest().collected_until) {
+        let mut acquisition = request.selection.clone();
+        if clock == PublishedResourceClock::NativeWindowCandidates {
+            acquisition.window = None;
+        }
+        if !acquisition.accepts_acquisition(&range.manifest().collected_from, &range.manifest().collected_until) {
             gaps.push(PublishedResourceGap::AcquisitionClockBoundary);
             continue;
         }
@@ -107,6 +143,7 @@ async fn discover(
             continue;
         }
         resources.push(project(&hint, &metadata, &resource_namespace_id(&service.contract, recovery.id())?)?);
+        selected_metadata.push(metadata);
     }
     if page.next.is_some() {
         gaps.push(PublishedResourceGap::MoreCandidates);
@@ -124,7 +161,10 @@ async fn discover(
         archive_work: crate::collected_context::read_metrics(&metrics),
         recovery_metadata_reads: metadata_work.reads,
     };
-    Ok((report, SessionUsage { metrics, candidate_rows: page.charged_candidate_rows }))
+    Ok((
+        SelectedPublications { report, metadata: selected_metadata },
+        SessionUsage { metrics, candidate_rows: page.charged_candidate_rows },
+    ))
 }
 fn project(
     hint: &PublishedResourceHint,

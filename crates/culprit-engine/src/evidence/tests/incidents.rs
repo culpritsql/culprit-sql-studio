@@ -8,14 +8,14 @@ use culprit_evidence::delivery::recovery::CommittedRange;
 use culprit_read::cancellation::CollectionCancellation;
 use std::sync::atomic::Ordering;
 
-struct Scenario {
-    fixture: Fixture,
-    request: IncidentRequest,
+pub(super) struct Scenario {
+    pub(super) fixture: Fixture,
+    pub(super) request: IncidentRequest,
     gold: CommittedRange,
     original: DiagnosticEvidenceRef,
     empty: DiagnosticCaptureRef,
 }
-async fn scenario() -> Scenario {
+pub(super) async fn scenario() -> Scenario {
     let (source, rows) = test_support::activity_evidence_cases().remove(0);
     let fixture = Fixture::capture(source.clone(), rows).await;
     let cancellation = CollectionCancellation::default();
@@ -369,4 +369,31 @@ async fn injected_incident_capability_uses_the_same_canonical_assembler_and_defa
         report.archive_work.queries,
         (scenario.fixture.store.requests.load(Ordering::SeqCst) - before_queries) as u32
     );
+}
+
+#[tokio::test]
+async fn an_uncommitted_native_ancestor_keeps_verified_incident_revisions_and_real_resolution_as_partial_history() {
+    let scenario = scenario().await;
+    let original = scenario.original.clone();
+    scenario.fixture.objects.remove_range_index(&scenario.fixture.request.range_id);
+    let report =
+        scenario.fixture.service.incident(&scenario.request, &CollectionCancellation::default()).await.unwrap();
+    assert!(!report.discovery_complete);
+    assert_eq!(report.incidents.len(), 2, "the actual canonical diagnostic revisions still authenticate");
+    assert_eq!(report.history.entries.len(), 2);
+    assert!(report.history.entries.iter().any(|entry| entry.lifecycle == DiagnosticLifecycle::Resolved));
+    assert!(report.relationships.iter().any(|link| link.capture == original.capture_ref()
+        && matches!(&link.availability, IncidentEvidenceAvailability::Unavailable { gaps }
+            if gaps.iter().any(|gap| gap.reason == EvidenceGapReason::OriginalNotCommitted))));
+    assert!(
+        report
+            .relationships
+            .iter()
+            .any(|link| link.capture == scenario.empty
+                && link.availability == IncidentEvidenceAvailability::Authenticated),
+        "the independently recorded complete empty recovery capture is retained, not synthesized from missing history"
+    );
+    assert!(report.gaps.iter().any(|gap| matches!(gap, IncidentReadGap::CaptureUnavailable { capture, gaps }
+        if *capture == original.capture_ref() && gaps.iter().any(|gap| gap.reason == EvidenceGapReason::OriginalNotCommitted))));
+    assert_eq!(scenario.fixture.objects.active.load(Ordering::SeqCst), 0);
 }

@@ -37,7 +37,7 @@ class OwnedNetwork:
 class PostgresReplication:
     """One physical stream, with resource cleanup delegated to the existing owned database supervisor."""
 
-    def __init__(self, primary, standby, owner_label):
+    def __init__(self, primary, standby, owner_label, *, standby_options=()):
         self.primary = primary
         self.standby = standby
         self.stack = ExitStack()
@@ -60,9 +60,9 @@ class PostgresReplication:
         # holds the temporary credentials; no workspace, host data directory or external endpoint is mounted.
         bootstrap = '''pg_basebackup --pgdata="$PGDATA" --wal-method=stream --write-recovery-conf \
   --create-slot --slot="$CULPRIT_REPLICATION_SLOT" --checkpoint=fast --no-password
-exec postgres -D "$PGDATA" -c "cluster_name=$CULPRIT_REPLICATION_MARKER"
+exec postgres -D "$PGDATA" -c "cluster_name=$CULPRIT_REPLICATION_MARKER" "$@"
 '''
-        standby.launch_configuration = (environment, ["-euc", bootstrap])
+        standby.launch_configuration = (environment, ["-euc", bootstrap, "--", *standby_options])
 
     def __enter__(self):
         try:
@@ -104,6 +104,36 @@ exec postgres -D "$PGDATA" -c "cluster_name=$CULPRIT_REPLICATION_MARKER"
         }
         for crate, selection in selected_tests or [("culprit-postgres", "telemetry::native_tests::replication::")]:
             self.primary.test(crate, selection, library=crate != "culprit-engine", environment=environment)
+
+
+class PostgresReadableRecovery(PostgresReplication):
+    """The same disposable pair, with explicit fixture-only recovery delay and lock-table capacity."""
+
+    def __init__(self, primary, standby, owner_label):
+        capacity = ("-c", "max_connections=128", "-c", "max_locks_per_transaction=256",
+                    "-c", "max_prepared_transactions=16")
+        primary.options += list(capacity)
+        super().__init__(primary, standby, owner_label, standby_options=(*capacity,
+                         "-c", "max_standby_streaming_delay=120s", "-c", "max_standby_archive_delay=120s"))
+
+    def verify(self, selected_tests=None):
+        environment = {
+            "CULPRIT_PG_REPLICATION_PRIMARY_PORT": self.primary.port,
+            "CULPRIT_PG_REPLICATION_STANDBY_PORT": self.standby.port,
+            "CULPRIT_PG_REPLICATION_NONCE": self.nonce,
+            "CULPRIT_PG_REPLICATION_PASSWORD": self.primary.password,
+            "CULPRIT_PG_RECOVERY_FIXTURE": "owned-physical-standby",
+            "CULPRIT_PREVIEW_PG_DATABASE": self.standby.fixture.database,
+            "CULPRIT_PREVIEW_PG_PORT": self.standby.port,
+            "CULPRIT_PREVIEW_PG_PASSWORD": self.primary.password,
+        }
+        tests = selected_tests or [
+            ("culprit-engine", "collector_service::monitoring::native_tests::readable_secondary::"),
+        ]
+        for crate, selection in tests:
+            self.primary.test(crate, selection, library=True, environment=environment,
+                              test_features=("postgres-native-tests", "store-adx", "recovery-azure", "auth-azure")
+                              if crate == "culprit-engine" else ())
 
 
 class MySqlReplication:

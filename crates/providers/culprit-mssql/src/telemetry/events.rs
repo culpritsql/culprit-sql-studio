@@ -166,6 +166,7 @@ impl<R: NativeRead> TelemetrySource for EventSource<R> {
     async fn describe(&mut self) -> Result<CollectionDescription> {
         self.progress.describing()?;
         let (target, partition, at, owner) = match &self.request.subject {
+            CollectionSubject::ConfiguredConnection { .. } => return Err(invalid_data()),
             CollectionSubject::Database => {
                 description::ensure_supported(&mut self.io).await?;
                 let (database, physical) = description::identity(&mut self.io, &self.host, self.port).await?;

@@ -89,12 +89,14 @@ pub fn capture_context(manifest: &RangeManifest, manifest_digest: &str) -> Resul
     let captured = source.captured_range()?;
     let resource_kind = match &source.target {
         culprit_core::telemetry::CollectionTarget::Database(_) => json!("database"),
+        culprit_core::telemetry::CollectionTarget::ConfiguredConnection(_) => json!("configured-connection"),
         culprit_core::telemetry::CollectionTarget::Shared(resource) => json!(resource.kind),
     };
     let mut context = json!({
         "contract_id": manifest.contract.id()?, "manifest_sha256": manifest_digest,
         "schema_digest": manifest.contract.schema_digest(),
         "resource_id": source.target.telemetry_id()?, "resource_kind": resource_kind, "source_id": captured.scope_id,
+        "database_selector": source.target.database().map(culprit_core::IncidentDatabaseSelector::from_route).transpose()?,
         "logical_source_id": source.logical_source_id()?,
         "source_name": source.source, "engine": source.target.engine(), "range_id": manifest.range_id,
         "continuity": source.continuity,
@@ -124,11 +126,16 @@ pub fn capture_context(manifest: &RangeManifest, manifest_digest: &str) -> Resul
     }
     match &source.observation {
         SourceObservation::RetainedSamples(history) => context["observed_at"] = json!(history.observed_at),
+        SourceObservation::MssqlReadableResources(history) => {
+            context["observed_at"] = json!(history.history.observed_at)
+        }
         SourceObservation::MssqlManagedInstanceResources(history) => {
             context["observed_at"] = json!(history.observed_at)
         }
         SourceObservation::RetainedEvents(history) => context["observed_at"] = json!(history.observed_at),
-        SourceObservation::Activity(snapshot) | SourceObservation::FocusedBlocking { snapshot, .. } => {
+        SourceObservation::Activity(snapshot)
+        | SourceObservation::FocusedBlocking { snapshot, .. }
+        | SourceObservation::MetadataLockContext { snapshot, .. } => {
             context["observed_at"] = json!(snapshot.at);
             context["observed_from"] = json!(snapshot.observed_from);
             context["observed_until"] = json!(snapshot.observed_until);
@@ -162,6 +169,13 @@ pub fn capture_context(manifest: &RangeManifest, manifest_digest: &str) -> Resul
             context["dataset"] = json!(snapshot.dataset);
             context["observed_from"] = json!(snapshot.observed_from);
             context["observed_until"] = json!(snapshot.observed_until);
+        }
+        SourceObservation::CollectorConnection(description) => {
+            let culprit_core::telemetry::CollectionTarget::ConfiguredConnection(connection) = &source.target else {
+                return Err(invalid());
+            };
+            context["configured_connection"] = json!(connection);
+            context["collector_connection"] = json!(description);
         }
         SourceObservation::DerivedDiagnosis(description) => {
             context["derived"] = json!(description);

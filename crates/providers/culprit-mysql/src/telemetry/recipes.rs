@@ -4,6 +4,8 @@ use super::*;
 #[derive(Clone, Copy)]
 enum Acquisition {
     Activity,
+    Blocking,
+    MetadataLocks,
     Deadlocks,
     RuntimeDistributions,
     NativeFailures,
@@ -17,7 +19,7 @@ enum Acquisition {
 impl Acquisition {
     fn collection(self) -> TelemetryCollection {
         match self {
-            Self::Activity => TelemetryCollection::Activity,
+            Self::Activity | Self::Blocking | Self::MetadataLocks => TelemetryCollection::Activity,
             Self::Deadlocks => TelemetryCollection::DeadlockHistory,
             Self::RuntimeDistributions => TelemetryCollection::Snapshot(SnapshotDataset::RuntimeDistributions),
             Self::NativeFailures => TelemetryCollection::Snapshot(SnapshotDataset::NativeFailures),
@@ -41,6 +43,8 @@ impl Acquisition {
         let budget = CollectionBudget::upper_limits();
         match self {
             Self::Activity => activity::bounded_budget(&budget),
+            Self::Blocking => blocking::bounded_budget(&budget),
+            Self::MetadataLocks => blocking::metadata_budget(&budget),
             Self::RuntimeDistributions => runtime_distributions::bounded_budget(&budget),
             Self::NativeFailures => crate::native_failures::bounded_budget(&budget),
             Self::Jobs => crate::jobs::bounded_budget(&budget),
@@ -54,6 +58,8 @@ impl Acquisition {
     fn open(self, connector: Arc<Connector>, request: &CollectionRequest) -> Result<Box<dyn TelemetrySource>> {
         match self {
             Self::Activity => activity::source(connector, request),
+            Self::Blocking => blocking::source(connector, request),
+            Self::MetadataLocks => blocking::metadata_source(connector, request),
             Self::Deadlocks => events::source(connector, request),
             Self::RuntimeDistributions => runtime_distributions::source(connector, request),
             Self::NativeFailures => native_failures::source(connector, request),
@@ -105,7 +111,14 @@ impl Registration {
             selector: self.selector(),
             subjects: vec![self.acquisition.subject()],
             budget: self.acquisition.budget(),
-            admission: RecipeAdmission::Unqualified,
+            admission: crate::builtin_safety::policy(
+                self.id,
+                self.version,
+                self.selector(),
+                &self.acquisition.budget(),
+            )
+            .map(|policy| RecipeAdmission::BuiltinSafety(Box::new(policy)))
+            .unwrap_or(RecipeAdmission::Unqualified),
         }
     }
     fn accepts(&self, request: &CollectionRequest) -> bool {
@@ -113,6 +126,8 @@ impl Registration {
     }
     fn selector(&self) -> RecipeSelector {
         match self.acquisition {
+            Acquisition::Blocking => RecipeSelector::FocusedBlocking,
+            Acquisition::MetadataLocks => RecipeSelector::FocusedMetadataLocks,
             Acquisition::CurrentRequestWork => RecipeSelector::CurrentRequestWork,
             _ => RecipeSelector::Collection(self.acquisition.collection()),
         }
@@ -125,7 +140,9 @@ impl Registration {
 }
 
 const REGISTRATIONS: &[Registration] = &[
-    Registration { version: 2, ..Registration::baseline("mysql.activity", Acquisition::Activity) },
+    Registration { version: 3, ..Registration::baseline("mysql.activity", Acquisition::Activity) },
+    Registration::investigation("mysql.blocking", Acquisition::Blocking),
+    Registration::investigation("mysql.metadata-lock-context", Acquisition::MetadataLocks),
     Registration::baseline("mysql.deadlock-history", Acquisition::Deadlocks),
     Registration::baseline("mysql.statement-counters", Acquisition::Snapshot(Recipe::Statements)),
     Registration {

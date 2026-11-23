@@ -6,4 +6,8 @@ export type OutboxStatus = { outbox_id: string, limits: OutboxLimits, captures: 
 /**
  * Unconfirmed native shutdowns, distinct from work currently owned by a running capture.
  */
-unconfirmed_sources: number, unfinished: number, charged_bytes: number, entries: Array<OutboxEntry>, next_cursor: string | null, };
+unconfirmed_sources: number, unfinished: number, 
+/**
+ * Actual baseline attempts waiting for their canonical collector-only connection record.
+ */
+connection_controls_pending: number, charged_bytes: number, entries: Array<OutboxEntry>, next_cursor: string | null, };

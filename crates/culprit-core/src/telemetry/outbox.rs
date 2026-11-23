@@ -108,6 +108,8 @@ pub struct OutboxStatus {
     /// Unconfirmed native shutdowns, distinct from work currently owned by a running capture.
     pub unconfirmed_sources: u32,
     pub unfinished: u32,
+    /// Actual baseline attempts waiting for their canonical collector-only connection record.
+    pub connection_controls_pending: u32,
     #[ts(type = "number")]
     pub charged_bytes: u64,
     pub entries: Vec<OutboxEntry>,

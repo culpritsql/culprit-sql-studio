@@ -18,6 +18,7 @@ use serde_json::{Map, Value};
 struct Store {
     inner: Arc<dyn AnalyticalReadStore>,
     publication: Vec<Value>,
+    artifact_reference: culprit_core::telemetry::DiagnosticEvidenceRef,
     after_query: Mutex<Option<Box<dyn Fn() + Send + Sync>>>,
     after_configure: Mutex<Option<Box<dyn Fn() + Send + Sync>>>,
 }
@@ -50,6 +51,9 @@ impl AnalyticalReadStore for Store {
         self.inner.rows(range, batch, after, until, limit).await
     }
     async fn publication_rows(&self, range: &CommittedRange, limit: usize) -> Result<AnalyticalReadPage> {
+        if let Some(action) = self.after_query.lock().unwrap().take() {
+            action();
+        }
         self.inner.publication_rows(range, limit).await
     }
     async fn resource_candidates(
@@ -124,7 +128,23 @@ async fn configured_with_secrets(
     secrets: Arc<dyn SecretStore>,
 ) -> (Workspace, WarehouseConnectionInfo, Arc<Store>, Arc<AtomicUsize>) {
     let (source, rows) = test_support::informational_query_evidence();
+    let artifact_source = source.clone();
+    let artifact_record = rows
+        .iter()
+        .find(|row| matches!(row, culprit_core::telemetry::TelemetryRecord::QueryDefinition(_)))
+        .unwrap()
+        .clone();
     let fixture = ReadOnlyFixture::capture(source, rows).await;
+    let exported =
+        culprit_core::telemetry::ExportedRecord::new(&artifact_source, &fixture.manifest.capture, artifact_record)
+            .unwrap();
+    let artifact_reference = culprit_core::telemetry::DiagnosticEvidenceRef::from_export(
+        &artifact_source,
+        &fixture.manifest.capture_manifest_sha256,
+        &exported,
+        0,
+    )
+    .unwrap();
     let recovery = ObjectRecoveryReader::open(fixture.transport(), fixture.contract.clone()).await.unwrap();
     let range = reopen(&recovery, &fixture.manifest.range_id).await.unwrap();
     let catalog = fixture.store.catalog();
@@ -135,6 +155,7 @@ async fn configured_with_secrets(
     let store = Arc::new(Store {
         inner: fixture.store.clone(),
         publication,
+        artifact_reference,
         after_query: Mutex::new(None),
         after_configure: Mutex::new(None),
     });
@@ -265,4 +286,66 @@ async fn cancelled_successful_client_preparation_does_not_cache_a_handle_or_star
     assert_eq!(secrets.reads.load(Ordering::SeqCst), 1);
     assert_eq!(configured.load(Ordering::SeqCst), 1);
     assert!(!queried.load(Ordering::SeqCst));
+}
+
+mod settlement;
+
+#[tokio::test]
+async fn saved_archive_artifact_read_reuses_the_same_independent_credentials_and_real_original_proof() {
+    let dir = tempfile::tempdir().unwrap();
+    let (ws, saved, store, configured) = configured(dir.path()).await;
+    let token = CollectionCancellation::default();
+    let resources =
+        ws.warehouse_resources(&saved.reference, &PublishedResourceRequest::default(), &token).await.unwrap();
+    let request = WarehouseArtifactQuery {
+        resource: resources.resources[0].selector.clone(),
+        references: vec![store.artifact_reference.clone()],
+        full_payloads: true,
+        text: WarehouseArtifactTextRead::Complete,
+        expected_sql_sha256: None,
+    };
+    let report = ws.warehouse_artifacts(&saved.reference, &request, &token).await.unwrap();
+    assert_eq!(report.query, request);
+    assert!(!report.records.is_empty());
+    assert_eq!(report.records[0].reference, store.artifact_reference);
+    assert!(report.records[0].artifacts.iter().any(|field| matches!(
+        &field.payload,
+        WarehouseArtifactText::Complete { payload: telemetry::DefinitionPayload::Available { .. } }
+    )));
+    assert_eq!(configured.load(Ordering::SeqCst), 1);
+    assert!(ws.connections().unwrap().is_empty());
+}
+#[tokio::test]
+async fn cancelled_or_removed_saved_route_cannot_publish_an_already_started_artifact_as_current() {
+    for cancel in [false, true] {
+        let dir = tempfile::tempdir().unwrap();
+        let (ws, saved, store, _) = configured(dir.path()).await;
+        let token = CollectionCancellation::default();
+        let resources =
+            ws.warehouse_resources(&saved.reference, &PublishedResourceRequest::default(), &token).await.unwrap();
+        let request = WarehouseArtifactQuery {
+            resource: resources.resources[0].selector.clone(),
+            references: vec![store.artifact_reference.clone()],
+            full_payloads: true,
+            text: WarehouseArtifactTextRead::Complete,
+            expected_sql_sha256: None,
+        };
+        if cancel {
+            let token = token.clone();
+            *store.after_query.lock().unwrap() = Some(Box::new(move || token.cancel()));
+        } else {
+            let file = dir.path().join("warehouse-connections.toml");
+            *store.after_query.lock().unwrap() = Some(Box::new(move || std::fs::remove_file(&file).unwrap()));
+        }
+        let error = ws.warehouse_artifacts(&saved.reference, &request, &token).await.unwrap_err();
+        assert_eq!(
+            error.detail,
+            Some(if cancel {
+                ErrorDetail::CollectionStopped(CollectionStop::Cancelled)
+            } else {
+                ErrorDetail::Delivery(DeliveryProblem::DestinationChanged)
+            })
+        );
+        assert!(ws.connections().unwrap().is_empty());
+    }
 }

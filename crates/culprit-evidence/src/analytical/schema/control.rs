@@ -13,6 +13,7 @@ pub fn published_ranges() -> Result<LogicalSchema> {
             Field::required("PublicationId", "/publication_id", String),
             Field::required("ResourceId", "/_culprit/resource_id", String),
             Field::required("ResourceKind", "/_culprit/resource_kind", String),
+            Field::optional("DatabaseSelector", "/_culprit/database_selector", String),
             Field::required("SourceId", "/_culprit/source_id", String),
             Field::required("LogicalSourceId", "/_culprit/logical_source_id", String),
             Field::required("SourceName", "/_culprit/source_name", String),
@@ -41,5 +42,33 @@ pub fn published_ranges() -> Result<LogicalSchema> {
             Field::optional("ReadMetrics", "/read_metrics", JsonContainer),
             Field::required("Batches", "/batches", JsonContainer),
         ],
+    )
+}
+
+/// Collector observations of configured-route attempts are not native database-health samples.
+pub fn connections(common: &[Field]) -> Result<LogicalSchema> {
+    LogicalSchema::new(
+        "CulpritCollectorConnectionsV1",
+        common.iter().copied().chain([
+            Field::required("ConnectionId", "/_culprit/configured_connection/id", String),
+            Field::required("RouteRevision", "/_culprit/configured_connection/route_revision", String),
+            Field::required("ConnectionName", "/_culprit/configured_connection/name", String),
+            Field::required("OriginalAttempt", "/record/data/original", JsonContainer),
+            Field::required("OriginalState", "/record/data/original_state", String),
+            Field::optional("OriginalStatus", "/_projection/original_status", String),
+            Field::optional("OriginalStop", "/_projection/original_stop", String),
+            Field::required("OriginalEvidence", "/record/data/original_evidence", String),
+            Field::required("SourceWork", "/record/data/source_work", String),
+            Field::required("CollectorOutcome", "/record/data/collector_outcome", JsonContainer),
+            Field::required("CollectorStartedAt", "/record/data/collector_started_at", Timestamp),
+            Field::required("CollectorFinishedAt", "/record/data/collector_finished_at", Timestamp),
+            Field::optional("CollectorElapsedMs", "/record/data/collector_elapsed_ms", Real),
+            Field::required("ConnectionOutcome", "/_projection/connection_outcome", String),
+            Field::required("OrderedCollectorClocks", "/_projection/ordered_collector_clocks", Bool),
+            Field::optional("ConnectionPhases", "/record/data/connections", JsonContainer),
+            Field::optional("OriginalSourceQueries", "/record/data/original_source_queries", Long),
+            Field::optional("NativeTargetLink", "/record/data/native", JsonContainer),
+            Field::required("Details", "/record/data", JsonContainer),
+        ]),
     )
 }

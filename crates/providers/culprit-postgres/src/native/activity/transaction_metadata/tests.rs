@@ -2,13 +2,28 @@ use super::*;
 use crate::progress::test_support::{self as fixture, AT, BACKEND, REQUEST, Reader};
 
 pub(crate) fn slrus(version: u32) -> String {
-    serde_json::to_string(&slru_names(version).map(|name|serde_json::json!({"native_name":name,"observed_at":AT,"stats_reset":"2026-11-15T07:00:00Z",
+    slrus_at(version, AT)
+}
+fn slrus_at(version: u32, at: &str) -> String {
+    serde_json::to_string(&slru_names(version).map(|name|serde_json::json!({"native_name":name,"observed_at":at,"stats_reset":"2026-11-15T07:00:00Z",
         "blocks_zeroed":"0","blocks_hit":"9223372036854775807","blocks_read":"1","blocks_written":"2","blocks_exists":"0","flushes":"1","truncates":"0"}))).unwrap()
 }
 pub(crate) fn cache_row(count: Option<&str>, overflow: Option<&str>) -> Row {
-    let native = slrus(180_000);
+    cache_row_at(count, overflow, AT)
+}
+pub(crate) fn cache_row_at(count: Option<&str>, overflow: Option<&str>, at: &str) -> Row {
+    cache_row_with_wait(count, overflow, at, Some("LWLock"), Some("SubtransSLRU"))
+}
+pub(crate) fn cache_row_with_wait(
+    count: Option<&str>,
+    overflow: Option<&str>,
+    at: &str,
+    wait_type: Option<&str>,
+    wait: Option<&str>,
+) -> Row {
+    let native = slrus_at(180_000, at);
     fixture::row(&[
-        ("observed_at", Some(AT)),
+        ("observed_at", Some(at)),
         ("pid", Some("42")),
         ("backend_type", Some("client backend")),
         ("backend_start", Some(BACKEND)),
@@ -19,8 +34,8 @@ pub(crate) fn cache_row(count: Option<&str>, overflow: Option<&str>) -> Row {
         ("state", Some("active")),
         ("elapsed_ms", Some("1000")),
         ("transaction_ms", Some("1000")),
-        ("wait_event_type", Some("LWLock")),
-        ("wait_event", Some("SubtransSLRU")),
+        ("wait_event_type", wait_type),
+        ("wait_event", wait),
         ("native_backend_id", Some("7")),
         ("native_cached_subxids", count),
         ("native_overflowed", overflow),

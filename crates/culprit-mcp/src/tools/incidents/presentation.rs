@@ -24,7 +24,7 @@ pub(super) fn value(report: &IncidentReadReport) -> Result<Value> {
     serde_json::to_value(output).map_err(|_| DeliveryProblem::Integrity.error())
 }
 #[derive(Serialize)]
-struct Presentation<'a> {
+pub(in crate::tools) struct Presentation<'a> {
     database: &'a IncidentDatabaseSelector,
     from: &'a str,
     until: &'a str,
@@ -49,7 +49,7 @@ struct Presentation<'a> {
     candidate_rows: u32,
 }
 impl<'a> Presentation<'a> {
-    fn new(report: &'a IncidentReadReport) -> Self {
+    pub(in crate::tools) fn new(report: &'a IncidentReadReport) -> Self {
         let mut value = Self {
             database: &report.database,
             from: &report.from,
@@ -77,6 +77,9 @@ impl<'a> Presentation<'a> {
         value.recount();
         value
     }
+    pub(in crate::tools) fn is_complete(&self) -> bool {
+        self.presentation_complete
+    }
     fn recount(&mut self) {
         self.incidents_omitted = self.incidents_available - self.incidents.len();
         self.relationships_omitted = self.relationships_available - self.relationships.len();
@@ -90,7 +93,7 @@ impl<'a> Presentation<'a> {
             && self.history.complete()
             && self.incidents.iter().all(Incident::complete);
     }
-    fn trim(&mut self) -> bool {
+    pub(in crate::tools) fn trim(&mut self) -> bool {
         let removed = self.relationships.pop().is_some()
             || self.analyses.pop().is_some()
             || self.gaps.pop().is_some()
@@ -387,9 +390,9 @@ impl<'a> Sql<'a> {
         !matches!(self, Self::Available { text_truncated: true, .. })
     }
 }
-fn preview(text: &str) -> String {
+pub(in crate::tools) fn preview(text: &str) -> String {
     culprit_core::format::escaped_preview(text, TEXT_CHARS).text
 }
-fn truncated(text: &str) -> bool {
+pub(in crate::tools) fn truncated(text: &str) -> bool {
     culprit_core::format::escaped_preview(text, TEXT_CHARS).truncated
 }

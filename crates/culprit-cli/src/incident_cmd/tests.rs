@@ -34,7 +34,7 @@ fn ordinary_incident_request_requires_database_time_and_archive_config_but_no_ma
         .is_err()
     );
 }
-fn incident_report() -> culprit_core::IncidentReadReport {
+pub(crate) fn incident_report() -> culprit_core::IncidentReadReport {
     use culprit_core::{
         DerivedAttributionStatus, DerivedDisplayContext, DerivedIncident, DerivedIncidentQuery,
         IncidentDatabaseSelector, IncidentHistoryReport, IncidentReadReport,

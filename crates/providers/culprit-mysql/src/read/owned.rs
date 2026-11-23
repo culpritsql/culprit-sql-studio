@@ -47,6 +47,9 @@ impl Operation for Rows {
 }
 impl<O: Operation> Task<O> {
     pub(super) async fn run(mut self, mut cancellation: oneshot::Receiver<()>) -> Reply<O::Output> {
+        if let Err(error) = self.connector.check_profile() {
+            return Reply { peer: self.peer.take(), result: Err(error), shutdown: SourceShutdown::Quiescent };
+        }
         let work = match self.connector.fence.start_work() {
             Ok(work) => work,
             Err(error) => return Reply { peer: None, result: Err(error), shutdown: SourceShutdown::Unconfirmed },
@@ -73,6 +76,7 @@ impl<O: Operation> Task<O> {
             accounting: &self.accounting,
             shutdown: &mut shutdown,
             interrupted: &mut interrupted,
+            profile: self.connector.profile(),
         };
         let result = async {
             if !peer.initialized {
@@ -102,6 +106,7 @@ impl<O: Operation> Task<O> {
         Reply { peer, result, shutdown }
     }
     async fn connect(&self, control: bool) -> Result<Conn> {
+        self.connector.check_profile()?;
         let attempt = self.accounting.connection_work.as_ref().map(|work| work.begin());
         let phase = attempt.as_ref().map(|attempt| attempt.phase(ReadConnectionStage::Acquire, None));
         if let Some(attempt) = &attempt {
@@ -113,11 +118,19 @@ impl<O: Operation> Task<O> {
         } else {
             self.connector.connect_unconfigured().await
         };
-        if let Some(attempt) = &attempt
-            && result.is_ok()
-        {
-            self.accounting.acquired(attempt);
+        if result.is_ok() {
+            self.accounting.acquired(attempt.as_ref());
         }
+        let result = match result {
+            Ok(connection) => match self.connector.check_profile() {
+                Ok(()) => Ok(connection),
+                Err(error) => {
+                    let _ = connection.disconnect().await;
+                    Err(error)
+                }
+            },
+            Err(error) => Err(error),
+        };
         if let Some(phase) = phase {
             phase.finish(match &result {
                 Ok(_) => ReadConnectionOutcome::Completed,
@@ -172,6 +185,7 @@ pub(super) struct Phase<'a> {
     accounting: &'a Accounting,
     shutdown: &'a mut SourceShutdown,
     interrupted: &'a mut bool,
+    profile: Option<&'a culprit_read::SourceProfileGuard>,
 }
 impl Phase<'_> {
     async fn optional_setup(&mut self, client: &mut Conn, sql: String) -> Result<()> {
@@ -194,6 +208,9 @@ impl Phase<'_> {
         progress: &ReadProgress,
         retention: culprit_read::RetentionControl,
     ) -> Result<T> {
+        if let Some(profile) = self.profile {
+            profile.ensure_active()?;
+        }
         self.accounting.admit()?;
         let timeout = self.accounting.remaining()?;
         let template = self.accounting.metrics.begin(sql);
@@ -332,6 +349,7 @@ impl Operation for Preview {
                 accounting: &preview_accounting,
                 shutdown: phase.shutdown,
                 interrupted: phase.interrupted,
+                profile: phase.profile,
             };
             query_phase
                 .run(
@@ -374,6 +392,9 @@ async fn initialize(
         .native_text("version")?
         .ok_or_else(|| CollectionStop::InvalidPage.error())?;
     let flavor = Flavor::of_version(&version);
+    if let Some(policy) = connector.profile().and_then(culprit_read::SourceProfileGuard::builtin_policy) {
+        crate::builtin_safety::verify_native(policy, flavor, &version)?;
+    }
     connector.record_version(version);
     // Do not inherit a server/application default that could retain metadata locks across polls.
     phase.setup(client, "SET SESSION autocommit = 1".into()).await?;

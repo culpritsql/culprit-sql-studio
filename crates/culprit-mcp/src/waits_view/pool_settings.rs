@@ -13,7 +13,7 @@ fn text(value: &str) -> String {
 }
 pub(crate) fn value(report: &PoolSettingsReport) -> Value {
     json!({"title":text(&report.title),"summary":text(&report.summary),"scope":"pool","source_state":report.source_state,
-        "target_scope":report.target.as_ref().map(|target|match target { culprit_core::telemetry::CollectionTarget::Database(_) => "database", culprit_core::telemetry::CollectionTarget::Shared(_) => "shared" }),
+        "target_scope":report.target.as_ref().map(|target|match target { culprit_core::telemetry::CollectionTarget::Database(_) => "database", culprit_core::telemetry::CollectionTarget::Shared(_) => "shared", culprit_core::telemetry::CollectionTarget::ConfiguredConnection(_) => "configured-connection" }),
         "elastic_pool_error":report.elastic_pool_error,"pool":report.elastic_pool.as_ref().map(|pool|text(&pool.native.id)),"member_database":report.member_database.as_deref().map(text),"logical_server":report.logical_server.as_deref().map(text),
         "native_source":report.native_source.as_ref().map(|source|json!({"source":text(&source.source),"state":source.state,"records":source.records,"complete_scope":source.complete_scope,"error_code":source.error_code,"stopped":source.stopped})),
         "native_rows":report.native_source.as_ref().map(|source|source.records),"observed_rows":report.observed_rows,"read_complete":report.read_complete,

@@ -5,6 +5,7 @@ use super::*;
 use culprit_core::{Engine, Session, telemetry::*};
 use std::collections::{BTreeMap, BTreeSet};
 mod blocking;
+pub(crate) use blocking::recovery_lock_projection;
 pub(crate) mod transaction_metadata;
 pub(crate) use blocking::{BlockingReadOptions, LockProjection, blockers, observe_blocking, unqualified_owner_ids};
 pub struct ActivityRecord {

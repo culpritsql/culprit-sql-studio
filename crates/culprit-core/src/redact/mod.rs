@@ -148,6 +148,7 @@ fn redact_target(target: &mut crate::telemetry::CollectionTarget) {
     match target {
         crate::telemetry::CollectionTarget::Database(identity) => redact_identity(identity),
         crate::telemetry::CollectionTarget::Shared(identity) => redact_resource_identity(identity),
+        crate::telemetry::CollectionTarget::ConfiguredConnection(identity) => identity.name = opaque(&identity.name),
     }
 }
 
@@ -561,7 +562,7 @@ pub fn redact_snapshot(snapshot: &Snapshot) -> Snapshot {
         }
     }
     if let Some(evidence) = &mut s.operations.native_failures {
-        evidence.redact();
+        evidence.redact_for_sharing();
         if let Some(resource) = &mut evidence.resource {
             redact_resource_identity(resource);
         }
@@ -863,15 +864,7 @@ pub fn redact_snapshot(snapshot: &Snapshot) -> Snapshot {
     }
     if let Some(report) = &mut s.deadlocks {
         for d in &mut report.deadlocks {
-            for p in &mut d.processes {
-                p.statement = p.statement.as_deref().map(|t| redact_sql(t, engine));
-                // Who ran it: an Entra login is a person's email address.
-                p.login = None;
-                p.host = None;
-                p.application = None;
-            }
-            // The headline, explanation and fixes quote the processes: written again from what is left.
-            crate::deadlock::classify(engine, d);
+            d.redact(engine);
         }
         if report.note.is_some() {
             report.note = Some(

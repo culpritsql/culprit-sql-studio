@@ -2,6 +2,8 @@
 use super::*;
 mod managed_instance;
 pub use managed_instance::*;
+mod readable_member;
+pub use readable_member::*;
 
 /// What the native data-I/O utilization percentage accounts for. Its measurement scope and limit denominator
 /// remain independent; an unknown deployment must not inherit conventional storage semantics.

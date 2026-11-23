@@ -5,6 +5,8 @@ mod planning;
 mod queue;
 mod routes;
 
+pub(super) use planning::MAX_PRIMARY_STAGES_PER_EPISODE;
+pub(crate) const FOCUSED_COOLDOWN_SECONDS: u32 = 60;
 pub(super) use routes::RouteBindings;
 #[cfg(test)]
 mod tests;

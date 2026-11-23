@@ -10,11 +10,16 @@ publish.workspace = true
 # Its doc comments hold no Rust examples: rustdoc would have nothing to test.
 doctest = false
 
+[features]
+# Explicit owned-fixture composition only; absent from ordinary provider/desktop/MCP graphs.
+native-test-support = ["dep:futures-util"]
+
 [dependencies]
 culprit-plans.workspace = true
 culprit-core.workspace = true
 culprit-read.workspace = true
 async-trait.workspace = true
+futures-util = { workspace = true, optional = true }
 mysql_async.workspace = true
 rustls.workspace = true
 serde.workspace = true

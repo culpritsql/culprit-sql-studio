@@ -1,7 +1,7 @@
 //! Controlled native-shaped cases through the actual pure view; no live owner or source-cost claim.
 use culprit_core::telemetry::*;
-use culprit_evidence::analytical::test_support::SessionCensusCase;
 use culprit_evidence::analytical::test_support::session_census_evidence;
+use culprit_evidence::analytical::test_support::{RecentClientCase, SessionCensusCase, recent_client_evidence};
 use std::{collections::BTreeMap, path::PathBuf};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -9,7 +9,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 fn generate() -> Result<(), Box<dyn std::error::Error>> {
     let mut cases = BTreeMap::new();
-    for (name, case) in [
+    let inputs = [
         ("idle", SessionCensusCase::Idle),
         ("idle-connection", SessionCensusCase::IdleConnection),
         ("idle-connection-missing", SessionCensusCase::IdleConnectionMissing),
@@ -32,8 +32,11 @@ fn generate() -> Result<(), Box<dyn std::error::Error>> {
         ("mysql-shared", SessionCensusCase::MysqlShared),
         ("mysql-switched", SessionCensusCase::MysqlSwitched),
         ("mysql-worker", SessionCensusCase::MysqlWorker),
-    ] {
-        let (source, rows) = session_census_evidence(case);
+    ]
+    .into_iter()
+    .map(|(name, case)| (name, session_census_evidence(case)))
+    .chain(RecentClientCase::ALL.into_iter().map(|case| (case.name(), recent_client_evidence(case))));
+    for (name, (source, rows)) in inputs {
         let observations = rows
             .into_iter()
             .map(|row| match row {

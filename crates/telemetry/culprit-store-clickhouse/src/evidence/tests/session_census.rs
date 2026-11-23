@@ -4,6 +4,12 @@ use test_support::SessionCensusCase;
 
 async fn collected(case: SessionCensusCase) -> (Fixture, CollectionDescription, Vec<TelemetryRecord>) {
     let (source, rows) = test_support::session_census_evidence(case);
+    collected_original(source, rows).await
+}
+async fn collected_original(
+    source: CollectionDescription,
+    rows: Vec<TelemetryRecord>,
+) -> (Fixture, CollectionDescription, Vec<TelemetryRecord>) {
     let catalog = Arc::new(SchemaCatalog::new().unwrap());
     let recovery = culprit_collector::analytical::test_support::collected_resource_recovery(
         "clickhouse:test",
@@ -16,8 +22,12 @@ async fn collected(case: SessionCensusCase) -> (Fixture, CollectionDescription, 
 }
 #[tokio::test]
 async fn collected_sealed_restarted_published_census_retains_native_session_request_relationships_and_exact_fields() {
-    for case in SessionCensusCase::ALL {
-        let (fixture, source, rows) = collected(case).await;
+    let cases = SessionCensusCase::ALL
+        .into_iter()
+        .map(test_support::session_census_evidence)
+        .chain(test_support::RecentClientCase::ALL.into_iter().map(test_support::recent_client_evidence));
+    for (source, rows) in cases {
+        let (fixture, source, rows) = collected_original(source, rows).await;
         fixture.replies(if fixture.rows.is_empty() { vec![] } else { vec![fixture.rows.clone()] });
         let opened = fixture.recovery.object_reads.load(Ordering::SeqCst);
         let capture = fixture
@@ -90,6 +100,7 @@ async fn altered_client_lifetimes_large_totals_nullable_fields_or_connection_id_
         ),
         (SessionCensusCase::Mars, "/session_context/native/data/tds_protocol_version", json!(0)),
         (SessionCensusCase::Mars, "/session_counters/logical_reads", json!("9007199254740992")),
+        (SessionCensusCase::Mars, "/session_context/last_request_end_age_ms", json!("3600000")),
         (SessionCensusCase::Mars, "/session_counters/cpu_ms", Value::Null),
         (SessionCensusCase::PostgresSharedLabels, "/session_context/native/data/database_oid", json!("43")),
         (

@@ -28,6 +28,21 @@
 .archives .conn-grid { margin-block: 16px; }
 .archives .conn-grid > button { display: block; padding: 8px 10px; line-height: 1.5; text-align: start; }
 .archives pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+.archives .archive-time-range {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.archives .archive-artifact-text {
+  max-block-size: 28rem;
+  overflow: auto;
+  white-space: pre;
+  overflow-wrap: normal;
+  padding: 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+}
 @container (max-width: 560px) {
-  .archives .archive-form fieldset { grid-template-columns: minmax(0, 1fr); }
+  .archives .archive-form fieldset,
+  .archives .archive-time-range { grid-template-columns: minmax(0, 1fr); }
 }

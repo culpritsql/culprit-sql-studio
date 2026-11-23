@@ -45,6 +45,7 @@ impl ActivityRequestFocus {
         self.is_valid()
             && match subject {
                 CollectionSubject::Database => true,
+                CollectionSubject::ConfiguredConnection { .. } => false,
                 CollectionSubject::Shared { resource } => matches!(
                     &self.partition,
                     SourcePartition::InstanceLocal { member: Some(member), .. } if member == resource
@@ -60,6 +61,7 @@ impl ActivityRequestFocus {
         }
         match &source.target {
             CollectionTarget::Database(_) => self.target == source.target && self.partition == source.partition,
+            CollectionTarget::ConfiguredConnection(_) => false,
             CollectionTarget::Shared(resource) => {
                 self.is_valid_for(&CollectionSubject::Shared { resource: resource.clone() })
                     && source.is_partition_qualified()

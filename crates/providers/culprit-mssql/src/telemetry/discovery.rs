@@ -67,7 +67,7 @@ async fn read<R: NativeRead>(
     port: u16,
     request: &IntervalDiscoveryRequest,
 ) -> Result<IntervalDiscoveryPage> {
-    let acquisition = super::history_acquisition::HistoryAcquisition::read(reader, host, port).await?;
+    let acquisition = super::database_acquisition::DatabaseAcquisition::read(reader, host, port).await?;
     acquisition.admit(reader).await?;
     let settings = description::settings(reader).await?;
     if settings.layout.edition != acquisition.edition() {
@@ -132,7 +132,7 @@ mod tests {
     }
     async fn owner() -> NativeReadContext {
         let mut reader = FakeRead::new(vec![Ok(vec![native_platform(5)]), Ok(vec![authority(5)])]);
-        super::super::history_acquisition::HistoryAcquisition::read(&mut reader, "fixture.invalid", 1433)
+        super::super::database_acquisition::DatabaseAcquisition::read(&mut reader, "fixture.invalid", 1433)
             .await
             .unwrap()
             .owner()

@@ -2,6 +2,7 @@
 use super::*;
 use std::collections::BTreeMap;
 mod source_read;
+pub(crate) use source_read::continuation_due;
 
 /// Catalog and subject order have no policy meaning. Keep every descriptor field in its replay fingerprint.
 pub(super) fn canonical_catalog(mut recipes: Vec<RecipeDescriptor>) -> Result<Vec<RecipeDescriptor>> {

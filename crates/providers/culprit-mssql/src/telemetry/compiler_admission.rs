@@ -54,6 +54,7 @@ impl<R: NativeRead> culprit_read::ObservationReader for CompilerObservationReade
         let focus = request.focus().ok_or_else(invalid_data)?;
         let shared = match &request.subject {
             CollectionSubject::Database => None,
+            CollectionSubject::ConfiguredConnection { .. } => return Err(invalid_data()),
             CollectionSubject::Shared { resource } => {
                 Some((resource, request.selection.shared_partition().ok_or_else(invalid_data)?))
             }

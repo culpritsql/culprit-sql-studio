@@ -152,7 +152,7 @@ const FIELDS: &[Field] = &[
     },
 ];
 
-pub(super) fn decode(row: &Rec, pricing: Pricing) -> Result<ResourceMeasurement> {
+pub(in crate::resources) fn decode(row: &Rec, pricing: Pricing) -> Result<ResourceMeasurement> {
     let metrics = FIELDS
         .iter()
         .map(|field| {
@@ -182,4 +182,10 @@ pub(super) fn decode(row: &Rec, pricing: Pricing) -> Result<ResourceMeasurement>
         return Err(invalid_data());
     }
     Ok(sample)
+}
+
+/// Source-owned column descriptors connect the shared safety policy to this pool population; exported keys stay unchanged.
+pub(in crate::resources) fn admission_value(sample: &ResourceMeasurement, metric: super::super::Metric) -> Option<f64> {
+    let field = FIELDS.iter().find(|field| field.column == metric.native_column())?;
+    sample.metrics.iter().find(|sample| sample.key == field.key).and_then(|sample| sample.value)
 }

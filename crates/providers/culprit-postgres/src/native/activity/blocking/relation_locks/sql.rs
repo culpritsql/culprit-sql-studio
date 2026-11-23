@@ -17,12 +17,12 @@ pub(super) fn query(frame: &ActivityFrame, by_pid: &BTreeMap<u32, usize>, visite
     let at = iso("stamp.at");
     Ok(format!("WITH targets(pid,backend_start,query_start,xact_start,active,selected) AS (VALUES {targets}),
 relevant_activity AS MATERIALIZED (
- SELECT a.pid,a.leader_pid,a.backend_start,a.query_start,a.xact_start,a.state,a.wait_event_type
+ SELECT a.pid,a.leader_pid,a.backend_start,a.query_start,a.xact_start,a.state,a.wait_event_type,a.wait_event
  FROM pg_catalog.pg_stat_activity a WHERE a.pid IN (SELECT pid FROM targets) OR a.leader_pid IN (SELECT pid FROM targets)
  LIMIT {actor_lookahead}),
 actor_size AS (SELECT count(*) AS rows FROM relevant_activity),
 current_actors AS MATERIALIZED (
- SELECT a.pid,a.wait_event_type,(a.leader_pid IS NULL AND actor_size.rows<={actor_limit}
+ SELECT a.pid,a.wait_event_type,a.wait_event,(a.state IN ('active','fastpath function call')) AS active,(a.leader_pid IS NULL AND actor_size.rows<={actor_limit}
  AND NOT EXISTS(SELECT 1 FROM relevant_activity worker WHERE worker.leader_pid=a.pid)) AS single_backend
  FROM targets t JOIN relevant_activity a ON a.pid=t.pid AND a.backend_start=t.backend_start
  AND a.query_start IS NOT DISTINCT FROM t.query_start AND a.xact_start IS NOT DISTINCT FROM t.xact_start
@@ -46,7 +46,7 @@ SELECT t.pid::text AS pid,{at} AS observed_at,(a.pid IS NOT NULL)::text AS waite
  w.mode,w.locktype,w.database::text AS database_oid,w.relation::text AS relation_oid,
  CASE WHEN stamp.at>=w.waitstart THEN floor(extract(epoch FROM stamp.at-w.waitstart)*1000)::text END AS elapsed_ms,
  n.nspname||'.'||o.relname AS object,CASE WHEN c.relkind IN ('i','I') THEN c.relname END AS index_name,
- COALESCE((SELECT jsonb_agg(jsonb_build_object('pid',x.owner::text,'actor_matches',oa.pid IS NOT NULL,'single_backend',COALESCE(oa.single_backend,false),
+ COALESCE((SELECT jsonb_agg(jsonb_build_object('pid',x.owner::text,'actor_matches',oa.pid IS NOT NULL,'single_backend',COALESCE(oa.single_backend,false),'active',COALESCE(oa.active,false),'wait_event_type',oa.wait_event_type,'wait_event',oa.wait_event,
  'granted',COALESCE(to_jsonb(m.granted),'[]'::jsonb),'waiting',COALESCE(to_jsonb(m.waiting),'[]'::jsonb)) ORDER BY x.owner)
  FROM (SELECT owner FROM owner_ids WHERE waiter=t.pid ORDER BY owner LIMIT {owners}) x
  LEFT JOIN current_actors oa ON oa.pid=x.owner
@@ -73,4 +73,49 @@ fn target(record: &ActivityRecord, selected: bool) -> Result<String> {
     let transaction = clock("transaction_start")?;
     let active = !facts.idle;
     Ok(format!("({pid},'{started}'::timestamptz,{query},{transaction},{active},{selected})"))
+}
+
+/// Startup is outside ProcArray: use the native queued relation lock and selected granted holder,
+/// never pg_blocking_pids(startup). Mode conflicts remain with Core's one PostgreSQL mode table.
+pub(crate) fn recovery_projection(focus: &ActivityRequestFocus) -> Result<(String, String)> {
+    let pid = focus
+        .original
+        .key
+        .session
+        .id
+        .parse::<i32>()
+        .ok()
+        .filter(|id| *id > 0 && id.to_string() == focus.original.key.session.id)
+        .ok_or_else(invalid)?;
+    let request = focus.original.key.request.as_ref().ok_or_else(invalid)?;
+    let started = super::super::super::generation_timestamp(&focus.original.key.session.generation)?;
+    let query = super::super::super::generation_timestamp(&request.generation)?;
+    let limit = MAX_FOCUSED_LOCK_SNAPSHOT_ROWS;
+    let lookahead = limit + 1;
+    let edge_limit = culprit_core::telemetry::MAX_RECOVERY_RELATION_EDGES;
+    let edge_lookahead = edge_limit + 1;
+    let ctes = format!(
+        r#", recovery_reader AS MATERIALIZED (
+ SELECT r.pid,r.backend_start,r.datid,(r.leader_pid IS NULL AND NOT EXISTS(SELECT 1 FROM pg_catalog.pg_stat_activity child WHERE child.leader_pid=r.pid)) AS single_backend
+ FROM pg_catalog.pg_stat_activity r WHERE r.pid={pid} AND r.backend_start='{started}'::timestamptz AND r.query_start='{query}'::timestamptz
+ AND r.backend_type='client backend' AND r.state IN('active','fastpath function call')),
+ recovery_locks AS MATERIALIZED (
+ SELECT l.* FROM pg_catalog.pg_locks l WHERE l.pid IN(SELECT pid FROM startup UNION ALL SELECT pid FROM recovery_reader) LIMIT {lookahead}),
+ recovery_edges AS MATERIALIZED (
+ SELECT w.pid,w.database,w.relation,w.mode,r.pid AS reader_pid,r.backend_start AS reader_start,r.single_backend,
+ array_agg(DISTINCT h.mode ORDER BY h.mode) AS granted
+ FROM recovery_locks w JOIN startup process ON process.pid=w.pid
+ JOIN pg_catalog.pg_stat_activity current_process ON current_process.pid=process.pid AND current_process.backend_start=process.backend_start
+ JOIN recovery_locks h ON h.locktype=w.locktype AND h.database=w.database AND h.relation=w.relation AND h.granted
+ JOIN recovery_reader r ON r.pid=h.pid AND r.datid=w.database
+ WHERE NOT w.granted AND w.locktype='relation' GROUP BY w.pid,w.database,w.relation,w.mode,r.pid,r.backend_start,r.single_backend)"#
+    );
+    let reader_start = iso("e.reader_start");
+    let columns = format!(
+        r#"'lock_snapshot_rows',(SELECT count(*) FROM recovery_locks),'edges_limited',(SELECT count(*) FROM(SELECT 1 FROM recovery_edges WHERE pid=a.pid LIMIT {edge_lookahead}) counted)>{edge_limit},
+ 'relation_edges',COALESCE((SELECT jsonb_agg(jsonb_build_object('database_oid',e.database::text,'relation_oid',e.relation::text,
+ 'requested_mode',e.mode,'reader_pid',e.reader_pid::text,'reader_started_at',{reader_start},'reader_single_backend',e.single_backend,'granted_modes',to_jsonb(e.granted)))
+ FROM(SELECT * FROM recovery_edges WHERE pid=a.pid ORDER BY database,relation,mode LIMIT {edge_limit}) e),'[]'::jsonb)"#
+    );
+    Ok((ctes, columns))
 }

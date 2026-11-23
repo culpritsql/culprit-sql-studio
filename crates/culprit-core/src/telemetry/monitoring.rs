@@ -138,9 +138,9 @@ impl SourceProfileAdmission {
             || budget.intersection(&policy.budget) != budget
             || match policy.purpose {
                 RecipePurpose::Baseline => scope.is_some(),
-                RecipePurpose::Investigation => !scope.as_ref().is_some_and(|scope| {
-                    scope.is_valid() && scope.partition().is_qualified() && scope.native_epoch().is_some()
-                }),
+                RecipePurpose::Investigation => {
+                    !scope.as_ref().is_some_and(|scope| policy.matches_execution_scope(scope))
+                }
             }
         {
             return Err(CollectionStop::InvalidPage.error());
@@ -194,9 +194,30 @@ impl SourceProfileAdmission {
             && request.validate().is_ok()
             && self.budget == request.budget
             && self.selector().matches(request)
+            && self.matches_native_selection(request)
             && self
                 .scope()
                 .map_or(request.subject == CollectionSubject::Database, |scope| scope.subject() == request.subject)
+    }
+    fn matches_native_selection(&self, request: &CollectionRequest) -> bool {
+        let purpose = match &self.approval {
+            SourceProfileApproval::Measured(receipt) => receipt.purpose,
+            SourceProfileApproval::Builtin { policy, .. } => policy.purpose,
+        };
+        match (&request.selection, purpose, self.scope()) {
+            (
+                CollectionSelection::SourceRead { focus, execution },
+                RecipePurpose::Investigation,
+                Some(RecipeCostScope::NativeRead(scope)),
+            ) => {
+                execution.as_ref() == scope
+                    && scope.accepts_question(focus.question)
+                    && scope.matches_target(&focus.target)
+            }
+            (CollectionSelection::SourceRead { .. }, _, _)
+            | (_, RecipePurpose::Investigation, Some(RecipeCostScope::NativeRead(_))) => false,
+            _ => true,
+        }
     }
     /// The first actual local member/role is frozen by SourceProfileGuard. A policy supplies no native incarnation.
     pub fn matches_native_context(&self, context: &NativeReadContext) -> bool {
@@ -220,6 +241,7 @@ impl SourceProfileAdmission {
                                 && context.partition == scope.partition
                                 && context.partition.native_epoch() == scope.native_epoch.as_deref()
                         }
+                        Some(RecipeCostScope::NativeRead(scope)) => scope.matches_context(context),
                         None => context.target.database().is_some(),
                         _ => false,
                     }

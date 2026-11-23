@@ -177,3 +177,83 @@ async fn compact_census_keeps_original_counts_when_entry_display_is_bounded() {
     assert_eq!(report["client_groups"]["entries"][0]["observed_sessions"], 7);
     assert_eq!(calls.load(Ordering::SeqCst), 0);
 }
+
+#[tokio::test]
+async fn recent_client_mcp_projection_reuses_one_local_canonical_read_without_source_work_or_false_population_counts() {
+    use culprit_evidence::analytical::test_support::{RecentClientCase, recent_client_evidence};
+    for case in RecentClientCase::ALL {
+        let (source, rows) = recent_client_evidence(case);
+        let mut fixture = LocalCaptureFixture::activity(source, rows).await;
+        let bytes = fixture.original_bytes();
+        drop(fixture.outbox.take());
+        let calls = Arc::new(AtomicUsize::new(0));
+        let server = server(&fixture, calls.clone());
+        let (error, value) =
+            analyze(&server, &fixture.manifest.capture.observation_id, LocalCaptureAnalysisKind::SessionCensus).await;
+        assert!(!error, "{case:?}: {value}");
+        let recent = &value["session_census"]["recent_clients"];
+        assert_eq!(recent["window_ms"], 3_600_000);
+        assert_eq!(recent["reported_label_policy"], "culprit-reported-client-tools-v1");
+        let groups = &recent["groups"];
+        let selected = groups["grouped_sessions"].as_u64().unwrap();
+        assert_eq!(
+            recent["observed_sessions"].as_u64().unwrap(),
+            selected
+                + recent["excluded_sessions"].as_u64().unwrap()
+                + recent["outside_window_sessions"].as_u64().unwrap()
+                + recent["unknown_sessions"].as_u64().unwrap()
+        );
+        assert!(groups["groups_presented"].as_u64().unwrap() <= 5);
+        assert_eq!(
+            groups["groups_omitted"].as_u64().unwrap(),
+            groups["groups_available"].as_u64().unwrap() - groups["groups_presented"].as_u64().unwrap()
+        );
+        assert_eq!(value["local_verification_bytes"], bytes);
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+        assert!(!value.to_string().contains("fixture.invalid"));
+    }
+}
+
+#[tokio::test]
+async fn recent_client_group_omission_counts_use_the_existing_response_cap_without_loading_or_querying_again() {
+    use culprit_evidence::analytical::test_support::{RecentClientCase, recent_client_evidence};
+    let (mut source, rows) = recent_client_evidence(RecentClientCase::IdlePool);
+    let TelemetryRecord::Activity(first) = &rows[0] else { unreachable!() };
+    let records = (0..8)
+        .map(|index| {
+            let mut row = first.as_ref().clone();
+            row.key.session.id = (61 + index).to_string();
+            row.client.as_mut().unwrap().application = Some(format!("fixture-client-{index}"));
+            let Some(SessionNativeContext::Mssql(native)) =
+                row.session_context.as_deref_mut().unwrap().native.as_deref_mut()
+            else {
+                unreachable!()
+            };
+            let Some(MssqlIdleSessionConnection::Observed { connection_id, .. }) = &mut native.idle_connection else {
+                unreachable!()
+            };
+            *connection_id = format!("37dd5a75-5bb6-4487-89a7-{index:012}");
+            TelemetryRecord::from(row)
+        })
+        .collect::<Vec<_>>();
+    let SourceObservation::Activity(native) = &mut source.observation else { unreachable!() };
+    native.native_rows = 8;
+    native.observations = 8;
+    native.coverage.records = 8;
+    let mut fixture = LocalCaptureFixture::activity(source, records).await;
+    let bytes = fixture.original_bytes();
+    drop(fixture.outbox.take());
+    let calls = Arc::new(AtomicUsize::new(0));
+    let server = server(&fixture, calls.clone());
+    let (error, value) =
+        analyze(&server, &fixture.manifest.capture.observation_id, LocalCaptureAnalysisKind::SessionCensus).await;
+    assert!(!error, "{value}");
+    let groups = &value["session_census"]["recent_clients"]["groups"];
+    assert_eq!(groups["grouped_sessions"], 8);
+    assert_eq!(groups["groups_available"], 8);
+    assert_eq!(groups["groups_presented"], 5);
+    assert_eq!(groups["groups_omitted"], 3);
+    assert_eq!(groups["entries"].as_array().unwrap().len(), 5);
+    assert_eq!(value["local_verification_bytes"], bytes);
+    assert_eq!(calls.load(Ordering::SeqCst), 0);
+}

@@ -4,6 +4,14 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 use ts_rs::TS;
 
+mod mysql_metadata;
+pub use mysql_metadata::*;
+
+mod mssql;
+pub use mssql::MssqlBlockingSessionPoint;
+mod mssql_object;
+pub use mssql_object::*;
+
 pub const MAX_FOCUSED_LOCK_SNAPSHOT_ROWS: u32 = 512;
 pub const MAX_NATIVE_RELATION_LOCK_MODES: usize = 16;
 
@@ -12,11 +20,17 @@ pub const MAX_NATIVE_RELATION_LOCK_MODES: usize = 16;
 #[ts(export)]
 pub enum NativeLockEvidence {
     Postgres(Box<PostgresLockPoint>),
+    MssqlBlockingSession(Box<MssqlBlockingSessionPoint>),
+    MssqlObject(Box<MssqlObjectLockPoint>),
+    MysqlMetadata(Box<MysqlMetadataLockPoint>),
 }
 impl NativeLockEvidence {
     pub fn is_valid_for(&self, key: &ActivityKey) -> bool {
         match self {
             Self::Postgres(point) => point.is_valid_for(key),
+            Self::MssqlBlockingSession(point) => point.is_valid_for(key),
+            Self::MssqlObject(point) => point.is_valid_for(key),
+            Self::MysqlMetadata(point) => point.is_valid_for(key),
         }
     }
     pub fn is_valid_for_lock(&self, key: &ActivityKey, lock: &super::LockWait) -> bool {
@@ -25,10 +39,48 @@ impl NativeLockEvidence {
                 Self::Postgres(point) => point.requested_mode.as_ref().is_none_or(|mode| {
                     lock.resource.as_deref() == Some("relation") && lock.mode.as_deref() == Some(mode.native())
                 }),
+                Self::MssqlObject(point) => {
+                    point.resource.as_ref().is_none_or(|_| lock.resource.as_deref() == Some("OBJECT"))
+                        && point.requested_mode.as_ref().is_none_or(|mode| lock.mode.as_deref() == Some(mode.native()))
+                }
+                Self::MysqlMetadata(_) => lock.resource.as_deref() == Some("METADATA"),
+                Self::MssqlBlockingSession(_) => {
+                    lock.resource.is_none() && lock.mode.is_none() && lock.object.is_none() && lock.index.is_none()
+                }
             }
     }
     pub fn accepts_source(&self, source: &CollectionDescription) -> bool {
         match self {
+            Self::MysqlMetadata(point) => {
+                source.target.engine() == Engine::Mysql
+                    && matches!(&source.observation,SourceObservation::MetadataLockContext {result,..} if result.request.focus.original.key==point.subject)
+                    && source.observation.activity().is_some_and(|snapshot| {
+                        ObservationBounds::new(&snapshot.observed_from, &snapshot.observed_until).is_some_and(
+                            |bounds| bounds.contains(&point.observed_at) && bounds.contains(&point.settled_at),
+                        )
+                    })
+                    && source.target.database().is_some_and(|target| {
+                        point.tickets.iter().all(|ticket| ticket.resource.schema == target.database)
+                    })
+            }
+            Self::MssqlObject(point) => {
+                source.target.engine() == Engine::Mssql
+                    && matches!(&source.observation,SourceObservation::FocusedBlocking{result,..}
+                        if point.resource.as_ref().is_none_or(|resource|result.focus.statement_identity.qualifiers.get("database_id")==Some(&resource.database_id.to_string())))
+                    && source.observation.activity().is_some_and(|snapshot| {
+                        ObservationBounds::new(&snapshot.observed_from, &snapshot.observed_until).is_some_and(
+                            |bounds| bounds.contains(&point.observed_at) && bounds.contains(&point.settled_at),
+                        )
+                    })
+            }
+            Self::MssqlBlockingSession(point) => {
+                source.target.engine() == Engine::Mssql
+                    && matches!(source.observation, SourceObservation::FocusedBlocking { .. })
+                    && source.observation.activity().is_some_and(|snapshot| {
+                        ObservationBounds::new(&snapshot.observed_from, &snapshot.observed_until)
+                            .is_some_and(|bounds| bounds.contains(&point.observed_at))
+                    })
+            }
             Self::Postgres(point) => {
                 source.target.engine() == Engine::Postgres
                     && matches!(source.observation, SourceObservation::FocusedBlocking { .. })
@@ -129,6 +181,9 @@ pub struct PostgresLockBlocker {
     pub single_backend: bool,
     pub granted_modes: Vec<PostgresRelationLockMode>,
     pub waiting_mode: Option<PostgresRelationLockMode>,
+    /// The same matched-actor query's wait, independently of the earlier Activity wait.
+    #[serde(deserialize_with = "Option::deserialize")]
+    pub output_context: Option<super::NativeBlockingOwnerContext>,
 }
 impl PostgresLockBlocker {
     fn is_valid(&self) -> bool {
@@ -141,6 +196,9 @@ impl PostgresLockBlocker {
             && self.granted_modes.iter().all(PostgresRelationLockMode::is_valid)
             && self.granted_modes.iter().collect::<BTreeSet<_>>().len() == self.granted_modes.len()
             && self.waiting_mode.as_ref().is_none_or(PostgresRelationLockMode::is_valid)
+            && self.output_context.as_ref().is_none_or(|context| {
+                context.is_valid() && context.owner == self.owner() && context.actor == self.actor
+            })
     }
     pub fn owner(&self) -> ActivityWaitOwner {
         if self.native_pid == "0" {

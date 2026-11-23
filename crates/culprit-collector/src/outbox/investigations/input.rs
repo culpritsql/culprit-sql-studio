@@ -384,8 +384,13 @@ impl Files {
         let purpose = match focus.prerequisite {
             SourceReadPrerequisite::CompilationAdmission { .. }
             | SourceReadPrerequisite::ObservedCurrentRequestPlan { .. }
+            | SourceReadPrerequisite::ObservedCurrentExecutionRequest { .. }
+            | SourceReadPrerequisite::ObservedReadableSecondaryReader { .. }
             | SourceReadPrerequisite::ObservedLogRateWait
-            | SourceReadPrerequisite::ObservedTransactionMetadataWait { .. } => ReferenceUse::ActivityAuthority,
+            | SourceReadPrerequisite::ObservedClientOutputWait { .. }
+            | SourceReadPrerequisite::ObservedMetadataLockWait { .. }
+            | SourceReadPrerequisite::ObservedTransactionMetadataWait { .. }
+            | SourceReadPrerequisite::ObservedTransactionMetadataContinuation { .. } => ReferenceUse::ActivityAuthority,
             SourceReadPrerequisite::ObservedWorkerQueue
                 if focus.basis.stream == TelemetryStream::ActivityObservations =>
             {
@@ -401,8 +406,9 @@ impl Files {
         }
         let Some(prerequisite) = focus.prerequisite.observation() else { return Ok(()) };
         let context = self.diagnostic_input(&prerequisite.capture.observation_id, DIAGNOSTIC_CONTROLLER_VERSION)?;
-        let participant = context.source.observation.focus().ok_or_else(integrity)?;
-        self.verify_focus_parent(participant)?;
+        if let Some(participant) = focus.prerequisite.activity_participant(&context.source).map_err(|_| integrity())? {
+            self.verify_focus_parent(participant)?;
+        }
         let rows = context
             .rows
             .iter()
@@ -532,7 +538,7 @@ impl Files {
         if rows.iter().any(|row| !row.row.record.is_valid()) {
             return Err(integrity());
         }
-        if matches!(input.source.observation, SourceObservation::SourceRead { .. })
+        if input.source.observation.is_source_read_result()
             && !source_read_retains_rows(&input.source, input.investigation.as_ref())?
             && !input.rows.is_empty()
         {

@@ -4,6 +4,26 @@ use culprit_evidence::analytical::test_support::{
     transaction_metadata_result,
 };
 async fn scenario(case: Case, sequence: u64) -> (EvidenceCapture, EvidenceCapture, DiagnosticEpisode) {
+    let (basis, result, episode, _) = scenario_with_slru(case, sequence, None).await;
+    (basis, result, episode)
+}
+enum InitialPoint {
+    Ordinary,
+    Retained(test_support::TransactionMetadataSlruCase),
+    Continuation(test_support::TransactionMetadataContinuationCase),
+}
+async fn scenario_with_slru(
+    case: Case,
+    sequence: u64,
+    slru: Option<test_support::TransactionMetadataSlruCase>,
+) -> (EvidenceCapture, EvidenceCapture, DiagnosticEpisode, Option<EvidenceCapture>) {
+    scenario_point(case, sequence, slru.map_or(InitialPoint::Ordinary, InitialPoint::Retained)).await
+}
+async fn scenario_point(
+    case: Case,
+    sequence: u64,
+    selection: InitialPoint,
+) -> (EvidenceCapture, EvidenceCapture, DiagnosticEpisode, Option<EvidenceCapture>) {
     let mechanism = if case == Case::MultiXact {
         TransactionMetadataWait::MultiXact
     } else {
@@ -33,8 +53,28 @@ async fn scenario(case: Case, sequence: u64) -> (EvidenceCapture, EvidenceCaptur
         let SourceReadExecutionScope::Local(scope) = &mut execution else { panic!() };
         scope.database_writable = false;
     }
-    let (source, rows) = transaction_metadata_result(&focus, &execution, case);
+    let (source, rows, context) = match selection {
+        InitialPoint::Retained(case) => {
+            let [before, (source, rows)] = test_support::transaction_metadata_slru_pair(&focus, &execution, case);
+            (source, rows, Some(before))
+        }
+        InitialPoint::Continuation(case) => {
+            let (source, rows) = test_support::transaction_metadata_continuation_result(
+                &focus,
+                &execution,
+                case,
+                test_support::TransactionMetadataObservation::Initial,
+            );
+            (source, rows, None)
+        }
+        InitialPoint::Ordinary => {
+            let (source, rows) = transaction_metadata_result(&focus, &execution, case);
+            (source, rows, None)
+        }
+    };
     let result = retained(source, rows, sequence + 1).await;
+    let context =
+        if let Some((source, rows)) = context { Some(retained(source, rows, sequence + 2).await) } else { None };
     let current = result.verified_original().unwrap();
     let references =
         (0..result.records().len()).map(|position| current.reference(position).unwrap()).collect::<Vec<_>>();
@@ -61,7 +101,7 @@ async fn scenario(case: Case, sequence: u64) -> (EvidenceCapture, EvidenceCaptur
             },
         )
         .unwrap();
-    (basis, result, episode)
+    (basis, result, episode, context)
 }
 #[tokio::test]
 async fn direct_cache_and_multixact_context_keeps_affected_candidate_callers_and_exact_xmin_source_without_any_culprit()
@@ -141,34 +181,34 @@ async fn native_false_null_partial_changed_and_empty_context_are_never_a_healthy
 fn shared_pure_view_preserves_independent_slru_reset_and_observation_clocks_and_refuses_edited_authority() {
     let (answer, point) = transaction_metadata_answer(Case::Overflow);
     let point = point.unwrap();
-    let report = culprit_checks::transaction_metadata::explain(&answer, Some(&point)).unwrap();
+    let report = culprit_checks::transaction_metadata::explain(&answer, Some(&point), &[]).unwrap();
     assert_eq!(report.observed_overflows.len(), 1);
     assert_eq!(report.observed_xmin_sources.len(), 1);
     let mut later = point.clone();
     later.slrus[0].observed_at = "2020-01-01T12:00:03.500000Z".into();
     later.slrus[0].stats_reset = Some("2020-01-01T12:00:03.600000Z".into());
-    let report = culprit_checks::transaction_metadata::explain(&answer, Some(&later)).unwrap();
+    let report = culprit_checks::transaction_metadata::explain(&answer, Some(&later), &[]).unwrap();
     assert!(
         report.limitations.len()
-            > culprit_checks::transaction_metadata::explain(&answer, Some(&point)).unwrap().limitations.len()
+            > culprit_checks::transaction_metadata::explain(&answer, Some(&point), &[]).unwrap().limitations.len()
     );
     let mut outside = point.clone();
     outside.slrus[0].observed_at = "2020-01-01T12:00:05Z".into();
-    assert!(culprit_checks::transaction_metadata::explain(&answer, Some(&outside)).is_err());
+    assert!(culprit_checks::transaction_metadata::explain(&answer, Some(&outside), &[]).is_err());
     let mut edited = answer.clone();
     edited.overflowed_backends.clear();
-    assert!(culprit_checks::transaction_metadata::explain(&edited, Some(&point)).is_err());
+    assert!(culprit_checks::transaction_metadata::explain(&edited, Some(&point), &[]).is_err());
     let mut edited = point.clone();
     edited.database = "foreign".into();
-    assert!(culprit_checks::transaction_metadata::explain(&answer, Some(&edited)).is_err());
+    assert!(culprit_checks::transaction_metadata::explain(&answer, Some(&edited), &[]).is_err());
     let mut edited = point.clone();
     edited.caches[1].actor.key.session = edited.caches[0].actor.key.session.clone();
-    assert!(culprit_checks::transaction_metadata::explain(&answer, Some(&edited)).is_err());
+    assert!(culprit_checks::transaction_metadata::explain(&answer, Some(&edited), &[]).is_err());
     let mut edited = point.clone();
     edited.slrus[0].blocks_hit = Some("1.0".into());
-    assert!(culprit_checks::transaction_metadata::explain(&answer, Some(&edited)).is_err());
+    assert!(culprit_checks::transaction_metadata::explain(&answer, Some(&edited), &[]).is_err());
     assert!(
-        culprit_checks::transaction_metadata::explain(&answer, None).unwrap().observed_overflows.is_empty(),
+        culprit_checks::transaction_metadata::explain(&answer, None, &[]).unwrap().observed_overflows.is_empty(),
         "missing authenticated context cannot reuse compact counts as query evidence"
     );
 }
@@ -187,3 +227,66 @@ fn required_nullable_cache_and_slru_fields_roundtrip_null_without_a_compatibilit
     json["slrus"][0].as_object_mut().unwrap().remove("stats_reset");
     assert!(serde_json::from_value::<PostgresTransactionMetadata>(json).is_err());
 }
+
+#[tokio::test]
+async fn retained_slru_endpoints_reach_gold_with_exact_refs_without_importing_other_actors_xmin_or_culprits() {
+    use test_support::TransactionMetadataSlruCase as Slru;
+    for (index, case) in [Slru::Continued, Slru::LatePoint, Slru::Partial, Slru::Zero].into_iter().enumerate() {
+        let sequence = 913_000 + index as u64 * 10;
+        let (basis, result, episode, context) = scenario_with_slru(Case::Overflow, sequence, Some(case)).await;
+        let context = context.unwrap();
+        let old = context.verified_original().unwrap().reference(0).unwrap();
+        let current = result.verified_original().unwrap().reference(0).unwrap();
+        let revisions = history(episode, sequence + 3).await;
+        let output = project(&[&revisions, &basis, &result, &context], vec![]).unwrap();
+        let incident = &output.incidents[0];
+        assert_eq!(incident.affected_queries.len(), 1);
+        assert!(incident.culprit_queries.is_empty());
+        assert_eq!(incident.attribution_status, DerivedAttributionStatus::CandidatesOnly);
+        assert!(incident.entry.evidence.iter().any(|row| row.reference.as_ref() == Some(&old)));
+        assert!(incident.entry.evidence.iter().any(|row| row.reference.as_ref() == Some(&current)));
+        assert!(incident.entry.reasons.iter().any(|words| words.contains("1234")));
+        assert!(
+            !incident.entry.reasons.iter().any(|words| words.contains("9999")),
+            "another capture's xmin is not this answer's retention evidence"
+        );
+        assert!(incident.candidate_queries.iter().all(
+            |query| !matches!(&query.identity,Some(DerivedQueryIdentity::Activity{actor,..}) if actor.session.id=="49")
+        ));
+        assert!(output.description.inputs.iter().any(|input| input.capture == old.capture_ref()));
+        assert!(output.findings.is_empty());
+    }
+}
+#[tokio::test]
+async fn missing_fields_foreign_reset_or_unordered_context_never_becomes_request_causality() {
+    use test_support::TransactionMetadataSlruCase as Slru;
+    for (index, case) in [
+        Slru::UnknownReset,
+        Slru::ChangedReset,
+        Slru::ResetAfterPoint,
+        Slru::ForeignMember,
+        Slru::Restart,
+        Slru::ChangedRole,
+        Slru::Overlapping,
+        Slru::MissingCounter,
+        Slru::Decreased,
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let sequence = 914_000 + index as u64 * 10;
+        let (basis, result, episode, context) = scenario_with_slru(Case::Overflow, sequence, Some(case)).await;
+        let context = context.unwrap();
+        let revisions = history(episode, sequence + 3).await;
+        let output = project(&[&revisions, &basis, &result, &context], vec![]).unwrap();
+        let incident = &output.incidents[0];
+        assert!(incident.culprit_queries.is_empty());
+        assert!(!incident.entry.reasons.is_empty());
+        assert_eq!(incident.attribution_status, DerivedAttributionStatus::CandidatesOnly);
+        assert!(incident.candidate_queries.iter().all(
+            |query| !matches!(&query.identity,Some(DerivedQueryIdentity::Activity{actor,..}) if actor.session.id=="49")
+        ));
+    }
+}
+
+mod continuation;

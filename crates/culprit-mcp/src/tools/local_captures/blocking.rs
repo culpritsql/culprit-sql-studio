@@ -38,6 +38,7 @@ pub(super) fn captured(analysis: &LocalBlockingAnalysis) -> Result<Value> {
             "relationships_presented": relationships.len(),
             "relationships_omitted": report.relationships.len().saturating_sub(relationships.len()),
             "relationships": relationships,
+            "metadata_queue": report.metadata_queue,
             "waiting": report.blocking.as_ref().map(|blocking| blocking.waiting),
             "chains_available": available_chains, "chains_presented": chains.len(),
             "chains_omitted": available_chains.saturating_sub(chains.len()), "chains": chains,

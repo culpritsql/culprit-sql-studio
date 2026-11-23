@@ -22,7 +22,22 @@ pub fn explain_source(
     if source.observation.snapshot().is_some_and(|header| header.dataset == SnapshotDataset::NumaNodes) {
         return numa_nodes::explain_source(source, observations, read_complete);
     }
-    let mut report = explain(&InstanceResourceRead::from_source(source, observations, read_complete)?)?;
+    let pool = mssql_pool_current_authority(source)?.filter(|authority| authority.native.is_some());
+    let mut report = if let Some(authority) = pool {
+        if observations.iter().any(|row| !authority.accepts_operational(row)) {
+            return Err(CollectionStop::InvalidPage.error());
+        }
+        let mut report = unavailable();
+        report.context =
+            Some(ObservationReadContext::Native { context: Box::new(NativeReadContext::from_snapshot(source)?) });
+        report.source_state =
+            source.observation.snapshot().ok_or_else(|| CollectionStop::InvalidPage.error())?.coverage_state()?;
+        report.read_complete = Some(read_complete);
+        report.limitations.push(t!("view.pool_operational.limit.scope"));
+        report
+    } else {
+        explain(&InstanceResourceRead::from_source(source, observations, read_complete)?)?
+    };
     if let Some(coverage) = source.observation.snapshot().and_then(|snapshot| {
         snapshot.sources.iter().find(|source| source.source == culprit_core::source_id::PROCESSOR_TOPOLOGY)
     }) {

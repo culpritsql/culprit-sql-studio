@@ -36,6 +36,7 @@ pub fn blocking_evidence_cases() -> Vec<(CollectionDescription, Vec<TelemetryRec
     .into_iter()
     .map(blocking_evidence)
     .chain(metadata_queue_evidence_cases())
+    .chain(mssql_metadata_queue_evidence_cases())
     .collect()
 }
 

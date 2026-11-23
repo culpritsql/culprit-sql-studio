@@ -50,7 +50,7 @@ impl Files {
         if !event.is_valid()
             || input.parent != *capture
             || !source_read_retains_rows(&input.source, input.investigation.as_ref())? && !input.rows.is_empty()
-            || !matches!(input.source.observation, SourceObservation::SourceRead { .. })
+            || !input.source.observation.is_source_read_result()
             || !event.intent.matches_result_source(&input.source)
             || input
                 .investigation
@@ -70,7 +70,7 @@ impl Files {
         input: &DiagnosticInput,
     ) -> Result<()> {
         for stage in revision.episode.source_reads.iter() {
-            if before.and_then(|episode| episode.source_reads.get(stage.focus.question)) == Some(stage) {
+            if before.and_then(|episode| episode.source_reads.get_focus(&stage.focus)) == Some(stage) {
                 continue;
             }
             self.validate_source_stage(before, revision, stage, result_source, input)?;
@@ -88,6 +88,9 @@ impl Files {
     ) -> Result<()> {
         match &stage.state {
             SourceReadStageState::Pending | SourceReadStageState::Deferred { .. } => {
+                if !crate::diagnostics::continuation_due(&revision.episode, &stage.focus) {
+                    return Err(integrity());
+                }
                 if revision
                     .investigation
                     .as_ref()

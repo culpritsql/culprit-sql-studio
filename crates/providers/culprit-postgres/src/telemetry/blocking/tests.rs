@@ -50,6 +50,9 @@ fn lock_point(locktype: &str, mode: &str, owners: &[(&str, bool)]) -> Row {
                 "pid": pid,
                 "actor_matches": matched,
                 "single_backend": matched,
+                "active": false,
+                "wait_event_type": null,
+                "wait_event": null,
                 "granted": if relation && *matched { vec!["AccessShareLock"] } else { vec![] },
                 "waiting": Vec::<String>::new(),
             })
@@ -167,6 +170,11 @@ async fn original_native_member_and_request_bind_all_owner_roles_through_one_fro
     assert_eq!(point.resource.as_ref().unwrap().relation_oid, "16420");
     assert!(point.blockers.iter().any(|owner| owner.native_pid == "0" && owner.actor.is_none()));
     assert!(point.blockers.iter().any(|owner| owner.native_pid == "43" && owner.actor.is_some()));
+    let idle_owner = point.blockers.iter().find(|owner| owner.native_pid == "43").unwrap();
+    let context = idle_owner.output_context.as_ref().unwrap();
+    assert_eq!(context.actor.as_ref(), Some(&observations[1].key));
+    assert_eq!(context.current_requests.as_deref(), Some("0"));
+    assert!(context.native_wait.is_none(), "a native NULL wait does not become client-output pressure");
     assert!(observations[1].idle && observations[1].statement_identity.is_none());
     assert!(
         matches!(observations[1].statement, DefinitionPayload::Unavailable { .. }),

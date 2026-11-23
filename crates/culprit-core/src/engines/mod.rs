@@ -166,6 +166,28 @@ pub trait EngineSpec: Send + Sync {
     fn native_wait_mechanism(&self, _native_type: &str) -> Option<crate::telemetry::WaitMechanism> {
         None
     }
+    /// Exact endpoint task-wait meaning, independent of a plan operator or a causal diagnosis.
+    fn execution_task_wait(&self, _native_type: &str) -> Option<crate::telemetry::ExecutionTaskWaitKind> {
+        None
+    }
+    /// Exact native commit-stage meaning, separate from historical wait-counter classification.
+    fn commit_wait_stage(&self, native_type: &str) -> Option<crate::CommitPipelineStage> {
+        match self.native_wait_mechanism(native_type) {
+            Some(crate::telemetry::WaitMechanism::LogRateGovernance(component)) => {
+                Some(crate::CommitPipelineStage::RateGovernance { component: Some(component) })
+            }
+            _ => None,
+        }
+    }
+    /// Native log-counter meaning. Source/type/unit/reset/scope are preserved by the pure consumer.
+    fn commit_counter_kind(
+        &self,
+        _source: &str,
+        _set: &crate::telemetry::NativeCounterSet,
+        _counter: &crate::telemetry::NativeCounterSample,
+    ) -> Option<crate::CommitPipelineCounterKind> {
+        None
+    }
     /// Whether a health counter measures this database or a shared server, independently of its temporal scope.
     fn signal_scope(&self, server: &ServerInfo, key: &str) -> crate::MeasurementScope;
     /// A native label that already names its shared scope.

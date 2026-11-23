@@ -270,7 +270,7 @@ export default function WhatChanged({ report, request, onClose }: { report: Repo
       )}
       {changes && (
         <div className="wc-body" ref={list}>
-          <Summary changes={changes} />
+          <ChangesSummary changes={changes} />
           <AroundThen
             changes={changes}
             onFocusQuery={(id) => {
@@ -369,7 +369,7 @@ export default function WhatChanged({ report, request, onClose }: { report: Repo
   );
 }
 
-function Summary({ changes }: { changes: Changes }) {
+export function ChangesSummary({ changes }: { changes: Changes }) {
   const rate = (s: PeriodStats, p: { start: string; end: string }) => s.total_ms / Math.max(hoursOf(p), 1 / 3600);
   const short = hoursOf(changes.baseline) < 1 || hoursOf(changes.recent) < 1;
   const before = rate(changes.baseline_total, changes.baseline);
@@ -410,7 +410,7 @@ function Summary({ changes }: { changes: Changes }) {
         </span>
       </div>
       <p className="wc-source">
-        {changes.source === "query-store" ? t("ui.what_changed.source_query_store") : changes.source === "slow-log" ? t("ui.what_changed.source_slow_log") : t("ui.what_changed.source_scans")}
+        {changes.source === "query-store" ? t("ui.what_changed.source_query_store") : changes.source === "slow-log" ? t("ui.what_changed.source_slow_log") : changes.source === "native-intervals" ? t("ui.what_changed.source_native_intervals") : t("ui.what_changed.source_scans")}
         {changes.baseline_coverage < 0.99 && <span className="medium"> · {t("ui.what_changed.coverage", { share: percent(changes.baseline_coverage) })}</span>}
       </p>
     </div>

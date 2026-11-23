@@ -98,4 +98,6 @@ async fn unobserved_mssql_request_is_persisted_as_unknown_evidence_without_endin
     assert_eq!(runtime.native_calls(), calls);
 }
 
+mod execution_profiles;
+mod profile_preference;
 mod relational_inputs;

@@ -70,7 +70,7 @@ pub(crate) fn pool_settings(report: &PoolSettingsReport) -> String {
 }
 pub(crate) fn compact(report: &PoolSettingsReport) -> serde_json::Value {
     serde_json::json!({"title":text(&report.title),"summary":text(&report.summary),"scope":"pool","source_state":report.source_state,
-        "target_scope":report.target.as_ref().map(|target|match target { culprit_core::telemetry::CollectionTarget::Database(_) => "database", culprit_core::telemetry::CollectionTarget::Shared(_) => "shared" }),
+        "target_scope":report.target.as_ref().map(|target|match target { culprit_core::telemetry::CollectionTarget::Database(_) => "database", culprit_core::telemetry::CollectionTarget::Shared(_) => "shared", culprit_core::telemetry::CollectionTarget::ConfiguredConnection(_) => "configured-connection" }),
         "elastic_pool_error":report.elastic_pool_error,"pool":report.elastic_pool.as_ref().map(|pool|text(&pool.native.id)),"member_database":report.member_database.as_deref().map(text),"logical_server":report.logical_server.as_deref().map(text),
         "native_rows":report.native_source.as_ref().map(|source|source.records),"observed_rows":report.observed_rows,"read_complete":report.read_complete,
         "observed_at":report.observed_at.as_deref().map(text),"fields_available":report.fields.len(),"fields_limited":report.fields.len()>FIELD_LIMIT,

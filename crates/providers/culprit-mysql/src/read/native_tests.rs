@@ -61,28 +61,8 @@ async fn a_native_reader_retires_under_backpressure_without_waiting_for_the_cons
 #[ignore = "requires the owned MySQL/MariaDB fixture"]
 async fn a_native_timeout_discards_the_interrupted_client_and_preserves_known_shutdown() {
     let connector = connector();
-    let mut reader = ReadSession::new(
-        connector.clone(),
-        CollectionBudget { statement_timeout_ms: 200, ..Default::default() },
-        Scope::Server,
-    );
-    // A constant derived singleton can collapse to SLEEP's special no-error interruption path. Read one real
-    // catalog row with a column-dependent, bounded delay to exercise an interrupted statement instead.
-    // https://dev.mysql.com/doc/refman/8.4/en/miscellaneous-functions.html#function_sleep
-    let result = reader
-        .read(
-            "SELECT 1 FROM information_schema.COLLATIONS WHERE SLEEP(IF(COLLATION_NAME='',29,30))=0 LIMIT 1",
-            vec![],
-            1,
-        )
-        .await;
-    let shutdown = reader.close().await;
-    assert_eq!(shutdown, SourceShutdown::Quiescent);
-    assert_eq!(connector.source_shutdown(), SourceShutdown::Quiescent);
-    let Err(error) = result else {
-        panic!("the bounded native catalog statement must reach its execution timeout");
-    };
-    assert_eq!(error.code, culprit_core::ErrorCode::Timeout);
+    let (_, metrics) = super::native_acceptance::timeout(connector.clone()).await;
+    assert!(metrics.is_valid() && !metrics.has_unconfirmed_work());
 
     // A new owner may continue only after the interrupted request and its source have confirmed shutdown.
     let mut continued = ReadSession::new(connector.clone(), CollectionBudget::default(), Scope::Server);

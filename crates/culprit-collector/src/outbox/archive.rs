@@ -3,7 +3,8 @@ use super::*;
 use culprit_evidence::delivery::recovery::CommittedRange;
 use rusqlite::{OptionalExtension, params};
 impl Files {
-    pub(super) fn next_archive(&self) -> Result<Option<String>> {
+    pub(super) fn next_archive(&mut self) -> Result<Option<String>> {
+        self.materialize_connection_control()?;
         self.journal.conn.query_row("SELECT observation_id FROM captures WHERE state=?1 AND archive_range IS NULL ORDER BY epoch,sequence LIMIT 1",
             [journal::encode(&OutboxCaptureState::Ready)?],|row|row.get(0)).optional().map_err(storage)
     }
@@ -40,6 +41,7 @@ impl Files {
         if expected.manifest() != manifest || manifest.digest()? != committed.manifest_digest() {
             return Err(problem(OutboxProblem::Integrity));
         }
+        let empty_candidate = self.connection_original_expiry_candidate(manifest)?;
         let tx = self.journal.conn.transaction().map_err(storage)?;
         tx.execute(
             "UPDATE captures SET archive_range=?1,archive_digest=?2 WHERE observation_id=?3 AND state=?4",
@@ -61,7 +63,12 @@ impl Files {
         .map_err(storage)?;
         investigations::retirement::archived(&tx, &capture.identity.observation_id)?;
         super::automatic_synthesis::archived(&tx, &capture.identity.observation_id)?;
+        let empty_original =
+            connection_control::archived(&tx, manifest, committed.manifest_digest(), empty_candidate.as_deref())?;
         tx.commit().map_err(storage)?;
+        if let Some(original) = empty_original {
+            self.remove_capture(&original)?;
+        }
         // No await or other Files owner can change the immutable capture between its canonical audit
         // above and this deletion decision. Carry that same prepared range; independent evict still audits.
         self.evict_prepared(committed, expected)?;

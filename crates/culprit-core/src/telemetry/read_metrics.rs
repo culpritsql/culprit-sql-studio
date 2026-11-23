@@ -1,6 +1,7 @@
 //! Client-observed collection work. Native CPU and I/O costs remain separate database measurements.
 use super::*;
 mod native_session;
+mod pre_dispatch;
 pub use native_session::*;
 pub const MAX_READ_TEMPLATES: usize = 32;
 pub const MAX_READ_TEMPLATE_TEXT_BYTES: usize = 8 * 1024;

@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use ts_rs::TS;
 
-pub const EXPORT_FORMAT_VERSION: u32 = 87;
+pub const EXPORT_FORMAT_VERSION: u32 = 88;
 pub const REPRESENTATION_VERSION: u32 = 3;
 
 impl DatabaseIdentity {
@@ -196,6 +196,13 @@ impl ExportedRecord {
                     &row.category,
                 ),
             )?),
+            // This view does not identify a historical member. A captured observation cannot collide with
+            // another member's same-clock sample or masquerade as a distinct native execution/reset.
+            TelemetryRecord::ResourceSample(row)
+                if matches!(source.observation, SourceObservation::MssqlReadableResources(_)) =>
+            {
+                Some(source.scoped_id("readable-resource-observation-v1", &(capture, &row.at))?)
+            }
             TelemetryRecord::ResourceSample(row) => {
                 Some(source.scoped_id("resource-sample-v1", &(&row.at, &row.replica_id))?)
             }
@@ -240,6 +247,9 @@ impl ExportedRecord {
             TelemetryRecord::ObjectDefinition(row) => {
                 Some(source.point_record_id("object-definition-v1", capture, &(&row.source, &row.key, &row.version))?)
             }
+            TelemetryRecord::CollectorConnection(row) => {
+                Some(source.scoped_id("collector-connection-attempt-v1", &row.original.capture)?)
+            }
             TelemetryRecord::DerivedIncident(row) => {
                 Some(source.scoped_id("derived-incident-v1", &(&row.analysis_id, row.key()))?)
             }
@@ -282,6 +292,7 @@ impl NativeRecordIdentity {
             Self::DerivedIncident { .. } => TelemetryStream::DerivedIncidents,
             Self::DerivedFinding { .. } => TelemetryStream::DerivedFindings,
             Self::DerivedChange { .. } => TelemetryStream::DerivedChanges,
+            Self::CollectorConnection { .. } => TelemetryStream::CollectorConnections,
         }
     }
     pub fn is_valid(&self) -> bool {
@@ -289,6 +300,7 @@ impl NativeRecordIdentity {
             Self::DerivedIncident { analysis_id, key }
             | Self::DerivedFinding { analysis_id, key }
             | Self::DerivedChange { analysis_id, key } => valid_digest(analysis_id) && valid_key(key),
+            Self::CollectorConnection { attempt } => valid_key(attempt),
             Self::Runtime(key) => key.is_valid(),
             Self::Waits { key, category } => key.is_valid() && valid_key(category),
             Self::Activity(key) => key.is_valid(),
@@ -630,4 +642,9 @@ mod tests {
                 .is_none()
         );
     }
+}
+
+/// Preserve PostgreSQL's existing local database/process token. It grants no member or source authority.
+pub fn postgres_activity_epoch(database_oid: &str, started_at: &str, version: u32) -> String {
+    digest(format!("{database_oid}|{started_at}|{version}|pg-activity-v1").as_bytes())
 }

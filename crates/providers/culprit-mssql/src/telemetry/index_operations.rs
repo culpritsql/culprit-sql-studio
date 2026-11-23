@@ -12,7 +12,7 @@ impl SnapshotRecipe for IndexOperations {
     const DATASET: SnapshotDataset = SnapshotDataset::IndexOperations;
     const NAME: &'static str = "index-operational-state";
     const SOURCE: &'static Source = &crate::sources::INDEX_OPERATIONS;
-    const ACQUISITION: SnapshotAcquisition = SnapshotAcquisition::AzureDatabase;
+    const ACQUISITION: SnapshotAcquisition = SnapshotAcquisition::DatabaseCatalog;
     async fn layout<R: NativeRead>(&self, reader: &mut R, _budget: &CollectionBudget) -> Result<Option<Layout>> {
         Layout::read(reader).await.map(Some)
     }

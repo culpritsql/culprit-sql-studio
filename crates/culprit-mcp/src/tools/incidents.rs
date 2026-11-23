@@ -6,7 +6,7 @@ use culprit_core::{
     telemetry::{DeliveryProblem, ObservationBounds},
 };
 use culprit_read::cancellation::CollectionCancellation;
-mod presentation;
+pub(super) mod presentation;
 
 pub(crate) const INCIDENT_TOOL: &str = "incident";
 const MAX_AROUND_BYTES: usize = 64;
@@ -53,4 +53,4 @@ impl CulpritMcp {
     }
 }
 #[cfg(test)]
-mod tests;
+pub(in crate::tools) mod tests;

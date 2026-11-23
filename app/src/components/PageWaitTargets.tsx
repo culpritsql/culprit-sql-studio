@@ -129,6 +129,7 @@ const SCOPE: Record<ActivityScopeBasis, string> = {
   "session-database": key("ui.page_waits.request_scope.session"),
   "blocking-reference": key("ui.page_waits.request_scope.reference"),
   "other-database": key("ui.page_waits.request_scope.other"),
+  "instance-member": key("ui.page_waits.request_scope.instance"),
 };
 const RESOLUTION: Record<PageWaitResolution, string> = {
   "observed-at-both-bounds": key("ui.page_waits.resolution.observed"),

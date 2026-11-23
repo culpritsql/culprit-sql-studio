@@ -22,9 +22,15 @@ pub(crate) async fn admit_resources<R: NativeRead>(reader: &mut R) -> std::resul
     pressure_admission(latest.as_ref()).map_err(ReadError::Stopped)
 }
 fn pressure_admission(latest: Option<&crate::resources::Latest>) -> std::result::Result<(), CollectionStop> {
-    use crate::resources::Metric;
     let latest = latest.ok_or(CollectionStop::PressureUnavailable)?;
-    let age = latest.age_seconds().ok_or(CollectionStop::PressureUnavailable)?;
+    admit_values(latest.age_seconds(), |metric| latest.sample.value(metric))
+}
+fn admit_values(
+    age: Option<i64>,
+    value: impl Fn(crate::resources::Metric) -> Option<f64>,
+) -> std::result::Result<(), CollectionStop> {
+    use crate::resources::Metric;
+    let age = age.ok_or(CollectionStop::PressureUnavailable)?;
     if age > MAX_SAMPLE_AGE_SECONDS {
         return Err(CollectionStop::PressureUnavailable);
     }
@@ -35,12 +41,30 @@ fn pressure_admission(latest: Option<&crate::resources::Latest>) -> std::result:
         (Metric::DataIo, PRESSURE_IO_PERCENT),
         (Metric::LogWrite, PRESSURE_IO_PERCENT),
     ] {
-        let value = latest.sample.value(metric).ok_or(CollectionStop::PressureUnavailable)?;
+        let value = value(metric).ok_or(CollectionStop::PressureUnavailable)?;
         if value >= threshold {
             return Err(CollectionStop::Pressure);
         }
     }
     Ok(())
+}
+
+/// The pool route checks the pool, never substitutes an idle anchor's database pressure.
+pub(crate) async fn admit_pool_resources(reader: &mut impl NativeRead) -> std::result::Result<(), ReadError> {
+    let rows = reader.query(&super::sql::POOL.latest(), vec![], 1).await?;
+    let [row] = rows.as_slice() else {
+        return Err(ReadError::Stopped(CollectionStop::PressureUnavailable));
+    };
+    let sample = super::pool::sample::decode(row, super::pool::Pricing::Unknown)
+        .map_err(|_| ReadError::Stopped(CollectionStop::PressureUnavailable))?;
+    let observed =
+        crate::read::text(row, "observed_at").ok().and_then(|at| chrono::DateTime::parse_from_rfc3339(&at).ok());
+    let sampled = chrono::DateTime::parse_from_rfc3339(&sample.at).ok();
+    let age = observed
+        .zip(sampled)
+        .filter(|(observed, sampled)| observed >= sampled)
+        .map(|(observed, sampled)| (observed - sampled).num_seconds());
+    admit_values(age, |metric| super::pool::sample::admission_value(&sample, metric)).map_err(ReadError::Stopped)
 }
 
 #[cfg(test)]

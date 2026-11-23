@@ -3,6 +3,7 @@ use super::*;
 mod apply;
 mod cte;
 mod derived;
+mod hints;
 mod options;
 mod projection;
 

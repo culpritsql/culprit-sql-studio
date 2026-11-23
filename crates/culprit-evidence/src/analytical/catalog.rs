@@ -35,6 +35,7 @@ impl LogicalCatalog {
                 DerivedIncidents => schema::derived::incidents(COMMON)?,
                 DerivedFindings => schema::derived::findings(COMMON)?,
                 DerivedChanges => schema::derived::changes(COMMON)?,
+                CollectorConnections => schema::control::connections(COMMON)?,
                 DiagnosticCheckpoints => continue,
             };
             schemas.push((stream, schema));

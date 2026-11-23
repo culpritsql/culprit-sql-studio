@@ -34,7 +34,8 @@ impl SnapshotScope {
 pub struct SnapshotRecheck {
     pub unchanged: bool,
     pub observed_until: String,
-    /// Present only for a declared SourceRead; it is the actual final native owner, not dataset partitioning.
+    /// Final native owner for a declared SourceRead or an explicitly supported local catalog.
+    /// It never supplies a global data namespace or a historical executor.
     pub execution: Option<Box<NativeReadContext>>,
     pub scopes: Vec<SnapshotScope>,
 }
@@ -233,6 +234,9 @@ impl<R: SnapshotReader> TelemetrySource for SnapshotSource<R> {
         };
         let completion = match (&description.observation, recheck.execution) {
             (SourceObservation::PagedSnapshot(_), None) => SourceCompletion::Snapshot(snapshot),
+            (SourceObservation::PagedSnapshot(_), Some(execution)) => {
+                SourceCompletion::LocalResource { snapshot, execution }
+            }
             (SourceObservation::PagedSourceRead { execution: initial, .. }, Some(execution)) => {
                 let question = SourceReadQuestion::for_dataset(declared.dataset).ok_or_else(invalid_source)?;
                 if !SourceReadExecutionScope::from_context(question, initial)?.matches_context(&execution) {

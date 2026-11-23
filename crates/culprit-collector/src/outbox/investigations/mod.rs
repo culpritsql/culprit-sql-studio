@@ -138,7 +138,7 @@ pub(crate) fn eligible_source(
         (SourceObservation::Activity(_), CollectionTarget::Database(_)) => true,
         // The authenticated intent/Core scope already binds the exact target/member/epoch and supported
         // question. A shared Worker source result must enter the same durable input owner as a DB result.
-        (SourceObservation::SourceRead { .. }, _) => {
+        (SourceObservation::SourceRead { .. } | SourceObservation::MetadataLockContext { .. }, _) => {
             source.observation.covers_request()
                 && intent.as_ref().is_some_and(|intent| matches!(intent.focus, DiagnosticFocus::SourceRead { .. }))
         }
@@ -216,7 +216,9 @@ fn controller_target<'a>(
         return Err(integrity());
     }
     Ok(match &source.observation {
-        SourceObservation::SourceRead { .. } => investigation.ok_or_else(integrity)?.focus.target(),
+        SourceObservation::SourceRead { .. } | SourceObservation::MetadataLockContext { .. } => {
+            investigation.ok_or_else(integrity)?.focus.target()
+        }
         SourceObservation::FocusedBlocking { result, .. } => &result.focus.target,
         SourceObservation::FocusedPageWait { result, .. } => &result.focus.participant.target,
         SourceObservation::PageWaitWriters { focus, .. } => &focus.waiter.participant.target,
@@ -319,7 +321,7 @@ pub(crate) fn source_read_result_focus<'a>(
     source: &CollectionDescription,
     investigation: Option<&'a DiagnosticInvestigationLineage>,
 ) -> Result<Option<&'a SourceReadFocus>> {
-    if !matches!(source.observation, SourceObservation::SourceRead { .. }) {
+    if !source.observation.is_source_read_result() {
         return Ok(None);
     }
     let intent = investigation_intent(source, investigation)?.ok_or_else(integrity)?;

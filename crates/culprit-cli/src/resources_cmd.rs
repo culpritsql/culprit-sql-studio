@@ -72,7 +72,7 @@ pub(crate) async fn run(args: ResourcesArgs, out: &Out) -> Result<u8> {
     std::io::stdout().lock().write_all(&bytes).map_err(|_| culprit_core::Error::internal(t!("cli.output_failed")))?;
     Ok(if report.discovery_complete { 0 } else { 2 })
 }
-fn parse_cursor(value: &str) -> std::result::Result<PublishedResourceCursor, String> {
+pub(crate) fn parse_cursor(value: &str) -> std::result::Result<PublishedResourceCursor, String> {
     if value.len() > 4096 {
         return Err(t!("resources.cli.invalid_cursor"));
     }

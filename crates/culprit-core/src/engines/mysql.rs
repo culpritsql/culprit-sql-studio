@@ -47,6 +47,15 @@ fn index_hiding(server: &ServerInfo) -> Option<&'static str> {
 }
 
 impl EngineSpec for Mysql {
+    fn commit_counter_kind(
+        &self,
+        source: &str,
+        set: &crate::telemetry::NativeCounterSet,
+        counter: &crate::telemetry::NativeCounterSample,
+    ) -> Option<crate::CommitPipelineCounterKind> {
+        commit_pipeline::counter_kind(source, set, counter)
+    }
+
     fn default_port(&self) -> Option<u16> {
         Some(3306)
     }
@@ -315,3 +324,5 @@ pub(super) fn connection_security() -> crate::ConnectionSecuritySpec {
         hostname_option: None,
     }
 }
+
+mod commit_pipeline;

@@ -25,6 +25,8 @@ fn point() -> PostgresLockPoint {
             single_backend: true,
             granted_modes: vec![PostgresRelationLockMode::AccessShare],
             waiting_mode: Some(PostgresRelationLockMode::AccessExclusive),
+
+            output_context: None,
         }],
     }
 }

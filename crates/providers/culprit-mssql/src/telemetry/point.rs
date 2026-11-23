@@ -89,6 +89,9 @@ pub(super) fn families(dataset: SnapshotDataset) -> Result<Vec<Family>> {
         | SnapshotDataset::CheckConstraints
         | SnapshotDataset::QueryCompilation
         | SnapshotDataset::WorkerStarvation
+        | SnapshotDataset::TransactionMetadata
+        | SnapshotDataset::CurrentExecutionProfile
+        | SnapshotDataset::ReadableSecondaryRecovery
         | SnapshotDataset::CompilerAdmission
         | SnapshotDataset::MaintenanceProgress
         | SnapshotDataset::CurrentRequestWork
@@ -117,8 +120,7 @@ pub(super) fn families(dataset: SnapshotDataset) -> Result<Vec<Family>> {
         | SnapshotDataset::PageWaitTargets
         | SnapshotDataset::TaskSpace
         | SnapshotDataset::PageWaitWriters
-        | SnapshotDataset::PageTaskHolders
-        | SnapshotDataset::TransactionMetadata => return Err(crate::read::invalid_data()),
+        | SnapshotDataset::PageTaskHolders => return Err(crate::read::invalid_data()),
     })
 }
 
@@ -305,7 +307,11 @@ impl Family {
                 }));
             }
             Self::MissingIndexes => {
-                let read = crate::missing_indexes::read(reader, limit).await?;
+                let database_id = match owner {
+                    Some(super::subject::Identity::CatalogDatabase(owner)) => Some(owner.database_id()),
+                    _ => None,
+                };
+                let read = crate::missing_indexes::read_for_database(reader, limit, database_id).await?;
                 let error_code = read.query_link_failure.as_ref().map(|error| error.code);
                 let values = read
                     .indexes

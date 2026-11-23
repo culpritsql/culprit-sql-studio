@@ -12,12 +12,6 @@ impl EvidenceService {
         budget: EvidenceReadBudget,
         cancellation: &CollectionCancellation,
     ) -> Result<IncidentReadReport> {
-        if resource_name.trim().is_empty()
-            || resource_name.len() > MAX_RESOURCE_NAME_BYTES
-            || resource_name.chars().any(char::is_control)
-        {
-            return Err(Error::invalid(t!("incident.cli.resource_name_invalid")));
-        }
         around_clock(around)?;
         let mut selection = PublishedResourceRequest {
             as_of: chrono::Utc::now().to_rfc3339(),
@@ -33,11 +27,14 @@ impl EvidenceService {
         complete_resource(session, &self.contract, &selector, request).await
     }
 }
-async fn resolve(
+pub(super) async fn resolve(
     session: &mut EvidenceSession<'_>,
     name: &str,
     selection: &mut PublishedResourceRequest,
 ) -> Result<PublishedResourceSelector> {
+    if name.trim().is_empty() || name.len() > MAX_RESOURCE_NAME_BYTES || name.chars().any(char::is_control) {
+        return Err(Error::invalid(t!("incident.cli.resource_name_invalid")));
+    }
     let mut selected = None;
     loop {
         let page = session.resources(selection).await.map_err(|error| {

@@ -227,3 +227,5 @@ fn a_reported_same_session_owner_stays_a_positive_relationship_with_an_explicit_
     assert_eq!(value.summary, t!("view.blocking.summary.observed", n = 1, count = "1"));
     assert_eq!(value.source_state, SourceState::Partial);
 }
+
+mod mysql_metadata_context;

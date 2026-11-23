@@ -1,8 +1,12 @@
 //! Bounded native ownership. Snapshot/Live projections and telemetry share source queries over this interface.
 pub(crate) mod accounting;
+#[cfg(any(test, feature = "native-test-support"))]
+pub(crate) mod native_acceptance;
 #[cfg(test)]
 mod native_tests;
 mod owned;
+mod same_connection;
+pub(crate) use same_connection::SameConnection;
 #[cfg(test)]
 pub(crate) mod test_support;
 use accounting::Accounting;
@@ -29,6 +33,10 @@ use tokio::{
 
 #[async_trait::async_trait]
 pub(crate) trait QueryRead: Send {
+    /// Only a currently owned original client may supply this process-local acquisition generation.
+    fn connection_generation(&self) -> Option<u64> {
+        None
+    }
     async fn read(&mut self, sql: &str, parameters: Vec<Value>, row_limit: usize) -> Result<Vec<Rec>>;
     async fn explain(&mut self, sql: &str) -> Result<Option<Rec>>;
 }
@@ -130,11 +138,12 @@ impl ReadSession {
         }
         let mut accounting = Accounting::new(budget);
         accounting.observation = observation.as_ref().map(|owner| owner.observer());
-        accounting.connection_work = observation.as_ref().map(|_| Default::default());
+        accounting.connection_work = Some(Default::default());
         Self { connector, scope, peer: None, active: None, streaming: None, closed: false, accounting, observation }
     }
     async fn start(&mut self, request: owned::Request, output: RowOutput<Rec>) -> Result<oneshot::Sender<()>> {
         self.connector.fence.ensure_available()?;
+        self.connector.check_profile()?;
         if self.closed || self.active.is_some() {
             return Err(CollectionStop::InvalidPage.error());
         }
@@ -200,7 +209,7 @@ impl ReadSession {
         }
     }
     pub(crate) fn query_count(&self) -> u32 {
-        self.accounting.queries.load(Ordering::Acquire)
+        self.accounting.query_count()
     }
     pub(crate) fn read_metrics(&self) -> Option<ReadWorkMetrics> {
         self.accounting.snapshot()
@@ -224,6 +233,11 @@ impl ReadSession {
 }
 #[async_trait::async_trait]
 impl QueryRead for ReadSession {
+    fn connection_generation(&self) -> Option<u64> {
+        (!self.closed && self.peer.is_some() && self.active.is_none() && !self.connector.fence.is_uncertain())
+            .then(|| self.accounting.connection_generation())
+            .flatten()
+    }
     async fn explain(&mut self, sql: &str) -> Result<Option<Rec>> {
         let request = owned::Request {
             sql: sql.into(),

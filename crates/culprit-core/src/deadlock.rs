@@ -222,6 +222,12 @@ impl Deadlock {
         }
     }
 
+    /// Clear native actor labels and redact captured SQL before an imported/shared graph is exposed.
+    pub fn redact(&mut self, engine: Engine) {
+        redact_processes(&mut self.processes, engine);
+        classify(engine, self);
+    }
+
     pub fn victim(&self) -> Option<&DeadlockProcess> {
         self.processes.iter().find(|p| p.victim)
     }
@@ -517,6 +523,15 @@ fn rcsi(d: &Deadlock) -> DeadlockFix {
         }),
         finding: Some("config:read-committed-snapshot".into()),
         kind: Some(DeadlockFixKind::ReadCommittedSnapshot),
+    }
+}
+
+pub(crate) fn redact_processes(processes: &mut [DeadlockProcess], engine: Engine) {
+    for process in processes {
+        process.statement = process.statement.as_deref().map(|sql| crate::redact::redact_sql(sql, engine));
+        process.login = None;
+        process.host = None;
+        process.application = None;
     }
 }
 

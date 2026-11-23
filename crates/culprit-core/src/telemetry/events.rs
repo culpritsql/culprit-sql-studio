@@ -46,12 +46,7 @@ pub struct DeadlockEvent {
 }
 impl DeadlockEvent {
     pub fn redact(&mut self, engine: crate::Engine) {
-        for process in &mut self.processes {
-            process.statement = process.statement.as_deref().map(|sql| crate::redact::redact_sql(sql, engine));
-            process.login = None;
-            process.host = None;
-            process.application = None;
-        }
+        crate::deadlock::redact_processes(&mut self.processes, engine);
     }
     pub fn is_valid(&self) -> bool {
         valid_digest(&self.position)

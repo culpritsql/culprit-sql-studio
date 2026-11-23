@@ -178,3 +178,48 @@ test("original idle primary connection is folded context and never supplies a re
     expect(liveSessionPresentation(live).canInspect(live.sessions[0]!)).toBe(false);
   }
 });
+
+
+test("recent clients use the same native session dedup while MARS request tokens remain distinct from physical connections", () => {
+  for (const [name, requests, primary, unknown, tokens] of [
+    ["recent-idle", 0, "1", "0", "0"],
+    ["recent-mars", 2, "0", "1", "2"],
+  ] as const) {
+    const { report } = sessionCensusCase(name);
+    const recent = report.recent_clients;
+    const group = recent.groups.entries[0]!;
+    expect(recent.coverage).toBe("complete-original-census");
+    expect(recent.groups.grouped_sessions).toBe(1);
+    expect(group.observed_requests).toBe(requests);
+    for (const [key, expected] of [["known_idle_primary_connections", primary], ["unconfirmed_primary_sessions", unknown], ["request_connection_tokens", tokens]] as const) {
+      expect(group.fields.find((field) => field.key === key)!.value).toBe(expected);
+    }
+    const html = renderToStaticMarkup(<SessionCensus report={report} />);
+    expect(html).toContain(recent.groups.title);
+    expect(html).toContain(renderToStaticMarkup(<>{recent.groups.summary}</>));
+    expect(html).toContain("9007199254740993");
+    expect(html).not.toContain("<details open");
+    expect(html).not.toContain("sig-dot");
+  }
+});
+
+test("recent exclusions unknown eligibility and partial or empty subsets remain visible and client labels stay text", () => {
+  const { report } = sessionCensusCase("recent-excluded-unknown");
+  expect(report.recent_clients.excluded_sessions).toBe(3);
+  expect(report.recent_clients.unknown_sessions).toBe(3);
+  expect(report.recent_clients.groups.grouped_sessions).toBe(1);
+  report.recent_clients.groups.entries[0]!.fields.find((field) => field.key === "application")!.value = "<img src=x onerror=alert(1)>";
+  const html = renderToStaticMarkup(<SessionCensus report={report} />);
+  expect(html).toContain("&lt;img");
+  expect(html).not.toContain("<img");
+  for (const name of ["recent-partial", "recent-subset", "recent-empty-subset", "recent-conflict"] as const) {
+    const { report } = sessionCensusCase(name);
+    expect(report.recent_clients.coverage).not.toBe("complete-original-census");
+    const html = renderToStaticMarkup(<SessionCensus report={report} />);
+    expect(html).toContain(renderToStaticMarkup(<>{report.recent_clients.groups.summary}</>));
+    for (const limitation of report.recent_clients.groups.limitations) {
+      expect(html).toContain(renderToStaticMarkup(<>{limitation}</>));
+    }
+    expect(html).not.toContain("sig-dot");
+  }
+});

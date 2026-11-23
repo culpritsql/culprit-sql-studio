@@ -176,7 +176,17 @@ async fn adverse_current_work_automatically_owes_one_selected_retained_question_
             .await;
     assert_eq!(recovered.lifecycle, DiagnosticLifecycle::Resolved);
     assert_eq!(recovered.first, before.first);
-    assert_eq!(recovered.source_reads, answered.source_reads);
+    assert_eq!(
+        recovered.source_reads.get(SourceReadQuestion::RelationalInputContext),
+        answered.source_reads.get(SourceReadQuestion::RelationalInputContext),
+        "the historical retained answer remains immutable",
+    );
+    let profile = answered.source_reads.get(SourceReadQuestion::CurrentExecutionProfile).unwrap();
+    assert_eq!(profile.state, SourceReadStageState::Deferred { issue: DiagnosticAnalysisIssue::Unsupported });
+    let recovered_profile = recovered.source_reads.get(SourceReadQuestion::CurrentExecutionProfile).unwrap();
+    assert_eq!(recovered_profile.focus, profile.focus);
+    assert_eq!(recovered_profile.state, SourceReadStageState::Recovered);
+    assert!(recovered.recovery.is_some(), "only the genuine complete successor retires unadmitted live work");
     assert!(!runtime.enroll().await);
 }
 #[tokio::test]

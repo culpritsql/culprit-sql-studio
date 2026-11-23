@@ -46,6 +46,7 @@ pub struct SessionCensusReport {
     pub limitations: Vec<String>,
     pub entries: Vec<SessionCensusEntry>,
     pub client_groups: SessionCensusClientGroups,
+    pub recent_clients: SessionCensusRecentClients,
 }
 
 /// Exact labels from one native session population. Equality is grouping, never authenticated application ownership.
@@ -103,4 +104,33 @@ impl SessionClientDatabase {
             Self::CurrentDefault { name } => Some(name),
         }
     }
+}
+
+/// Coverage of the original census, not a claim of one hour of observed query work or a healthy service.
+#[derive(Serialize, Deserialize, TS, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+#[ts(export)]
+pub enum RecentClientPopulationCoverage {
+    CompleteOriginalCensus,
+    PartialOriginalCensus,
+    OriginalPopulationSubset,
+    UnverifiedOriginalCensus,
+    NativeRecencyUnavailable,
+}
+
+/// A named filter of this same original census. Selected sessions keep their lifetime totals and native clocks.
+#[derive(Serialize, Deserialize, TS, Clone, Debug)]
+#[ts(export)]
+pub struct SessionCensusRecentClients {
+    pub window_ms: u32,
+    pub reported_label_policy: String,
+    /// Effective completeness of this derived population, independent of the recorded native census coverage.
+    pub source: SourceOutcome,
+    pub coverage: RecentClientPopulationCoverage,
+    pub observed_sessions: u32,
+    pub excluded_sessions: u32,
+    pub outside_window_sessions: u32,
+    pub unknown_sessions: u32,
+    /// grouped_sessions plus excluded/outside/unknown equals observed_sessions. Entries can be presentation-limited.
+    pub groups: SessionCensusClientGroups,
 }

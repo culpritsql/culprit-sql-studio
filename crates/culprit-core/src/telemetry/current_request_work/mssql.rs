@@ -114,7 +114,7 @@ impl MssqlCurrentRequestWork {
                 _ => true,
             }
     }
-    pub(super) fn fits_context(&self, context: &NativeReadContext) -> bool {
+    pub(crate) fn fits_context(&self, context: &NativeReadContext) -> bool {
         let Some(bounds) = ObservationBounds::new(&context.observed_from, &context.observed_until) else {
             return false;
         };

@@ -139,7 +139,7 @@ impl ReadSession {
         if let Some(observer) = &observation {
             observer.setup_included();
         }
-        let connection_work = observation.as_ref().map(|_| Default::default());
+        let connection_work = Some(Default::default());
         Self {
             connector,
             client: None,
@@ -537,3 +537,6 @@ impl Drop for ReadSession {
 
 #[cfg(test)]
 mod acquisition_tests;
+
+#[cfg(any(test, feature = "native-test-support"))]
+pub(crate) mod native_acceptance;

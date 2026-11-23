@@ -23,7 +23,7 @@ pub fn stream_semantics(stream: TelemetryStream) -> Result<StreamSemantics> {
         }
         // Original lifecycle and enrichment are retained in each row. No native current-head or recovery
         // verdict is inferred by a warehouse query; exact analysis/entity identities remain append-only.
-        DerivedIncidents | DerivedFindings | DerivedChanges => (false, None),
+        DerivedIncidents | DerivedFindings | DerivedChanges | CollectorConnections => (false, None),
         DiagnosticCheckpoints => return Err(DeliveryProblem::UnsupportedSchema.error()),
     };
     Ok(StreamSemantics { latest_revision, current })

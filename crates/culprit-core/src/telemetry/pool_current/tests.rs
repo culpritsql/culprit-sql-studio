@@ -28,7 +28,11 @@ fn source() -> CollectionDescription {
         partition: SourcePartition::Target,
         continuity: SourceContinuity::Unverified,
         observation: SourceObservation::MssqlPoolCurrent {
-            authority: Box::new(MssqlPoolCurrentAuthority { before, after: point("2026-11-21T00:00:02Z") }),
+            authority: Box::new(MssqlPoolCurrentAuthority {
+                before,
+                after: point("2026-11-21T00:00:02Z"),
+                native: None,
+            }),
             snapshot: StateSnapshotDescription {
                 dataset: SnapshotDataset::WaitCounters,
                 observed_from: "2026-11-21T00:00:01Z".into(),
@@ -197,3 +201,5 @@ fn partial_original_body_preserves_native_count_without_manufacturing_empty_or_a
     assert!(read.is_valid());
     assert!(WaitCounterSnapshot::from_source(&source, vec![], true).is_err());
 }
+
+mod native;

@@ -30,6 +30,7 @@ pub(super) fn status(debts: u32) -> OutboxStatus {
         source_debts: debts,
         unconfirmed_sources: debts,
         unfinished: 0,
+        connection_controls_pending: 0,
         charged_bytes: 0,
         entries: vec![],
         next_cursor: None,

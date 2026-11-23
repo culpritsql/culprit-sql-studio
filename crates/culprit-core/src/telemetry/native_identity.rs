@@ -70,3 +70,59 @@ impl StatementReferences {
             && self.plan.as_ref().is_none_or(NativeDefinitionReference::is_resolved)
     }
 }
+
+impl StatementReferences {
+    /// One pure source-scoped definition binding, reused by workload joins and archive detail links.
+    /// A numerically equal identifier in another incarnation/namespace is never a fallback.
+    pub fn bind_query_definition<'a>(
+        &self,
+        source: &CollectionDescription,
+        definition: Option<&'a QueryDefinition>,
+    ) -> Result<Option<&'a QueryDefinition>> {
+        if !self.is_valid() {
+            return Err(CollectionStop::InvalidPage.error());
+        }
+        let Some(reference) = &self.query else { return Ok(None) };
+        let Some(id) = &reference.definition_id else { return Ok(None) };
+        let identity = NativeQueryIdentity {
+            query_id: reference.native.id.clone(),
+            qualifiers: reference.native.qualifiers.clone(),
+        };
+        if identity.definition_id(source)? != *id
+            || definition.is_some_and(|value| value.id != *id || value.identity != identity)
+        {
+            return Err(CollectionStop::InvalidPage.error());
+        }
+        Ok(definition)
+    }
+    pub fn bind_plan_definition<'a>(
+        &self,
+        source: &CollectionDescription,
+        definition: Option<&'a PlanDefinition>,
+    ) -> Result<Option<&'a PlanDefinition>> {
+        self.bind_query_definition(source, None)?;
+        let Some(query) = &self.query else { return Ok(None) };
+        let Some(query_id) = &query.definition_id else { return Ok(None) };
+        let Some(reference) = &self.plan else { return Ok(None) };
+        let Some(id) = &reference.definition_id else { return Ok(None) };
+        let identity = NativePlanIdentity {
+            plan_id: reference.native.id.clone(),
+            qualifiers: reference.native.qualifiers.clone(),
+            query: NativeQueryIdentity {
+                query_id: query.native.id.clone(),
+                qualifiers: query.native.qualifiers.clone(),
+            },
+        };
+        if identity.definition_id(source)? != *id
+            || definition.is_some_and(|value| {
+                value.id != *id
+                    || value.identity != identity
+                    || value.query_definition_id.as_ref().is_some_and(|parent| parent != query_id)
+            })
+        {
+            return Err(CollectionStop::InvalidPage.error());
+        }
+        // An independent cache entry is retained context, not this runtime's definition namespace.
+        Ok(definition.filter(|value| value.query_definition_id.as_ref() == Some(query_id)))
+    }
+}

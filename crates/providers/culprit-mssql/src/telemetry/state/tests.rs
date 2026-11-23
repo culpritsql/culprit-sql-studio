@@ -1,3 +1,4 @@
+mod native_catalog;
 use super::*;
 use crate::{
     operations::native,

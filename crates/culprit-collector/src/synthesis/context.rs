@@ -15,6 +15,12 @@ pub enum SynthesisContextIssue {
     UnqualifiedCatalogScope,
     UnknownCatalogClock,
     CatalogNotRetainedAsOf,
+    UnqualifiedPointScope,
+    UnknownPointClock,
+    PointNotRetainedNearObservation,
+    PointOutsideObservationWindow,
+    IndependentPointRole,
+    AmbiguousPointContext,
 }
 
 impl SynthesisContextIssue {
@@ -27,6 +33,12 @@ impl SynthesisContextIssue {
             Self::UnqualifiedCatalogScope => DerivedContextIssue::UnqualifiedCatalogScope,
             Self::UnknownCatalogClock => DerivedContextIssue::UnknownCatalogClock,
             Self::CatalogNotRetainedAsOf => DerivedContextIssue::CatalogNotRetainedAsOf,
+            Self::UnqualifiedPointScope => DerivedContextIssue::UnqualifiedPointScope,
+            Self::UnknownPointClock => DerivedContextIssue::UnknownPointClock,
+            Self::PointNotRetainedNearObservation => DerivedContextIssue::PointNotRetainedNearObservation,
+            Self::PointOutsideObservationWindow => DerivedContextIssue::PointOutsideObservationWindow,
+            Self::IndependentPointRole => DerivedContextIssue::IndependentPointRole,
+            Self::AmbiguousPointContext => DerivedContextIssue::AmbiguousPointContext,
         }
     }
 }

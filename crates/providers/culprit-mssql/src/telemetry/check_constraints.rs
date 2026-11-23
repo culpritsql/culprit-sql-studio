@@ -8,7 +8,7 @@ impl SnapshotRecipe for CheckConstraints {
     const DATASET: SnapshotDataset = SnapshotDataset::CheckConstraints;
     const NAME: &'static str = "check-constraint-state";
     const SOURCE: &'static Source = &crate::sources::CHECK_CONSTRAINTS;
-    const ACQUISITION: SnapshotAcquisition = SnapshotAcquisition::AzureDatabase;
+    const ACQUISITION: SnapshotAcquisition = SnapshotAcquisition::DatabaseCatalog;
     const REQUIRES_FULL_METADATA: bool = true;
     async fn layout<R: NativeRead>(&self, _reader: &mut R, budget: &CollectionBudget) -> Result<Option<usize>> {
         Ok(Some(MAX_CATALOG_EXPRESSION_BYTES.min(budget.max_sql_bytes as usize)))

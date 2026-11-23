@@ -452,3 +452,20 @@ mod tests;
     feature = "auth-azure"
 ))]
 mod native_tests;
+
+#[cfg(all(
+    test,
+    feature = "mysql-native-tests",
+    feature = "store-adx",
+    feature = "recovery-azure",
+    feature = "auth-azure"
+))]
+mod mysql_native_tests;
+#[cfg(all(
+    test,
+    any(feature = "postgres-native-tests", feature = "mysql-native-tests"),
+    feature = "store-adx",
+    feature = "recovery-azure",
+    feature = "auth-azure"
+))]
+mod native_support;

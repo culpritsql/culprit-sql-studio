@@ -93,6 +93,12 @@ pub enum DerivedContextIssue {
     AmbiguousCatalog,
     ChangedCatalogSubject,
     AcquisitionCatalogOnly,
+    UnqualifiedPointScope,
+    UnknownPointClock,
+    PointNotRetainedNearObservation,
+    PointOutsideObservationWindow,
+    IndependentPointRole,
+    AmbiguousPointContext,
 }
 impl DerivedContextIssue {
     pub fn explanation(self) -> String {
@@ -107,6 +113,12 @@ impl DerivedContextIssue {
             Self::AmbiguousCatalog => crate::t!("view.synthesis.context.ambiguous_catalog"),
             Self::ChangedCatalogSubject => crate::t!("view.synthesis.context.changed_subject"),
             Self::AcquisitionCatalogOnly => crate::t!("view.synthesis.context.acquisition_only"),
+            Self::UnqualifiedPointScope => crate::t!("view.synthesis.context.point_scope"),
+            Self::UnknownPointClock => crate::t!("view.synthesis.context.point_clock"),
+            Self::PointNotRetainedNearObservation => crate::t!("view.synthesis.context.point_missing"),
+            Self::PointOutsideObservationWindow => crate::t!("view.synthesis.context.point_stale"),
+            Self::IndependentPointRole => crate::t!("view.synthesis.context.point_role"),
+            Self::AmbiguousPointContext => crate::t!("view.synthesis.context.point_ambiguous"),
         }
     }
 }

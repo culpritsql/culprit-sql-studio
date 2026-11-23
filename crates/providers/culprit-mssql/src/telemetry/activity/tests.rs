@@ -1,3 +1,4 @@
+mod instance;
 use super::*;
 
 #[test]

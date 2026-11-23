@@ -23,6 +23,10 @@ pub(crate) fn performance_counters(report: &PerformanceCounterReport) -> String 
         };
         text.push_str(&scope);
     }
+    if report.population == PerformanceCounterPopulation::SharedPool {
+        text.push('\n');
+        text.push_str(&t!("view.performance_counters.pool_scope"));
+    }
     text.push('\n');
     text.push_str(&t!(
         "view.performance_counters.counts",

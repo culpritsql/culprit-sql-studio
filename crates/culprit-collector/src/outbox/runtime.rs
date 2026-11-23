@@ -344,6 +344,32 @@ impl Outbox {
             })
             .await
     }
+    /// Observe an already-scheduled baseline attempt using frozen configured metadata, without native work.
+    pub async fn reserve_connection(
+        &mut self,
+        connection: &str,
+        request: &CollectionRequest,
+        route_revision: &str,
+        engine: culprit_core::Engine,
+    ) -> Result<CaptureLease<'_>> {
+        let reservation = self
+            .files
+            .run(|| {
+                let connection = connection.to_owned();
+                let request = request.clone();
+                let revision = route_revision.to_owned();
+                move |files| {
+                    if request.collection().is_local_output() || request.selection.requires_authenticated_parent() {
+                        return Err(super::problem(OutboxProblem::Integrity));
+                    }
+                    let control =
+                        super::connection_control::registration(&files.journal.id, &revision, &connection, engine)?;
+                    files.reserve_with_connection(&connection, &request, Some(&control))
+                }
+            })
+            .await?;
+        Ok(CaptureLease { outbox: self, reservation })
+    }
     pub async fn reserve(&mut self, connection: &str, request: &CollectionRequest) -> Result<CaptureLease<'_>> {
         let reservation = self
             .files
@@ -458,6 +484,11 @@ impl CaptureLease<'_> {
                 move |files| files.journal.source_work(&entry, work)
             })
             .await
+    }
+    /// Retain the real collector API result separately from actual SourceWorkState/finalization.
+    pub async fn finish_observed(self, outcome: CollectorCaptureOutcome, elapsed_ms: f64) -> Result<()> {
+        let completion = super::connection_control::Completion::new(outcome, elapsed_ms)?;
+        self.outbox.files.run(|| move |files| files.finish_with_connection(self.reservation, Some(completion))).await
     }
     pub async fn finish(self) -> Result<()> {
         self.outbox.files.run(|| move |files| files.finish(self.reservation)).await

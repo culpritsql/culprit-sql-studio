@@ -13,7 +13,9 @@ export function PerformanceCounters({ report }: { report: PerformanceCounterRepo
     ? report.database != null && report.native_database_id != null
       ? t("view.performance_counters.database", { database: report.database, id: report.native_database_id })
       : t("view.performance_counters.selected_scope")
-    : t("view.performance_counters.scope");
+    : report.population === "shared-pool"
+      ? t("view.performance_counters.pool_scope")
+      : t("view.performance_counters.scope");
   return <>
     <ObservationList collapseEntries source={t("view.performance_counters.source")}
       scope={scope} report={report}

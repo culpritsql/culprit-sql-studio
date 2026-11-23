@@ -93,8 +93,10 @@ pub struct CompletedBlocking {
 }
 impl CompletedBlocking {
     fn new(original: CompletedActivity, followup: CompletedActivity, bytes_read: u64) -> Result<Self> {
-        let SourceObservation::FocusedBlocking { result, .. } = &followup.source().observation else {
-            return Err(DeliveryProblem::UnsupportedSchema.error());
+        let result = match &followup.source().observation {
+            SourceObservation::FocusedBlocking { result, .. } => result.as_ref(),
+            SourceObservation::MetadataLockContext { result, .. } => &result.request,
+            _ => return Err(DeliveryProblem::UnsupportedSchema.error()),
         };
         if original.capture() == followup.capture()
             || original.capture() != &result.focus.parent.capture_ref()
@@ -116,7 +118,11 @@ impl CompletedBlocking {
             return Err(invalid());
         };
         if !result.focus.matches_parent(original.source(), observation, &result.focus.parent)
-            || !result.accepts_frame(&followup.frame()?)
+            || !match &followup.source().observation {
+                SourceObservation::FocusedBlocking { result, .. } => result.accepts_frame(&followup.frame()?),
+                SourceObservation::MetadataLockContext { result, .. } => result.accepts_frame(&followup.frame()?),
+                _ => false,
+            }
         {
             return Err(invalid());
         }
@@ -166,10 +172,12 @@ impl OutboxDelivery {
         let connection = lookup.connection.to_owned();
         self.with_capture_worker(read, worker_guard, move |files, read| {
             let followup = CompletedActivity::from_completed(files.completed_capture(read)?)?;
-            let SourceObservation::FocusedBlocking { result, .. } = &followup.source().observation else {
-                return Err(DeliveryProblem::UnsupportedSchema.error());
+            let parent = match &followup.source().observation {
+                SourceObservation::FocusedBlocking { result, .. } => result.focus.parent.capture_ref(),
+                SourceObservation::MetadataLockContext { result, .. } => result.request.focus.parent.capture_ref(),
+                _ => return Err(DeliveryProblem::UnsupportedSchema.error()),
             };
-            read.select_activity_reference(&connection, result.focus.parent.capture_ref())?;
+            read.select_activity_reference(&connection, parent)?;
             let original = CompletedActivity::from_completed(files.completed_capture(read)?)?;
             project(CompletedBlocking::new(original, followup, read.bytes_read)?)
         })

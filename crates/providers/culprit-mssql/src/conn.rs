@@ -12,7 +12,7 @@ use tiberius::{AuthMethod, Client, Config, EncryptionLevel};
 use tokio::net::TcpStream;
 use tokio_util::compat::{Compat, TokioAsyncWriteCompatExt};
 
-#[cfg(test)]
+#[cfg(any(test, feature = "native-test-support"))]
 use crate::value::Rec;
 
 pub(crate) type MsClient = Client<Compat<TcpStream>>;
@@ -262,7 +262,7 @@ pub(crate) async fn execute(client: &mut MsClient, sql: &str) -> tiberius::Resul
 }
 
 /// Marks Culprit's own statements so workload collection can leave them out of the application's history.
-#[cfg(test)]
+#[cfg(any(test, feature = "native-test-support"))]
 pub(crate) async fn query(client: &mut MsClient, sql: &str) -> tiberius::Result<Vec<Rec>> {
     let rows = client.simple_query(crate::statement_origin::monitoring_batch(sql)).await?.into_first_result().await?;
     Ok(rows.iter().map(Rec::from_row).collect())

@@ -245,6 +245,38 @@ async fn missing_invalid_or_foreign_catalog_rows_cannot_supply_authority() {
     assert_eq!(reader.closed, 0);
 }
 
+#[tokio::test]
+async fn boxed_local_comparison_uses_the_original_recovery_and_process_epoch_without_a_global_incarnation() {
+    let mut first = FakeRead::new(vec![Ok(vec![metadata()]), Ok(vec![epoch(100)]), Ok(vec![row(3)])]);
+    let owner = Context::read(&mut first, "fixture.invalid", 1433).await.unwrap();
+    let original = owner.completed(&owner).unwrap();
+    assert!(original.target.database().unwrap().incarnation.is_none());
+    assert!(original.same_local_database_owner(&original));
+    assert!(LocalResourceReadScope::from_context(&original).is_ok());
+    assert!(NativeSourceReadScope::from_context(&original).is_err());
+    assert_eq!(first.queries(), 3);
+    assert_eq!(first.close().await, SourceShutdown::Quiescent);
+    for changed in ["database_guid", "recovery_fork_guid", "database_file_guid", "process", "member", "unknown"] {
+        let mut platform = metadata();
+        let mut process = epoch(100);
+        let mut database = row(3);
+        match changed {
+            "process" => process = epoch(200),
+            "member" => {
+                platform = replace(&platform, &[("machine_name", Val::Text("different-native-machine".into()))])
+            }
+            "unknown" => database = replace(&database, &[("database_guid", Val::Null)]),
+            field => database = replace(&database, &[(field, Val::Text(format!("different-{field}")))]),
+        }
+        let mut reader = FakeRead::new(vec![Ok(vec![platform]), Ok(vec![process]), Ok(vec![database])]);
+        let changed_owner = Context::read(&mut reader, "fixture.invalid", 1433).await.unwrap();
+        let point = changed_owner.completed(&changed_owner).unwrap();
+        assert!(!original.same_local_database_owner(&point), "{changed}");
+        assert_eq!(reader.queries(), 3);
+        assert_eq!(reader.close().await, SourceShutdown::Quiescent);
+    }
+}
+
 /// Script the same current-owned transition as ReadSession, including legitimate first acquisition.
 struct HeldEpochRead {
     inner: FakeRead,

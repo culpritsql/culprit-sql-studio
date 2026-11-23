@@ -8,6 +8,7 @@ use culprit_core::{DatabaseIdentity, Result, telemetry::*};
 use std::sync::Arc;
 
 mod managed_instance;
+mod readable_member;
 pub(super) use managed_instance::ManagedInstanceResourceSource;
 pub(super) use managed_instance::bounded_budget as managed_instance_budget;
 
@@ -16,8 +17,24 @@ const ENCODED_ROW_ALLOWANCE: u32 = 4096;
 #[async_trait]
 pub(super) trait ResourceScope: Send {
     type Context: Send + Sync + PartialEq;
-    fn source(&self) -> &'static str;
+    fn source(&self, context: &Self::Context) -> &'static str;
     fn target(&self, context: &Self::Context) -> CollectionTarget;
+    fn observation(&self, _: &Self::Context, inventory: &Inventory) -> Result<SourceObservation> {
+        Ok(SourceObservation::RetainedSamples(inventory.history.clone()))
+    }
+    fn validate_inventory(&self, _: &Self::Context, _: &Inventory) -> Result<()> {
+        Ok(())
+    }
+    fn validate_page(&self, _: &Self::Context, _: &Inventory, _: &[ResourceMeasurement]) -> Result<()> {
+        Ok(())
+    }
+    fn same_inventory(&self, _: &Self::Context, before: &Inventory, after: &Inventory) -> bool {
+        before.same_rows(after)
+    }
+    async fn recheck<R: NativeRead>(&self, reader: &mut R, _: &Self::Context) -> Result<Self::Context> {
+        self.identity(reader).await
+    }
+
     async fn identity<R: NativeRead>(&self, reader: &mut R) -> Result<Self::Context>;
     async fn inventory<R: NativeRead>(&self, reader: &mut R, window: &Window) -> Result<Inventory>;
     async fn page<R: NativeRead>(
@@ -34,51 +51,91 @@ pub(super) struct DatabaseScope {
     host: String,
     port: u16,
 }
-#[derive(PartialEq)]
-pub(super) struct DatabaseContext {
-    database: DatabaseIdentity,
-    physical: String,
+pub(super) enum DatabaseContext {
+    Primary { database: DatabaseIdentity, physical: String },
+    Readable(Box<crate::local_source::Context>),
+}
+impl PartialEq for DatabaseContext {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Primary { database, physical }, Self::Primary { database: other, physical: incarnation }) => {
+                database == other && physical == incarnation
+            }
+            (Self::Readable(before), Self::Readable(after)) => before.same_observed_source(after),
+            _ => false,
+        }
+    }
 }
 #[async_trait]
 impl ResourceScope for DatabaseScope {
     type Context = DatabaseContext;
-    fn source(&self) -> &'static str {
-        culprit_core::source_id::RESOURCES
+    fn source(&self, context: &Self::Context) -> &'static str {
+        match context {
+            DatabaseContext::Primary { .. } => culprit_core::source_id::RESOURCES,
+            DatabaseContext::Readable(_) => MSSQL_READABLE_RESOURCE_HISTORY_SOURCE,
+        }
     }
     fn target(&self, context: &Self::Context) -> CollectionTarget {
-        context.database.clone().into()
+        match context {
+            DatabaseContext::Primary { database, .. } => database.clone().into(),
+            DatabaseContext::Readable(context) => context.activity.database.clone().into(),
+        }
+    }
+    fn observation(&self, context: &Self::Context, inventory: &Inventory) -> Result<SourceObservation> {
+        readable_member::observation(context, inventory)
+    }
+    fn validate_inventory(&self, context: &Self::Context, inventory: &Inventory) -> Result<()> {
+        readable_member::validate_inventory(context, inventory)
+    }
+    fn validate_page(
+        &self,
+        context: &Self::Context,
+        inventory: &Inventory,
+        rows: &[ResourceMeasurement],
+    ) -> Result<()> {
+        readable_member::validate_page(context, inventory, rows)
+    }
+    fn same_inventory(&self, _: &Self::Context, before: &Inventory, after: &Inventory) -> bool {
+        before.same_rows(after) && before.replica_role == after.replica_role
     }
     async fn identity<R: NativeRead>(&self, reader: &mut R) -> Result<Self::Context> {
-        let (database, physical) = description::identity(reader, &self.host, self.port).await?;
-        Ok(DatabaseContext { database, physical })
+        readable_member::identity(reader, &self.host, self.port).await
+    }
+    async fn recheck<R: NativeRead>(&self, reader: &mut R, context: &Self::Context) -> Result<Self::Context> {
+        match context {
+            DatabaseContext::Primary { .. } => self.identity(reader).await,
+            DatabaseContext::Readable(before) => Ok(DatabaseContext::Readable(Box::new(
+                readable_member::recheck(reader, before, &self.host, self.port).await?,
+            ))),
+        }
     }
     async fn inventory<R: NativeRead>(&self, reader: &mut R, window: &Window) -> Result<Inventory> {
-        let inventory = resources::inventory(reader, window).await?;
-        if inventory.replica_role.is_some_and(|role| role != 0) {
-            return Err(CollectionStop::SourceChanged.error());
-        }
-        Ok(inventory)
+        resources::inventory(reader, window).await
     }
     async fn page<R: NativeRead>(
         &self,
         reader: &mut R,
-        _: &Self::Context,
+        context: &Self::Context,
         window: &Window,
         cursor: Option<&str>,
         limit: u32,
     ) -> ReadResult<Vec<ResourceMeasurement>> {
-        resources::windowed(reader, window, cursor, limit)
-            .await?
-            .iter()
-            .map(|sample| {
-                // Primary-only capture is an export policy, not a restriction on interactive native reads.
-                if sample.replica_role != Some(MssqlResourceReplicaRole::Primary) {
-                    return Err(CollectionStop::SourceChanged.error());
-                }
-                Ok(sample.exported())
-            })
-            .collect::<Result<Vec<_>>>()
-            .map_err(ReadError::from)
+        match context {
+            DatabaseContext::Primary { .. } => resources::windowed(reader, window, cursor, limit)
+                .await?
+                .iter()
+                .map(|sample| {
+                    if sample.replica_role != Some(MssqlResourceReplicaRole::Primary) {
+                        return Err(CollectionStop::SourceChanged.error());
+                    }
+                    Ok(sample.exported())
+                })
+                .collect::<Result<Vec<_>>>()
+                .map_err(ReadError::from),
+            DatabaseContext::Readable(context) => {
+                readable_member::page(reader, context, &self.host, self.port, window, cursor, limit).await
+            }
+        }
     }
 }
 
@@ -86,7 +143,7 @@ pub(super) struct PoolScope;
 #[async_trait]
 impl ResourceScope for PoolScope {
     type Context = resources::pool::Context;
-    fn source(&self) -> &'static str {
+    fn source(&self, _: &Self::Context) -> &'static str {
         resources::pool::SOURCE
     }
     fn target(&self, context: &Self::Context) -> CollectionTarget {
@@ -227,11 +284,14 @@ impl<R: NativeRead, S: ResourceScope + Sync> TelemetrySource for ResourceSource<
         }
         let window = self.window()?;
         let inventory = self.scope.inventory(&mut self.session, &window).await?;
+        self.scope.validate_inventory(&context, &inventory)?;
+        let observation = self.scope.observation(&context, &inventory)?;
+        let source = self.scope.source(&context);
         let description = CollectionDescription {
             partition: culprit_core::telemetry::SourcePartition::Target,
             target,
-            source: self.scope.source().into(),
-            observation: SourceObservation::RetainedSamples(inventory.history.clone()),
+            source: source.into(),
+            observation,
             continuity: SourceContinuity::Unverified,
         };
         if !description.matches_request(&self.request) {
@@ -260,7 +320,10 @@ impl<R: NativeRead, S: ResourceScope + Sync> TelemetrySource for ResourceSource<
         let window = self.window()?;
         let context = self.context.as_ref().ok_or_else(decode::malformed)?;
         let result = match self.scope.page(&mut self.session, context, &window, cursor, rows_per_page).await {
-            Ok(rows) => self.pager.accept(rows, rows_per_page),
+            Ok(rows) => self
+                .scope
+                .validate_page(context, self.inventory.as_ref().ok_or_else(decode::malformed)?, &rows)
+                .and_then(|_| self.pager.accept(rows, rows_per_page)),
             Err(ReadError::Stopped(reason)) => Ok(CollectionRead::Stopped(reason)),
             Err(ReadError::Source(error)) => Err(error),
         };
@@ -268,19 +331,20 @@ impl<R: NativeRead, S: ResourceScope + Sync> TelemetrySource for ResourceSource<
     }
     async fn finish(&mut self) -> Result<SourceCompletion> {
         self.progress.verifying()?;
-        let context = self.scope.identity(&mut self.session).await?;
-        if self.context.as_ref() != Some(&context) {
+        let before = self.context.as_ref().ok_or_else(decode::malformed)?;
+        let context = self.scope.recheck(&mut self.session, before).await?;
+        if before != &context {
             self.progress.verified();
             return Ok(SourceCompletion::Changed);
         }
         let window = self.window()?;
         let current = self.scope.inventory(&mut self.session, &window).await?;
+        self.scope.validate_inventory(&context, &current)?;
         self.progress.verified();
-        Ok(SourceCompletion::verified_if(
-            self.inventory.as_ref().is_some_and(|before| {
-                before.same_rows(&current) && self.pager.complete(before.history.expected_samples)
-            }),
-        ))
+        Ok(SourceCompletion::verified_if(self.inventory.as_ref().is_some_and(|before| {
+            self.scope.same_inventory(&context, before, &current)
+                && self.pager.complete(before.history.expected_samples)
+        })))
     }
     async fn close(&mut self) -> SourceShutdown {
         self.progress.close();

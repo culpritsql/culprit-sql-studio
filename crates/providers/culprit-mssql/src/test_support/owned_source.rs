@@ -1,10 +1,14 @@
 //! Read-only admission to an explicitly selected nonce-owned loopback smoke database.
+#[cfg(test)]
 use super::{config, connect};
+#[cfg(test)]
+use crate::conn::{Pool, SessionKind};
 use crate::{
-    conn::{MsClient, Pool, SessionKind, map_error},
+    conn::{MsClient, map_error},
     read::{invalid_data, text},
     value::Rec,
 };
+#[cfg(test)]
 use std::{sync::Arc, time::Instant};
 
 const OWNER_BYTES: usize = 24;
@@ -77,6 +81,7 @@ fn valid_owner(value: &str) -> bool {
     value.len() == OWNER_BYTES && value.bytes().all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
 }
 
+#[cfg(test)]
 pub(crate) struct OwnedSourceFixture {
     pub(crate) port: u16,
     pub(crate) database: String,
@@ -85,6 +90,7 @@ pub(crate) struct OwnedSourceFixture {
     password: String,
 }
 
+#[cfg(test)]
 impl OwnedSourceFixture {
     pub(crate) async fn open(application: &str) -> culprit_core::Result<Self> {
         let started = Instant::now();

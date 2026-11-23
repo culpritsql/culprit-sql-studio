@@ -19,11 +19,31 @@ const BYTES_PER_FILE_PAGE: u64 = 8192;
 pub(crate) enum Selection {
     Database,
     DatabaseAndSharedTempdb,
+    /// Explicit qualified pool owner only; native database IDs remain pool-local.
+    Pool,
 }
 pub(crate) async fn read<R: NativeRead>(
     reader: &mut R,
     selection: Selection,
     limit: usize,
+) -> Result<Vec<FileIoCounters>> {
+    if selection == Selection::Pool {
+        return Err(invalid_data());
+    }
+    read_scoped(reader, selection, limit, None).await
+}
+pub(crate) async fn read_pool<R: NativeRead>(
+    reader: &mut R,
+    limit: usize,
+    owner: &crate::resources::pool::native::Context,
+) -> Result<Vec<FileIoCounters>> {
+    read_scoped(reader, Selection::Pool, limit, Some(owner)).await
+}
+async fn read_scoped<R: NativeRead>(
+    reader: &mut R,
+    selection: Selection,
+    limit: usize,
+    pool: Option<&crate::resources::pool::native::Context>,
 ) -> Result<Vec<FileIoCounters>> {
     let limit = limit.min(MAX_NATIVE_FILES);
     let rows = reader.query(&sql::statement(selection), vec![], limit + 1).await.map_err(ReadError::into_error)?;
@@ -34,6 +54,11 @@ pub(crate) async fn read<R: NativeRead>(
     let mut native_context = None;
     rows.iter()
         .map(|row| {
+            if let Some(owner) = pool
+                && !owner.accepts_profile(row)?
+            {
+                return Err(CollectionStop::SourceChanged.error());
+            }
             let context = context::NativeContext::decode(row)?;
             if native_context.as_ref().is_some_and(|previous| previous != &context) {
                 return Err(invalid_data());

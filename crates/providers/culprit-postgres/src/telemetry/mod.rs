@@ -3,6 +3,7 @@ mod activity;
 mod blocking;
 #[cfg(test)]
 mod native_tests;
+mod readable_secondary_recovery;
 mod recipes;
 mod transaction_metadata;
 use crate::connect::Connector;
@@ -454,6 +455,11 @@ pub(crate) fn safety_source(
     match &request.selection {
         CollectionSelection::Activity => activity::profile_source(connector, request, profile),
         CollectionSelection::FocusedBlocking { .. } => blocking::profile_source(connector, request, profile),
+        CollectionSelection::SourceRead { focus, .. }
+            if focus.question == SourceReadQuestion::ReadableSecondaryRecovery =>
+        {
+            readable_secondary_recovery::profile_source(connector, request, profile)
+        }
         _ => Err(CollectionStop::SourceChanged.error()),
     }
 }

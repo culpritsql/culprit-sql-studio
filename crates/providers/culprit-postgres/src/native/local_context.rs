@@ -1,4 +1,4 @@
-use crate::{native, read::QueryRead};
+use crate::{native, read::QueryRead, rows::Row};
 use culprit_core::{ErrorCode, Result, telemetry::*};
 
 pub(crate) struct Context {
@@ -135,4 +135,31 @@ pub(crate) async fn complete<R: QueryRead>(
 fn optional(error: &culprit_core::Error) -> bool {
     (error.detail.is_none() && matches!(error.code, ErrorCode::PermissionDenied | ErrorCode::Unsupported))
         || error.detail == Some(culprit_core::ErrorDetail::CollectionStopped(CollectionStop::InvalidPage))
+}
+
+/// A borrowed transport witness owns no login, cancellation, close or retry policy.
+pub(crate) struct SameConnection<'a, R> {
+    reader: &'a mut R,
+    generation: u64,
+}
+#[async_trait::async_trait]
+impl<R: QueryRead> QueryRead for SameConnection<'_, R> {
+    fn connection_generation(&self) -> Option<u64> {
+        self.reader.connection_generation()
+    }
+    async fn query(&mut self, sql: &str, limit: usize) -> Result<Vec<Row>> {
+        if self.reader.connection_generation() != Some(self.generation) {
+            return Err(CollectionStop::SourceChanged.error());
+        }
+        let rows = self.reader.query(sql, limit).await?;
+        if self.reader.connection_generation() != Some(self.generation) {
+            return Err(CollectionStop::SourceChanged.error());
+        }
+        Ok(rows)
+    }
+}
+impl<'a, R> SameConnection<'a, R> {
+    pub(crate) fn new(reader: &'a mut R, generation: u64) -> Self {
+        Self { reader, generation }
+    }
 }

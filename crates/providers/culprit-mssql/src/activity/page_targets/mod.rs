@@ -11,7 +11,7 @@ pub(crate) mod holders;
 #[cfg(test)]
 pub(crate) use focus::tests::focus as test_focus;
 mod index_context;
-#[cfg(test)]
+#[cfg(any(test, feature = "native-test-support"))]
 pub(crate) mod native_tests;
 mod participants;
 mod rows;

@@ -47,46 +47,10 @@ pub(crate) async fn read<R: NativeRead>(
         return Err(CollectionStop::RowLimit.error());
     }
     let (owner, at) = observed(&rows, expected)?;
-    let mut standard = Vec::new();
-    let mut governed = Vec::new();
-    let mut seen = BTreeSet::new();
-    for row in &rows {
-        let input = row::CounterInput::decode(row)?;
-        if !seen.insert(input.identity().to_owned()) {
-            return Err(invalid_data());
-        }
-        if profile.investigation_field(input.object(), input.name(), input.instance()).is_some() {
-            governed.push(row);
-        } else {
-            standard.push(row.clone());
-        }
-    }
+    let (standard, governed) = partition(&rows, profile)?;
     let mut read = decode(&standard, limit, Population::InstanceInvestigation)?;
-    let mut sets = BTreeMap::<(MssqlResourceGovernorCounterKind, String), NativeCounterSet>::new();
     let epoch = owner.capture_epoch()?;
-    for row in &governed {
-        let input = row::CounterInput::decode(row)?;
-        let spec =
-            profile.investigation_field(input.object(), input.name(), input.instance()).ok_or_else(invalid_data)?;
-        let kind = match spec.family {
-            PerformanceCounterFamily::WorkloadGroup => MssqlResourceGovernorCounterKind::WorkloadGroup,
-            PerformanceCounterFamily::ResourcePool => MssqlResourceGovernorCounterKind::ResourcePool,
-            _ => return Err(invalid_data()),
-        };
-        let name = input.instance().ok_or_else(invalid_data)?.to_owned();
-        let mut sample = header(row, &owner, &epoch, &at, kind, &name)?;
-        let row::CounterMeasurement::Value(counter) = input.measurement(spec, MeasurementScope::Server)? else {
-            return Err(invalid_data());
-        };
-        sample.counters.push(counter);
-        let target = sets.entry((kind, name)).or_insert_with(|| sample.clone());
-        if target.identity != sample.identity || target.properties != sample.properties {
-            return Err(CollectionStop::SourceChanged.error());
-        }
-        if target.counters[0].key != sample.counters[0].key {
-            target.counters.push(sample.counters.remove(0));
-        }
-    }
+    let mut sets = group(&governed, Observer::Instance { owner: &owner, epoch: &epoch }, &at, profile)?;
     read.resource_governor_complete = !sets.is_empty();
     for sample in sets.values_mut() {
         sample.properties.insert(PERFORMANCE_COUNTER_ROWS_PROPERTY.into(), sample.counters.len().to_string());
@@ -102,6 +66,185 @@ pub(crate) async fn read<R: NativeRead>(
     read.native_rows = rows.len();
     read.resource_governor = sets.into_values().collect();
     Ok(read)
+}
+
+#[derive(Clone, Copy)]
+enum Observer<'a> {
+    Instance { owner: &'a instance::Context, epoch: &'a str },
+    Pool(&'a crate::resources::pool::native::Context),
+}
+impl Observer<'_> {
+    fn fields(self) -> Result<BTreeMap<String, String>> {
+        Ok(match self {
+            Self::Instance { owner, epoch } => BTreeMap::from([
+                ("resource_governor_instance_id".into(), owner.identity.telemetry_id()?),
+                ("resource_governor_instance_epoch".into(), epoch.into()),
+            ]),
+            Self::Pool(owner) => {
+                let (epoch, _) = owner.scope.observed().ok_or_else(invalid_data)?;
+                BTreeMap::from([
+                    ("resource_governor_elastic_pool_id".into(), owner.current.point.pool.telemetry_id()?),
+                    ("resource_governor_anchor_id".into(), owner.current.point.member.key()?),
+                    ("resource_governor_pool_process_epoch".into(), epoch.into()),
+                ])
+            }
+        })
+    }
+    fn bind(self, mut identity: NativeIdentity) -> Result<NativeIdentity> {
+        for (name, value) in self.fields()? {
+            identity = identity.qualified(name, value);
+        }
+        Ok(identity)
+    }
+}
+
+fn partition<'a>(rows: &'a [Rec], profile: &PerformanceCounterProfile) -> Result<(Vec<Rec>, Vec<&'a Rec>)> {
+    let mut standard = Vec::new();
+    let mut governed = Vec::new();
+    let mut seen = BTreeSet::new();
+    for row in rows {
+        let input = row::CounterInput::decode(row)?;
+        if !seen.insert(input.identity().to_owned()) {
+            return Err(invalid_data());
+        }
+        if profile.investigation_field(input.object(), input.name(), input.instance()).is_some() {
+            governed.push(row);
+        } else {
+            standard.push(row.clone());
+        }
+    }
+    Ok((standard, governed))
+}
+fn group(
+    rows: &[&Rec],
+    observer: Observer<'_>,
+    at: &str,
+    profile: &PerformanceCounterProfile,
+) -> Result<BTreeMap<(MssqlResourceGovernorCounterKind, String), NativeCounterSet>> {
+    let mut sets = BTreeMap::new();
+    for row in rows {
+        let input = row::CounterInput::decode(row)?;
+        let spec =
+            profile.investigation_field(input.object(), input.name(), input.instance()).ok_or_else(invalid_data)?;
+        let kind = match spec.family {
+            PerformanceCounterFamily::WorkloadGroup => MssqlResourceGovernorCounterKind::WorkloadGroup,
+            PerformanceCounterFamily::ResourcePool => MssqlResourceGovernorCounterKind::ResourcePool,
+            _ => return Err(invalid_data()),
+        };
+        let name = input.instance().ok_or_else(invalid_data)?.to_owned();
+        let mut sample = header(row, observer, at, kind, &name)?;
+        let row::CounterMeasurement::Value(counter) = input.measurement(spec, MeasurementScope::Server)? else {
+            return Err(invalid_data());
+        };
+        sample.counters.push(counter);
+        let target = sets.entry((kind, name)).or_insert_with(|| sample.clone());
+        if target.identity != sample.identity || target.properties != sample.properties {
+            return Err(CollectionStop::SourceChanged.error());
+        }
+        if target.counters[0].key != sample.counters[0].key {
+            target.counters.push(sample.counters.remove(0));
+        }
+    }
+    Ok(sets)
+}
+
+pub(crate) async fn read_pool<R: NativeRead>(
+    reader: &mut R,
+    limit: usize,
+    expected: &crate::resources::pool::native::Context,
+) -> Result<PerformanceRead> {
+    let limit = limit.min(MAX_COUNTERS);
+    if limit == 0 {
+        return Err(CollectionStop::RowLimit.error());
+    }
+    let rows = reader.query(&pool_query(), vec![], limit + 1).await.map_err(ReadError::into_error)?;
+    if rows.len() > limit {
+        return Err(CollectionStop::RowLimit.error());
+    }
+    let profile = culprit_core::Engine::Mssql.spec().performance_counters().ok_or_else(invalid_data)?;
+    let mut at = None;
+    for row in &rows {
+        let time = canonical_time(&text(row, "counter_observed_at")?)?;
+        if !expected.accepts_counter_point(row)?
+            || ObservationBounds::new(&expected.current.point.observed_at, &time).is_none()
+            || at.as_ref().is_some_and(|before| before != &time)
+        {
+            return Err(CollectionStop::SourceChanged.error());
+        }
+        at = Some(time);
+    }
+    let at = at.ok_or_else(|| CollectionStop::SourceUnavailable.error())?;
+    let (standard, governed) = partition(&rows, profile)?;
+    let mut read = decode(&standard, limit, Population::InstanceInvestigation)?;
+    let mut sets = group(&governed, Observer::Pool(expected), &at, profile)?;
+    read.resource_governor_complete = !sets.is_empty();
+    for sample in sets.values_mut() {
+        sample.properties.insert(PERFORMANCE_COUNTER_ROWS_PROPERTY.into(), sample.counters.len().to_string());
+        profile.validate(sample)?;
+        read.resource_governor_complete &= MssqlResourceGovernorCounterSet::from_sample(sample)?.has_native_ids();
+    }
+    read.resource_governor_complete &= pool_population_complete(&sets, expected, profile)?;
+    read.sample.properties.insert(MSSQL_RESOURCE_GOVERNOR_REQUEST_PROPERTY.into(), "true".into());
+    read.sample.properties.insert("resource_governor_native_rows".into(), governed.len().to_string());
+    read.sample.properties.extend(Observer::Pool(expected).fields()?);
+    profile.validate(&read.sample)?;
+    read.native_rows = rows.len();
+    read.resource_governor = sets.into_values().collect();
+    Ok(read)
+}
+
+fn pool_population_complete(
+    sets: &BTreeMap<(MssqlResourceGovernorCounterKind, String), NativeCounterSet>,
+    owner: &crate::resources::pool::native::Context,
+    profile: &PerformanceCounterProfile,
+) -> Result<bool> {
+    let (_, members) = owner.scope.observed().ok_or_else(invalid_data)?;
+    let mut groups = BTreeMap::new();
+    let mut pools = BTreeMap::new();
+    for sample in sets.values() {
+        let context = MssqlResourceGovernorCounterSet::from_sample(sample)?.context();
+        match context.kind {
+            MssqlResourceGovernorCounterKind::WorkloadGroup => {
+                if let Some(id) = context.native_group_id
+                    && groups.insert(id, (sample, context.native_pool_id)).is_some()
+                {
+                    return Err(CollectionStop::SourceChanged.error());
+                }
+            }
+            MssqlResourceGovernorCounterKind::ResourcePool => {
+                if let Some(id) = context.native_pool_id
+                    && pools.insert(id, sample).is_some()
+                {
+                    return Err(CollectionStop::SourceChanged.error());
+                }
+            }
+        }
+    }
+    for member in members {
+        let Some((group, Some(pool_id))) = groups.get(&member.workload_group_id.to_string()) else {
+            return Ok(false);
+        };
+        let Some(pool) = pools.get(pool_id) else {
+            return Ok(false);
+        };
+        if !complete_fields(group, PerformanceCounterFamily::WorkloadGroup, profile)
+            || !complete_fields(pool, PerformanceCounterFamily::ResourcePool, profile)
+        {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+fn complete_fields(
+    sample: &NativeCounterSet,
+    family: PerformanceCounterFamily,
+    profile: &PerformanceCounterProfile,
+) -> bool {
+    profile.investigation_fields.iter().filter(|field| field.family == family).all(|field| {
+        sample.counters.iter().any(|counter| {
+            field.matches(&counter.native_object, &counter.native_name, counter.native_instance.as_deref())
+        })
+    })
 }
 
 fn observed(rows: &[Rec], expected: &instance::Context) -> Result<(instance::Context, String)> {
@@ -123,8 +266,7 @@ fn observed(rows: &[Rec], expected: &instance::Context) -> Result<(instance::Con
 }
 fn header(
     row: &Rec,
-    owner: &instance::Context,
-    epoch: &str,
+    observer: Observer<'_>,
     at: &str,
     kind: MssqlResourceGovernorCounterKind,
     name: &str,
@@ -150,12 +292,12 @@ fn header(
         properties.insert("statistics_started_without_offset".into(), crate::sql_time::native_time(&started)?);
     }
     Ok(NativeCounterSet {
-        identity: NativeIdentity::new(digest(name.as_bytes()))
-            .qualified("kind", MSSQL_RESOURCE_GOVERNOR_COUNTER_KIND)
-            .qualified("native_object", "sys.dm_os_performance_counters")
-            .qualified("resource_kind", kind.key())
-            .qualified("resource_governor_instance_id", owner.identity.telemetry_id()?)
-            .qualified("resource_governor_instance_epoch", epoch),
+        identity: observer.bind(
+            NativeIdentity::new(digest(name.as_bytes()))
+                .qualified("kind", MSSQL_RESOURCE_GOVERNOR_COUNTER_KIND)
+                .qualified("native_object", "sys.dm_os_performance_counters")
+                .qualified("resource_kind", kind.key()),
+        )?,
         scope: MeasurementScope::Server,
         counters: Vec::new(),
         ratios: Vec::new(),

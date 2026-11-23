@@ -392,7 +392,16 @@ async fn corrupt_truncated_and_late_error_native_tails_do_not_release_early_rows
         let mut capture = gaps(&fixture.range);
         let before = capture.gaps.clone();
         assert!(
-            restore(&fixture.range, &fixture.recovery, RecoveryPayloadBudget::default(), &mut capture).await.is_err()
+            restore(
+                &fixture.range,
+                &fixture.recovery,
+                RecoveryPayloadBudget::default(),
+                &mut capture.records,
+                &mut capture.gaps,
+                &mut capture.metrics
+            )
+            .await
+            .is_err()
         );
         assert!(capture.records.is_empty());
         assert_eq!(capture.gaps, before);
@@ -411,7 +420,16 @@ async fn wrong_native_receipt_in_a_later_object_leaves_every_repair_uninstalled(
     let range = reopen(&recovery, &recovery.manifest.range_id).await.unwrap();
     let mut capture = gaps(&range);
     let before = capture.gaps.clone();
-    let error = restore(&range, &recovery, RecoveryPayloadBudget::default(), &mut capture).await.unwrap_err();
+    let error = restore(
+        &range,
+        &recovery,
+        RecoveryPayloadBudget::default(),
+        &mut capture.records,
+        &mut capture.gaps,
+        &mut capture.metrics,
+    )
+    .await
+    .unwrap_err();
     assert_eq!(error.detail, Some(ErrorDetail::Delivery(DeliveryProblem::Integrity)));
     assert_eq!(recovery.object_reads.load(Ordering::SeqCst), 2);
     assert!(

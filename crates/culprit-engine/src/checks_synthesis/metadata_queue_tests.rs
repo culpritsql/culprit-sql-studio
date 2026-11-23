@@ -165,8 +165,13 @@ fn native_lock_points_cannot_be_published_as_baseline_or_beyond_their_original_s
     let mut later = records[0].clone();
     let TelemetryRecord::Activity(point) = &mut later else { unreachable!() };
     let culprit_core::blocking::NativeLockEvidence::Postgres(native) =
-        point.wait.as_mut().unwrap().resources.as_mut().unwrap()[0].native.as_deref_mut().unwrap();
+        point.wait.as_mut().unwrap().resources.as_mut().unwrap()[0].native.as_deref_mut().unwrap()
+    else {
+        panic!("expected original PostgreSQL lock point")
+    };
     native.observed_at = "2020-01-01T12:00:03Z".into();
     assert!(later.is_valid(), "the native row is shaped correctly but belongs outside this source clock");
     assert!(ExportedRecord::new(&source, &capture, later).is_err());
 }
+
+mod mssql;

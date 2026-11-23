@@ -109,7 +109,8 @@ impl Files {
         for id in ids {
             let capture = self.journal.capture(&id)?;
             if !matches!(self.authority, RevisionAuthority::Recovery { .. })
-                || capture.source_work != SourceWorkState::Quiescent
+                || (capture.source_work != SourceWorkState::Quiescent
+                    && !connection_control::preidentity_expiry(&self.journal.conn, &capture)?)
             {
                 return Err(problem(OutboxProblem::Integrity));
             }
@@ -117,7 +118,7 @@ impl Files {
         }
         Ok(())
     }
-    fn remove_capture(&mut self, id: &str) -> Result<()> {
+    pub(super) fn remove_capture_files(&self, id: &str) -> Result<()> {
         let directory = self.directory(id);
         if directory.try_exists().map_err(storage)? {
             // The same bounded inventory validation used for recovery rejects unexpected files and links.
@@ -128,6 +129,10 @@ impl Files {
             fs::remove_dir(&directory).map_err(storage)?;
             durable_fs::sync_directory(&self.root.join("captures")).map_err(storage)?;
         }
+        Ok(())
+    }
+    pub(super) fn remove_capture(&mut self, id: &str) -> Result<()> {
+        self.remove_capture_files(id)?;
         let tx = self.journal.conn.transaction().map_err(storage)?;
         super::automatic_synthesis::before_remove(&tx, id)?;
         tx.execute("DELETE FROM range_heads WHERE observation_id=?1", [id]).map_err(storage)?;

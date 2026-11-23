@@ -169,6 +169,8 @@ pub enum ActivityWaitClass {
     WorkerQueue,
 }
 
+pub const MAX_ACTIVITY_LOCK_RESOURCES: usize = 64;
+
 #[derive(Serialize, Deserialize, TS, Clone, Debug, PartialEq, Eq)]
 #[ts(export)]
 pub struct ActivityWait {
@@ -260,6 +262,14 @@ impl ActivityObservation {
             || self.database.as_deref().is_none_or(|observed| observed == database)
     }
 
+    pub(crate) fn fits_source_scope(&self, source: &CollectionDescription) -> bool {
+        let instance =
+            source.observation.activity().is_some_and(|frame| frame.scope == crate::MeasurementScope::Server);
+        if instance || self.scope == ActivityScopeBasis::InstanceMember {
+            return self.scope == ActivityScopeBasis::InstanceMember && source.has_qualified_instance_activity();
+        }
+        source.target.database().is_none_or(|database| self.database_context_is_consistent(&database.database))
+    }
     pub fn is_valid(&self) -> bool {
         self.key.is_valid()
             && self.session_context.as_deref().is_none_or(|context| context.is_valid_for(&self.key, self.idle))
@@ -283,7 +293,7 @@ impl ActivityObservation {
                     && wait.owners.len() <= 64
                     && wait.owners.iter().all(ActivityWaitOwner::is_valid)
                     && wait.resources.as_ref().is_none_or(|resources| {
-                        resources.len() <= 64
+                        resources.len() <= MAX_ACTIVITY_LOCK_RESOURCES
                             && resources.iter().all(|resource| {
                                 resource.session == self.key.session.id
                                     && resource
@@ -323,9 +333,11 @@ impl ActivityObservation {
         self.request_counters.as_ref().unwrap_or(&self.session_counters)
     }
     pub fn blocking_uncertain(&self, policy: &ActivityPolicy) -> bool {
+        self.blocking_uncertain_in_frame(policy, false)
+    }
+    fn blocking_uncertain_in_frame(&self, policy: &ActivityPolicy, instance_member: bool) -> bool {
         self.blocking_status == ActivityBlockingStatus::Unknown
-            && self.scope != ActivityScopeBasis::OtherDatabase
-            && self.scope != ActivityScopeBasis::BlockingReference
+            && self.scope_allows_diagnosis(instance_member)
             && self.key.request.is_some()
             && self
                 .elapsed_ms
@@ -334,10 +346,18 @@ impl ActivityObservation {
                 .is_some_and(|age| age >= policy.blocked_after_ms.into())
     }
     pub fn conditions(&self, policy: &ActivityPolicy) -> Vec<ActivityCondition> {
+        self.conditions_in_frame(policy, false)
+    }
+    fn scope_allows_diagnosis(&self, instance_member: bool) -> bool {
+        match self.scope {
+            ActivityScopeBasis::OtherDatabase | ActivityScopeBasis::BlockingReference => false,
+            ActivityScopeBasis::InstanceMember => instance_member,
+            _ => true,
+        }
+    }
+    fn conditions_in_frame(&self, policy: &ActivityPolicy, instance_member: bool) -> Vec<ActivityCondition> {
         let mut conditions = Vec::new();
-        if !self.has_session_generation_authority()
-            || matches!(self.scope, ActivityScopeBasis::BlockingReference | ActivityScopeBasis::OtherDatabase)
-        {
+        if !self.has_session_generation_authority() || !self.scope_allows_diagnosis(instance_member) {
             return conditions;
         }
         if self.key.request.is_some() {
@@ -373,6 +393,8 @@ pub enum ActivityScopeBasis {
     SessionDatabase,
     BlockingReference,
     OtherDatabase,
+    /// One actual user-session/current-request census on the qualified native instance, never DB membership.
+    InstanceMember,
 }
 
 #[derive(Serialize, Deserialize, TS, Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -466,6 +488,7 @@ impl ActivitySnapshotDescription {
                 || matches!(
                     self.scope,
                     crate::MeasurementScope::Database
+                        | crate::MeasurementScope::Server
                         | crate::MeasurementScope::Node
                         | crate::MeasurementScope::Cluster
                 ))
@@ -542,19 +565,19 @@ impl ActivityEvidence {
         context::all_observed(&roots.iter().cloned().collect::<Vec<_>>(), frame.index())
     }
     pub fn select(rows: &[ActivityObservation], policy: &ActivityPolicy) -> Result<Self> {
-        Self::select_index(&ActivityIndex::new(rows)?, policy)
+        Self::select_index(&ActivityIndex::new(rows)?, policy, false)
     }
     pub fn select_frame(frame: &ActivityFrameEvidence<'_>, policy: &ActivityPolicy) -> Result<Self> {
-        Self::select_index(frame.index(), policy)
+        Self::select_index(frame.index(), policy, frame.source().has_qualified_instance_activity())
     }
-    fn select_index(index: &ActivityIndex<'_>, policy: &ActivityPolicy) -> Result<Self> {
+    fn select_index(index: &ActivityIndex<'_>, policy: &ActivityPolicy, instance_member: bool) -> Result<Self> {
         policy.validate()?;
         let mut conditions: BTreeMap<_, _> = index
             .by_key
             .values()
             .filter(|row| index.has_session_generation_authority(&row.key.session))
             .filter_map(|row| {
-                let conditions = row.conditions(policy);
+                let conditions = row.conditions_in_frame(policy, instance_member);
                 (!conditions.is_empty()).then(|| (row.key.clone(), conditions))
             })
             .collect();
@@ -567,7 +590,7 @@ impl ActivityEvidence {
         for key in &blocked_context {
             let row = index.by_key[key];
             if index.has_session_generation_authority(&row.key.session)
-                && !matches!(row.scope, ActivityScopeBasis::BlockingReference | ActivityScopeBasis::OtherDatabase)
+                && row.scope_allows_diagnosis(instance_member)
                 && row.idle
                 && row.key.request.is_none()
                 && row.key.transaction.is_some()
@@ -576,8 +599,12 @@ impl ActivityEvidence {
                 conditions.entry(key.clone()).or_default().push(ActivityCondition::IdleBlocker);
             }
         }
-        let uncertain: BTreeSet<_> =
-            index.by_key.values().filter(|row| row.blocking_uncertain(policy)).map(|row| row.key.clone()).collect();
+        let uncertain: BTreeSet<_> = index
+            .by_key
+            .values()
+            .filter(|row| row.blocking_uncertain_in_frame(policy, instance_member))
+            .map(|row| row.key.clone())
+            .collect();
         let roots = conditions.keys().chain(uncertain.iter()).cloned().collect::<Vec<_>>();
         let selected = context::all_observed(&roots, index);
         let observations: Vec<_> = selected.iter().map(|key| (*index.by_key[key]).clone()).collect();

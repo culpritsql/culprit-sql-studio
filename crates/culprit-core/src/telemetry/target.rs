@@ -47,6 +47,7 @@ impl SharedResourceIdentity {
 pub enum CollectionTarget {
     Database(DatabaseIdentity),
     Shared(SharedResourceIdentity),
+    ConfiguredConnection(super::ConfiguredConnectionIdentity),
 }
 
 impl CollectionTarget {
@@ -54,6 +55,7 @@ impl CollectionTarget {
         use crate::MeasurementScope;
         match self {
             Self::Database(_) => MeasurementScope::Database,
+            Self::ConfiguredConnection(_) => MeasurementScope::Unknown,
             Self::Shared(resource) => match resource.kind {
                 SharedResourceKind::Instance => MeasurementScope::Server,
                 SharedResourceKind::Pool => MeasurementScope::Pool,
@@ -67,13 +69,14 @@ impl CollectionTarget {
         match self {
             Self::Database(database) => database.engine,
             Self::Shared(resource) => resource.engine,
+            Self::ConfiguredConnection(connection) => connection.engine,
         }
     }
 
     pub fn database(&self) -> Option<&DatabaseIdentity> {
         match self {
             Self::Database(database) => Some(database),
-            Self::Shared(_) => None,
+            Self::Shared(_) | Self::ConfiguredConnection(_) => None,
         }
     }
 
@@ -122,6 +125,7 @@ impl CollectionTarget {
         match self {
             Self::Database(database) => !database.database.trim().is_empty(),
             Self::Shared(resource) => resource.is_valid(),
+            Self::ConfiguredConnection(connection) => connection.is_valid(),
         }
     }
 
@@ -132,6 +136,7 @@ impl CollectionTarget {
         match self {
             Self::Database(database) => database.telemetry_id(),
             Self::Shared(resource) => resource.telemetry_id(),
+            Self::ConfiguredConnection(connection) => Ok(connection.id.clone()),
         }
     }
 }

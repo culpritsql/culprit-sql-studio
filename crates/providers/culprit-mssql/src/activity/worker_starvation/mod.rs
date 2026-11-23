@@ -94,24 +94,51 @@ impl<R: NativeRead> ActivityReader<R> {
         Ok(Capture { owner, point })
     }
     async fn worker_population(&mut self, owner: &crate::local_source::Context) -> Result<Population> {
-        let cap = (self.options.budget.max_snapshot_rows as usize / 2).min(MAX_WORKER_TASKS).min(MAX_WORKER_WAITERS);
+        self.worker_population_for(owner, None).await
+    }
+    pub(crate) async fn selected_worker_point(
+        &mut self,
+        owner: &crate::local_source::Context,
+        focus: &ActivityRequestFocus,
+    ) -> Result<MssqlSelectedWorkerPoint> {
+        let population = self.worker_population_for(owner, Some(focus)).await?;
+        Ok(MssqlSelectedWorkerPoint {
+            observed_at: population.at,
+            tasks: population.tasks,
+            limited: population.tasks_limited,
+        })
+    }
+    async fn worker_population_for(
+        &mut self,
+        owner: &crate::local_source::Context,
+        focus: Option<&ActivityRequestFocus>,
+    ) -> Result<Population> {
+        let divisor = if focus.is_some() { 4 } else { 2 };
+        let cap =
+            (self.options.budget.max_snapshot_rows as usize / divisor).min(MAX_WORKER_TASKS).min(MAX_WORKER_WAITERS);
         if cap == 0 {
             return Err(CollectionStop::RowLimit.error());
         }
         let maximum = 2 * (cap + 1) + 1;
-        let native = self
-            .io
-            .query(
-                &sql::observation(self.options.identity, owner.activity.request_page_server_read_capability),
-                vec![
-                    Parameter::Integer(maximum as i64),
-                    Parameter::Integer((cap + 1) as i64),
-                    Parameter::Integer((cap + 1) as i64),
-                ],
-                maximum,
+        let mut parameters = vec![
+            Parameter::Integer(maximum as i64),
+            Parameter::Integer((cap + 1) as i64),
+            Parameter::Integer((cap + 1) as i64),
+        ];
+        let sql = if let Some(focus) = focus {
+            let key = &focus.original.key;
+            let request = key.request.as_ref().ok_or_else(invalid_data)?;
+            parameters.push(Parameter::Integer(key.session.id.parse().map_err(|_| invalid_data())?));
+            parameters.push(Parameter::Integer(request.id.parse().map_err(|_| invalid_data())?));
+            sql::observation_for(
+                self.options.identity,
+                owner.activity.request_page_server_read_capability,
+                sql::WorkerSelection::Request,
             )
-            .await
-            .map_err(ReadError::into_error)?;
+        } else {
+            sql::observation(self.options.identity, owner.activity.request_page_server_read_capability)
+        };
+        let native = self.io.query(&sql, parameters, maximum).await.map_err(ReadError::into_error)?;
         let first = native.first().ok_or_else(invalid_data)?;
         let context = ActivityContext::decode(first, &self.host, self.port, self.options.identity)?;
         if !owner.matches_frame(&context) || owner.activity.at > context.at {

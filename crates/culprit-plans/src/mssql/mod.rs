@@ -10,6 +10,7 @@ use roxmltree::{Document, Node};
 
 mod cached_definitions;
 pub mod deadlocks;
+pub mod events;
 mod hash_join;
 mod memory_feedback;
 #[cfg(test)]

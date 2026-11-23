@@ -7,6 +7,8 @@ use std::collections::VecDeque;
 
 #[derive(Default)]
 pub(crate) struct Read {
+    pub generation: Option<u64>,
+    pub change_generation_after: Option<usize>,
     pub replies: VecDeque<Result<Vec<Rec>>>,
     pub queries: Vec<(String, Vec<Value>, usize)>,
     pub closed: usize,
@@ -20,7 +22,7 @@ pub(crate) struct Read {
 
 impl Read {
     pub fn with(replies: Vec<Result<Vec<Rec>>>) -> Self {
-        Self { replies: replies.into(), ..Default::default() }
+        Self { replies: replies.into(), generation: Some(1), ..Default::default() }
     }
     pub fn with_query_budget(mut self, limit: u32, initial_queries: u32) -> Self {
         self.query_limit = Some(limit);
@@ -47,10 +49,16 @@ impl Read {
 
 #[async_trait::async_trait]
 impl QueryRead for Read {
+    fn connection_generation(&self) -> Option<u64> {
+        self.generation
+    }
     async fn read(&mut self, sql: &str, parameters: Vec<Value>, row_limit: usize) -> Result<Vec<Rec>> {
         let phases = if self.native_phases && !parameters.is_empty() { 2 } else { 1 };
         self.charge(phases)?;
         self.queries.push((sql.into(), parameters, row_limit));
+        if self.change_generation_after == Some(self.queries.len()) {
+            self.generation = self.generation.map(|generation| generation + 1);
+        }
         self.replies.pop_front().expect("unexpected source SQL")
     }
     async fn explain(&mut self, sql: &str) -> Result<Option<Rec>> {
@@ -76,6 +84,7 @@ impl OwnedRead for Read {
     }
     async fn close(&mut self) -> SourceShutdown {
         self.closed += 1;
+        self.generation = None;
         self.shutdown.unwrap_or(SourceShutdown::Quiescent)
     }
 }

@@ -77,3 +77,43 @@ fn gold_outputs_are_deployed_through_the_same_catalog_without_native_current_or_
         assert!(script.contains(field), "{field}");
     }
 }
+
+#[test]
+fn collector_connections_use_one_catalog_table_and_canonical_append_only_eligibility_without_native_heads() {
+    let stream = culprit_core::telemetry::TelemetryStream::CollectorConnections;
+    let catalog = SchemaCatalog::new().unwrap();
+    let schema = catalog.get(stream).unwrap();
+    let assets = DeploymentAssets::new().unwrap();
+    let semantics = stream_semantics(stream).unwrap();
+    assert_eq!(schema.table(), "CulpritCollectorConnectionsV1");
+    assert!(!semantics.latest_revision);
+    assert!(semantics.current.is_none());
+    assert!(assets.commands.contains(&eligibility::eligible(schema, EligibilityScope::Resource)));
+    assert!(assets.commands.contains(&eligibility::rows(schema, EligibilityScope::Resource, false)));
+    let script = assets.script();
+    assert!(script.contains("CulpritCollectorConnectionsV1Eligible"));
+    assert!(script.contains("CulpritCollectorConnectionsV1Rows"));
+    assert!(!script.contains("CulpritCollectorConnectionsV1Current"));
+    for name in [
+        "ConnectionId",
+        "RouteRevision",
+        "ConnectionName",
+        "OriginalAttempt",
+        "OriginalStatus",
+        "OriginalStop",
+        "OriginalEvidence",
+        "CollectorOutcome",
+        "ConnectionOutcome",
+        "SourceWork",
+        "CollectorStartedAt",
+        "CollectorFinishedAt",
+        "CollectorElapsedMs",
+        "OrderedCollectorClocks",
+        "ConnectionPhases",
+        "OriginalSourceQueries",
+        "NativeTargetLink",
+        "Details",
+    ] {
+        assert!(schema.columns().iter().any(|column| column.name == name), "{name}");
+    }
+}

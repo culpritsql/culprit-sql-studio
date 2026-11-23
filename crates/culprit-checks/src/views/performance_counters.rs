@@ -11,6 +11,12 @@ pub use recorded::{explain_database_captured, explain_recorded, unavailable};
 pub const MAX_PERFORMANCE_COUNTER_ENTRIES: usize = 256;
 
 pub enum PerformanceCounterEvidence<'a> {
+    Pool {
+        source: &'a CollectionDescription,
+        coverage: &'a StateSourceCoverage,
+        observations: &'a [&'a OperationalObservation],
+        read_complete: bool,
+    },
     Captured {
         context: &'a NativeReadContext,
         coverage: &'a StateSourceCoverage,
@@ -56,6 +62,11 @@ pub fn explain_source(
         SnapshotDataset::DatabasePerformanceCounters => {
             PerformanceCounterEvidence::Database { source, coverage, observations, read_complete }
         }
+        SnapshotDataset::Operational
+            if mssql_pool_current_authority(source)?.is_some_and(|authority| authority.native.is_some()) =>
+        {
+            PerformanceCounterEvidence::Pool { source, coverage, observations, read_complete }
+        }
         SnapshotDataset::Operational => {
             PerformanceCounterEvidence::Captured { context: &context, coverage, observations, read_complete }
         }
@@ -66,6 +77,28 @@ pub fn explain_source(
 
 pub fn explain(evidence: PerformanceCounterEvidence<'_>) -> Result<PerformanceCounterReport> {
     match evidence {
+        PerformanceCounterEvidence::Pool { source, coverage, observations, read_complete } => {
+            let Some(authority) = mssql_pool_current_authority(source)? else {
+                return Err(invalid());
+            };
+            if authority.native.is_none()
+                || source.observation.snapshot().is_none_or(|snapshot| !snapshot.sources.contains(coverage))
+                || observations.iter().any(|row| !authority.accepts_operational(row))
+            {
+                return Err(invalid());
+            }
+            let context = NativeReadContext::from_snapshot(source)?;
+            let mut report = captured(
+                &context,
+                coverage,
+                observations,
+                read_complete,
+                PerformanceCounterPopulation::SharedPool,
+                Some(source),
+            )?;
+            report.limitations.push(t!("view.pool_operational.limit.scope"));
+            Ok(report)
+        }
         PerformanceCounterEvidence::Snapshot { engine, samples, source } => {
             render(engine, samples, source, None, PerformanceCounterPopulation::SharedServer)
         }
@@ -82,6 +115,7 @@ pub fn explain(evidence: PerformanceCounterEvidence<'_>) -> Result<PerformanceCo
                 observations,
                 read_complete,
                 PerformanceCounterPopulation::SelectedDatabase,
+                None,
             )?;
             let SourceObservation::DatabasePerformanceCounters { native_database, .. } = &source.observation else {
                 return Err(invalid());
@@ -91,7 +125,7 @@ pub fn explain(evidence: PerformanceCounterEvidence<'_>) -> Result<PerformanceCo
             Ok(report)
         }
         PerformanceCounterEvidence::Captured { context, coverage, observations, read_complete } => {
-            captured(context, coverage, observations, read_complete, PerformanceCounterPopulation::SharedServer)
+            captured(context, coverage, observations, read_complete, PerformanceCounterPopulation::SharedServer, None)
         }
     }
 }
@@ -102,6 +136,7 @@ fn captured(
     observations: &[&OperationalObservation],
     read_complete: bool,
     population: PerformanceCounterPopulation,
+    original: Option<&CollectionDescription>,
 ) -> Result<PerformanceCounterReport> {
     let profile = context.target.engine().spec().performance_counters().ok_or_else(invalid)?;
     if !context.is_valid()
@@ -118,8 +153,14 @@ fn captured(
             if !row.is_valid() || row.source != coverage.source {
                 return Err(invalid());
             }
-            let OperationalFact::CounterSet(sample) = &row.fact else { return Err(invalid()) };
-            if resource_governor_candidate(sample) && !MssqlResourceGovernorCounterSet::fits_context(sample, context)
+            let OperationalFact::CounterSet(sample) = &row.fact else {
+                return Err(invalid());
+            };
+            if resource_governor_candidate(sample)
+                && !original.map_or_else(
+                    || MssqlResourceGovernorCounterSet::fits_context(sample, context),
+                    |source| resource_governor_fits_source(sample, source),
+                )
                 || profile.observed_at(sample)?.is_some_and(|at| !bounds.contains(at))
                 || sample.ratios.iter().any(|ratio| ratio.observed_at.as_deref().is_some_and(|at| !bounds.contains(at)))
             {
@@ -218,7 +259,7 @@ fn render(
         t!("view.performance_counters.limit.lifetime"),
         t!("view.performance_counters.limit.cause"),
     ];
-    if population == PerformanceCounterPopulation::SharedServer {
+    if matches!(population, PerformanceCounterPopulation::SharedServer | PerformanceCounterPopulation::SharedPool) {
         limitations.push(t!("view.performance_counters.limit.overlap"));
     }
     if read_complete.is_none() {

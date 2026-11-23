@@ -54,6 +54,8 @@ mod partitions;
 mod performance;
 mod periods;
 use culprit_plans::mssql;
+#[cfg(feature = "native-test-support")]
+pub mod native_test_support;
 #[cfg(test)]
 mod plan_tests;
 mod pressure;
@@ -85,7 +87,7 @@ mod tables;
 mod task_space;
 mod telemetry;
 mod tempdb_metadata_memory;
-#[cfg(test)]
+#[cfg(any(test, feature = "native-test-support"))]
 mod test_support;
 mod timeline;
 mod triggers;

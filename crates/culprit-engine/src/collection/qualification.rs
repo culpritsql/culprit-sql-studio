@@ -195,6 +195,7 @@ impl NativeQualificationSource for LiveIssuer<'_> {
             admission: self.admission,
             observation_id: &capture.observation_id,
             selection: SourceSelection::Qualification { route: &self.route, registration: &self.registration },
+            configured_route: None,
         })
     }
     fn assess(&self, evidence: NativeQualificationEvidence<'_>) -> Result<NativeQualificationDecision> {

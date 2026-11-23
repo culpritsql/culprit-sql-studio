@@ -46,14 +46,34 @@ pub fn explain_snapshot(snapshot: &Snapshot) -> Result<Option<MemoryClerkReport>
 /// Interpret one original shared capture. Structural binding is separate from the input owner's authentication.
 pub fn explain_captured(read: &CapturedOperationalRead) -> Result<MemoryClerkReport> {
     let coverage = read.memory_clerk_source()?;
-    let context = read.context()?;
     let observations = read.observations.iter().filter(|row| row.source == coverage.source).collect::<Vec<_>>();
-    explain(MemoryClerkEvidence::Captured {
-        context: &context,
-        coverage,
-        observations: &observations,
-        read_complete: read.read_complete,
-    })
+    explain_source(&read.description, coverage, &observations, read.read_complete)
+}
+
+pub fn explain_source(
+    source: &culprit_core::telemetry::CollectionDescription,
+    coverage: &StateSourceCoverage,
+    observations: &[&OperationalObservation],
+    read_complete: bool,
+) -> Result<MemoryClerkReport> {
+    let pool =
+        culprit_core::telemetry::mssql_pool_current_authority(source)?.filter(|authority| authority.native.is_some());
+    if !matches!(&source.target, culprit_core::telemetry::CollectionTarget::Shared(resource)
+            if resource.kind == culprit_core::telemetry::SharedResourceKind::Instance)
+        && pool.is_none()
+    {
+        return Err(invalid());
+    }
+    if source.observation.snapshot().is_none_or(|header| !header.sources.contains(coverage))
+        || pool.is_some_and(|authority| observations.iter().any(|row| !authority.accepts_operational(row)))
+    {
+        return Err(invalid());
+    }
+    let context = NativeReadContext::from_snapshot(source)?;
+    let mut report =
+        explain(MemoryClerkEvidence::Captured { context: &context, coverage, observations, read_complete })?;
+    report.limitations.extend(super::pool_operational_context::limitations(source)?);
+    Ok(report)
 }
 
 pub fn explain(evidence: MemoryClerkEvidence<'_>) -> Result<MemoryClerkReport> {

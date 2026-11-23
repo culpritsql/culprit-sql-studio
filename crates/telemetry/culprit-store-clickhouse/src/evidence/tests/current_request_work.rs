@@ -304,3 +304,55 @@ async fn mssql_current_request_and_cache_generation_share_the_canonical_reader_w
         assert_eq!(fixture.recovery.object_reads.load(Ordering::SeqCst), opens);
     }
 }
+
+#[tokio::test]
+async fn current_execution_profile_uses_same_canonical_eof_reader_and_preserves_unknowns_without_public_authority() {
+    for (source, records) in test_support::current_execution_profile_evidence_cases() {
+        let fixture = Fixture::new(source.clone(), records.clone()).await;
+        let opens = fixture.recovery.object_reads.load(Ordering::SeqCst);
+        fixture.replies(vec![fixture.rows.clone()]);
+        let public = read(&fixture, false).await.unwrap();
+        assert!(!public.is_read_complete() && public.records().is_empty());
+        assert!(public.gaps().iter().any(|gap| matches!(
+            gap.reason,
+            EvidenceGapReason::NativeRepresentationRequired | EvidenceGapReason::DetailInRecovery
+        )));
+        assert_eq!(fixture.recovery.object_reads.load(Ordering::SeqCst), opens);
+        *fixture.recovery.fault.lock().unwrap() = Fault::None;
+        fixture.replies(vec![fixture.rows.clone()]);
+        let original = read(&fixture, true).await.unwrap();
+        test_support::assert_current_execution_profile_capture(&original, &source, &records);
+        assert_eq!(original.metrics().recovery_objects, 1);
+        fixture.replies(vec![vec![]]);
+        let missing = read(&fixture, true).await.unwrap();
+        assert!(!missing.is_read_complete() && missing.records().is_empty());
+        assert_eq!(missing.gaps()[0].reason, EvidenceGapReason::MissingRows);
+    }
+}
+#[tokio::test]
+async fn public_profile_counter_plan_or_focus_tamper_refuses_before_recovery_and_never_repairs_originals() {
+    let (source, records) = test_support::current_execution_profile_evidence_cases().remove(0);
+    let fixture = Fixture::new(source, records).await;
+    let opens = fixture.recovery.object_reads.load(Ordering::SeqCst);
+    let schema = fixture.catalog.get(TelemetryStream::OperationalSamples).unwrap();
+    let details = schema.columns().iter().position(|column| column.name == "Details").unwrap();
+    *fixture.recovery.fault.lock().unwrap() = Fault::None;
+    for (pointer, value) in [
+        ("/profiles/rows/1/counters/rows_returned", json!("9007199254740992")),
+        ("/profiles/operators/plan_sha256", json!(digest(b"foreign-plan"))),
+        ("/context/key", json!(digest(b"foreign-native-scope"))),
+        ("/focus/key", json!(digest(b"foreign-native-actor"))),
+    ] {
+        let mut rows = fixture.rows.clone();
+        let mut body: Value = serde_json::from_str(rows[0][details].as_str().unwrap()).unwrap();
+        *body.pointer_mut(pointer).unwrap() = value;
+        rows[0][details] = json!(serde_json::to_string(&body).unwrap());
+        fixture.replies(vec![rows]);
+        assert_eq!(
+            read(&fixture, true).await.unwrap_err().detail,
+            Some(culprit_core::ErrorDetail::Delivery(DeliveryProblem::Integrity)),
+            "{pointer}"
+        );
+        assert_eq!(fixture.recovery.object_reads.load(Ordering::SeqCst), opens);
+    }
+}

@@ -21,7 +21,7 @@ impl DiagnosticEpisode {
         original: &ActivityObservation,
         reference: &DiagnosticEvidenceRef,
     ) -> Result<DiagnosticFocusPlan> {
-        if !self.analysis.needs_work()
+        if !self.owes_primary_analysis()
             || !CurrentRequestWorkProfile::ALL.into_iter().any(|profile| profile.engine() == self.scope.target.engine())
             || !matches!(self.signal, DiagnosticSignal::Activity { condition: ActivityCondition::LongRunning, .. })
         {

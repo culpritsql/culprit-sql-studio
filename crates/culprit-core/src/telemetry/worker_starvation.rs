@@ -209,6 +209,7 @@ impl MssqlWorkerStarvationPoint {
             && matches!(self.worker_scope.kind, SharedResourceKind::Instance | SharedResourceKind::Node)
             && match &self.context.target {
                 CollectionTarget::Database(_) => self.context.database_writable.is_some(),
+                CollectionTarget::ConfiguredConnection(_) => false,
                 CollectionTarget::Shared(owner) => {
                     owner == &self.worker_scope && self.context.database_writable.is_none()
                 }

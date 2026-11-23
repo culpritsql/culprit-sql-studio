@@ -10,10 +10,10 @@ impl EvidencePlanner<'_> {
         binding: &RouteBinding,
         stage: &SourceReadStage,
     ) -> Result<Option<Box<DiagnosticFocus>>> {
-        if episode.source_reads.get(stage.focus.question) != Some(stage) {
+        if episode.source_reads.get_focus(&stage.focus) != Some(stage) {
             return Err(DeliveryProblem::Integrity.error());
         }
-        if !stage.needs_admission() {
+        if !stage.needs_admission() || episode.source_read_context_reuse(&stage.focus).is_some() {
             return Ok(None);
         }
         let Some((source, row)) =

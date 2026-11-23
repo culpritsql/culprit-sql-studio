@@ -35,6 +35,7 @@ pub struct SourceOutcome {
 /// Canonical built-in source identifiers shared between engine collectors and check evidence contracts.
 /// External providers may still record custom source names.
 pub mod source_id {
+    pub const READABLE_SECONDARY_RECOVERY: &str = "readable-secondary-recovery";
     pub const CATALOG: &str = "catalog";
     pub const TABLES: &str = "tables";
     pub const INDEXES: &str = "indexes";
@@ -100,6 +101,7 @@ pub mod source_id {
     pub const CURRENT_REQUEST_MEMORY: &str = "current request memory";
     pub const CURRENT_REQUEST_WORK: &str = "mysql-current-request-work";
     pub const MSSQL_CURRENT_REQUEST_WORK: &str = "mssql-current-request-work";
+    pub const CURRENT_EXECUTION_PROFILE: &str = "current-execution-profile";
     pub const CACHE_ENTRY_MEMORY: &str = "cache entry memory";
     pub const SESSION_MEMORY: &str = "session memory";
     pub const PAGE_WAIT_TARGETS: &str = "page wait targets";
@@ -237,6 +239,8 @@ pub mod source_id {
         CURRENT_REQUEST_MEMORY,
         CURRENT_REQUEST_WORK,
         MSSQL_CURRENT_REQUEST_WORK,
+        CURRENT_EXECUTION_PROFILE,
+        READABLE_SECONDARY_RECOVERY,
         CACHE_ENTRY_MEMORY,
         SESSION_MEMORY,
         PAGE_WAIT_TARGETS,

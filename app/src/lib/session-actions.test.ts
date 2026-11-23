@@ -120,3 +120,17 @@ test("unknown updateability stays unknown and never supplies a missing actor or 
   value.action_target!.context.partition = { kind: "target" };
   expect(sessionActionCandidate(connection, sessionActionRoute(), value, actions, "cancel")).toBeNull();
 });
+
+
+test("configured collector control never grants a native session action", () => {
+  const value = session();
+  const captured = pending(value);
+  value.action_target!.context.target = {
+    scope: "configured-connection",
+    identity: { id: "a".repeat(64), route_revision: "b".repeat(64), name: connection, engine: "postgres" },
+  };
+  for (const action of actions) {
+    expect(sessionActionCandidate(connection, sessionActionRoute(), value, actions, action)).toBeNull();
+  }
+  expect(sessionActionIsCurrent(captured, connection, sessionActionRoute(), value, actions)).toBe(false);
+});

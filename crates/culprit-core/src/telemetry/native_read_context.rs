@@ -97,6 +97,7 @@ impl NativeReadContext {
 
     pub fn is_valid(&self) -> bool {
         self.target.is_valid()
+            && !matches!(self.target, CollectionTarget::ConfiguredConnection(_))
             && self.partition.is_valid_for(&self.target)
             && self.observed_from.len() <= 64
             && self.observed_until.len() <= 64
@@ -107,6 +108,17 @@ impl NativeReadContext {
         self.is_valid()
             && matches!(self.partition, SourcePartition::InstanceLocal { .. })
             && self.partition.is_qualified()
+    }
+
+    /// Exact source-owned local database/member/generation, without requiring a globally portable namespace.
+    /// The authenticated source owns the native epoch (including local recovery identity where needed).
+    /// This proves neither role continuity, historical execution ownership nor authority for a new action.
+    pub fn same_local_database_owner(&self, other: &Self) -> bool {
+        self.has_qualified_local_owner()
+            && other.has_qualified_local_owner()
+            && self.target.database().is_some()
+            && self.target == other.target
+            && self.partition == other.partition
     }
 
     /// Bind a point to this original native instance, epoch and read interval. Endpoint agreement does not

@@ -364,3 +364,5 @@ async fn a_caller_cannot_commit_partial_current_work_as_a_completed_native_expla
 }
 
 mod mssql;
+
+mod readable_secondary_recovery;

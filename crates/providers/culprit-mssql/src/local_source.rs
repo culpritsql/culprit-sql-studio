@@ -7,7 +7,7 @@ use crate::{
     value::Rec,
 };
 use culprit_core::{Error, ErrorCode, Result, telemetry::*};
-mod process;
+pub(crate) mod process;
 
 #[derive(Clone, PartialEq, Eq)]
 pub(crate) struct Context {
@@ -104,6 +104,27 @@ impl Context {
             return Err(invalid_data());
         }
         Ok(identity)
+    }
+    /// This is a CURRENT retained-history reader fence, not the member/epoch of any historical sample.
+    /// Non-Hyperscale ReplicaID remains absent; a process key does not manufacture a compute member.
+    pub(crate) fn readable_resource_history_reader(&self) -> Result<NativeReadContext> {
+        if self.activity.edition != crate::probe::ENGINE_EDITION_AZURE_SQL_DATABASE
+            || self.activity.writable != Some(false)
+            || self.activity.database.incarnation.is_none()
+            || self.physical_database.is_none()
+            || self.connection_generation.is_none_or(|generation| generation == 0)
+        {
+            return Err(CollectionStop::SourceUnavailable.error());
+        }
+        let process = self.process.as_ref().ok_or_else(|| CollectionStop::SourceUnavailable.error())?;
+        let context = NativeReadContext {
+            target: self.activity.database.clone().into(),
+            partition: SourcePartition::InstanceLocal { member: self.source_instance(), epoch: Some(process.key()?) },
+            observed_from: self.activity.at.clone(),
+            observed_until: self.activity.at.clone(),
+            database_writable: Some(false),
+        };
+        context.is_valid().then_some(context).ok_or_else(invalid_data)
     }
     pub(crate) fn capture_context(&self) -> Result<ActivityContext> {
         let mut context = self.activity.clone();

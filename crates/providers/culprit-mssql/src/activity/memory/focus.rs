@@ -11,13 +11,30 @@ impl<R: NativeRead> ActivityReader<R> {
         &mut self,
         focus: &ActivityRequestFocus,
     ) -> Result<FocusedMemoryCapture> {
+        self.capture_memory_focus(focus, None).await
+    }
+    pub(crate) async fn capture_output_memory(
+        &mut self,
+        focus: &ActivityRequestFocus,
+        execution: &SourceReadExecutionScope,
+    ) -> Result<FocusedMemoryCapture> {
+        if !focus.is_output_memory_focus() || !execution.accepts_question(SourceReadQuestion::OutputGrantRetention) {
+            return Err(invalid_data());
+        }
+        self.capture_memory_focus(focus, Some(execution)).await
+    }
+    async fn capture_memory_focus(
+        &mut self,
+        focus: &ActivityRequestFocus,
+        execution: Option<&SourceReadExecutionScope>,
+    ) -> Result<FocusedMemoryCapture> {
         if !focus.is_request_memory_focus()
             || focus.source != culprit_core::source_id::SESSIONS
             || super::super::RequestLocator::from_identity(&focus.statement_identity).is_none()
         {
             return Err(invalid_data());
         }
-        let mut frame = self.observe_memory_for(Some(focus)).await?;
+        let mut frame = self.observe_memory_for(Some(focus), execution).await?;
         let selected = select(&mut frame, focus)?;
         let original =
             if selected.subject.is_some() { BTreeSet::from([focus.original.key.clone()]) } else { BTreeSet::new() };

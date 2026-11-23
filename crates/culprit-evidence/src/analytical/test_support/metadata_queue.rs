@@ -181,6 +181,8 @@ fn point(
             single_backend: true,
             granted_modes: vec![PostgresRelationLockMode::AccessShare],
             waiting_mode: waiting,
+
+            output_context: None,
         }],
     }
 }

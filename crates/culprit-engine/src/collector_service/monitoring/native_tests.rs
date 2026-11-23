@@ -8,9 +8,8 @@ use std::{future::Future, pin::Pin, sync::Arc, time::Duration};
 
 const NATIVE_CONNECTION: &str = "owned-builtin-pg";
 const SOURCE_CAPTURE_CAP: usize = 3;
-mod archive;
-mod history;
-mod synthesis;
+use super::native_support::{archive, history, synthesis};
+mod readable_secondary;
 
 #[tokio::test]
 #[ignore = "requires the nonce-owned PostgreSQL18 fixture and explicit private safety receipt directory"]
@@ -26,6 +25,13 @@ async fn normal_builtin_pg_incident_resolves_at_the_real_default_cadence_and_ret
 }
 
 fn configured(fixture: &MaintenanceFixture, directory: &Path) -> (CollectorConfig, Workspace, Enrollment) {
+    configured_spec(&fixture.specification, "CULPRIT_PREVIEW_PG_PASSWORD", directory)
+}
+fn configured_spec(
+    source: &culprit_core::ConnectionSpec,
+    password_env: &str,
+    directory: &Path,
+) -> (CollectorConfig, Workspace, Enrollment) {
     let mut config = super::super::tests::config(directory);
     config.source_credentials.clear();
     config.monitoring = MonitoringPolicy::Standard { budget: CollectionBudget::default() };
@@ -35,7 +41,6 @@ fn configured(fixture: &MaintenanceFixture, directory: &Path) -> (CollectorConfi
     target.admission_group = "owned-native-instance".into();
     target.schedules.clear();
     let workspace = Workspace::open_in(&config.workspace).with_secrets(Arc::new(Memory::default()));
-    let source = &fixture.specification;
     workspace
         .add_connection(NewConnection {
             name: NATIVE_CONNECTION.into(),
@@ -47,7 +52,7 @@ fn configured(fixture: &MaintenanceFixture, directory: &Path) -> (CollectorConfi
             engine: Some(Engine::Postgres),
             environment: Environment::Local,
             auth: Some(AuthKind::Password),
-            password_env: Some("CULPRIT_PREVIEW_PG_PASSWORD".into()),
+            password_env: Some(password_env.into()),
             ..Default::default()
         })
         .unwrap();
@@ -195,7 +200,7 @@ async fn prove(fixture: &mut MaintenanceFixture, recover_at_default_cadence: boo
             revisions.extend(captured.revisions);
         }
     }
-    let history = Box::new(history::for_original(&revisions, &first).unwrap());
+    let history = Box::new(history::for_episode(&revisions, &intent.episode_id, &first).unwrap());
     assert_eq!(history.first.first, first);
     assert_eq!(history.latest.first, first);
     assert!(matches!(history.latest.report, Some(DiagnosticReport::Blocking { .. })));

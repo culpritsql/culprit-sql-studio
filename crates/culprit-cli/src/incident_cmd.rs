@@ -48,4 +48,4 @@ pub(crate) async fn run(args: IncidentArgs, out: &Out) -> Result<u8> {
     Ok(if result.discovery_complete { 0 } else { 2 })
 }
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

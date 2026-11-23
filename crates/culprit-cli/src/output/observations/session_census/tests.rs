@@ -5,6 +5,9 @@ use culprit_evidence::analytical::test_support::session_census_evidence;
 
 fn report(case: SessionCensusCase) -> SessionCensusReport {
     let (source, rows) = session_census_evidence(case);
+    report_original(source, rows)
+}
+fn report_original(source: CollectionDescription, rows: Vec<TelemetryRecord>) -> SessionCensusReport {
     let observations = rows
         .into_iter()
         .map(|row| match row {
@@ -196,4 +199,31 @@ fn idle_connection_disclosure_does_not_fabricate_request_identity_for_unavailabl
             matches!(case, SessionCensusCase::IdleConnection)
         );
     }
+}
+
+#[test]
+fn recent_client_text_keeps_named_selection_native_clocks_partialness_and_reported_labels_explicit() {
+    use culprit_evidence::analytical::test_support::{RecentClientCase, recent_client_evidence};
+    for case in RecentClientCase::ALL {
+        let (source, rows) = recent_client_evidence(case);
+        let report = report_original(source, rows);
+        let text = session_census(&report);
+        let recent = &report.recent_clients.groups;
+        assert!(text.contains(&report.client_groups.title));
+        assert!(text.contains(&recent.title));
+        assert!(text.contains(&recent.summary));
+        for limitation in &recent.limitations {
+            assert!(text.contains(limitation));
+        }
+        assert!(text.len() < 24_576, "{case:?}");
+    }
+    let (source, rows) = recent_client_evidence(RecentClientCase::IdlePool);
+    let mut report = report_original(source, rows);
+    let field =
+        report.recent_clients.groups.entries[0].fields.iter_mut().find(|field| field.key == "application").unwrap();
+    let hostile = "client\n\u{1b}[31m<img src=x onerror=alert(1)>";
+    field.value = Some(hostile.into());
+    let text = session_census(&report);
+    assert!(text.contains(&culprit_core::format::escaped_preview(hostile, MAX_FIELD_PREVIEW_CHARACTERS).text));
+    assert!(!text.contains('\u{1b}'));
 }

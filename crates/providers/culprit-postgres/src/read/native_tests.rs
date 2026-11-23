@@ -1,6 +1,6 @@
 //! Read safety on the existing owned loopback PostgreSQL fixture, never on a user-supplied database.
 use super::*;
-use culprit_core::{ConnectionSpec, ErrorCode};
+use culprit_core::ConnectionSpec;
 
 fn spec() -> ConnectionSpec {
     let database = std::env::var("CULPRIT_PREVIEW_PG_DATABASE").expect("owned provider fixture database");
@@ -167,35 +167,12 @@ async fn native_errors_and_late_result_errors_drain_ready_before_follow_up_reads
 #[tokio::test]
 #[ignore = "requires the owned loopback PostgreSQL provider fixture"]
 async fn native_timeout_is_confirmed_by_the_original_response_not_by_sending_cancel() {
-    let mut reader =
-        session(CollectionBudget { statement_timeout_ms: 500, total_timeout_ms: 10000, ..Default::default() });
-    let started = Instant::now();
-    let error = reader.query("SELECT pg_catalog.pg_sleep(30)", 1).await.err().unwrap();
-    assert!(error.code == ErrorCode::Timeout || CollectionStop::from_error(&error) == CollectionStop::TimedOut);
-    assert!(started.elapsed() < Duration::from_secs(8));
-    assert_eq!(reader.close().await, SourceShutdown::Quiescent);
-    let metrics = reader.metrics().unwrap();
-    assert_eq!(metrics.active_tasks, 0);
-    assert_eq!(metrics.templates.iter().map(|metric| metric.timeouts).sum::<u32>(), 1);
+    super::native_acceptance::timeout_confirmed(&connector()).await;
 }
 #[tokio::test]
 #[ignore = "requires the owned loopback PostgreSQL provider fixture"]
 async fn native_dropped_callers_cannot_admit_replacement_reads_before_owned_cleanup() {
-    let mut reader =
-        session(CollectionBudget { statement_timeout_ms: 10000, total_timeout_ms: 30000, ..Default::default() });
-    reader.query("SELECT 1", 1).await.unwrap();
-    assert!(
-        tokio::time::timeout(Duration::from_millis(100), reader.query("SELECT pg_catalog.pg_sleep(30)", 1))
-            .await
-            .is_err()
-    );
-    let error = reader.query("SELECT 42", 1).await.err().unwrap();
-    assert_eq!(CollectionStop::from_error(&error), CollectionStop::CancellationUnconfirmed);
-    assert_eq!(reader.close().await, SourceShutdown::Quiescent);
-    let metrics = reader.metrics().unwrap();
-    assert_eq!(metrics.active_tasks, 0);
-    assert_eq!(metrics.templates.iter().map(|metric| metric.cancellations).sum::<u32>(), 1);
-    assert!(!reader.fence.is_uncertain());
+    super::native_acceptance::dropped_caller_confirmed(&connector()).await;
 }
 #[tokio::test]
 #[ignore = "requires the owned loopback PostgreSQL provider fixture"]

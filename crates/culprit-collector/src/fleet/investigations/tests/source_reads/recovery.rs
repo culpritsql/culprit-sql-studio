@@ -19,7 +19,7 @@ use tokio::time::Instant;
 
 mod qualification_pins;
 
-pub(super) async fn restart(runtime: Runtime, expected_source_debts: u32) -> Runtime {
+pub(in crate::fleet::investigations::tests) async fn restart(runtime: Runtime, expected_source_debts: u32) -> Runtime {
     let Harness { _directory, inventory, outbox, journal, bindings, backend } = runtime.fixture;
     drop(outbox);
     drop(journal);

@@ -186,6 +186,13 @@ impl DerivedIncident {
     }
 }
 impl DerivedFinding {
+    /// The one structural roster; each consumer still authenticates the exact original row independently.
+    pub fn referenced_evidence(&self) -> impl Iterator<Item = &DiagnosticEvidenceRef> {
+        self.inputs
+            .iter()
+            .chain(self.query.iter().map(|query| &query.reference))
+            .chain(self.cause.iter().flat_map(|cause| cause.evidence.iter()))
+    }
     pub fn key(&self) -> String {
         self.finding.id.clone()
     }
@@ -213,15 +220,13 @@ impl DerivedFinding {
         self.is_valid()
             && self.analysis_id == description.analysis_id
             && self.display == description.display
-            && self.inputs.iter().all(|reference| description.contains_capture_for(reference))
-            && self.query.as_ref().is_none_or(|query| description.contains_capture_for(&query.reference))
-            && self
-                .cause
-                .as_ref()
-                .is_none_or(|cause| cause.evidence.iter().all(|reference| description.contains_capture_for(reference)))
+            && self.referenced_evidence().all(|reference| description.contains_capture_for(reference))
     }
 }
 impl DerivedChange {
+    pub fn referenced_evidence(&self) -> impl Iterator<Item = &DiagnosticEvidenceRef> {
+        self.inputs.iter()
+    }
     pub fn key(&self) -> String {
         self.change.id.clone()
     }
@@ -243,7 +248,7 @@ impl DerivedChange {
         self.is_valid()
             && self.analysis_id == description.analysis_id
             && self.display == description.display
-            && self.inputs.iter().all(|reference| description.contains_capture_for(reference))
+            && self.referenced_evidence().all(|reference| description.contains_capture_for(reference))
     }
 }
 impl DerivedDiagnosis {

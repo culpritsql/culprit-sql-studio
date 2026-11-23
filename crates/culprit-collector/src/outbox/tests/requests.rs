@@ -218,7 +218,7 @@ fn reservation_quota_includes_exact_serialized_request_bytes_before_allocating_a
         let root = tempfile::tempdir().unwrap();
         let mut journal = journal_with_quota(&root, charge - u64::from(!admitted));
         let mut epoch = None;
-        match journal.reserve("fixture", &request, &mut epoch) {
+        match journal.reserve("fixture", &request, &mut epoch, None) {
             Ok(capture) => {
                 assert!(admitted);
                 assert_eq!(capture.charged_bytes, charge);
@@ -252,7 +252,7 @@ fn one_common_request_byte_limit_accepts_the_boundary_and_refuses_excess_without
         let mut journal = journal_with_quota(&root, OutboxLimits::default().max_bytes);
         let mut epoch = None;
         let request = request_with_size(bytes);
-        match journal.reserve("fixture", &request, &mut epoch) {
+        match journal.reserve("fixture", &request, &mut epoch, None) {
             Ok(capture) => {
                 assert_eq!(bytes, MAX_REQUEST_BYTES);
                 assert_eq!(journal.capture(&capture.identity.observation_id).unwrap().request, request);
@@ -272,7 +272,7 @@ fn one_common_request_byte_limit_accepts_the_boundary_and_refuses_excess_without
 fn persistent_request_constraint_counts_utf8_bytes_rather_than_sqlite_characters() {
     let root = tempfile::tempdir().unwrap();
     let mut journal = journal_with_quota(&root, OutboxLimits::default().max_bytes);
-    let capture = journal.reserve("fixture", &request(), &mut None).unwrap();
+    let capture = journal.reserve("fixture", &request(), &mut None, None).unwrap();
     let mut request = request_with_size(MAX_REQUEST_BYTES);
     let CollectionSelection::FocusedCompilationAdmission { focus } = &mut request.selection else { panic!() };
     let DefinitionPayload::Available { text, sha256, .. } = &mut focus.original.statement else { panic!() };

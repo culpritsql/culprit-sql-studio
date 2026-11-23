@@ -67,6 +67,11 @@ pub(crate) struct AvailabilityColumns {
 }
 
 pub(crate) fn availability_sql(columns: AvailabilityColumns) -> String {
+    availability_sql_for_scope(columns, false)
+}
+fn availability_sql_for_scope(columns: AvailabilityColumns, local_only: bool) -> String {
+    let frame = if local_only { "CONVERT(varchar(40),SYSUTCDATETIME(),127)+'Z' AS recovery_observed_at," } else { "" };
+    let local = if local_only { " AND drs.is_local=1" } else { "" };
     let lag = if columns.lag { "drs.secondary_lag_seconds" } else { "CAST(NULL AS bigint)" };
     let primary = if columns.primary_role { "CAST(drs.is_primary_replica AS int)" } else { "CAST(NULL AS int)" };
     let distributed = optional_column(columns.distributed, "ag.is_distributed", "bit");
@@ -82,7 +87,7 @@ pub(crate) fn availability_sql(columns: AvailabilityColumns) -> String {
     let native_seeding = optional_column(columns.seeding, "ar.seeding_mode_desc", "nvarchar(60)");
     let read_write_routing = optional_column(columns.read_write_routing, "ar.read_write_routing_url", "nvarchar(256)");
     format!(
-        r#"SELECT drs.group_id, drs.group_database_id, drs.replica_id,
+        r#"SELECT {frame}drs.group_id, drs.group_database_id, drs.replica_id,
  drs.database_id, DB_NAME(drs.database_id) AS database_name,
  ar.replica_server_name AS native_name, CAST(drs.is_local AS int) AS is_local,
  {primary} AS is_primary,
@@ -144,7 +149,7 @@ pub(crate) fn availability_sql(columns: AvailabilityColumns) -> String {
  LEFT JOIN sys.dm_hadr_availability_replica_states ars ON ars.replica_id=drs.replica_id AND ars.group_id=drs.group_id
  LEFT JOIN sys.availability_groups ag ON ag.group_id=drs.group_id
  LEFT JOIN sys.dm_hadr_availability_group_states ags ON ags.group_id=drs.group_id
- WHERE drs.database_id=DB_ID() OPTION(MAXDOP 1)"#
+ WHERE drs.database_id=DB_ID(){local} OPTION(MAXDOP 1)"#
     )
 }
 fn optional_column(available: bool, expression: &'static str, native_type: &'static str) -> String {
@@ -157,6 +162,15 @@ async fn read<R: NativeRead>(
     selection: Selection,
     limit: usize,
 ) -> Result<selection::Part> {
+    read_for_scope(reader, edition, selection, limit, false).await.map(|(part, _)| part)
+}
+async fn read_for_scope<R: NativeRead>(
+    reader: &mut R,
+    edition: i64,
+    selection: Selection,
+    limit: usize,
+    local_only: bool,
+) -> Result<(selection::Part, Option<String>)> {
     let limit = limit.min(MAX_REPLICAS);
     let (sql, decode): (String, fn(&Rec) -> Result<ReplicationFact>) = match selection {
         Selection::GeoLinks => (GEO.into(), geo_link),
@@ -164,14 +178,16 @@ async fn read<R: NativeRead>(
         Selection::AvailabilityGroup => {
             let layout = match native::read(reader, LAYOUT, 1).await? {
                 native::NativeRows::Available(rows) => rows,
-                native::NativeRows::Unavailable(error) => return Ok(selection::Part::Unavailable { selection, error }),
+                native::NativeRows::Unavailable(error) => {
+                    return Ok((selection::Part::Unavailable { selection, error }, None));
+                }
             };
             let [layout] = layout.as_slice() else { return Err(invalid_data()) };
             // IsHadrEnabled is documented for boxed SQL Server, not Managed Instance. MI reads its
             // supported AG interface even when this property is NULL or zero.
             if matches!(edition, 2..=4) {
                 match optional_integer(layout, "hadr_enabled")? {
-                    Some(0) => return Ok(selection::Part::observed(selection, vec![])),
+                    Some(0) => return Ok((selection::Part::observed(selection, vec![]), None)),
                     Some(1) => {}
                     _ => return Err(CollectionStop::SourceUnavailable.error()),
                 }
@@ -189,16 +205,24 @@ async fn read<R: NativeRead>(
                 seeding: layout_flag(layout, "seeding_column")?,
                 read_write_routing: layout_flag(layout, "read_write_routing_column")?,
             };
-            (availability_sql(columns), availability_replica)
+            (
+                if local_only { availability_sql_for_scope(columns, true) } else { availability_sql(columns) },
+                availability_replica,
+            )
         }
     };
     let rows = match native::read(reader, &sql, limit + 1).await? {
         native::NativeRows::Available(rows) => rows,
-        native::NativeRows::Unavailable(error) => return Ok(selection::Part::Unavailable { selection, error }),
+        native::NativeRows::Unavailable(error) => return Ok((selection::Part::Unavailable { selection, error }, None)),
     };
     if rows.len() > limit {
         return Err(CollectionStop::RowLimit.error());
     }
+    let at = if local_only {
+        rows.first().map(|row| canonical_time(&text(row, "recovery_observed_at")?)).transpose()?
+    } else {
+        None
+    };
     let mut keys = BTreeSet::new();
     let facts = rows
         .iter()
@@ -210,7 +234,7 @@ async fn read<R: NativeRead>(
             Ok(fact)
         })
         .collect::<Result<Vec<_>>>()?;
-    Ok(selection::Part::observed(selection, facts))
+    Ok((selection::Part::observed(selection, facts), at))
 }
 
 fn layout_flag(row: &Rec, name: &str) -> Result<bool> {
@@ -411,3 +435,34 @@ async fn collect_from<R: NativeRead>(reader: &mut R, edition: i64, grant_hint: &
 
 #[cfg(test)]
 pub(crate) mod tests;
+
+/// Same layout/projection/decoder; this selected route observes only the current local AG database row.
+pub(crate) async fn local_secondary<R: NativeRead>(
+    reader: &mut R,
+    owner: &crate::local_source::Context,
+) -> Result<(AvailabilityReplicaSample, String)> {
+    if owner.activity.major != 16
+        || owner.activity.edition != 3
+        || owner.activity.writable != Some(false)
+        || !owner.is_qualified()
+    {
+        return Err(CollectionStop::SourceUnavailable.error());
+    }
+    let (part, at) = read_for_scope(reader, owner.activity.edition, Selection::AvailabilityGroup, 1, true).await?;
+    let row = match part {
+        selection::Part::Observed { mut facts, .. } if facts.len() == 1 => match facts.remove(0) {
+            ReplicationFact::AvailabilityGroup(row) => row,
+            _ => return Err(invalid_data()),
+        },
+        selection::Part::Unavailable { error, .. } => return Err(error),
+        _ => return Err(CollectionStop::SourceUnavailable.error()),
+    };
+    if row.database_id != Some(owner.database_id)
+        || row.is_local != Some(true)
+        || row.progress.is_primary != Some(false)
+        || row.replica.as_ref().is_none_or(|replica| replica.role != Some(2))
+    {
+        return Err(CollectionStop::SourceChanged.error());
+    }
+    Ok((*row, at.ok_or_else(invalid_data)?))
+}

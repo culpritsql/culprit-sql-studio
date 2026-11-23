@@ -144,3 +144,55 @@ fn typed_native_queue_words_reach_the_existing_blocking_output_without_acquiring
     assert!(text.contains(&t!("view.metadata_queue.limit.point")));
     assert!(!text.contains("unrelated_current_work"));
 }
+
+#[test]
+fn output_blocking_words_keep_native_owner_and_acquiring_statement_limits_for_same_corpus() {
+    use culprit_evidence::analytical::test_support::{OutputBlockingCaseFixture as Case, output_blocking_fixture};
+    for case in [Case::Mssql, Case::PgRelation, Case::Mars, Case::UnknownRoster] {
+        let fixture = output_blocking_fixture(case);
+        let rows = fixture
+            .records
+            .iter()
+            .map(|row| {
+                let TelemetryRecord::Activity(observation) = row else { panic!() };
+                ActivityFrameRow { observation, reference: None }
+            })
+            .collect::<Vec<_>>();
+        let report = culprit_engine::explain_blocking(&fixture.source, &rows, true).unwrap();
+        let original = serde_json::to_value(&report).unwrap();
+        let text = blocking(&report);
+        assert!(text.contains(&report.output_retention.summary));
+        assert!(text.contains(&t!("view.output_blocking.limit.cause")));
+        assert!(text.contains(&t!("view.output_blocking.limit.sql")));
+        assert_eq!(serde_json::to_value(&report).unwrap(), original);
+        assert!(!text.contains("output-lock-private-canary"));
+    }
+}
+
+#[test]
+fn same_object_ticket_candidates_reach_existing_output_with_the_native_pending_edge_and_sql_limits() {
+    use culprit_evidence::analytical::test_support::{MetadataLockContextCase, metadata_lock_context_evidence};
+    for case in [MetadataLockContextCase::Mysql, MetadataLockContextCase::Mariadb, MetadataLockContextCase::Prefix] {
+        let (source, records) = metadata_lock_context_evidence(case);
+        let rows = records
+            .iter()
+            .map(|record| match record {
+                TelemetryRecord::Activity(actor) => ActivityFrameRow { observation: actor, reference: None },
+                _ => panic!(),
+            })
+            .collect::<Vec<_>>();
+        let report = culprit_engine::explain_blocking(&source, &rows, true).unwrap();
+        let original = serde_json::to_value(&report).unwrap();
+        let text = blocking(&report);
+        assert!(text.contains(&report.metadata_queue.summary));
+        assert!(text.contains(&t!("view.metadata_queue.issue.pending_native")));
+        for words in &report.metadata_queue.explanations {
+            assert!(text.contains(&words.mechanism));
+            assert!(text.contains(&words.investigation));
+            assert!(text.contains(&words.verify));
+        }
+        assert!(report.metadata_queue.evidence.cascades.is_empty());
+        assert!(!text.contains("mdl-private-canary"));
+        assert_eq!(serde_json::to_value(&report).unwrap(), original);
+    }
+}

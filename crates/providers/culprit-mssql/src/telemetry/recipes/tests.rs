@@ -24,11 +24,12 @@ fn registered_source_versions_include_native_acquisition_policy_revisions() {
             ("mssql.agent-jobs", 2),
             ("mssql.hyperscale-log-components", 3),
             ("mssql.query-history", 8),
-            ("mssql.resource-history", 3),
+            ("mssql.resource-history", 4),
             ("mssql.pool-resource-history", 2),
             ("mssql.deadlock-history", 2),
             ("mssql.system-health-deadlocks", 2),
             ("mssql.activity", 8),
+            ("mssql.blocking", 3),
             ("mssql.page-wait-targets", 4),
             ("mssql.page-wait-tasks", 4),
             ("mssql.shared-tempdb-page-wait-targets", 5),
@@ -38,8 +39,10 @@ fn registered_source_versions_include_native_acquisition_policy_revisions() {
             ("mssql.focused-shared-tempdb-page-wait", 5),
             ("mssql.focused-compiler-admission", 4),
             ("mssql.focused-shared-compiler-admission", 4),
-            ("mssql.current-request-memory", 6),
-            ("mssql.focused-request-memory", 6),
+            ("mssql.current-request-work", 2),
+            ("mssql.current-execution-profile", 3),
+            ("mssql.current-request-memory", 7),
+            ("mssql.focused-request-memory", 7),
             ("mssql.cache-entry-memory", 3),
             ("mssql.task-space", 6),
             ("mssql.cleanup", 4),
@@ -50,24 +53,24 @@ fn registered_source_versions_include_native_acquisition_policy_revisions() {
             ("mssql.shared-operational", 12),
             ("mssql.memory-failures", 2),
             ("mssql.plan-cache-summary", 2),
-            ("mssql.missing-indexes", 2),
+            ("mssql.missing-indexes", 3),
             ("mssql.tuning", 4),
             ("mssql.wait-counters", 2),
             ("mssql.replication", 4),
             ("mssql.settings", 7),
             ("mssql.statement-grants", 3),
-            ("mssql.index-operations", 2),
-            ("mssql.tables", 8),
-            ("mssql.foreign-keys", 2),
-            ("mssql.columns", 2),
-            ("mssql.statistics", 2),
-            ("mssql.indexes", 5),
-            ("mssql.check-constraints", 2),
+            ("mssql.index-operations", 3),
+            ("mssql.tables", 9),
+            ("mssql.foreign-keys", 3),
+            ("mssql.columns", 3),
+            ("mssql.statistics", 3),
+            ("mssql.indexes", 6),
+            ("mssql.check-constraints", 3),
             ("mssql.query-compilation", 6),
             ("mssql.cached-runtime", 4),
-            ("mssql.objects", 2),
-            ("mssql.triggers", 2),
-            ("mssql.partitions", 2),
+            ("mssql.objects", 3),
+            ("mssql.triggers", 3),
+            ("mssql.partitions", 3),
             ("mssql.cached-definitions", 7),
             ("mssql.retained-plans", 9),
         ])
@@ -103,6 +106,13 @@ async fn selection(selector: RecipeSelector) -> CollectionSelection {
             CollectionSelection::DeadlockHistory { from, until }
         }
         RecipeSelector::Collection(TelemetryCollection::Activity) => CollectionSelection::Activity,
+        RecipeSelector::Collection(TelemetryCollection::Snapshot(SnapshotDataset::CurrentExecutionProfile)) => {
+            super::super::current_execution_profile::tests::request().await.selection
+        }
+        RecipeSelector::Collection(TelemetryCollection::Snapshot(SnapshotDataset::ReadableSecondaryRecovery)) => {
+            let (focus, execution) = crate::activity::readable_secondary_recovery::tests::focus_and_scope().await;
+            CollectionSelection::SourceRead { focus: Box::new(focus), execution: Box::new(execution) }
+        }
         RecipeSelector::Collection(TelemetryCollection::Snapshot(dataset)) => CollectionSelection::Snapshot { dataset },
         RecipeSelector::FocusedPageWait => CollectionSelection::FocusedPageWait {
             focus: Box::new(crate::activity::page_targets::test_focus(
@@ -138,6 +148,9 @@ async fn selection(selector: RecipeSelector) -> CollectionSelection {
         RecipeSelector::FocusedCompilationAdmission => CollectionSelection::FocusedCompilationAdmission {
             focus: Box::new(crate::activity::compiler_admission::tests::focus()),
         },
+        RecipeSelector::FocusedMetadataLocks => {
+            panic!("the SQL Server catalog does not declare the MySQL metadata-lock selector")
+        }
         RecipeSelector::MaintenanceProgress => {
             panic!("the SQL Server catalog does not declare maintenance progress")
         }
@@ -159,8 +172,12 @@ async fn selection(selector: RecipeSelector) -> CollectionSelection {
         RecipeSelector::CacheEntryMemory => {
             CollectionSelection::CacheEntryMemory { focus: Box::new(crate::cache_entry_memory::tests::focus().await) }
         }
-        RecipeSelector::Collection(TelemetryCollection::Diagnostics | TelemetryCollection::DerivedDiagnosis) => {
-            panic!("derived diagnostics are not a native source")
+        RecipeSelector::Collection(
+            TelemetryCollection::Diagnostics
+            | TelemetryCollection::DerivedDiagnosis
+            | TelemetryCollection::CollectorConnections,
+        ) => {
+            panic!("collector outputs are not a native source")
         }
     }
 }
@@ -267,7 +284,6 @@ fn unregistered_datasets_or_subjects_return_unsupported_without_a_native_connect
         (SnapshotDataset::RuntimeDistributions, RecipeSubject::Database),
         (SnapshotDataset::StatementCounters, RecipeSubject::Database),
         (SnapshotDataset::MemoryFailures, RecipeSubject::Database),
-        (SnapshotDataset::Operational, RecipeSubject::Shared(SharedResourceKind::Pool)),
         (SnapshotDataset::PageWaitTargets, RecipeSubject::Shared(SharedResourceKind::Pool)),
     ] {
         let request = CollectionRequest {
@@ -281,6 +297,18 @@ fn unregistered_datasets_or_subjects_return_unsupported_without_a_native_connect
             .unwrap();
         assert_eq!(error.code, culprit_core::ErrorCode::Unsupported);
     }
+    // Pool Operational does not authorize native process CPU collection: its request is itself invalid.
+    let invalid_pool_cpu = CollectionRequest {
+        subject: subject(RecipeSubject::Shared(SharedResourceKind::Pool)),
+        selection: CollectionSelection::Snapshot { dataset: SnapshotDataset::ProcessCpu },
+        budget: CollectionBudget::default(),
+    };
+    assert!(REGISTRATIONS.iter().all(|recipe| !recipe.accepts(&invalid_pool_cpu)));
+    let error =
+        open(Arc::new(Pool::new(tiberius::Config::new(), None)), &invalid_pool_cpu, "fixture.invalid".into(), 1433)
+            .err()
+            .unwrap();
+    assert_eq!(CollectionStop::from_error(&error), CollectionStop::InvalidPage);
 }
 
 #[test]
@@ -386,12 +414,13 @@ async fn native_resource_discovery_derives_its_routes_from_registrations_and_obs
         let mut expected = vec![
             TelemetryCollection::Snapshot(SnapshotDataset::Jobs),
             TelemetryCollection::DeadlockHistory,
+            TelemetryCollection::Activity,
             TelemetryCollection::Snapshot(SnapshotDataset::PageWaitTargets),
             TelemetryCollection::Snapshot(SnapshotDataset::NumaNodes),
             TelemetryCollection::Snapshot(SnapshotDataset::Operational),
         ];
         if edition != crate::probe::ENGINE_EDITION_MANAGED_INSTANCE {
-            expected.insert(3, TelemetryCollection::Snapshot(SnapshotDataset::ProcessCpu));
+            expected.insert(4, TelemetryCollection::Snapshot(SnapshotDataset::ProcessCpu));
         }
         if edition == crate::probe::ENGINE_EDITION_MANAGED_INSTANCE {
             expected.insert(1, TelemetryCollection::ResourceHistory);
@@ -402,6 +431,7 @@ async fn native_resource_discovery_derives_its_routes_from_registrations_and_obs
             let request = CollectionRequest {
                 subject: CollectionSubject::Shared { resource: instance.clone() },
                 selection: match collection {
+                    TelemetryCollection::Activity => CollectionSelection::Activity,
                     TelemetryCollection::Snapshot(dataset) => CollectionSelection::Snapshot { dataset },
                     TelemetryCollection::ResourceHistory => CollectionSelection::ResourceHistory {
                         from: "2020-01-01T06:00:00Z".into(),
@@ -435,6 +465,7 @@ async fn native_resource_discovery_derives_its_routes_from_registrations_and_obs
         collections_for(&pool, crate::probe::ENGINE_EDITION_AZURE_SQL_DATABASE),
         vec![
             TelemetryCollection::ResourceHistory,
+            TelemetryCollection::Snapshot(SnapshotDataset::Operational),
             TelemetryCollection::Snapshot(SnapshotDataset::MemoryFailures),
             TelemetryCollection::Snapshot(SnapshotDataset::WaitCounters),
             TelemetryCollection::Snapshot(SnapshotDataset::Settings)
@@ -657,7 +688,7 @@ fn managed_instance_history_is_an_explicit_native_profile_with_a_single_total_in
     assert_eq!(recipe.budget.max_snapshot_rows, 512);
     assert_eq!(recipe.budget.page_bytes, 128 * 1024);
     let baseline = recipes.iter().find(|recipe| recipe.id == "mssql.resource-history").unwrap();
-    assert_eq!(baseline.version, 3);
+    assert_eq!(baseline.version, 4);
     assert_eq!(baseline.subjects, [RecipeSubject::Database]);
 }
 
@@ -803,4 +834,75 @@ fn local_file_census_registration_keeps_ordinary_bounds_and_unqualified_admissio
     assert_eq!(descriptor.admission, RecipeAdmission::Unqualified);
     assert_eq!(descriptor.budget, CollectionBudget::upper_limits());
     assert_eq!(descriptor.version, 11);
+}
+
+#[test]
+fn durable_catalogs_share_one_truthful_setup_inclusive_envelope_without_cost_approval() {
+    let catalogs = REGISTRATIONS
+        .iter()
+        .filter(|registration| {
+            matches!(registration.selector, RecipeSelector::Collection(TelemetryCollection::Snapshot(dataset))
+            if dataset.is_mssql_database_catalog())
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(catalogs.len(), 11);
+    for catalog in catalogs {
+        let declaration = catalog.descriptor();
+        assert_eq!(declaration.admission, RecipeAdmission::Unqualified);
+        assert_eq!(declaration.purpose, RecipePurpose::Baseline);
+        assert_eq!(declaration.subjects, [RecipeSubject::Database]);
+        assert_eq!(declaration.budget.max_queries, 13, "{}", catalog.id);
+        assert_eq!(catalog.editions, [2, 3, 4, 5, 8]);
+        let RecipeSelector::Collection(TelemetryCollection::Snapshot(dataset)) = catalog.selector else { panic!() };
+        let caller = CollectionRequest {
+            subject: CollectionSubject::Database,
+            selection: CollectionSelection::Snapshot { dataset },
+            budget: CollectionBudget { max_queries: 12, statement_timeout_ms: 100, ..CollectionBudget::default() },
+        };
+        let selected = catalog.bounded_request(&caller);
+        assert_eq!(selected.budget, caller.budget, "a source declaration cannot replace a stricter caller");
+    }
+}
+
+#[test]
+fn catalog_baseline_purpose_does_not_reclassify_any_existing_focused_or_source_read_recipe() {
+    let declarations = declarations();
+    let focused = declarations
+        .iter()
+        .filter(|recipe| {
+            matches!(recipe.selector, RecipeSelector::FocusedBlocking | RecipeSelector::CurrentRequestWork)
+                || SourceReadQuestion::ALL.iter().any(|question| question.selector() == recipe.selector)
+        })
+        .collect::<Vec<_>>();
+    assert!(!focused.is_empty());
+    for recipe in focused {
+        assert_eq!(recipe.purpose, RecipePurpose::Investigation, "{}", recipe.id);
+        assert_eq!(recipe.admission, RecipeAdmission::Unqualified, "{}", recipe.id);
+    }
+}
+
+#[test]
+fn instance_activity_declares_only_closed_native_routes_and_keeps_original_database_subject_and_limits() {
+    let catalog = declarations();
+    let original = catalog.iter().find(|recipe| recipe.id == "mssql.activity").unwrap();
+    let instance = catalog.iter().find(|recipe| recipe.id == "mssql.instance-activity").unwrap();
+    assert_eq!(original.subjects, [RecipeSubject::Database]);
+    assert_eq!(instance.subjects, [RecipeSubject::Shared(SharedResourceKind::Instance)]);
+    assert_eq!(instance.purpose, RecipePurpose::Baseline);
+    assert_eq!(instance.version, 1);
+    assert!(catalog.iter().all(|recipe| recipe.id != "mssql.managed-instance-activity"));
+    assert_eq!(instance.admission, RecipeAdmission::Unqualified);
+    assert_eq!(instance.budget, original.budget);
+    assert_eq!(instance.budget.max_queries, 8);
+    assert_eq!(instance.budget.max_snapshot_rows, 500);
+    let request = CollectionRequest {
+        subject: subject(RecipeSubject::Shared(SharedResourceKind::Instance)),
+        selection: CollectionSelection::Activity,
+        budget: instance.budget.clone(),
+    };
+    assert!(instance.accepts(&request));
+    assert!(!original.accepts(&request));
+    assert_eq!(REGISTRATIONS.iter().filter(|recipe| recipe.accepts(&request)).count(), 1);
+    let registration = REGISTRATIONS.iter().find(|recipe| recipe.id == instance.id).unwrap();
+    assert_eq!(registration.editions, crate::instance::SUPPORTED_EDITIONS);
 }

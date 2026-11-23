@@ -13,7 +13,10 @@ use std::{
 };
 mod ancestry;
 mod named;
+mod records;
+pub(super) mod window;
 use ancestry::Ancestry;
+pub use window::NamedWindowQuery;
 
 const INCIDENT_AROUND_SECONDS: i64 = 5 * 60;
 const MAX_INCIDENT_EPISODES: usize = 8;
@@ -127,12 +130,15 @@ struct Assembly<'a> {
     contract: &'a Contract,
     captures: BTreeMap<String, Arc<EvidenceCapture>>,
     metadata: BTreeMap<String, EvidenceCaptureMetadata>,
+    missing_originals: BTreeSet<String>,
+    selected_records: records::RecordSelections,
     revisions: BTreeMap<(u32, String, String), SelectedRevision>,
     incidents: BTreeMap<(String, String), DerivedIncident>,
     input_captures: BTreeMap<String, (DiagnosticEvidenceRef, DerivedInputReference)>,
     analyses: BTreeMap<String, IncidentAnalysisContext>,
     gaps: Vec<IncidentReadGap>,
     candidate_rows: u32,
+    capture_limit: usize,
 }
 impl<'a> Assembly<'a> {
     fn new(session: EvidenceSession<'a>, contract: &'a Contract) -> Self {
@@ -141,15 +147,22 @@ impl<'a> Assembly<'a> {
             contract,
             captures: BTreeMap::new(),
             metadata: BTreeMap::new(),
+            missing_originals: BTreeSet::new(),
+            selected_records: records::RecordSelections::default(),
             revisions: BTreeMap::new(),
             incidents: BTreeMap::new(),
             input_captures: BTreeMap::new(),
             analyses: BTreeMap::new(),
             gaps: vec![],
             candidate_rows: 0,
+            capture_limit: MAX_INCIDENT_CAPTURES,
         }
     }
     async fn read(mut self, request: &IncidentRequest) -> Result<IncidentReadReport> {
+        self.collect(request).await?;
+        self.finish(request).await
+    }
+    async fn collect(&mut self, request: &IncidentRequest) -> Result<()> {
         let window = request.discovery(None, None);
         let around = self.discover(window.clone()).await?;
         let mut episodes = BTreeSet::new();
@@ -161,6 +174,13 @@ impl<'a> Assembly<'a> {
         if around.next.is_some() {
             self.gaps.push(IncidentReadGap::CandidateLimit);
         }
+        self.complete_episodes(request, episodes).await
+    }
+    async fn complete_episodes(
+        &mut self,
+        request: &IncidentRequest,
+        mut episodes: BTreeSet<(String, u32)>,
+    ) -> Result<()> {
         if episodes.len() > MAX_INCIDENT_EPISODES {
             self.gaps.push(IncidentReadGap::EpisodeLimit);
             episodes = episodes.into_iter().take(MAX_INCIDENT_EPISODES).collect();
@@ -185,6 +205,9 @@ impl<'a> Assembly<'a> {
                 after = Some(next);
             }
         }
+        Ok(())
+    }
+    async fn finish(&mut self, request: &IncidentRequest) -> Result<IncidentReadReport> {
         let mut ancestry = Ancestry::default();
         for revision in self.revisions.values() {
             ancestry.observe(&revision.row, &revision.reference)?;
@@ -206,11 +229,11 @@ impl<'a> Assembly<'a> {
             until: request.until.clone(),
             recorded_before: request.recorded_before.clone(),
             discovery_complete: self.gaps.is_empty(),
-            incidents: self.incidents.into_values().collect(),
-            analyses: self.analyses.into_values().collect(),
+            incidents: std::mem::take(&mut self.incidents).into_values().collect(),
+            analyses: std::mem::take(&mut self.analyses).into_values().collect(),
             history,
             relationships,
-            gaps: self.gaps,
+            gaps: std::mem::take(&mut self.gaps),
             archive_work: crate::collected_context::read_metrics(self.session.completed_metrics()),
             candidate_rows: self.candidate_rows,
         })
@@ -234,7 +257,9 @@ impl<'a> Assembly<'a> {
                     families.push(*family);
                 }
             }
-        } else if self.captures.len() + self.metadata.len() >= MAX_INCIDENT_CAPTURES {
+        } else if !self.metadata.contains_key(range)
+            && self.captures.len() + self.metadata.len() + self.missing_originals.len() >= self.capture_limit
+        {
             self.gaps.push(IncidentReadGap::CaptureLimit);
             return Ok(None);
         }
@@ -245,6 +270,16 @@ impl<'a> Assembly<'a> {
                 || cached.source() != capture.source())
         {
             return Err(invalid());
+        }
+        if let Some(metadata) = self.metadata.remove(range) {
+            if metadata.capture() != capture.capture()
+                || metadata.capture_manifest_sha256() != capture.capture_manifest_sha256()
+                || metadata.source() != capture.source()
+                || metadata.collected_from() != capture.collected_from()
+                || metadata.collected_until() != capture.collected_until()
+            {
+                return Err(invalid());
+            }
         }
         let capture = Arc::new(capture);
         self.captures.insert(range.into(), capture.clone());
@@ -307,14 +342,27 @@ impl<'a> Assembly<'a> {
             });
             return Ok(None);
         }
+        self.observe_incident(incident, description, &capture).await
+    }
+    /// Both row discovery and whole-window publication reads arrive here after the same canonical decoder/proof.
+    /// The original revision and all its ancestry are still independently reopened through this one session.
+    async fn observe_incident(
+        &mut self,
+        incident: &DerivedIncident,
+        description: &DerivedDiagnosisDescription,
+        analysis: &EvidenceCapture,
+    ) -> Result<Option<DerivedIncident>> {
+        if !incident.fits_description(description) {
+            return Err(invalid());
+        }
         let original = incident.revision_reference.clone();
         let analysis_capture = DiagnosticCaptureRef {
-            capture: capture.capture().clone(),
-            manifest_sha256: capture.capture_manifest_sha256().into(),
-            source_scope_id: capture.source().captured_range()?.scope_id,
+            capture: analysis.capture().clone(),
+            manifest_sha256: analysis.capture_manifest_sha256().into(),
+            source_scope_id: analysis.source().captured_range()?.scope_id,
         };
         let analysis_key = analysis_capture.key()?;
-        let context = IncidentAnalysisContext { capture: analysis_capture, description: (**description).clone() };
+        let context = IncidentAnalysisContext { capture: analysis_capture, description: description.clone() };
         if let Some(previous) = self.analyses.get(&analysis_key) {
             if previous.description != context.description {
                 return Err(DeliveryProblem::Conflict.error());
@@ -322,14 +370,11 @@ impl<'a> Assembly<'a> {
         } else {
             self.analyses.insert(analysis_key, context);
         }
-        let range = range_id_for(self.contract, &original.capture)?;
-        let Some(capture) = self.capture(&range, &[EvidenceFamily::OperationalSamples]).await? else {
-            return Ok(None);
-        };
-        let Some(row) = references::selected_record(&capture, &original)? else {
+        let selected = self.record_lookup(std::slice::from_ref(&original)).await?;
+        let Some(row) = selected.selected(&original)? else {
             self.gaps.push(IncidentReadGap::OriginalUnavailable {
-                reference: Box::new(original),
-                gaps: capture.gaps().to_vec(),
+                reference: Box::new(original.clone()),
+                gaps: selected.gaps(&original)?,
             });
             return Ok(None);
         };
@@ -339,13 +384,17 @@ impl<'a> Assembly<'a> {
         let OperationalFact::DiagnosticRevision(revision) = &observation.fact else {
             return Err(invalid());
         };
-        let canonical = crate::collected_resources::incident_history(&capture)?;
-        let entry = canonical
-            .report
-            .entries
-            .iter()
-            .find(|entry| entry.original.as_ref() == Some(&original))
-            .ok_or_else(invalid)?;
+        let source = selected.source(&original)?.ok_or_else(invalid)?;
+        // Only this exact row is selected. The existing source/row validator retains partial-roster semantics;
+        // it does not fabricate a complete diagnostic capture from one authenticated revision.
+        let canonical = crate::incident_history::from_original(
+            source,
+            &original.capture_ref(),
+            &[(row.row(), original.row_ordinal)],
+            false,
+        )?;
+        let entry =
+            canonical.entries.iter().find(|entry| entry.original.as_ref() == Some(&original)).ok_or_else(invalid)?;
         if !same_revision(entry, &incident.entry) {
             return Err(invalid());
         }
@@ -366,13 +415,13 @@ impl<'a> Assembly<'a> {
         }
         let analysis_key = (incident.analysis_id.clone(), incident.entry.revision_id.clone());
         if let Some(prior) = self.incidents.get(&analysis_key) {
-            if prior != incident.as_ref() {
+            if prior != incident {
                 return Err(DeliveryProblem::Conflict.error());
             }
         } else {
-            self.incidents.insert(analysis_key, (**incident).clone());
+            self.incidents.insert(analysis_key, incident.clone());
         }
-        Ok(Some((**incident).clone()))
+        Ok(Some(incident.clone()))
     }
     fn predecessor_gaps(&mut self) {
         for revision in self.revisions.values() {
@@ -420,6 +469,20 @@ impl crate::WarehouseIncidentReader for EvidenceService {
         cancellation: &'a CollectionCancellation,
     ) -> crate::WarehouseResourcesTask<'a> {
         Box::pin(self.resources(request, EvidenceReadBudget::default(), cancellation))
+    }
+    fn window<'a>(
+        &'a self,
+        request: &'a WarehouseWindowQuery,
+        cancellation: &'a CollectionCancellation,
+    ) -> crate::WarehouseWindowTask<'a> {
+        Box::pin(self.window(request, IncidentRequest::default_budget(), cancellation))
+    }
+    fn artifacts<'a>(
+        &'a self,
+        request: &'a WarehouseArtifactQuery,
+        cancellation: &'a CollectionCancellation,
+    ) -> crate::WarehouseArtifactsTask<'a> {
+        Box::pin(self.artifacts(request, EvidenceService::artifact_budget(request), cancellation))
     }
     fn incident<'a>(
         &'a self,

@@ -188,6 +188,7 @@ enum Family {
     DerivedIncidents,
     DerivedFindings,
     DerivedChanges,
+    CollectorConnections,
 }
 impl From<Family> for EvidenceFamily {
     fn from(family: Family) -> Self {
@@ -207,6 +208,7 @@ impl From<Family> for EvidenceFamily {
             Family::DerivedIncidents => Self::DerivedIncidents,
             Family::DerivedFindings => Self::DerivedFindings,
             Family::DerivedChanges => Self::DerivedChanges,
+            Family::CollectorConnections => Self::CollectorConnections,
         }
     }
 }

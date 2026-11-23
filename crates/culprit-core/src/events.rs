@@ -40,6 +40,8 @@ pub enum EventKind {
     Throttle,
     /// One retained native job execution record with a qualified UTC clock, never query causality.
     JobExecution,
+    /// A timestamp reported by an explicitly selected event XML artifact, without native feed/owner authentication.
+    NativeEvent,
 }
 
 impl EventKind {
@@ -56,6 +58,7 @@ impl EventKind {
             EventKind::Statistics => "statistics",
             EventKind::Throttle => "throttle",
             EventKind::JobExecution => "job-execution",
+            EventKind::NativeEvent => "native-event",
         }
     }
 }
@@ -73,6 +76,8 @@ pub enum EventSource {
     Scans,
     /// The cloud provider's metrics (CloudWatch, Azure Monitor).
     Cloud,
+    /// The supplied artifact reports this time; its native origin and retention continuity are unverified.
+    ImportedArtifact,
 }
 
 #[derive(Serialize, Deserialize, TS, Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -371,6 +376,9 @@ fn link(
     exact: Option<f64>,
     recent: (f64, f64),
 ) -> Option<(f64, EventLink)> {
+    if e.source == EventSource::ImportedArtifact {
+        return None;
+    }
     use ChangeStatus::{Improved, New, Regressed, Stopped};
     let touched = e.table.as_deref().and_then(|t| tables.iter().find(|q| same_table(q, t)).map(|_| t));
     let own_object = e.object.as_deref().zip(q.object_name.as_deref()).is_some_and(|(a, b)| same_table(a, b));
@@ -471,6 +479,7 @@ fn around_then(events: &[ChangeEvent]) -> Option<String> {
         counted(EventKind::Statistics, key!("core.events.around.statistics")),
         counted(EventKind::Throttle, key!("core.events.around.throttle")),
         counted(EventKind::JobExecution, key!("core.events.around.job_execution")),
+        counted(EventKind::NativeEvent, key!("core.events.around.native_event")),
     ]
     .into_iter()
     .flatten()
@@ -759,6 +768,27 @@ Database time per hour rose 4.5×: 50 ms → 225 ms. 1 query got slower. Around 
         );
         assert!(c.queries[0].context.is_empty(), "the plan changed at 12:30, before the mark");
         assert_eq!(c.events.len(), 1, "it is still listed for the period");
+    }
+
+    #[test]
+    fn imported_native_events_are_visible_but_cannot_establish_query_cause_by_overlap_or_object_name() {
+        let mut changes =
+            changes(vec![query("q", "SELECT * FROM orders", Some(stats(100.0, 2.0)), Some(stats(100.0, 9.0)))]);
+        let mut imported = ChangeEvent::new(
+            EventKind::NativeEvent,
+            EventSource::ImportedArtifact,
+            "artifact:0",
+            "2026-10-11T11:55:00Z",
+            crate::message!("native_logs.mssql.attention.title"),
+        );
+        imported.table = Some("orders".into());
+        assert!(link(&imported, &changes.queries[0], &["orders".into()], None, (0.0, f64::MAX)).is_none());
+        let mut forged_kind = imported.clone();
+        forged_kind.kind = EventKind::Table;
+        assert!(link(&forged_kind, &changes.queries[0], &["orders".into()], None, (0.0, f64::MAX)).is_none());
+        correlate(&mut changes, vec![imported.clone()]);
+        assert!(changes.queries[0].context.is_empty());
+        assert_eq!(changes.events, [imported]);
     }
 
     #[test]

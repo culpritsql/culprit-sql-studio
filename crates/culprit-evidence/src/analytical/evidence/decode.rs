@@ -74,6 +74,12 @@ pub(super) fn record(
             .map_err(|_| invalid())?;
             Decoded::Record(Box::new(record))
         }
+        TelemetryStream::CollectorConnections => {
+            let record =
+                serde_json::from_value(json!({ "stream": stream, "data": values.get("Details").ok_or_else(invalid)? }))
+                    .map_err(|_| invalid())?;
+            Decoded::Record(Box::new(record))
+        }
         TelemetryStream::QueryDefinitions
         | TelemetryStream::PlanDefinitions
         | TelemetryStream::QueryRuntime

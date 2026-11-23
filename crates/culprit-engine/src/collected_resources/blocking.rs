@@ -3,7 +3,10 @@ use super::*;
 use culprit_core::collected_resource_analysis::CollectedBlockingAnalysis;
 
 pub fn blocking(capture: &EvidenceCapture) -> Result<CollectedBlockingAnalysis> {
-    if !matches!(capture.source().observation, SourceObservation::FocusedBlocking { .. }) {
+    if !matches!(
+        capture.source().observation,
+        SourceObservation::FocusedBlocking { .. } | SourceObservation::MetadataLockContext { .. }
+    ) {
         return Err(DeliveryProblem::UnsupportedSchema.error());
     }
     let activity = super::activity::CapturedActivity::new(capture)?;

@@ -1,9 +1,13 @@
 //! Pure interpretation of the closed original answer. Neither shared counters nor overflow proves a culprit.
 use culprit_core::{Error, Result, SourceState, telemetry::*};
+mod comparison;
+mod words;
+pub use comparison::SlruOriginal;
 
 pub fn explain(
     answer: &TransactionMetadataAnswer,
     point: Option<&PostgresTransactionMetadata>,
+    originals: &[SlruOriginal<'_>],
 ) -> Result<TransactionMetadataReport> {
     if !answer.is_valid() {
         return Err(invalid());
@@ -25,12 +29,12 @@ pub fn explain(
         investigation,
         verify: culprit_core::t!("view.transaction_metadata.verify"),
         observed_overflows: vec![],
+        slru_changes: Vec::new(),
         observed_xmin_sources: vec![],
         limitations: vec![
             culprit_core::t!("view.transaction_metadata.limit.scope"),
             culprit_core::t!("view.transaction_metadata.limit.cause"),
             culprit_core::t!("view.transaction_metadata.limit.savepoints"),
-            culprit_core::t!("view.transaction_metadata.limit.counters"),
             culprit_core::t!("view.transaction_metadata.limit.xmin"),
             culprit_core::t!("view.transaction_metadata.limit.multixact"),
         ],
@@ -39,6 +43,8 @@ pub fn explain(
         report.limitations.push(culprit_core::t!("view.transaction_metadata.limit.partial"));
     }
     let Some(point) = point else {
+        report.slru_changes = comparison::compare(answer, &[])?;
+        words::append(&mut report);
         report.limitations.push(culprit_core::t!("view.transaction_metadata.limit.unavailable"));
         return Ok(report);
     };
@@ -119,6 +125,8 @@ pub fn explain(
             ));
         }
     }
+    report.slru_changes = comparison::compare(answer, originals)?;
+    words::append(&mut report);
     Ok(report)
 }
 pub(super) fn answer_reasons(answer: &TransactionMetadataAnswer) -> Vec<String> {

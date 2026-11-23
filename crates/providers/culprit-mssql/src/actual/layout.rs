@@ -20,6 +20,9 @@ impl Layout {
     pub(super) async fn read_request<R: NativeRead>(reader: &mut R) -> Result<Self> {
         Self::read_detail(reader, Detail::RequestCounters).await
     }
+    pub(crate) async fn read_selected_profiles<R: NativeRead>(reader: &mut R) -> Result<Self> {
+        Self::read_detail(reader, Detail::ThreadProfiles).await
+    }
     async fn read_detail<R: NativeRead>(reader: &mut R, detail: Detail) -> Result<Self> {
         let rows = reader.query(&detail.query(), vec![], 2).await.map_err(ReadError::into_error)?;
         let [row] = rows.as_slice() else { return Err(invalid_data()) };
@@ -32,10 +35,16 @@ impl Layout {
         Ok(Self {
             last_actual: availability("last_actual")?,
             live_xml: availability("live_xml")?,
-            profiles: availability("profiles")?,
+            profiles: availability(if matches!(detail, Detail::ThreadProfiles) {
+                "thread_profiles"
+            } else {
+                "profiles"
+            })?,
             request_page_server_read_capability: match detail {
                 Detail::PlanFacilities => crate::activity::page_server_reads::Availability::Unknown,
-                Detail::RequestCounters => crate::activity::page_server_reads::capability(row)?,
+                Detail::RequestCounters | Detail::ThreadProfiles => {
+                    crate::activity::page_server_reads::capability(row)?
+                }
             },
         })
     }
@@ -44,6 +53,7 @@ impl Layout {
 enum Detail {
     PlanFacilities,
     RequestCounters,
+    ThreadProfiles,
 }
 impl Detail {
     fn query(self) -> String {
@@ -52,6 +62,10 @@ impl Detail {
             Self::PlanFacilities => format!("SELECT {columns} OPTION(MAXDOP 1)"),
             Self::RequestCounters => format!(
                 "SELECT /* culprit */ {columns},{} AS request_page_server_read_capability OPTION(MAXDOP 1)",
+                crate::activity::page_server_reads::CAPABILITY
+            ),
+            Self::ThreadProfiles => format!(
+                "SELECT /* culprit */ {columns},{} AS request_page_server_read_capability,\n CASE WHEN (SELECT COUNT(*) FROM (VALUES (N'session_id',52,2),(N'request_id',56,4),(N'sql_handle',165,64),(N'plan_handle',165,64),(N'node_id',56,4),(N'thread_id',56,4),(N'task_address',165,8),(N'physical_operator_name',231,512),(N'database_id',52,2),(N'object_id',56,4),(N'index_id',56,4),(N'row_count',127,8),(N'actual_read_row_count',127,8),(N'estimate_row_count',127,8),(N'elapsed_time_ms',127,8),(N'cpu_time_ms',127,8),(N'logical_read_count',127,8),(N'physical_read_count',127,8),(N'read_ahead_count',127,8),(N'write_page_count',127,8),(N'end_of_scan_count',127,8),(N'scan_count',127,8),(N'rebind_count',127,8),(N'rewind_count',127,8),(N'open_time',127,8),(N'close_time',127,8)) required(name,kind,width) JOIN sys.all_columns actual ON actual.object_id=OBJECT_ID(N'sys.dm_exec_query_profiles') AND actual.name=required.name AND actual.system_type_id=required.kind AND actual.max_length=required.width)=26 THEN 1 ELSE 0 END AS thread_profiles OPTION(MAXDOP 1)",
                 crate::activity::page_server_reads::CAPABILITY
             ),
         }

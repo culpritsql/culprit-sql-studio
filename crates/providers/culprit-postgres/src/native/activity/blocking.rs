@@ -1,6 +1,7 @@
 //! Follow only native blocker identities reached from this database's observed waiters.
 use super::*;
 mod relation_locks;
+pub(crate) use relation_locks::recovery_projection as recovery_lock_projection;
 #[derive(Clone, Copy)]
 pub(crate) enum LockProjection {
     Labels,

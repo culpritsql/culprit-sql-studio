@@ -1,24 +1,38 @@
 mod metadata;
+mod original;
 use super::{EvidenceRequest, EvidenceService};
 use culprit_core::{
     Result,
-    telemetry::{CollectionStop, DeliveryProblem, DiagnosticCaptureRef, valid_digest},
+    telemetry::{CollectionStop, DeliveryProblem, DiagnosticCaptureRef, DiagnosticEvidenceRef, valid_digest},
 };
 use culprit_evidence::analytical::evidence::EvidenceCapture;
 use culprit_evidence::analytical::evidence::EvidenceCaptureMetadata;
 use culprit_evidence::analytical::evidence::EvidenceFamily;
 use culprit_evidence::analytical::evidence::EvidenceReadBudget;
-use culprit_evidence::analytical::evidence::EvidenceReadMetrics;
 use culprit_evidence::analytical::evidence::IncidentDiscoveryPage;
 use culprit_evidence::analytical::evidence::IncidentDiscoveryRequest;
+use culprit_evidence::analytical::evidence::{EvidenceReadMetrics, SelectedEvidenceRecords};
 use culprit_evidence::delivery::evidence::range_id_for;
 use culprit_evidence::delivery::object_store::ObjectRecoveryReader;
 use culprit_evidence::delivery::recovery::CommittedRange;
-use culprit_evidence::delivery::recovery::reopen;
 use culprit_read::cancellation::CollectionCancellation;
 pub(super) use metadata::MetadataAccounting;
+pub use original::EvidenceMetadataLookup;
+use original::OriginalRead;
 use std::{future::Future, time::Duration};
 use tokio::time::Instant;
+
+/// The caller's actual admission slot, retained across an owned read and any started pure CPU work.
+/// It contains no native authority or serialized state and creates no independent admission gate.
+#[derive(Clone)]
+pub struct EvidenceReadPermit {
+    _permit: std::sync::Arc<tokio::sync::OwnedSemaphorePermit>,
+}
+impl From<tokio::sync::OwnedSemaphorePermit> for EvidenceReadPermit {
+    fn from(permit: tokio::sync::OwnedSemaphorePermit) -> Self {
+        Self { _permit: std::sync::Arc::new(permit) }
+    }
+}
 
 /// One caller action owns the cumulative warehouse/recovery allowance and an absolute deadline.
 /// Transports retain their own lifecycle limits; dropping a read does not prove remote cancellation.
@@ -28,6 +42,7 @@ pub struct EvidenceSession<'a> {
     deadline: Instant,
     remaining: Option<EvidenceReadBudget>,
     metrics: EvidenceReadMetrics,
+    permit: Option<EvidenceReadPermit>,
 }
 
 impl<'a> EvidenceSession<'a> {
@@ -43,11 +58,51 @@ impl<'a> EvidenceSession<'a> {
             deadline: Instant::now() + Duration::from_millis(u64::from(budget.timeout_ms)),
             remaining: Some(budget),
             metrics: EvidenceReadMetrics::default(),
+            permit: None,
         })
+    }
+
+    pub(crate) fn retaining(mut self, permit: Option<EvidenceReadPermit>) -> Self {
+        self.permit = permit;
+        self
     }
 
     pub(super) fn completed_metrics(&self) -> &EvidenceReadMetrics {
         &self.metrics
+    }
+
+    fn fence(&self) -> ReadFence {
+        ReadFence { cancellation: self.cancellation.clone(), deadline: self.deadline }
+    }
+    pub(super) fn check(&self) -> Result<()> {
+        self.fence().check()
+    }
+
+    /// CPU-only interpretation keeps the same action deadline/token and awaits its owned worker after cancellation.
+    /// It cannot refill read allowances, open a source, or publish a result after the action fence closes.
+    pub(crate) async fn analyze<T, F>(&mut self, analyze: F) -> Result<T>
+    where
+        T: Send + 'static,
+        F: FnOnce(&ReadFence) -> Result<T> + Send + 'static,
+    {
+        let fence = self.fence();
+        fence.check()?;
+        let worker_fence = fence.clone();
+        let permit = self.permit.clone();
+        let language = culprit_core::i18n::current();
+        let worker = tokio::task::spawn_blocking(move || -> Result<T> {
+            // The actual CPU owner, rather than just its awaiting future, retains the caller's original slot.
+            let _permit = permit;
+            culprit_core::i18n::scope(&language.code, || {
+                worker_fence.check()?;
+                let result = analyze(&worker_fence)?;
+                worker_fence.check()?;
+                Ok(result)
+            })
+        });
+        let result = worker.await.map_err(|_| DeliveryProblem::Storage.error())?;
+        fence.check()?;
+        result
     }
 
     pub async fn read(&mut self, range_id: &str, families: &[EvidenceFamily]) -> Result<EvidenceCapture> {
@@ -91,25 +146,47 @@ impl<'a> EvidenceSession<'a> {
         .await
     }
 
-    /// Exact source-only links retain their original header; no body or native fact is inferred from this read.
-    pub async fn read_metadata_reference(
-        &mut self,
-        reference: &DiagnosticCaptureRef,
-    ) -> Result<EvidenceCaptureMetadata> {
-        let range_id = range_id_for(&self.service.contract, &reference.capture)?;
+    /// Exact row receipts share this same action allowance. The result is only the requested positions;
+    /// no complete native capture/population or current source authority is manufactured.
+    pub async fn read_records(&mut self, references: &[DiagnosticEvidenceRef]) -> Result<SelectedEvidenceRecords> {
+        let first = references.first().ok_or_else(|| DeliveryProblem::InvalidContract.error())?;
+        let range_id = range_id_for(&self.service.contract, &first.capture)?;
         self.read_with(
             &range_id,
-            |_| if reference.is_valid() { Ok(()) } else { Err(DeliveryProblem::InvalidContract.error()) },
-            |service, range, _recovery, budget| async move {
-                let metadata = service.reader.read_metadata(&range, budget).await?;
-                if metadata.capture() != &reference.capture
-                    || metadata.capture_manifest_sha256() != reference.manifest_sha256
-                    || metadata.source().captured_range()?.scope_id != reference.source_scope_id
-                {
-                    return Err(DeliveryProblem::Integrity.error());
+            |budget| {
+                if references.len() > budget.max_rows as usize {
+                    return Err(capacity());
                 }
-                let metrics = metadata.metrics().clone();
-                Ok((metadata, metrics))
+                if references.iter().any(|reference| {
+                    !reference.is_valid()
+                        || reference.capture != first.capture
+                        || reference.manifest_sha256 != first.manifest_sha256
+                        || reference.source_scope_id != first.source_scope_id
+                }) {
+                    return Err(DeliveryProblem::InvalidContract.error());
+                }
+                Ok(())
+            },
+            |service, range, recovery, budget| async move {
+                let selected = service.reader.read_records(&range, references, budget, Some(&recovery)).await?;
+                let metrics = selected.metrics().clone();
+                Ok((selected, metrics))
+            },
+        )
+        .await
+    }
+
+    /// Resolve this exact immutable header. NotCommitted is an authenticated recovery lookup outcome;
+    /// it grants no original/native facts and spends the same action's actual metadata proof allowance.
+    pub async fn lookup_metadata_reference(
+        &mut self,
+        reference: &DiagnosticCaptureRef,
+    ) -> Result<EvidenceMetadataLookup> {
+        let range_id = range_id_for(&self.service.contract, &reference.capture)?;
+        self.perform(
+            |_| if reference.is_valid() { Ok(()) } else { Err(DeliveryProblem::InvalidContract.error()) },
+            |service, budget, fence| async move {
+                OriginalRead::open(service, &range_id, budget, fence).await?.metadata(reference).await
             },
         )
         .await
@@ -161,24 +238,7 @@ impl<'a> EvidenceSession<'a> {
                 validate(budget)
             },
             |service, budget, fence| async move {
-                let accounting = MetadataAccounting::new(
-                    service.recovery.clone(),
-                    budget.max_queries,
-                    budget.max_proof_bytes,
-                    fence.clone(),
-                );
-                let recovery = ObjectRecoveryReader::open(accounting.clone(), service.contract.clone()).await?;
-                let range = reopen(&recovery, range_id).await?;
-                let mut reader_budget = budget;
-                reader_budget.max_proof_bytes = reader_budget
-                    .max_proof_bytes
-                    .checked_sub(accounting.work()?.bytes)
-                    .filter(|bytes| *bytes > 0)
-                    .ok_or_else(capacity)?;
-                fence.check()?;
-                let (result, mut metrics) = read(service, range, recovery, reader_budget).await?;
-                metrics.proof_bytes = metrics.proof_bytes.checked_add(accounting.work()?.bytes).ok_or_else(capacity)?;
-                Ok((result, SessionUsage { metrics, candidate_rows: 0 }))
+                OriginalRead::open(service, range_id, budget, fence).await?.read(read).await
             },
         )
         .await
@@ -202,7 +262,7 @@ impl<'a> EvidenceSession<'a> {
         if Instant::now() >= self.deadline {
             return Err(CollectionStop::TimedOut.error());
         }
-        let fence = ReadFence { cancellation: self.cancellation.clone(), deadline: self.deadline };
+        let fence = self.fence();
         let (result, used) = tokio::select! {
             biased;
             _ = self.cancellation.cancelled() => return Err(CollectionStop::Cancelled.error()),
@@ -227,7 +287,7 @@ impl<'a> EvidenceSession<'a> {
 }
 
 #[derive(Clone)]
-pub(super) struct ReadFence {
+pub(crate) struct ReadFence {
     cancellation: CollectionCancellation,
     deadline: Instant,
 }

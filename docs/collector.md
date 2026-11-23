@@ -79,6 +79,78 @@ The view keeps affected queries, evidenced culprits, candidates, database-report
 separate. Coverage details start folded. Missing or incomplete evidence remains explicit. Reads use the same
 bounded evidence service as CLI and MCP and never fall back to a production connection.
 
+## Collector connection history
+
+Scheduled baseline collection also retains **Culprit's own configured-connection attempts** in the
+`collector-connections` family and `CulpritCollectorConnectionsV1` table. It observes the same bounded reader,
+factory, setup and shutdown already used by that baseline. It adds no connection, ping, `SELECT 1`, retry, native
+query or timer, and creates no new source schedule. Manual scans/probes, qualification experiments and focused
+investigation reads are not this periodic population. Missing instrumentation, including an unhooked provider or
+file-reader path, stays unknown.
+
+The subject is a configured connection: its saved name, configured engine, opaque connection ID and frozen route
+revision. It is not a native database/member identity. These records are deliberately excluded from published
+**database** discovery, native Health grading, SQL/plan analysis, running-counter comparisons and session actions.
+A connection name is a configured label, not proof of a database, application owner or complete configured fleet.
+
+The generated schema contains these fields in addition to the common publication/capture columns:
+
+| Columns | Meaning |
+|---|---|
+| `ConnectionId`, `RouteRevision`, `ConnectionName`, common `Engine` | Exact configured metadata for this attempt, captured before its lazy factory opens |
+| `OriginalAttempt`, `OriginalState`, `OriginalStatus`, `OriginalStop` | Original allocated capture/optional terminal-manifest receipt, Outbox state, complete/incomplete manifest status and optional typed stop; absent terminal status stays null |
+| `CollectorOutcome` | The original API returned a manifest, failed with a typed code, or was not retained; `returned` can still accompany an incomplete manifest |
+| `ConnectionOutcome` | `success`, `failure` or `unknown` for the recorded collector connection work; it is not a database-up/down verdict |
+| `SourceWork` | Last retained native-work settlement for that original attempt: `not-started`, `active`, `quiescent` or `unconfirmed`; an interrupted active owner remains uncertain |
+| `OriginalEvidence` | Whether a terminal original was retained, was positively empty before native identity/evidence, or may contain native evidence; missing proof is explicit |
+| `CollectorStartedAt`, `CollectorFinishedAt`, `CollectorElapsedMs`, `OrderedCollectorClocks` | Collector UTC bounds, optional original monotonic API duration and explicit wall-clock ordering |
+| `ConnectionPhases` | Optional bounded original attempts/phases, connection use, reader generation, typed outcomes/codes, client clocks and monotonic phase durations |
+| `OriginalSourceQueries` | Original source query count when its terminal manifest exists; the separate local control output itself issues zero source queries |
+| `NativeTargetLink` | Optional opaque target/source pointers from the same validated original description; no role, member, session or permission capability |
+| `Details` | The whole typed collector control record used by the shared verified decoder |
+
+Use the fields together. A credential-preparation error before a reader exists can retain a failed
+`CollectorOutcome` with unknown `ConnectionOutcome` and no phase ledger. A later permission/query failure can
+leave an earlier successful connection fact while the manifest remains incomplete. Native codes are retained
+only where the original recorder supplied them. Missing/omitted phases, cancellation or unconfirmed work never
+become a successful zero-duration connection. There is no inference from error wording.
+
+These clocks describe collector work, not native sample time, outage onset or publication latency.
+`CollectorElapsedMs` is the original API lifetime, not a new ping measurement. Phase durations may overlap and
+must not be summed into end-to-end latency. After interruption, an unavailable duration stays null; subtracting
+UTC labels does not repair it. `CollectedFrom`/`CollectedUntil` are the later local control-output capture clocks,
+so replay/backfill or delayed delivery must not be treated as a new outage.
+
+Only configured name/engine/opaque routing identity and bounded typed evidence are exported. Passwords, tokens,
+source credential references, endpoint metadata, error text/hints and SQL payloads are not in this family. Reading
+it uses the existing independent warehouse-query and recovery profiles, never source database credentials or a
+live-provider fallback. Warehouse access can still fail even if a connection-control record reports success.
+
+The original attempt is pinned until its local canonical control is Ready. That snapshot and its output
+allocation survive restart without regenerating the attempt's clocks or body. Missing terminal manifests retain
+an unknown original-proof state. A remotely acknowledged control can retire only a positively empty preidentity
+original whose work is confirmed quiescent/not started and which has no independent pin. Partial/described or
+unknown-work originals retain their existing owner, and control delivery never clears native cancellation debt.
+
+Both deployment generators include the table, mapping and the same publication/membership-checked `Eligible`
+and `Rows` helpers used by other analytical families. This append-only control family has no native `Current`
+view. Regenerate the schema assets for the selected contract before delivery; normal startup does not apply DDL.
+Do not query an unpublished landing table as if it were complete evidence.
+
+For an advanced individual-capture read, use the existing exact committed range from that collector's delivery
+metadata and the [read-only evidence configuration](#components-and-ownership):
+
+```sh
+culprit collect evidence read --config archive.json --range "$CULPRIT_CAPTURE_RANGE" \
+  --family collector-connections --json
+```
+
+The same bounded `EvidenceReader`/`EvidenceService` path checks publication, the exact recovery namespace,
+manifest, projection indexes, row membership/digests and EOF. Complete retrieval confirms this selected control
+record, not native health or continuous availability. Missing publication, rows or proof retain read gaps.
+There is currently no configured-connection-name/time browser, MCP tool or friendly alert wrapper for this family;
+the database resource/incident picker intentionally cannot substitute for that missing connection-control view.
+
 ## Components and ownership
 
 | Component | Responsibility |
@@ -105,7 +177,7 @@ Embedders can read a specifically selected committed capture through
 `culprit_evidence::analytical::evidence::EvidenceReader`; the store crates expose `evidence::AdxReadStore` and
 `evidence::ClickHouseReadStore`. The reader accepts an authenticated `CommittedRange`, selected evidence families and a read budget.
 `EvidenceFamily::ALL` declares the supported families: resource samples, native cumulative wait-counter samples, native activity observations, inline typed operational facts, object, query and
-plan definitions, interval query runtime and query waits. Runtime and waits retain native identities, dimensions,
+plan definitions, interval query runtime and query waits, derived diagnosis outputs, and collector connection controls. Runtime and waits retain native identities, dimensions,
 outcomes, exact execution counters, units and query/plan references. Definitions retain native context and plan-to-query
 parents; an available SQL or plan payload is reconstructed only when the stored preview is complete and verified.
 Truncated payloads require recovery. A native unavailable payload keeps its original reason.
@@ -1032,8 +1104,9 @@ use the same generated schema, recovery evidence, exact verification and publica
 Apply the generated SQL explicitly to the configured database before starting delivery. Give the collector only
 SELECT/INSERT access to the generated tables; use a separate deployment identity for DDL and preserve append-only
 landing data. Ordinary collector startup
-never provisions or mutates schema. The schema contains 13 analytical landing tables and one publication table;
-recovery-only diagnostic checkpoints have no analytical table. Landing tables sort by range, batch and ordinal for
+never provisions or mutates schema. The schema contains 17 analytical landing tables: 13 original telemetry
+families, three derived diagnosis families and one collector connection-control family, plus one publication table.
+Recovery-only diagnostic checkpoints have no analytical table. Landing tables sort by range, batch and ordinal for
 bounded readback. A publication-table projection supports resource/time selection without duplicating every payload.
 
 `--store clickhouse --replicated` emits `ReplicatedMergeTree` tables using server-configured replication paths/macros.
@@ -1540,7 +1613,11 @@ not part of background telemetry; base relation observations must not be interpr
 SQL Server profile availability and authority remain native-source decisions. Local boxed-server fixture coverage
 does not qualify Azure topology, managed permissions or production overhead.
 
-The current export format is **51** (delivery schema **4**, preparation **25**). New contracts require new collector/recovery state; there is no migration of
+The export format, delivery schema digest and preparation version are strict contract identities. Their current
+definitions are owned by [export identity](../crates/culprit-core/src/telemetry/identity.rs),
+[the shared schema catalog](../crates/culprit-evidence/src/analytical/catalog.rs) and
+[preparation](../crates/culprit-evidence/src/analytical/prepared.rs). Generate assets with the same collector build
+that will deliver the data. Incompatible contracts require new collector/recovery state; there is no migration of
 old saved captures. SQL text and retained plans pass through the common payload inventory and redaction rules.
 
 [pvs-fields]: https://learn.microsoft.com/en-us/sql/relational-databases/system-dynamic-management-views/sys-dm-tran-persistent-version-store-stats

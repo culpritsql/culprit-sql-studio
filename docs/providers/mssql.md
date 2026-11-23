@@ -96,6 +96,17 @@ Gateway pool IDs identify native Resource Governor pools, not Azure elastic-pool
 
 Live shows current sessions, running statements, idle transactions and blocking chains. Query Store attributes recorded wait categories to statements; live wait samples compare server wait counters over the sample interval.
 
+Focused blocking can distinguish a queued schema change from the older transaction holding it up, and name the
+captured requests waiting behind that change. An intent-lock wait can trigger the same investigation when its
+upstream chain contains a schema-lock wait. The proof uses native lock resources, waiting-task pointers and paired
+request/transaction identities; SQL text and an object's display name cannot establish the relationship.
+
+This detailed profile currently supports a verified writable, non-AG SQL Server 2022 Enterprise member. It shares
+the existing Activity reader, pays for both lock snapshots within a 12-query allowance including session setup,
+and retains incomplete or changed evidence as a gap. Its production cost remains unqualified, so it does not
+automatically enable additional live reads. Recorded SQL identifies the observed request, not the statement that
+originally acquired a holder's lock.
+
 Query Store wait totals remain usable when capture is currently off. Its current setting does not establish whether
 all waits were retained for an earlier interval, so absent rows remain unknown. The same native category mapping
 serves scans and telemetry export. Worker admission (`THREADPOOL`), CPU, compilation and memory waits remain

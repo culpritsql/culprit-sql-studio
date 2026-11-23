@@ -23,18 +23,26 @@ fn resource(kind: SharedResourceKind, engine: Engine) -> SharedResourceIdentity 
         native: NativeIdentity::new("native-resource"),
     }
 }
-fn request(registration: &Registration) -> CollectionRequest {
-    let selection = match registration.acquisition.collection() {
-        TelemetryCollection::Activity => CollectionSelection::Activity,
-        TelemetryCollection::DeadlockHistory => CollectionSelection::DeadlockHistory {
-            from: "2020-01-01T00:00:00Z".into(),
-            until: "2020-01-01T01:00:00Z".into(),
-        },
-        TelemetryCollection::Snapshot(SnapshotDataset::CurrentRequestWork) => {
-            CollectionSelection::CurrentRequestWork { focus: Box::new(crate::progress::test_support::original_focus()) }
+async fn request(registration: &Registration) -> CollectionRequest {
+    let selection = if matches!(registration.acquisition, Acquisition::Blocking) {
+        super::super::blocking::tests::request().await.0.selection
+    } else if matches!(registration.acquisition, Acquisition::MetadataLocks) {
+        super::super::blocking::tests::metadata_request_on("8.4.6").await.selection
+    } else {
+        match registration.acquisition.collection() {
+            TelemetryCollection::Activity => CollectionSelection::Activity,
+            TelemetryCollection::DeadlockHistory => CollectionSelection::DeadlockHistory {
+                from: "2020-01-01T00:00:00Z".into(),
+                until: "2020-01-01T01:00:00Z".into(),
+            },
+            TelemetryCollection::Snapshot(SnapshotDataset::CurrentRequestWork) => {
+                CollectionSelection::CurrentRequestWork {
+                    focus: Box::new(crate::progress::test_support::original_focus()),
+                }
+            }
+            TelemetryCollection::Snapshot(dataset) => CollectionSelection::Snapshot { dataset },
+            _ => panic!("the catalog contains an unimplemented acquisition"),
         }
-        TelemetryCollection::Snapshot(dataset) => CollectionSelection::Snapshot { dataset },
-        _ => panic!("the catalog contains an unimplemented acquisition"),
     };
     CollectionRequest {
         subject: match registration.acquisition.subject() {
@@ -52,10 +60,13 @@ async fn every_static_declaration_selects_one_real_native_constructor_without_op
     assert_eq!(declarations.len(), REGISTRATIONS.len());
     assert!(recipe_catalog_is_valid(&declarations));
     for (registration, descriptor) in REGISTRATIONS.iter().zip(&declarations) {
-        let request = request(registration);
+        let request = request(registration).await;
         request.validate().unwrap_or_else(|error| panic!("{}: {error}", descriptor.id));
         assert!(descriptor.accepts(&request));
-        assert_eq!(descriptor.admission, RecipeAdmission::Unqualified);
+        assert_eq!(
+            matches!(descriptor.admission, RecipeAdmission::BuiltinSafety(_)),
+            matches!(descriptor.id.as_str(), "mysql.activity" | "mysql.blocking")
+        );
         assert_eq!(REGISTRATIONS.iter().filter(|candidate| candidate.accepts(&request)).count(), 1);
         let mut source = crate::telemetry::source(connector(), &request).unwrap();
         assert_eq!(source.query_count(), 0, "{}", descriptor.id);
@@ -76,12 +87,18 @@ fn native_projection_revisions_invalidate_only_changed_recipe_identities_without
     );
     for recipe in &declarations {
         let expected = match recipe.id.as_str() {
-            "mysql.activity" | "mysql.current-request-work" | "mysql.operational" => 2,
+            "mysql.activity" => 3,
+            "mysql.current-request-work" | "mysql.operational" => 2,
             _ => 1,
         };
         assert_eq!(recipe.version, expected, "{}", recipe.id);
     }
-    assert!(declarations.iter().all(|recipe| recipe.admission == RecipeAdmission::Unqualified));
+    assert!(
+        declarations
+            .iter()
+            .filter(|recipe| !matches!(recipe.id.as_str(), "mysql.activity" | "mysql.blocking"))
+            .all(|recipe| recipe.admission == RecipeAdmission::Unqualified)
+    );
 }
 
 #[test]
@@ -91,6 +108,8 @@ fn baseline_and_investigation_meaning_is_explicit_without_qualifying_native_cost
         assert_eq!(declarations.iter().find(|recipe| recipe.id == id).unwrap().purpose, RecipePurpose::Baseline);
     }
     for id in [
+        "mysql.blocking",
+        "mysql.metadata-lock-context",
         "mysql.session-memory",
         "mysql.group-replication",
         "mariadb.galera",
@@ -101,7 +120,12 @@ fn baseline_and_investigation_meaning_is_explicit_without_qualifying_native_cost
     ] {
         assert_eq!(declarations.iter().find(|recipe| recipe.id == id).unwrap().purpose, RecipePurpose::Investigation);
     }
-    assert!(declarations.iter().all(|recipe| recipe.admission == RecipeAdmission::Unqualified));
+    assert!(
+        declarations
+            .iter()
+            .filter(|recipe| !matches!(recipe.id.as_str(), "mysql.activity" | "mysql.blocking"))
+            .all(|recipe| recipe.admission == RecipeAdmission::Unqualified)
+    );
     assert!(declarations.iter().all(|recipe| !matches!(
         recipe.selector,
         RecipeSelector::FocusedPageWait
@@ -109,8 +133,8 @@ fn baseline_and_investigation_meaning_is_explicit_without_qualifying_native_cost
     )));
 }
 
-#[test]
-fn profiles_reuse_native_caps_and_preserve_every_stricter_caller_dimension() {
+#[tokio::test]
+async fn profiles_reuse_native_caps_and_preserve_every_stricter_caller_dimension() {
     let strict = CollectionBudget {
         page_rows: 1,
         max_snapshot_rows: 1,
@@ -125,7 +149,7 @@ fn profiles_reuse_native_caps_and_preserve_every_stricter_caller_dimension() {
     };
     strict.validate().unwrap();
     for registration in REGISTRATIONS {
-        let mut request = request(registration);
+        let mut request = request(registration).await;
         request.budget = CollectionBudget::upper_limits();
         assert_eq!(registration.bounded_request(&request).budget, registration.descriptor().budget);
         request.budget = strict.clone();
@@ -134,6 +158,15 @@ fn profiles_reuse_native_caps_and_preserve_every_stricter_caller_dimension() {
     let activity = declarations().into_iter().find(|recipe| recipe.id == "mysql.activity").unwrap();
     assert_eq!((activity.budget.max_queries, activity.budget.max_snapshot_rows), (20, 500));
     assert_eq!((activity.budget.statement_timeout_ms, activity.budget.total_timeout_ms), (1000, 5000));
+    let blocking = declarations().into_iter().find(|recipe| recipe.id == "mysql.blocking").unwrap();
+    assert_eq!(blocking.selector, RecipeSelector::FocusedBlocking);
+    assert_eq!((blocking.budget.max_queries, blocking.budget.max_snapshot_rows), (33, MAX_BLOCKING_PARTICIPANTS));
+    assert_eq!((blocking.budget.statement_timeout_ms, blocking.budget.total_timeout_ms), (1000, 5000));
+    let metadata = declarations().into_iter().find(|recipe| recipe.id == "mysql.metadata-lock-context").unwrap();
+    assert_eq!(metadata.selector, RecipeSelector::FocusedMetadataLocks);
+    assert_eq!(metadata.admission, RecipeAdmission::Unqualified);
+    assert_eq!((metadata.budget.max_queries, metadata.budget.max_snapshot_rows), (37, MAX_BLOCKING_PARTICIPANTS));
+    assert_eq!((metadata.budget.statement_timeout_ms, metadata.budget.total_timeout_ms), (1000, 5000));
     let distribution = declarations().into_iter().find(|recipe| recipe.id == "mysql.runtime-distributions").unwrap();
     assert_eq!((distribution.budget.max_queries, distribution.budget.total_timeout_ms), (24, 10_000));
     let group = declarations().into_iter().find(|recipe| recipe.id == "mysql.group-replication").unwrap();
@@ -145,8 +178,8 @@ fn profiles_reuse_native_caps_and_preserve_every_stricter_caller_dimension() {
     assert_eq!((current.budget.statement_timeout_ms, current.budget.total_timeout_ms), (1000, 5000));
 }
 
-#[test]
-fn ordinary_catalog_and_retained_history_routes_keep_valid_above_default_budgets() {
+#[tokio::test]
+async fn ordinary_catalog_and_retained_history_routes_keep_valid_above_default_budgets() {
     let defaults = CollectionBudget::default();
     let larger = CollectionBudget {
         max_snapshot_rows: defaults.max_snapshot_rows + 1,
@@ -158,22 +191,25 @@ fn ordinary_catalog_and_retained_history_routes_keep_valid_above_default_budgets
     larger.validate().unwrap();
     for id in ["mysql.tables", "mysql.deadlock-history", "mysql.statement-counters"] {
         let registration = REGISTRATIONS.iter().find(|recipe| recipe.id == id).unwrap();
-        let mut request = request(registration);
+        let mut request = request(registration).await;
         request.budget = larger.clone();
         assert_eq!(registration.bounded_request(&request).budget, larger, "{id}");
     }
 }
 
-#[test]
-fn shared_native_sources_never_fall_through_to_database_or_other_resource_routes() {
+#[tokio::test]
+async fn shared_native_sources_never_fall_through_to_database_or_other_resource_routes() {
     for registration in REGISTRATIONS {
-        let original = request(registration);
+        let original = request(registration).await;
         let mut wrong = original.clone();
         wrong.subject = match original.subject {
             CollectionSubject::Database => {
                 CollectionSubject::Shared { resource: resource(SharedResourceKind::Instance, Engine::Mysql) }
             }
             CollectionSubject::Shared { .. } => CollectionSubject::Database,
+            CollectionSubject::ConfiguredConnection { .. } => {
+                panic!("provider catalog cannot declare collector control")
+            }
         };
         assert!(crate::telemetry::source(connector(), &wrong).is_err(), "{}", registration.id);
     }
@@ -181,7 +217,7 @@ fn shared_native_sources_never_fall_through_to_database_or_other_resource_routes
     for shared in
         [resource(SharedResourceKind::Pool, Engine::Mysql), resource(SharedResourceKind::Instance, Engine::Postgres)]
     {
-        let mut wrong = request(registration);
+        let mut wrong = request(registration).await;
         wrong.subject = CollectionSubject::Shared { resource: shared };
         assert!(crate::telemetry::source(connector(), &wrong).is_err());
     }
@@ -218,10 +254,10 @@ fn current_request_work_is_never_admitted_as_an_unfocused_periodic_snapshot() {
     assert!(crate::telemetry::source(connector(), &request).is_err());
 }
 
-#[test]
-fn current_request_work_requires_its_database_subject_and_exact_source_statement_token() {
+#[tokio::test]
+async fn current_request_work_requires_its_database_subject_and_exact_source_statement_token() {
     let registration = REGISTRATIONS.iter().find(|recipe| recipe.id == "mysql.current-request-work").unwrap();
-    let valid = request(registration);
+    let valid = request(registration).await;
     valid.validate().unwrap();
     for wrong in [
         {

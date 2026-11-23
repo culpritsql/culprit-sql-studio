@@ -1,27 +1,30 @@
 //! Owns one streamed snapshot lifecycle. Recipes supply only native layout, query and decoding.
-use super::{description, state};
+mod catalog;
+use super::{database_acquisition::DatabaseAcquisition, description, state};
 use crate::{
     conn::Pool,
     read::{NativeStreamRead, Parameter, ReadError, ReadSession, invalid_data},
 };
 use crate::{read::NativeRead, value::Rec};
+pub(super) use catalog::bounded_budget as catalog_budget;
 use culprit_core::{Result, Source, telemetry::*};
 
-/// A recipe chooses its acquisition policy explicitly. Local cache scope is never logical database history.
+/// A recipe chooses its acquisition policy explicitly. Local catalog/cache scope is never logical history.
 #[derive(Clone, Copy)]
 pub(super) enum SnapshotAcquisition {
     AzureDatabase,
+    DatabaseCatalog,
     AzureDatabaseCache,
     KnownReadableDatabaseCache,
 }
 impl SnapshotAcquisition {
-    fn uses_local_authority(self) -> bool {
-        !matches!(self, Self::AzureDatabase)
+    fn uses_cache_authority(self) -> bool {
+        matches!(self, Self::AzureDatabaseCache | Self::KnownReadableDatabaseCache)
     }
 
     fn require_cache_platform(self, context: &crate::local_source::Context) -> Result<()> {
         match self {
-            Self::AzureDatabase => Err(invalid_data()),
+            Self::AzureDatabase | Self::DatabaseCatalog => Err(invalid_data()),
             Self::AzureDatabaseCache if context.activity.edition != crate::probe::ENGINE_EDITION_AZURE_SQL_DATABASE => {
                 Err(culprit_core::Error::new(
                     culprit_core::ErrorCode::Unsupported,
@@ -44,11 +47,19 @@ impl SnapshotAcquisition {
                 Ok(())
             }
             Self::AzureDatabaseCache => crate::read::require_primary(context.activity.writable),
-            Self::AzureDatabase => Err(invalid_data()),
+            Self::AzureDatabase | Self::DatabaseCatalog => Err(invalid_data()),
         }
     }
 
-    fn require_cache_row(self, row: &Rec, authority: &SnapshotAuthority) -> Result<()> {
+    fn require_row_owner(self, row: &Rec, authority: &SnapshotAuthority) -> Result<()> {
+        if matches!(self, Self::DatabaseCatalog) {
+            if let SnapshotAuthority::Catalog(owner) = authority {
+                let database_id =
+                    u32::try_from(crate::read::integer(row, "database_id")?).map_err(|_| invalid_data())?;
+                owner.require_database_id(database_id)?;
+            }
+            return Ok(());
+        }
         if !matches!(self, Self::KnownReadableDatabaseCache) {
             return Ok(());
         }
@@ -130,11 +141,13 @@ enum SnapshotAuthority {
     Unobserved,
     AzureLogical { physical_incarnation: String },
     Local(Box<crate::local_source::Context>),
+    Catalog(Box<DatabaseAcquisition>),
 }
 impl SnapshotAuthority {
     async fn admit<R: NativeRead>(&self, reader: &mut R) -> Result<()> {
         match self {
             Self::Unobserved => Err(invalid_data()),
+            Self::Catalog(owner) => owner.admit(reader).await,
             Self::Local(context) if context.activity.edition != crate::probe::ENGINE_EDITION_AZURE_SQL_DATABASE => {
                 crate::resources::admit_instance_resources(reader).await.map_err(ReadError::into_error)
             }
@@ -151,7 +164,11 @@ struct SourceReadRequest {
 
 impl<D: SnapshotRecipe> StreamedSnapshot<D> {
     pub fn new(pool: Arc<Pool>, request: &CollectionRequest, host: String, port: u16, recipe: D) -> Result<Self> {
-        Self::with_io(ReadSession::collection(pool, request.budget.clone())?, request, host, port, recipe)
+        let mut request = request.clone();
+        if matches!(D::ACQUISITION, SnapshotAcquisition::DatabaseCatalog) {
+            request.budget = catalog_budget(&request.budget);
+        }
+        Self::with_io(ReadSession::collection(pool, request.budget.clone())?, &request, host, port, recipe)
     }
 }
 impl<D: SnapshotRecipe> StreamedSnapshot<D> {
@@ -191,12 +208,16 @@ impl<D: SnapshotRecipe, R: NativeStreamRead> StreamedSnapshot<D, R> {
         let source_read = match &request.selection {
             CollectionSelection::Snapshot { dataset } if *dataset == D::DATASET => None,
             CollectionSelection::SourceRead { focus, execution }
-                if D::SOURCE_READ == Some(focus.question) && focus.question.dataset() == D::DATASET =>
+                if D::SOURCE_READ == Some(focus.question) && focus.question.dataset() == Some(D::DATASET) =>
             {
                 Some(SourceReadRequest { focus_key: focus.key()?, execution: execution.as_ref().clone() })
             }
             _ => return Err(invalid_data()),
         };
+        let mut request = request.clone();
+        if matches!(D::ACQUISITION, SnapshotAcquisition::DatabaseCatalog) {
+            request.budget = catalog::bounded_budget(&request.budget);
+        }
         let reader = NativeSnapshotReader {
             recipe,
             io,
@@ -208,7 +229,7 @@ impl<D: SnapshotRecipe, R: NativeStreamRead> StreamedSnapshot<D, R> {
             purpose,
             layout: None,
         };
-        Ok(Self { inner: culprit_read::SnapshotSource::new(reader, request)? })
+        Ok(Self { inner: culprit_read::SnapshotSource::new(reader, &request)? })
     }
 }
 #[async_trait::async_trait]
@@ -219,7 +240,7 @@ impl<D: SnapshotRecipe, R: NativeStreamRead> culprit_read::SnapshotReader for Na
     }
     async fn describe(&mut self, request: &CollectionRequest) -> Result<CollectionDescription> {
         let (target, partition, observed_from, metadata_visible) = if self.source_read.is_some()
-            && !D::ACQUISITION.uses_local_authority()
+            && !D::ACQUISITION.uses_cache_authority()
             || self.purpose == SnapshotPurpose::NativeCostMeasurement
         {
             description::ensure_supported(&mut self.io).await?;
@@ -245,7 +266,7 @@ impl<D: SnapshotRecipe, R: NativeStreamRead> culprit_read::SnapshotReader for Na
             let observed_from = actual.observed_from.clone();
             self.authority = SnapshotAuthority::Local(Box::new(context));
             (target, SourcePartition::Target, observed_from, visible)
-        } else if D::ACQUISITION.uses_local_authority() {
+        } else if D::ACQUISITION.uses_cache_authority() {
             let context = crate::local_source::Context::read(&mut self.io, &self.host, self.port).await?;
             D::ACQUISITION.require_cache_owner(&context)?;
             self.recipe.require_platform(&context)?;
@@ -260,12 +281,11 @@ impl<D: SnapshotRecipe, R: NativeStreamRead> culprit_read::SnapshotReader for Na
             let visible = if D::REQUIRES_FULL_METADATA { state::clock(&mut self.io).await?.1 } else { true };
             self.authority = SnapshotAuthority::Local(Box::new(context));
             (target, partition, observed_from, visible)
+        } else if matches!(D::ACQUISITION, SnapshotAcquisition::DatabaseCatalog) {
+            self.describe_catalog().await?
         } else {
             description::ensure_supported(&mut self.io).await?;
-            let (database, physical) = description::identity(&mut self.io, &self.host, self.port).await?;
-            let (at, visible) = state::clock(&mut self.io).await?;
-            self.authority = SnapshotAuthority::AzureLogical { physical_incarnation: physical };
-            (database.into(), SourcePartition::Target, at, visible)
+            self.describe_azure_database().await?
         };
         if D::REQUIRES_FULL_METADATA && !metadata_visible {
             return Err(crate::catalog_visibility::unavailable());
@@ -309,7 +329,7 @@ impl<D: SnapshotRecipe, R: NativeStreamRead> culprit_read::SnapshotReader for Na
         }
         let batch = self.io.next_batch().await.map_err(ReadError::into_error)?;
         for row in &batch.rows {
-            D::ACQUISITION.require_cache_row(row, &self.authority)?;
+            D::ACQUISITION.require_row_owner(row, &self.authority)?;
         }
         let layout = self.layout.as_mut().ok_or_else(invalid_data)?;
         self.recipe.observe_batch(&batch.rows, layout)?;
@@ -328,8 +348,11 @@ impl<D: SnapshotRecipe, R: NativeStreamRead> culprit_read::SnapshotReader for Na
         if let Some(layout) = &self.layout {
             self.recipe.recheck(&mut self.io, layout).await?;
         }
+        if matches!(self.authority, SnapshotAuthority::Catalog(_)) {
+            return self.recheck_catalog(initial).await;
+        }
         if let SnapshotAuthority::Local(before) = &self.authority {
-            let source_visibility = if self.source_read.is_some() && !D::ACQUISITION.uses_local_authority()
+            let source_visibility = if self.source_read.is_some() && !D::ACQUISITION.uses_cache_authority()
                 || self.purpose == SnapshotPurpose::NativeCostMeasurement
             {
                 Some(state::clock(&mut self.io).await?.1)

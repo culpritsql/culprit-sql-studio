@@ -95,6 +95,7 @@ pub fn observe_diagnostic_activity(
             classified.conditions.get(&row.observation.key),
             uncertain_blocking.contains(&row.observation.key),
             policy,
+            source.target.engine(),
         ) {
             let before = by_signal.get(&signal.key()?).and_then(|id| episodes.get(id)).cloned();
             let mut episode = match &before {
@@ -177,6 +178,7 @@ fn signals(
     conditions: Option<&Vec<ActivityCondition>>,
     uncertain_blocking: bool,
     policy: &ActivityPolicy,
+    engine: crate::Engine,
 ) -> Vec<DiagnosticSignal> {
     if matches!(row.scope, ActivityScopeBasis::OtherDatabase | ActivityScopeBasis::BlockingReference) {
         return Vec::new();
@@ -198,6 +200,18 @@ fn signals(
     }
     if row.key.request.is_none() {
         return signals;
+    }
+    if row.scope == ActivityScopeBasis::RequestDatabase
+        && row
+            .wait
+            .as_ref()
+            .and_then(|wait| wait.native_type.as_deref())
+            .is_some_and(|wait| engine.spec().native_wait_mechanism(wait) == Some(WaitMechanism::ClientResultOutput))
+    {
+        signals.push(DiagnosticSignal::ClientResultOutput {
+            key: row.key.clone(),
+            statement_identity: row.statement_identity.clone(),
+        });
     }
     if row.wait.as_ref().is_some_and(|wait| wait.class == Some(ActivityWaitClass::CompilationAdmission)) {
         signals.push(DiagnosticSignal::CompilationAdmission {

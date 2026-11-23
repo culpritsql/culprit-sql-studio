@@ -1,6 +1,5 @@
 //! Owned-fixture observation only: delegates the same source and structurally checks rows with its real lease.
 use super::*;
-use culprit_core::Error;
 use serde_json::{Value, json};
 use std::collections::HashSet;
 
@@ -14,25 +13,6 @@ struct SourceDiagnostics {
 }
 pub(super) fn source(inner: Box<dyn TelemetrySource>, capture: CaptureIdentity) -> Box<dyn TelemetrySource> {
     Box::new(SourceDiagnostics { inner, capture, description: None, seen: HashSet::new(), failure_samples: 0 })
-}
-pub(super) fn failed(stage: &str, error: &Error) {
-    eprintln!(
-        "owned capture boundary failure: {}",
-        json!({"stage":stage,"code":error.code,"stop":CollectionStop::from_error(error)})
-    );
-}
-pub(super) fn incomplete(manifest: &CollectionManifest) {
-    eprintln!(
-        "owned capture incomplete: {}",
-        json!({
-            "source_queries":manifest.source_queries,
-            "source_is_final_snapshot":manifest.description.as_ref().is_some_and(|source|source.observation.snapshot().is_some()),
-            "files":manifest.files.iter().map(|file|json!({"stream":file.stream,"status":file.status,"rows":file.rows,"pages":file.pages,"bytes":file.bytes})).collect::<Vec<_>>(),
-            "reference_integrity_complete":manifest.references.integrity_complete,
-            "read_metrics_valid":manifest.read_metrics.as_ref().map(ReadWorkMetrics::is_valid),
-            "native_work_unconfirmed":manifest.read_metrics.as_ref().map(ReadWorkMetrics::has_unconfirmed_work),
-        })
-    );
 }
 impl SourceDiagnostics {
     fn inspect(&mut self, records: &[TelemetryRecord]) {
@@ -109,7 +89,11 @@ fn stable(payload: &DefinitionPayload, redact: fn(&str, culprit_core::Engine) ->
 #[async_trait::async_trait]
 impl TelemetrySource for SourceDiagnostics {
     async fn describe(&mut self) -> Result<CollectionDescription> {
-        let description = self.inner.describe().await.inspect_err(|error| failed("source-describe", error))?;
+        let description = self
+            .inner
+            .describe()
+            .await
+            .inspect_err(|error| native_capture::report_failure("source-describe", error))?;
         self.description = Some(Box::new(description.clone()));
         Ok(description)
     }
@@ -120,14 +104,18 @@ impl TelemetrySource for SourceDiagnostics {
         self.inner.read_metrics()
     }
     async fn read_page(&mut self, stream: TelemetryStream, cursor: Option<&str>) -> Result<CollectionRead> {
-        let result = self.inner.read_page(stream, cursor).await.inspect_err(|error| failed("source-page", error));
+        let result = self
+            .inner
+            .read_page(stream, cursor)
+            .await
+            .inspect_err(|error| native_capture::report_failure("source-page", error));
         if let Ok(CollectionRead::Page { records, .. }) = &result {
             self.inspect(records)
         }
         result
     }
     async fn finish(&mut self) -> Result<SourceCompletion> {
-        self.inner.finish().await.inspect_err(|error| failed("source-finish", error))
+        self.inner.finish().await.inspect_err(|error| native_capture::report_failure("source-finish", error))
     }
     async fn close(&mut self) -> SourceShutdown {
         self.inner.close().await

@@ -78,6 +78,7 @@ impl Captured {
         let home = tempfile::tempdir().unwrap();
         let mut outbox = Outbox::create(&home.path().join("outbox"), Default::default()).unwrap();
         let subject = match &source.target {
+            CollectionTarget::ConfiguredConnection(_) => panic!("native fixture cannot represent collector control"),
             CollectionTarget::Database(_) => CollectionSubject::Database,
             CollectionTarget::Shared(resource) => CollectionSubject::Shared { resource: resource.clone() },
         };

@@ -78,3 +78,37 @@ fn an_output_cap_produces_no_truncated_json_or_sensitive_error_payload() {
     assert!(error["error"].is_object());
     assert!(!error.to_string().contains("private-value-canary"));
 }
+
+#[test]
+fn explicit_extended_event_xml_works_without_a_workspace_and_is_never_binary_xel_or_timeout_authority() {
+    let directory = home("native-xe-xml-no-workspace");
+    let path = directory.0.join("selected.xml");
+    std::fs::write(&path, "<event name='attention' package='sqlserver' timestamp='2020-01-01T12:00:00Z'><action name='sql_text' package='sqlserver'><value>SELECT 'private-xe-canary'</value></action></event>").unwrap();
+    let invalid_home = directory.0.join("not-a-workspace");
+    std::fs::write(&invalid_home, "not a directory").unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_culprit"))
+        .arg("logs")
+        .arg(&path)
+        .args(["--input-format", "mssql-xe-xml", "--json"])
+        .env("CULPRIT_HOME", &invalid_home)
+        .env_remove("CULPRIT_LANG")
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    let output: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(output["input"]["format"], "mssql-extended-events-xml");
+    assert_eq!(output["native_events"]["timeline"][0]["source"], "imported-artifact");
+    assert!(output["evidence"]["resource"].is_null());
+    assert!(!output.to_string().contains("private-xe-canary"));
+    std::fs::write(&path, [0x1f, 0x8b, 0x08]).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_culprit"))
+        .arg("logs")
+        .arg(&path)
+        .args(["--input-format", "mssql-xe-xml", "--json"])
+        .env("CULPRIT_HOME", &invalid_home)
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(2));
+    let output: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(output["source"]["state"], "partial");
+}

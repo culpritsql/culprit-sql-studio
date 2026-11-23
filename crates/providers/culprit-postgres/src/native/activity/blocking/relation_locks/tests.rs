@@ -8,7 +8,7 @@ fn identities() -> (BTreeMap<u32, usize>, BTreeSet<usize>) {
     ([(10, 0), (20, 1), (30, 2)].into(), [0, 1].into())
 }
 fn row(pid: u32, mode: &str, owner: u32, pending: Option<&str>) -> Row {
-    let owners = serde_json::json!([{"pid":owner.to_string(),"actor_matches":true,"single_backend":true,"granted":["AccessShareLock"],"waiting":pending.into_iter().collect::<Vec<_>>() }]);
+    let owners = serde_json::json!([{"pid":owner.to_string(),"actor_matches":true,"active":true,"wait_event_type":null,"wait_event":null,"single_backend":true,"granted":["AccessShareLock"],"waiting":pending.into_iter().collect::<Vec<_>>() }]);
     Row::from_fields([
         ("pid".into(), Some(pid.to_string())),
         ("observed_at".into(), Some("2020-01-01T06:00:01Z".into())),
@@ -79,11 +79,15 @@ async fn one_focused_dispatch_retains_native_modes_and_edges_with_one_capped_loc
         assert!(sql.contains(guard), "{guard}");
     }
     assert!(!sql.contains("a.query,") && !sql.contains("SELECT a.* FROM targets"));
-    let NativeLockEvidence::Postgres(point) = frame.locks[0].native.as_deref().unwrap();
+    let NativeLockEvidence::Postgres(point) = frame.locks[0].native.as_deref().unwrap() else {
+        panic!("expected original PostgreSQL lock point")
+    };
     assert!(point.is_valid_for(&frame.records[0].facts.as_ref().unwrap().key));
     assert_eq!(point.resource.as_ref().unwrap().relation_oid, "12345");
     assert_eq!(point.edge(&point.blockers[0]), culprit_core::blocking::NativeRelationLockEdge::PendingOnlyConflict);
-    let NativeLockEvidence::Postgres(gate) = frame.locks[1].native.as_deref().unwrap();
+    let NativeLockEvidence::Postgres(gate) = frame.locks[1].native.as_deref().unwrap() else {
+        panic!("expected original PostgreSQL lock point")
+    };
     assert_eq!(gate.edge(&gate.blockers[0]), culprit_core::blocking::NativeRelationLockEdge::GrantedConflict);
 }
 #[tokio::test]
@@ -113,7 +117,9 @@ async fn truncated_lock_or_blocker_prefix_and_changed_waiter_retain_unknown_not_
             row(20, "AccessExclusiveLock", 30, None),
         ])]);
         assert_eq!(read(&mut reader, &mut frame, &by_pid, &visited).await.unwrap(), limited);
-        let NativeLockEvidence::Postgres(point) = frame.locks[0].native.as_deref().unwrap();
+        let NativeLockEvidence::Postgres(point) = frame.locks[0].native.as_deref().unwrap() else {
+            panic!("expected original PostgreSQL lock point")
+        };
         assert_eq!(point.edge(&point.blockers[0]), culprit_core::blocking::NativeRelationLockEdge::Unknown);
         assert_eq!(reader.calls.len(), 1);
     }
@@ -161,4 +167,27 @@ fn actual_unpolled_relation_read_future_and_output_have_finite_storage_without_a
     assert!(storage <= 4096, "actual read future stores {storage} bytes");
     assert!(std::mem::size_of::<Result<bool>>() <= 128);
     assert!(reader.calls.is_empty());
+}
+
+#[tokio::test]
+async fn matched_actor_output_wait_is_from_the_existing_lock_point_not_an_earlier_activity_wait() {
+    let mut frame = frame();
+    let (by_pid, visited) = identities();
+    // Use the active gate actor20 as owner of waiter10; its previous Activity wait was Lock, not ClientWrite.
+    let native=change(row(10,"AccessExclusiveLock",20,None),"owners",&serde_json::json!([{"pid":"20","actor_matches":true,"single_backend":true,"active":true,"wait_event_type":"Client","wait_event":"ClientWrite","granted":["AccessShareLock"],"waiting":[]}]).to_string());
+    let mut reader = Reader::new(vec![Ok(vec![native, row(20, "AccessExclusiveLock", 30, None)])]);
+    read(&mut reader, &mut frame, &by_pid, &visited).await.unwrap();
+    assert_eq!(reader.calls.len(), 1);
+    assert_eq!(reader.calls[0].0.matches("pg_catalog.pg_locks").count(), 1);
+    assert!(reader.calls[0].0.contains("a.wait_event_type,a.wait_event"));
+    let point = frame.records[0].facts.as_ref().unwrap().wait.as_ref().unwrap().resources.as_ref().unwrap()[0]
+        .native
+        .as_deref()
+        .unwrap();
+    let NativeLockEvidence::Postgres(point) = point else { panic!() };
+    let context = point.blockers[0].output_context.as_ref().unwrap();
+    assert_eq!(context.native_wait.as_deref(), Some("Client: ClientWrite"));
+    assert_eq!(context.current_requests.as_deref(), Some("1"));
+    assert!(context.wait_ms.is_none());
+    assert_eq!(context.actor.as_ref(), frame.records[1].facts.as_ref().map(|facts| &facts.key));
 }

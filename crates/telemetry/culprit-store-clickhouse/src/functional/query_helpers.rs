@@ -53,8 +53,48 @@ pub(super) async fn run(server: &Server, catalog: &SchemaCatalog) {
         server.execute(&command);
     }
     first.dispatch().await;
+    assert_eq!(count(server, &format!("FriendlySmokeIncidentsDuring(resource='{label}',window_from=fromUnixTimestamp64Nano({from}),window_until=fromUnixTimestamp64Nano({until}))")).await, 0,
+        "a convenience wrapper cannot expose an unpublished Gold row or resource label");
     assert_eq!(count(server, &format!("FriendlySmokeResources(asof=fromUnixTimestamp64Nano({after}))")).await, 0);
     first.publish().await;
+    let window = format!(
+        "resource='{label}',window_from=fromUnixTimestamp64Nano({from}),window_until=fromUnixTimestamp64Nano({until})"
+    );
+    assert_eq!(count(server, &format!("FriendlySmokeIncidentsDuring({window})")).await, 1);
+    let namespace_window = format!(
+        "from=fromUnixTimestamp64Nano({from}),until=fromUnixTimestamp64Nano({until}),asof=fromUnixTimestamp64Nano({after})"
+    );
+    assert_eq!(count(server, &format!("FriendlySmokeIncidentWindow({namespace_window})")).await, 1);
+    assert_eq!(count(server, &format!("FriendlySmokeNewIncidentWindow({namespace_window})")).await, 1);
+    assert_eq!(
+        count(
+            server,
+            &format!("FriendlySmokeCollectionStatus(asof=fromUnixTimestamp64Nano({after}),max_age_seconds=315360000)")
+        )
+        .await,
+        0,
+        "publishing Gold does not prove a fresh source acquisition"
+    );
+
+    for family in ["Findings", "Changes"] {
+        assert_eq!(count(server, &format!("FriendlySmoke{family}During(resource='{label}',window_from=toDateTime64('2019-01-01',9,'UTC'),window_until=fromUnixTimestamp64Nano({after}))")).await, 1);
+    }
+
+    assert_eq!(count(server, &format!("FriendlySmokeRecordedIncidentAlertsDuring({window})")).await, 1);
+    assert_eq!(count(server, &format!("FriendlySmokeRecordedIncidentAlertsDuring(resource='{label}',window_from=now64(9,'UTC')-INTERVAL 5 MINUTE,window_until=now64(9,'UTC'))")).await, 0,
+        "an original from2020 published now is not a newly observed current outage");
+    let provenance = server
+        .values(
+            format!("SELECT PublicationTimeKnown FROM FriendlySmokeIncidentsDuring({window})"),
+            BTreeMap::new(),
+            &[("PublicationTimeKnown", "Bool")],
+        )
+        .await;
+    assert_eq!(provenance, vec![vec![json!(false)]]);
+    let unknown = server.values(
+        "SELECT State,PublicationTimeKnown FROM FriendlySmokeStatusNow(resource='not-observed',max_age_seconds=1800)".into(), BTreeMap::new(), &[("State","String"),("PublicationTimeKnown","Bool")],
+    ).await;
+    assert_eq!(unknown, vec![vec![json!("unknown-label"), json!(false)]]);
     let new_call = format!("FriendlySmokeNewIncidents({args})");
     assert_eq!(count(server, &new_call).await, 1);
     for family in ["Findings", "Changes"] {
@@ -130,6 +170,14 @@ pub(super) async fn run(server: &Server, catalog: &SchemaCatalog) {
     .await;
     resolved.complete().await;
     assert_eq!(count(server, &new_call).await, 0);
+    assert_eq!(count(server, &format!("FriendlySmokeNewIncidentWindow({namespace_window})")).await, 0);
+    assert_eq!(
+        count(server, &format!("FriendlySmokeIncidentWindow({namespace_window}) WHERE Lifecycle='resolved'")).await,
+        1
+    );
+
+    assert_eq!(count(server, &format!("FriendlySmokeRecordedIncidentAlertsDuring({window})")).await, 0);
+    assert_eq!(count(server, &format!("FriendlySmokeIncidentsDuring({window}) WHERE Lifecycle='resolved'")).await, 1);
     let broad = format!(
         "resource='{label}',from=toDateTime64('2019-01-01',9,'UTC'),until=fromUnixTimestamp64Nano({after}),asof=fromUnixTimestamp64Nano({after})"
     );

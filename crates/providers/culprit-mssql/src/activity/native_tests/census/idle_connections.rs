@@ -3,7 +3,7 @@ use super::*;
 use crate::read::{Parameter, ReadSession};
 use futures_util::FutureExt;
 mod actor;
-mod setup;
+pub(super) mod setup;
 use crate::test_support::owned_case;
 use setup::IdleClients;
 const IDLE_POPULATIONS: [usize; 2] = [3, 32];
@@ -18,10 +18,10 @@ struct CensusCostRound<'a> {
     root: Option<&'a str>,
 }
 
-struct IdleIdentity {
-    session: NativeActivityIdentity,
-    connection_id: String,
-    connected_without_offset: String,
+pub(super) struct IdleIdentity {
+    pub(super) session: NativeActivityIdentity,
+    pub(super) connection_id: String,
+    pub(super) connected_without_offset: String,
 }
 const IDENTIFY_IDLE_SQL: &str = r#"SELECT /* culprit idle fixture identity */
  CONVERT(varchar(16),s.session_id) AS session_id,CONVERT(varchar(40),CAST(s.login_time AS datetime2),126) AS session_generation,
@@ -132,6 +132,13 @@ async fn run(directory: &Path, cancellation: &CollectionCancellation) -> Result<
             let entry = report.entries.iter().find(|entry| entry.activity.session == identity.mars).ok_or_else(invalid_data)?;
             let id = entry.fields.iter().find(|field| field.key == "idle_connection_id").and_then(|field| field.value.as_deref());
             if id != Some(root) || !entry.idle || entry.activity.request.is_some() || entry.reference.is_none() { return Err(invalid_data()) }
+            let recent = &report.recent_clients;
+            if recent.coverage != culprit_core::RecentClientPopulationCoverage::CompleteOriginalCensus
+                || recent.groups.grouped_sessions < clients.identities().len() as u32
+                || recent.window_ms != 3_600_000
+                || recent.groups.entries.iter().any(|group| group.fields.iter().any(|field|field.key=="request_connection_tokens"&&field.value.as_deref()!=Some("0"))) {
+                return Err(invalid_data());
+            }
             Ok(())
         })?;
         save_cost_receipt(directory, "idle-connection-factory-original", &json!({"manifest":captured.manifest,"records":captured.records,"source_cost_qualified":false,"source_queries_are_separate_from_five_measured_rounds":true}))?;

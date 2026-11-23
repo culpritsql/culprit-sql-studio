@@ -241,4 +241,4 @@ fn positive_id(value: &str) -> bool {
 }
 
 #[cfg(test)]
-mod tests;
+pub(in crate::telemetry) mod tests;

@@ -346,3 +346,71 @@ async fn idle_primary_connection_uses_original_receipts_without_becoming_request
         assert_eq!(fixture.recovery_object_reads(), before);
     }
 }
+
+#[tokio::test]
+async fn recent_clients_reuse_the_authenticated_activity_original_and_native_population_without_more_recovery_reads() {
+    use culprit_core::RecentClientPopulationCoverage;
+    use test_support::{RecentClientCase, recent_client_evidence};
+    for case in RecentClientCase::ALL {
+        let (source, rows) = recent_client_evidence(case);
+        let fixture = Fixture::new(source.clone(), rows.clone()).await;
+        let opened = fixture.recovery_object_reads();
+        let capture = fixture.read_families(&[EvidenceFamily::ActivityObservations]).await;
+        assert!(capture.is_read_complete());
+        let analysis = culprit_engine::collected_resources::session_census(&capture).unwrap();
+        assert_eq!(analysis.context.source, source);
+        let recent = &analysis.report.recent_clients;
+        assert_eq!(
+            recent.observed_sessions,
+            recent.groups.grouped_sessions
+                + recent.excluded_sessions
+                + recent.outside_window_sessions
+                + recent.unknown_sessions
+        );
+        match case {
+            RecentClientCase::IdlePool | RecentClientCase::Mars => assert_eq!(recent.groups.grouped_sessions, 1),
+            RecentClientCase::Boundary => {
+                assert_eq!((recent.groups.grouped_sessions, recent.outside_window_sessions), (1, 2))
+            }
+            RecentClientCase::ExcludedAndUnknown => assert_eq!(
+                (recent.groups.grouped_sessions, recent.excluded_sessions, recent.unknown_sessions),
+                (1, 3, 3)
+            ),
+            RecentClientCase::Subset | RecentClientCase::EmptySubset => {
+                assert_eq!(recent.coverage, RecentClientPopulationCoverage::OriginalPopulationSubset)
+            }
+            RecentClientCase::Partial => {
+                assert_eq!(recent.coverage, RecentClientPopulationCoverage::PartialOriginalCensus)
+            }
+            RecentClientCase::ConflictingMars => {
+                assert_eq!((recent.groups.grouped_sessions, recent.unknown_sessions), (0, 1))
+            }
+            RecentClientCase::UnknownCounters => assert_eq!(recent.groups.grouped_sessions, 2),
+            RecentClientCase::Empty => assert_eq!(
+                (recent.groups.grouped_sessions, recent.coverage),
+                (0, RecentClientPopulationCoverage::CompleteOriginalCensus)
+            ),
+        }
+        let raw = ActivityCensusRead::new(
+            source,
+            rows.into_iter()
+                .map(|row| match row {
+                    TelemetryRecord::Activity(row) => *row,
+                    _ => unreachable!(),
+                })
+                .collect(),
+            true,
+        )
+        .unwrap();
+        let expected = culprit_checks::session_census::explain(&raw).unwrap();
+        assert_eq!(serde_json::to_value(recent).unwrap(), serde_json::to_value(expected.recent_clients).unwrap());
+        assert!(
+            analysis
+                .report
+                .entries
+                .iter()
+                .all(|entry| entry.reference.as_ref().is_some_and(|reference| reference.is_valid()))
+        );
+        assert_eq!(fixture.recovery_object_reads(), opened);
+    }
+}

@@ -9,6 +9,7 @@ pub(crate) struct PendingActivityFrame {
     pub baseline: ActivityBaseline,
     before: AuthorityRead,
     authority: ActivityAuthorityPolicy,
+    census_scope: super::census_scope::CensusScope,
     profile: Option<culprit_read::SourceProfileGuard>,
 }
 pub(crate) struct CompletedActivityFrame {
@@ -23,9 +24,10 @@ pub(crate) enum ActivityAuthorityPolicy {
     AdministrativeCandidates,
     MetadataOnly,
 }
-enum MetadataProjection {
+enum MetadataProjection<'a> {
     Standard,
     Census,
+    Blocking(&'a ActivityRequestFocus),
 }
 
 impl PendingActivityFrame {
@@ -34,6 +36,18 @@ impl PendingActivityFrame {
         authority: ActivityAuthorityPolicy,
     ) -> Result<Self> {
         Self::begin_with_projection(reader, authority, MetadataProjection::Standard, None).await
+    }
+    pub(crate) async fn begin_blocking<R: crate::read::NativeRead>(
+        reader: &mut ActivityReader<R>,
+        focus: &ActivityRequestFocus,
+    ) -> Result<Self> {
+        Self::begin_with_projection(
+            reader,
+            ActivityAuthorityPolicy::AdministrativeCandidates,
+            MetadataProjection::Blocking(focus),
+            None,
+        )
+        .await
     }
     pub(crate) async fn begin_census<R: crate::read::NativeRead>(reader: &mut ActivityReader<R>) -> Result<Self> {
         Self::begin_with_projection(
@@ -59,9 +73,13 @@ impl PendingActivityFrame {
     async fn begin_with_projection<R: crate::read::NativeRead>(
         reader: &mut ActivityReader<R>,
         authority: ActivityAuthorityPolicy,
-        projection: MetadataProjection,
+        projection: MetadataProjection<'_>,
         profile: Option<culprit_read::SourceProfileGuard>,
     ) -> Result<Self> {
+        let census_scope = reader.census_scope.clone();
+        if !matches!(&projection, MetadataProjection::Census) && !census_scope.is_database() {
+            return Err(crate::read::invalid_data());
+        }
         if let Some(profile) = &profile {
             profile.ensure_active()?;
         }
@@ -70,15 +88,23 @@ impl PendingActivityFrame {
         } else {
             AuthorityRead::unobserved()
         };
+        census_scope.validate_authority(before.context.as_ref(), reader.io.connection_generation())?;
         if let Some(profile) = &profile {
             let context = before.context.as_ref().ok_or_else(|| CollectionStop::SourceChanged.error())?;
-            profile.bind_native(&context.completed(context)?, reader.io.connection_generation())?;
+            profile.bind_native(&census_scope.native_context(context, context)?, reader.io.connection_generation())?;
         }
         let baseline = match projection {
             MetadataProjection::Standard => reader.observe_baseline().await?,
             MetadataProjection::Census => reader.observe_census_baseline().await?,
+            MetadataProjection::Blocking(focus) => {
+                super::blocking::validate_native_profile(
+                    before.context.as_ref().ok_or_else(|| CollectionStop::SourceUnavailable.error())?,
+                )?;
+                reader.observe_blocking_baseline(focus).await?
+            }
         };
-        Ok(Self { baseline, before, authority, profile })
+        census_scope.validate_initial_frame(before.context.as_ref(), &baseline.frame)?;
+        Ok(Self { baseline, before, authority, census_scope, profile })
     }
     /// The original paid bound remains owned by this pending frame through its existing final recheck.
     pub(crate) fn native_authority(&self) -> Result<&Context> {
@@ -97,7 +123,11 @@ impl PendingActivityFrame {
         self,
         reader: &mut ActivityReader<R>,
     ) -> Result<CompletedActivityFrame> {
-        let Self { mut baseline, before, authority, profile } = self;
+        let Self { mut baseline, before, authority, census_scope, profile } = self;
+        if census_scope != reader.census_scope {
+            return Err(CollectionStop::SourceChanged.error());
+        }
+        census_scope.validate_authority(before.context.as_ref(), reader.io.connection_generation())?;
         let after = if authority == ActivityAuthorityPolicy::RetainPartialBaseline || before.context.is_some() {
             AuthorityRead::admit(
                 match &before.context {
@@ -109,6 +139,7 @@ impl PendingActivityFrame {
         } else {
             AuthorityRead::unobserved()
         };
+        census_scope.validate_authority(after.context.as_ref(), reader.io.connection_generation())?;
         // Administrative candidates preserve the pre-existing stronger refusal of changed observed authority,
         // including when that authority cannot establish a qualified native member.
         let action_context = if authority == ActivityAuthorityPolicy::AdministrativeCandidates {
@@ -177,9 +208,21 @@ impl PendingActivityFrame {
             context.epoch = None;
         }
         let at = baseline.frame.context.at.clone();
-        let database_writable = baseline.frame.context.writable;
+        let mut database_writable = baseline.frame.context.writable;
         let member = before.context.as_ref().and_then(Context::source_instance);
-        let partition = SourcePartition::InstanceLocal { member, epoch: context.epoch.clone() };
+        let mut partition = SourcePartition::InstanceLocal { member, epoch: context.epoch.clone() };
+        let mut target = context.database.clone().into();
+        let mut scope = MeasurementScope::Database;
+        if !census_scope.is_database() {
+            let initial = before.context.as_ref().ok_or_else(|| CollectionStop::SourceUnavailable.error())?;
+            let final_context = after.context.as_ref().ok_or_else(|| CollectionStop::SourceUnavailable.error())?;
+            let native = census_scope.native_context(initial, final_context)?;
+            target = native.target;
+            context.epoch = native.partition.native_epoch().map(str::to_owned);
+            partition = native.partition;
+            database_writable = None;
+            scope = MeasurementScope::Server;
+        }
         let observations = baseline.frame.records.len() as u32;
         let activity = ActivitySnapshotDescription {
             epoch: context.epoch,
@@ -187,7 +230,7 @@ impl PendingActivityFrame {
             observed_from,
             observed_until,
             at,
-            scope: MeasurementScope::Database,
+            scope,
             population: ActivityPopulation::UserSessionsCurrentRequestsAndBlockers,
             native_rows: baseline.native_rows,
             observations,
@@ -197,7 +240,7 @@ impl PendingActivityFrame {
             return Err(CollectionStop::SourceChanged.error());
         }
         let description = CollectionDescription {
-            target: context.database.into(),
+            target,
             partition,
             source: culprit_core::source_id::SESSIONS.into(),
             continuity: SourceContinuity::Unverified,

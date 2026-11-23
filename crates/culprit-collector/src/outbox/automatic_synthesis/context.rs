@@ -9,13 +9,14 @@ use std::collections::{BTreeMap, BTreeSet};
 pub(super) struct ContextPlan {
     pub context: Vec<DiagnosticCaptureRef>,
     pub catalogs: Vec<String>,
+    pub points: Vec<String>,
     pub issues: Vec<SynthesisContextIssue>,
     pub recorded_at: String,
 }
 impl ContextPlan {
     fn validate(&self) -> Result<()> {
         let mut identities = BTreeSet::new();
-        let mut catalog_keys = BTreeSet::new();
+        let mut selected_keys = BTreeSet::new();
         if self.context.len() > MAX_SYNTHESIS_CONTEXT_CAPTURES
             || self.issues.len() > MAX_SYNTHESIS_CONTEXT_ISSUES
             || canonical_time(&self.recorded_at)? != self.recorded_at
@@ -23,9 +24,9 @@ impl ContextPlan {
                 .context
                 .iter()
                 .any(|capture| !capture.is_valid() || !identities.insert(&capture.capture.observation_id))
-            || self.catalogs.len() > self.context.len()
-            || self.catalogs.iter().any(|key| {
-                !catalog_keys.insert(key)
+            || self.catalogs.len() + self.points.len() > self.context.len()
+            || self.catalogs.iter().chain(&self.points).any(|key| {
+                !selected_keys.insert(key)
                     || !self.context.iter().any(|capture| capture.key().as_ref().is_ok_and(|capture| capture == key))
             })
             || self.issues.iter().any(|issue| match issue {
@@ -101,11 +102,17 @@ fn references(capture: &SynthesisCapture) -> Result<ReferencedTargets<'_>> {
     Ok(ReferencedTargets { values: references, limited: false })
 }
 
+enum RetainedContextKind {
+    Catalog,
+    NativePoint,
+}
+
 struct Selection {
     context: Vec<SynthesisCapture>,
     issues: Vec<SynthesisContextIssue>,
     known: BTreeMap<String, DiagnosticCaptureRef>,
     catalogs: Vec<String>,
+    points: Vec<String>,
 }
 impl Selection {
     fn issue(&mut self, issue: SynthesisContextIssue) {
@@ -147,6 +154,7 @@ impl Files {
             issues: vec![],
             known: [(primary.original().capture.observation_id.clone(), primary.original().clone())].into(),
             catalogs: vec![],
+            points: vec![],
         };
         let primary_references = references(&primary)?;
         if primary_references.limited {
@@ -199,13 +207,30 @@ impl Files {
             .collect::<Vec<_>>();
         let mut hints = Vec::new();
         let mut unknown_scope = false;
+        let mut point_hints = Vec::new();
+        let mut point_issues = Vec::new();
         for anchor in anchors {
             read.check()?;
+            let points = points::select(&self.journal.conn, anchor)?;
+            for issue in points.issues {
+                if !point_issues.contains(&issue) {
+                    point_issues.push(issue);
+                }
+            }
+            for hint in points.hints {
+                if point_hints.len() >= crate::synthesis::MAX_SYNTHESIS_RETAINED_HEADS as usize {
+                    point_issues.push(SynthesisContextIssue::ContextLimit);
+                    break;
+                }
+                if !point_hints.iter().any(|before: &heads::Hint| before.capture == hint.capture) {
+                    point_hints.push(hint);
+                }
+            }
             match catalog::select(&self.journal.conn, anchor)? {
                 catalog::CatalogSelection::UnknownScope => unknown_scope = true,
                 catalog::CatalogSelection::Known(found) => {
                     for hint in found {
-                        if hints.len() >= crate::synthesis::MAX_SYNTHESIS_CATALOG_HEADS as usize {
+                        if hints.len() >= crate::synthesis::MAX_SYNTHESIS_RETAINED_HEADS as usize {
                             break;
                         }
                         if !hints.iter().any(|before: &catalog::CatalogHint| before.capture == hint.capture) {
@@ -215,10 +240,19 @@ impl Files {
                 }
             }
         }
+        for issue in point_issues {
+            selection.issue(issue);
+        }
         if unknown_scope {
             selection.issue(SynthesisContextIssue::UnqualifiedCatalogScope);
         }
-        for hint in hints {
+        let retained = point_hints
+            .into_iter()
+            .map(|hint| (RetainedContextKind::NativePoint, hint))
+            .chain(hints.into_iter().map(|hint| (RetainedContextKind::Catalog, hint)));
+        // Exact ancestry is already selected. Required log endpoints get the remaining finite context slots
+        // before optional catalog enrichment; any omitted context still records ContextLimit.
+        for (kind, hint) in retained {
             read.check()?;
             if !selection.register_reference(&hint.capture)? {
                 continue;
@@ -232,7 +266,10 @@ impl Files {
             if !hint.matches(&capture) {
                 return Err(integrity());
             }
-            selection.catalogs.push(capture.original().key()?);
+            match kind {
+                RetainedContextKind::Catalog => selection.catalogs.push(capture.original().key()?),
+                RetainedContextKind::NativePoint => selection.points.push(capture.original().key()?),
+            }
             selection.context.push(capture);
         }
         if selection.catalogs.is_empty() {
@@ -241,6 +278,7 @@ impl Files {
         let plan = ContextPlan {
             context: selection.context.iter().map(|capture| capture.original().clone()).collect(),
             catalogs: selection.catalogs,
+            points: selection.points,
             issues: selection.issues,
             recorded_at: canonical_time(&chrono::Utc::now().to_rfc3339())?,
         };
@@ -276,7 +314,19 @@ impl Files {
             .collect::<Vec<_>>();
         validate_row_links(&primary, &context, &references)?;
         for capture in &context {
-            if plan.catalogs.contains(&capture.original().key()?)
+            let key = capture.original().key()?;
+            let linked = references.iter().any(|reference| reference.capture() == *capture.original());
+            if !linked && !plan.catalogs.contains(&key) && !plan.points.contains(&key) {
+                return Err(integrity());
+            }
+            if plan.points.contains(&key)
+                && !std::iter::once(&primary)
+                    .chain(&context)
+                    .any(|anchor| anchor.original() != capture.original() && points::matches_anchor(capture, anchor))
+            {
+                return Err(integrity());
+            }
+            if plan.catalogs.contains(&key)
                 && !std::iter::once(&primary).chain(&context).any(|anchor| {
                     anchor.original() != capture.original()
                         && !matches!(anchor.source().observation, SourceObservation::Diagnostics(_))

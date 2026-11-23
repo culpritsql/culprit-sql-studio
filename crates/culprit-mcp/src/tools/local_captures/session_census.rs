@@ -39,23 +39,41 @@ pub(super) fn captured(analysis: &LocalSessionCensus) -> Result<Value> {
             "entries_available":report.entries.len(),"entries_presented":entries.len(),
             "entries_omitted":report.entries.len().saturating_sub(entries.len()),
             "entries_limited":report.entries_limited,"entries":entries,
-            "client_groups":{
-                "title":report.client_groups.title,"summary":report.client_groups.summary,
-                "limitations":report.client_groups.limitations,
-                "grouped_sessions":report.client_groups.grouped_sessions,
-                "ungrouped_sessions":report.client_groups.ungrouped_sessions,
-                "groups_available":report.client_groups.available_groups,
-                "entries_limited":report.client_groups.entries_limited,
-                "groups_presented":report.client_groups.entries.len().min(ENTRY_LIMIT),
-                "groups_omitted":report.client_groups.available_groups as usize
-                    - report.client_groups.entries.len().min(ENTRY_LIMIT),
-                "entries":report.client_groups.entries.iter().take(ENTRY_LIMIT).map(|group|json!({
-                    "observed_sessions":group.observed_sessions,"observed_current_requests":group.observed_requests,
-                    "fields":group.fields,"limitations":group.limitations,
-                })).collect::<Vec<_>>(),
+            "client_groups":client_groups(&report.client_groups),
+            "recent_clients":{
+                "window_ms":report.recent_clients.window_ms,
+                "reported_label_policy":report.recent_clients.reported_label_policy,
+                "coverage":report.recent_clients.coverage,
+                "source":report.recent_clients.source,
+                "observed_sessions":report.recent_clients.observed_sessions,
+                "excluded_sessions":report.recent_clients.excluded_sessions,
+                "outside_window_sessions":report.recent_clients.outside_window_sessions,
+                "unknown_sessions":report.recent_clients.unknown_sessions,
+                "groups":client_groups(&report.recent_clients.groups),
             },
         },
         "collected_from":original.collected_from(),"collected_until":original.collected_until(),
         "local_verification_bytes":original.bytes_read(),
     }))
+}
+
+fn client_groups(groups: &culprit_core::SessionCensusClientGroups) -> Value {
+    let entries = groups
+        .entries
+        .iter()
+        .take(ENTRY_LIMIT)
+        .map(|group| {
+            json!({
+                "observed_sessions":group.observed_sessions,"observed_current_requests":group.observed_requests,
+                "fields":group.fields,"limitations":group.limitations,
+            })
+        })
+        .collect::<Vec<_>>();
+    json!({
+        "title":groups.title,"summary":groups.summary,"limitations":groups.limitations,
+        "grouped_sessions":groups.grouped_sessions,"ungrouped_sessions":groups.ungrouped_sessions,
+        "groups_available":groups.available_groups,"entries_limited":groups.entries_limited,
+        "groups_presented":entries.len(),"groups_omitted":groups.available_groups as usize-entries.len(),
+        "entries":entries,
+    })
 }

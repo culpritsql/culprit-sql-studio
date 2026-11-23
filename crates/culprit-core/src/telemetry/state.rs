@@ -40,6 +40,7 @@ pub enum SnapshotDataset {
     PageTaskHolders,
     TaskSpace,
     TransactionMetadata,
+    ReadableSecondaryRecovery,
     MemoryFailures,
     NativeFailures,
     Jobs,
@@ -54,6 +55,7 @@ pub enum SnapshotDataset {
     QueryCompilation,
     CompilerAdmission,
     WorkerStarvation,
+    CurrentExecutionProfile,
     MaintenanceProgress,
     CachedRuntime,
     Objects,
@@ -63,6 +65,24 @@ pub enum SnapshotDataset {
     RetainedPlans,
 }
 impl SnapshotDataset {
+    /// Existing native SQL Server catalog profiles can retain an exact local database acquisition owner.
+    /// This is data-shape eligibility, not live platform, permission, role or source admission.
+    pub fn is_mssql_database_catalog(self) -> bool {
+        matches!(
+            self,
+            Self::Tables
+                | Self::Indexes
+                | Self::IndexOperations
+                | Self::Partitions
+                | Self::Columns
+                | Self::Statistics
+                | Self::ForeignKeys
+                | Self::CheckConstraints
+                | Self::Objects
+                | Self::Triggers
+                | Self::MissingIndexes
+        )
+    }
     pub fn stream(self) -> TelemetryStream {
         self.streams()[0]
     }
@@ -97,6 +117,7 @@ impl SnapshotDataset {
             | Self::PageTaskHolders
             | Self::TaskSpace
             | Self::TransactionMetadata
+            | Self::ReadableSecondaryRecovery
             | Self::MemoryFailures
             | Self::NativeFailures
             | Self::Jobs
@@ -107,6 +128,7 @@ impl SnapshotDataset {
             | Self::MissingIndexes
             | Self::QueryCompilation
             | Self::WorkerStarvation
+            | Self::CurrentExecutionProfile
             | Self::CompilerAdmission
             | Self::MaintenanceProgress
             | Self::CachedRuntime => &[TelemetryStream::OperationalSamples],
@@ -199,6 +221,93 @@ mod paging_tests {
         assert!(!before.observation.matches_file_counts(&[]));
         assert!(before.completed(SourceCompletion::Verified).is_err());
         assert!(before.completed(SourceCompletion::Changed).unwrap().is_none());
+    }
+    fn local_catalog() -> (CollectionDescription, StateSnapshotDescription, NativeReadContext) {
+        let mut original = source();
+        let SourceObservation::PagedSnapshot(declared) = &mut original.observation else { panic!() };
+        declared.dataset = SnapshotDataset::Tables;
+        original.partition = SourcePartition::InstanceLocal {
+            member: Some(SharedResourceIdentity {
+                engine: crate::Engine::Mssql,
+                kind: SharedResourceKind::Instance,
+                namespace: NativeIdentity::new("controlled-server"),
+                native: NativeIdentity::new("controlled-member"),
+            }),
+            epoch: Some(digest(b"controlled-local-database-file-recovery-process")),
+        };
+        let mut snapshot = completion();
+        snapshot.dataset = SnapshotDataset::Tables;
+        let execution = NativeReadContext {
+            target: original.target.clone(),
+            partition: original.partition.clone(),
+            observed_from: snapshot.observed_from.clone(),
+            observed_until: snapshot.observed_until.clone(),
+            database_writable: Some(true),
+        };
+        assert!(original.partition_is_consistent());
+        (original, snapshot, execution)
+    }
+    #[test]
+    fn a_local_catalog_completion_retains_actual_role_bounds_and_exact_local_database_owner() {
+        for writable in [true, false] {
+            let (original, snapshot, mut execution) = local_catalog();
+            execution.database_writable = Some(writable);
+            let completed = original
+                .completed(SourceCompletion::LocalResource {
+                    snapshot: snapshot.clone(),
+                    execution: Box::new(execution.clone()),
+                })
+                .unwrap()
+                .unwrap();
+            assert!(
+                matches!(completed.observation, SourceObservation::LocalResource { database_writable, .. } if database_writable == writable)
+            );
+            assert_eq!(NativeReadContext::from_snapshot(&completed).unwrap(), execution);
+            assert_eq!(completed.target, original.target);
+            assert_eq!(completed.partition, original.partition);
+            assert!(completed.target.database().unwrap().incarnation.is_none());
+        }
+    }
+    #[test]
+    fn malformed_or_unsupported_local_catalog_completion_cannot_supply_native_authority() {
+        for case in ["target", "epoch", "member", "node", "role", "start", "end", "dataset", "target-partition"] {
+            let (original, mut snapshot, mut execution) = local_catalog();
+            match case {
+                "target" => {
+                    execution.target =
+                        crate::DatabaseIdentity::server(crate::Engine::Mssql, "other-db", "fixture.invalid", 1433, None)
+                            .into()
+                }
+                "epoch" => {
+                    let SourcePartition::InstanceLocal { epoch, .. } = &mut execution.partition else { panic!() };
+                    *epoch = Some(digest(b"other-db-recovery"));
+                }
+                "member" => {
+                    execution.partition = SourcePartition::InstanceLocal {
+                        member: None,
+                        epoch: Some(digest(b"controlled-local-database-file-recovery-process")),
+                    }
+                }
+                "node" => {
+                    let SourcePartition::InstanceLocal { member: Some(member), .. } = &mut execution.partition else {
+                        panic!()
+                    };
+                    member.kind = SharedResourceKind::Node;
+                }
+                "role" => execution.database_writable = None,
+                "start" => execution.observed_from = "2019-12-31T23:59:59Z".into(),
+                "end" => execution.observed_until = "2020-01-01T00:00:02Z".into(),
+                "dataset" => snapshot.dataset = SnapshotDataset::Operational,
+                "target-partition" => execution.partition = SourcePartition::Target,
+                _ => unreachable!(),
+            }
+            assert!(
+                original
+                    .completed(SourceCompletion::LocalResource { snapshot, execution: Box::new(execution) })
+                    .is_err(),
+                "{case}"
+            );
+        }
     }
     #[test]
     fn completion_adds_final_counts_and_times_without_changing_source_identity_or_scope() {
@@ -479,6 +588,7 @@ pub enum OperationalFact {
     CounterSet(Box<NativeCounterSet>),
     CompilerWaiter(Box<CompilerWaiterObservation>),
     MssqlWorkerStarvation(Box<MssqlWorkerStarvationPoint>),
+    MssqlCurrentExecutionProfile(Box<MssqlCurrentExecutionProfilePoint>),
     MaintenanceProgress(Box<MaintenanceProgressObservation>),
     CurrentRequestWork(Box<CurrentRequestWorkObservation>),
     CatalogCounters(Box<NativeCatalogCounters>),
@@ -491,9 +601,11 @@ pub enum OperationalFact {
     PageTaskHolders(Box<PageTaskHolderObservation>),
     TaskSpace(Box<TaskSpaceObservation>),
     PostgresTransactionMetadata(Box<PostgresTransactionMetadata>),
+    ReadableSecondaryRecovery(Box<ReadableSecondaryRecoveryPoint>),
     MssqlOutOfMemory(Box<MssqlOutOfMemoryObservation>),
     MysqlErrorLog(Box<MysqlErrorLogObservation>),
     PostgresLog(Box<PostgresLogFailureObservation>),
+    MssqlExtendedEvent(Box<MssqlExtendedEventObservation>),
     MssqlAgentJob(Box<MssqlAgentJob>),
     MysqlScheduledEvent(Box<MysqlScheduledEvent>),
     MssqlAgentStep(Box<MssqlAgentStep>),
@@ -544,6 +656,7 @@ impl OperationalFact {
             Self::CounterSet(counters) => counters.key(),
             Self::CompilerWaiter(waiter) => waiter.key(),
             Self::MssqlWorkerStarvation(point) => point.key(),
+            Self::MssqlCurrentExecutionProfile(point) => point.key(),
             Self::MaintenanceProgress(point) => point.key(),
             Self::CurrentRequestWork(point) => point.key(),
             Self::CatalogCounters(counters) => counters.catalog.key(),
@@ -556,9 +669,11 @@ impl OperationalFact {
             Self::PageTaskHolders(observation) => observation.key(),
             Self::TaskSpace(observation) => observation.key(),
             Self::PostgresTransactionMetadata(observation) => observation.key(),
+            Self::ReadableSecondaryRecovery(point) => point.key(),
             Self::MssqlOutOfMemory(observation) => observation.key(),
             Self::MysqlErrorLog(observation) => observation.key(),
             Self::PostgresLog(observation) => observation.key(),
+            Self::MssqlExtendedEvent(observation) => observation.key(),
             Self::MssqlAgentJob(point) => point.key(),
             Self::MysqlScheduledEvent(point) => point.key(),
             Self::MssqlAgentStep(point) => point.key(),
@@ -622,6 +737,7 @@ impl OperationalFact {
             Self::MssqlOutOfMemory(_) => {}
             Self::MysqlErrorLog(observation) => observation.redact(),
             Self::PostgresLog(observation) => observation.redact(),
+            Self::MssqlExtendedEvent(observation) => observation.redact(),
             Self::SessionMemory(_) => {}
             Self::PageWait(observation) => observation.redact(engine),
             Self::PageWaitWriters(observation) => observation.redact(engine),
@@ -629,7 +745,9 @@ impl OperationalFact {
             Self::MssqlCacheEntryMemory(entry) => entry.redact(engine),
             Self::TaskSpace(observation) => observation.redact(engine),
             Self::PostgresTransactionMetadata(observation) => observation.redact(engine),
+            Self::ReadableSecondaryRecovery(point) => point.redact(),
             Self::CurrentRequestWork(observation) => observation.redact(),
+            Self::MssqlCurrentExecutionProfile(point) => point.redact(),
             Self::MssqlStatementGrants(grants) => {
                 if let DefinitionPayload::Available { text, .. } = &grants.statement {
                     grants.statement = DefinitionPayload::sql(text, engine);
@@ -721,6 +839,7 @@ impl OperationalFact {
             }
             Self::CompilerWaiter(waiter) => waiter.is_valid(),
             Self::MssqlWorkerStarvation(point) => point.is_valid(),
+            Self::MssqlCurrentExecutionProfile(point) => point.is_valid(),
             Self::MaintenanceProgress(point) => point.is_valid(),
             Self::CurrentRequestWork(point) => point.is_valid(),
             Self::CatalogCounters(counters) => counters.is_valid(),
@@ -733,9 +852,11 @@ impl OperationalFact {
             Self::PageTaskHolders(observation) => observation.is_valid(),
             Self::TaskSpace(observation) => observation.is_valid(),
             Self::PostgresTransactionMetadata(observation) => observation.is_valid(),
+            Self::ReadableSecondaryRecovery(point) => point.is_valid(),
             Self::MssqlOutOfMemory(observation) => observation.is_valid(),
             Self::MysqlErrorLog(observation) => observation.is_valid(),
             Self::PostgresLog(observation) => observation.is_valid(),
+            Self::MssqlExtendedEvent(observation) => observation.is_valid(),
             Self::MssqlAgentJob(point) => point.is_valid(),
             Self::MysqlScheduledEvent(point) => point.is_valid(),
             Self::MssqlAgentStep(point) => point.is_valid(),
@@ -832,6 +953,9 @@ impl OperationalObservation {
                 }
                 OperationalFact::CompilerWaiter(_) => self.source == crate::source_id::COMPILATION_GATEWAYS,
                 OperationalFact::MssqlWorkerStarvation(_) => self.source == crate::source_id::WORKER_QUEUE,
+                OperationalFact::MssqlCurrentExecutionProfile(_) => {
+                    self.source == crate::source_id::CURRENT_EXECUTION_PROFILE
+                }
                 OperationalFact::ConfiguredLogRateLimits(_) => self.source == CONFIGURED_LOG_RATES_SOURCE,
                 OperationalFact::HyperscaleLogComponent(_) => self.source == HYPERSCALE_LOG_COMPONENTS_SOURCE,
                 OperationalFact::DatabaseProperties(_) => self.source == DATABASE_PROPERTIES_SOURCE,
@@ -854,6 +978,9 @@ impl OperationalObservation {
                 }
                 OperationalFact::TaskSpace(observation) => observation.source == self.source,
                 OperationalFact::PostgresTransactionMetadata(_) => self.source == POSTGRES_TRANSACTION_METADATA_SOURCE,
+                OperationalFact::ReadableSecondaryRecovery(_) => {
+                    self.source == crate::source_id::READABLE_SECONDARY_RECOVERY
+                }
                 OperationalFact::RuntimeDistribution(observation) => observation.distribution.source == self.source,
                 _ => true,
             }

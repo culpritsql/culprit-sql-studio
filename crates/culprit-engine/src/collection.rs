@@ -28,6 +28,7 @@ struct AuthenticatedSource<'a> {
     admission: &'a SourceAdmission,
     observation_id: &'a str,
     selection: SourceSelection<'a>,
+    configured_route: Option<&'a crate::connection::SavedRoute>,
 }
 enum SourceSelection<'a> {
     Ordinary { admitted: Option<&'a FleetSourceAdmission> },
@@ -61,6 +62,9 @@ impl SourceFactory for AuthenticatedSource<'_> {
             )
             .await?;
         let connections = self.workspace.connection_service();
+        if let Some(route) = self.configured_route {
+            connections.require_current_route(route)?;
+        }
         let profile_registration = admitted
             .and_then(|value| value.profile.as_ref())
             .map(|profile| connections.profile_registration(self.name, request, profile))
@@ -96,6 +100,9 @@ impl SourceFactory for AuthenticatedSource<'_> {
         };
         if let Some(admitted) = admitted {
             admitted.window.check_start()?;
+        }
+        if let Some(route) = self.configured_route {
+            connections.require_current_route(route)?;
         }
         if let (Some(registration), Some(profile)) =
             (profile_registration, admitted.and_then(|value| value.profile.as_ref()))
@@ -204,6 +211,9 @@ impl Workspace {
         cancellation: &CollectionCancellation,
     ) -> Result<CollectionManifest> {
         request.validate()?;
+        if request.collection() == culprit_core::telemetry::TelemetryCollection::CollectorConnections {
+            return Err(CollectionStop::InvalidPage.error());
+        }
         if request.selection.requires_authenticated_parent() {
             // Retained parents require the outbox/recovery owner before route lookup or native admission.
             return Err(CollectionStop::InvalidPage.error());
@@ -217,6 +227,7 @@ impl Workspace {
             admission: &admission,
             observation_id: &identity.observation_id,
             selection: SourceSelection::Ordinary { admitted: None },
+            configured_route: None,
         };
         let result =
             capture::collect(&self.source_gate, &source, request, output, identity.clone(), cancellation, None).await;
@@ -262,6 +273,9 @@ impl Workspace {
         let mut attempt = None;
         let result = async {
             request.validate()?;
+            if request.collection() == culprit_core::telemetry::TelemetryCollection::CollectorConnections {
+                return Err(CollectionStop::InvalidPage.error());
+            }
             if let Some(profile) = admitted.and_then(|value| value.profile.as_ref()) {
                 if admitted.is_some_and(|value| value.investigation.is_some()) {
                     return Err(CollectionStop::InvalidPage.error());
@@ -292,9 +306,16 @@ impl Workspace {
                     return Err(CollectionStop::InvalidPage.error());
                 }
             }
-            self.connection(name)?;
+            let route = self.connection_service().saved_route(name)?;
             let admission = SourceAdmission::acquire(self.collection_admission_path()).await?;
-            let mut lease = outbox.reserve(name, &request).await?;
+            let observe_connection = admitted.is_some_and(|admission| admission.investigation.is_none())
+                && !request.collection().is_local_output()
+                && !request.selection.requires_authenticated_parent();
+            let mut lease = if observe_connection {
+                outbox.reserve_connection(name, &request, &route.revision, route.stored.engine).await?
+            } else {
+                outbox.reserve(name, &request).await?
+            };
             let directory = lease.directory().to_owned();
             let identity = lease.identity().clone();
             attempt = Some(DiagnosticAttemptReceipt { capture: identity.clone(), manifest_sha256: None });
@@ -304,7 +325,9 @@ impl Workspace {
                 admission: &admission,
                 observation_id: &identity.observation_id,
                 selection: SourceSelection::Ordinary { admitted },
+                configured_route: observe_connection.then_some(&route),
             };
+            let capture_started = std::time::Instant::now();
             let result = capture::collect(
                 &self.source_gate,
                 &source,
@@ -320,7 +343,11 @@ impl Workspace {
             source_work =
                 if self.source_gate.is_closed() { SourceWorkState::Unconfirmed } else { SourceWorkState::Quiescent };
             let settlement = self.settle_collection(&admission).await;
-            let finished = lease.finish().await;
+            let outcome = match &result {
+                Ok(_) => culprit_core::telemetry::CollectorCaptureOutcome::Returned,
+                Err(error) => culprit_core::telemetry::CollectorCaptureOutcome::Failed { code: error.code },
+            };
+            let finished = lease.finish_observed(outcome, capture_started.elapsed().as_secs_f64() * 1000.0).await;
             // Even failed collection/storage leaves an allocated identity. Only the exact existing manifest can
             // add its digest; an invalid artifact must not erase that identity or native shutdown uncertainty.
             attempt = Some(outbox.attempt_receipt(&identity, investigation.as_ref()).await?);

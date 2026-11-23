@@ -191,6 +191,11 @@ jobs:
             mkdir -m 700 "$CULPRIT_NATIVE_COST_RECEIPT_DIR"
           fi
           python3 -B dev/smoke-providers.py ${{ matrix.fixture }}
+          if [ "${{ matrix.fixture }}" = mssql ]; then
+            # This explicit refusal case uses one additional nonce-owned fixture on the existing Linux runner.
+            python3 -B dev/smoke-providers.py mssql --test culprit-mssql \
+              conn::native_tests::refused_connection::owned_refused_loopback_preserves_real_admission_and_retires_only_the_sealed_empty_original
+          fi
       - name: Keep SQL Server native source and cancellation receipts
         if: always() && matrix.fixture == 'mssql'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

@@ -243,8 +243,64 @@ pub struct TransactionMetadataReport {
     pub investigation: String,
     pub verify: String,
     pub observed_overflows: Vec<NativeActivityIdentity>,
+    pub slru_changes: Vec<PostgresSlruChange>,
     pub observed_xmin_sources: Vec<RetentionObservation>,
     pub limitations: Vec<String>,
+}
+
+/// One cluster-shared counter family, with the exact independent endpoint receipts and native clocks.
+/// It does not identify the request or transaction responsible for these operations.
+#[derive(Serialize, Deserialize, TS, Clone, Debug, PartialEq, Eq)]
+#[serde(tag = "state", rename_all = "kebab-case", deny_unknown_fields)]
+#[ts(export)]
+pub enum PostgresSlruChange {
+    Observed {
+        kind: PostgresSlruKind,
+        native_name: String,
+        scope: crate::MeasurementScope,
+        before: Box<DiagnosticEvidenceRef>,
+        after: Box<DiagnosticEvidenceRef>,
+        before_context: Box<NativeReadContext>,
+        after_context: Box<NativeReadContext>,
+        observed_from: String,
+        observed_until: String,
+        stats_reset: String,
+        before_state: crate::SourceState,
+        after_state: crate::SourceState,
+        counters: Vec<PostgresSlruCounterChange>,
+    },
+    Unavailable {
+        kind: PostgresSlruKind,
+        reason: PostgresSlruChangeGap,
+    },
+}
+#[derive(Serialize, Deserialize, TS, Clone, Debug, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+#[ts(export)]
+pub struct PostgresSlruCounterChange {
+    /// Documented native pg_stat_slru field, never a query or SAVEPOINT count.
+    pub native_name: String,
+    #[serde(deserialize_with = "Option::deserialize")]
+    pub before: Option<String>,
+    #[serde(deserialize_with = "Option::deserialize")]
+    pub after: Option<String>,
+    /// None retains missing/decreased fields separately from observed zero changes.
+    #[serde(deserialize_with = "Option::deserialize")]
+    pub change: Option<String>,
+}
+#[derive(Serialize, Deserialize, TS, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+#[ts(export)]
+pub enum PostgresSlruChangeGap {
+    MissingPoint,
+    AmbiguousPoint,
+    UnreadBody,
+    IncompatibleOwner,
+    RoleChanged,
+    UnorderedClocks,
+    UnknownReset,
+    ResetChanged,
+    ResetClock,
 }
 
 fn invalid() -> Error {
@@ -252,4 +308,4 @@ fn invalid() -> Error {
 }
 
 #[cfg(test)]
-mod tests;
+pub(super) mod tests;

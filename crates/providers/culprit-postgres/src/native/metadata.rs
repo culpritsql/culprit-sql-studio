@@ -30,9 +30,7 @@ impl Metadata {
     }
 
     pub(crate) fn activity_epoch(&self) -> String {
-        culprit_core::telemetry::digest(
-            format!("{}|{}|{}|pg-activity-v1", self.database_oid, self.started_at, self.version).as_bytes(),
-        )
+        culprit_core::telemetry::postgres_activity_epoch(&self.database_oid, &self.started_at, self.version)
     }
     /// Activity does not depend on extension installation, statement instrumentation or relation block size.
     pub fn same_activity_source(&self, other: &Self) -> bool {

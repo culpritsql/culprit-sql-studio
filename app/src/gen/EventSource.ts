@@ -3,4 +3,4 @@
 /**
  * Where the event's time comes from, which says how exact it is.
  */
-export type EventSource = "mark" | "database" | "scans" | "cloud";
+export type EventSource = "mark" | "database" | "scans" | "cloud" | "imported-artifact";

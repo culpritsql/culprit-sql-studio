@@ -2,7 +2,6 @@
 use crate::{
     activity::{ActivityReader, IdentityDetail, ReadOptions},
     conn::Pool,
-    query_store::decode,
 };
 use async_trait::async_trait;
 use culprit_core::{ErrorCode, Result, telemetry::*};
@@ -25,23 +24,19 @@ pub(crate) fn bounded_budget(budget: &CollectionBudget) -> CollectionBudget {
 pub(super) struct ActivitySource {
     inner: culprit_read::FrozenSource<NativeActivityReader>,
 }
-struct NativeActivityReader {
-    reader: ActivityReader,
+struct NativeActivityReader<R: crate::read::NativeRead = crate::read::ReadSession> {
+    reader: ActivityReader<R>,
     verified: Option<CollectionDescription>,
     profile: Option<culprit_read::SourceProfileGuard>,
 }
 impl ActivitySource {
     pub(super) fn new(pool: Arc<Pool>, request: &CollectionRequest, host: String, port: u16) -> Result<Self> {
-        request.validate()?;
-        request.subject.require_database()?;
-        if request.collection() != TelemetryCollection::Activity {
-            return Err(decode::malformed());
-        }
+        let scope = crate::activity::census_scope::CensusScope::from_request(request)?;
         let mut request = request.clone();
         request.budget = bounded_budget(&request.budget);
         let options = ReadOptions { budget: request.budget.clone(), identity: IdentityDetail::Endpoint };
         let reader = NativeActivityReader {
-            reader: ActivityReader::open_collection(pool, options, host, port)?,
+            reader: ActivityReader::open_collection(pool, options, host, port)?.with_census_scope(scope),
             verified: None,
             profile: None,
         };
@@ -54,15 +49,15 @@ impl ActivitySource {
         port: u16,
         admission: &SourceProfileAdmission,
     ) -> Result<Self> {
-        request.validate()?;
-        request.subject.require_database()?;
-        if request.selection != CollectionSelection::Activity || bounded_budget(&request.budget) != request.budget {
+        let scope = crate::activity::census_scope::CensusScope::from_request(request)?;
+        if bounded_budget(&request.budget) != request.budget {
             return Err(culprit_core::Error::new(ErrorCode::Unsupported, culprit_core::t!("collection.unsupported")));
         }
         let profile = culprit_read::SourceProfileGuard::new(request, admission)?;
         let options = ReadOptions { budget: request.budget.clone(), identity: IdentityDetail::Endpoint };
         let reader = NativeActivityReader {
-            reader: ActivityReader::open_profiled_collection(pool, options, host, port, profile.clone())?,
+            reader: ActivityReader::open_profiled_collection(pool, options, host, port, profile.clone())?
+                .with_census_scope(scope),
             verified: None,
             profile: Some(profile),
         };
@@ -70,7 +65,7 @@ impl ActivitySource {
     }
 }
 #[async_trait]
-impl culprit_read::ObservationReader for NativeActivityReader {
+impl<R: crate::read::NativeRead> culprit_read::ObservationReader for NativeActivityReader<R> {
     async fn observe(&mut self, _: &CollectionRequest) -> Result<culprit_read::FrozenObservation> {
         let (description, observations) = match &self.profile {
             Some(profile) => capture_with_profile(&mut self.reader, Some(profile)).await?,

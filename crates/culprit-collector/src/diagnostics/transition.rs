@@ -112,9 +112,14 @@ async fn update_analysis(
     };
     let matches_parent = match &event {
         Some(event) => event.matches_episode(episode) && event.intent.matches_parent_record(&input.source, &row.row),
-        None if source_read => {
-            question.is_some_and(|question| episode.matches_focus(question)) && episode.first == *parent
-        }
+        None if source_read => question.is_some_and(|question| {
+            let DiagnosticFocus::SourceRead { focus } = question else {
+                return false;
+            };
+            question.parent() == parent
+                && episode.matches_focus(question)
+                && focus.matches_original(&input.source, &row.row)
+        }),
         None => match task_question {
             Some(focus) => episode.matches_focus(&focus),
             None => matches!(
@@ -135,7 +140,7 @@ async fn update_analysis(
         let Some(DiagnosticFocus::SourceRead { focus }) = question else {
             return Err(DeliveryProblem::Integrity.error());
         };
-        let stage = episode.source_reads.get(focus.question).ok_or_else(|| DeliveryProblem::Integrity.error())?;
+        let stage = episode.source_reads.get_focus(focus).ok_or_else(|| DeliveryProblem::Integrity.error())?;
         if stage.focus != **focus {
             return Err(DeliveryProblem::Integrity.error());
         }

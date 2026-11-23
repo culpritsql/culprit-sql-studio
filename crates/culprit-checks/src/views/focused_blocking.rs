@@ -1,5 +1,6 @@
 //! Presentation of the existing native Activity/graph evidence, without another blocking classifier.
 mod metadata_queue;
+mod output_retention;
 use culprit_core::{BlockingReport, Error, Result, SourceState, format, t, telemetry::*};
 
 pub fn explain(
@@ -7,16 +8,22 @@ pub fn explain(
     rows: &[ActivityFrameRow<'_>],
     read_complete: bool,
 ) -> Result<BlockingReport> {
-    let SourceObservation::FocusedBlocking { snapshot, result } = &source.observation else { return Err(invalid()) };
     let frame = ActivityFrameEvidence::new(source, rows, read_complete)?;
-    if !result.accepts_frame(&frame) {
-        return Err(invalid());
-    }
+    let (snapshot, result) = match &source.observation {
+        SourceObservation::FocusedBlocking { snapshot, result } if result.accepts_frame(&frame) => {
+            (snapshot, result.as_ref())
+        }
+        SourceObservation::MetadataLockContext { snapshot, result, .. } if result.accepts_frame(&frame) => {
+            (snapshot, &result.request)
+        }
+        _ => return Err(invalid()),
+    };
     let observations = rows.iter().map(|row| row.observation.clone()).collect::<Vec<_>>();
     let relationships = ActivityEvidence::blocking_observations(&observations)?;
     let blocking = culprit_core::blocking::analyze_activity(&frame)?.map(Box::new);
     let maintenance = super::maintenance::explain(source, rows, read_complete)?;
     let metadata_queue = metadata_queue::explain(&frame)?;
+    let output_retention = output_retention::explain(&frame)?;
     let mut limitations =
         vec![t!("view.blocking.limit.point"), t!("view.blocking.limit.session"), t!("view.blocking.limit.population")];
     if result.binding == FocusedRequestBinding::UnverifiedOriginalScope {
@@ -66,6 +73,7 @@ pub fn explain(
         native_rows: snapshot.native_rows,
         observed_rows: rows.len() as u32,
         metadata_queue,
+        output_retention,
         original: result.focus.parent.clone(),
         binding: result.binding,
         membership: result.membership,

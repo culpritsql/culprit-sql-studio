@@ -11,16 +11,17 @@ pub struct Rec {
 
 impl Rec {
     #[cfg(test)]
-    pub(crate) fn with_fields(mut self, fields: &[(&str, Value)]) -> Self {
+    pub(crate) fn with_fields(&self, fields: &[(&str, Value)]) -> Self {
+        let mut row = Self { columns: self.columns.clone(), values: self.values.clone() };
         for (name, value) in fields {
-            if let Some(index) = self.columns.iter().position(|column| column == name) {
-                self.values[index] = value.clone();
+            if let Some(index) = row.columns.iter().position(|column| column == name) {
+                row.values[index] = value.clone();
             } else {
-                self.columns.push((*name).into());
-                self.values.push(value.clone());
+                row.columns.push((*name).into());
+                row.values.push(value.clone());
             }
         }
-        self
+        row
     }
     #[cfg(test)]
     pub(crate) fn from_values(values: Vec<(&str, Value)>) -> Self {

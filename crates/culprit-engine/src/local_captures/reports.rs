@@ -117,7 +117,7 @@ pub(crate) fn explain(kind: LocalCaptureAnalysisKind, read: &CapturedOperational
                 read.read_complete,
             )?)))
         }
-        LocalCaptureAnalysisKind::RequestMemory => request_memory(read, &context),
+        LocalCaptureAnalysisKind::RequestMemory => request_memory(read),
         LocalCaptureAnalysisKind::TaskSpace => task_space(read),
         LocalCaptureAnalysisKind::CurrentRequestWork => current_request_work(read),
         LocalCaptureAnalysisKind::MaintenanceProgress => maintenance_progress(read),
@@ -165,7 +165,8 @@ fn single_source(read: &CapturedOperationalRead) -> Result<(&StateSourceCoverage
     Ok((coverage, rows_for(read, coverage)))
 }
 
-fn request_memory(read: &CapturedOperationalRead, context: &NativeReadContext) -> Result<LocalSnapshotReport> {
+fn request_memory(read: &CapturedOperationalRead) -> Result<LocalSnapshotReport> {
+    let context = RequestMemorySnapshot::acquisition_context(&read.description)?;
     let (coverage, rows) = single_source(read)?;
     let observations = rows
         .iter()
@@ -176,7 +177,7 @@ fn request_memory(read: &CapturedOperationalRead, context: &NativeReadContext) -
         .collect::<Result<Vec<_>>>()?;
     let source = crate::collected_resources::read_outcome(coverage, observations.len(), read.read_complete)?;
     let report = culprit_checks::request_memory::explain(
-        culprit_checks::request_memory::RequestMemoryEvidence { context, observations: &observations },
+        culprit_checks::request_memory::RequestMemoryEvidence { context: &context, observations: &observations },
         Some(&source),
     )?;
     Ok(LocalSnapshotReport::RequestMemory(Box::new(report)))

@@ -27,6 +27,12 @@ pub(super) fn require_profile(identity: &Identity) -> Result<()> {
 }
 
 pub(super) fn observation(snapshot: StateSnapshotDescription, identity: &Identity) -> Result<SourceObservation> {
+    if let Identity::CatalogDatabase(owner) = identity {
+        if snapshot.dataset != SnapshotDataset::MissingIndexes || owner.owner()?.database_writable != Some(true) {
+            return Err(crate::read::invalid_data());
+        }
+        return Ok(SourceObservation::LocalResource { snapshot, database_writable: true });
+    }
     if !matches!(snapshot.dataset, SnapshotDataset::DatabasePerformanceCounters | SnapshotDataset::SuspectPages) {
         return Ok(SourceObservation::Snapshot(snapshot));
     }

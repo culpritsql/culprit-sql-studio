@@ -110,6 +110,7 @@ impl MssqlPoolSettingsMembership {
             && target.is_valid()
             && match target {
                 CollectionTarget::Database(database) => database == &self.database,
+                CollectionTarget::ConfiguredConnection(_) => false,
                 CollectionTarget::Shared(pool) => {
                     self.elastic_pool_error.is_none() && self.elastic_pool.as_ref() == Some(pool)
                 }

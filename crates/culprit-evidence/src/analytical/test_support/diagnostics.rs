@@ -1,6 +1,8 @@
 //! Synthetic diagnostic captures preserve private target authority only in recovery, not warehouse Details.
 use super::*;
 use culprit_core::{DatabaseIdentity, Engine, MeasurementScope};
+#[cfg(test)]
+mod tests;
 
 pub fn diagnostic_evidence_cases() -> Vec<(CollectionDescription, Vec<TelemetryRecord>)> {
     let mut server = DatabaseIdentity::server(
@@ -62,30 +64,22 @@ pub fn diagnostic_evidence_cases() -> Vec<(CollectionDescription, Vec<TelemetryR
 }
 
 fn diagnostic_evidence(target: CollectionTarget) -> (CollectionDescription, Vec<TelemetryRecord>) {
-    diagnostic_evidence_partition(target, SourcePartition::Target)
+    let partition = match &target {
+        CollectionTarget::Shared(instance) => SourcePartition::InstanceLocal {
+            member: Some(instance.clone()),
+            epoch: Some("private-diagnostic-instance-process".into()),
+        },
+        _ => SourcePartition::Target,
+    };
+    diagnostic_evidence_partition(target, partition)
 }
 
 fn diagnostic_evidence_partition(
     target: CollectionTarget,
     partition: SourcePartition,
 ) -> (CollectionDescription, Vec<TelemetryRecord>) {
-    let (mut baseline, _) = activity_evidence_cases().remove(0);
-    baseline.target = target;
-    baseline.partition = partition;
-    let SourceObservation::Activity(frame) = &mut baseline.observation else { unreachable!() };
-    frame.observations = 1;
-    frame.native_rows = 1;
-    if matches!(&baseline.partition, SourcePartition::InstanceLocal { .. }) {
-        frame.epoch = baseline.partition.native_epoch().map(str::to_owned);
-    }
-    frame.scope =
-        if baseline.target.database().is_some() { MeasurementScope::Database } else { MeasurementScope::Server };
-    frame.coverage =
-        StateSourceCoverage::observed(baseline.source.clone(), 1, frame.scope == MeasurementScope::Database);
-    let observed_at = frame.at.clone();
-    let mut observation =
-        activity_observation(DefinitionPayload::Unavailable { reason: PayloadUnavailable::NotCollected });
-    observation.database = baseline.target.database().map(|database| database.database.clone());
+    let (baseline, observation) = activity_original(target, partition);
+    let observed_at = baseline.observation.activity().unwrap().at.clone();
     let mut native_capture = fixture().0.capture;
     if matches!(&baseline.partition, SourcePartition::InstanceLocal { .. }) {
         native_capture.observation_id = baseline.captured_range().unwrap().scope_id;
@@ -141,6 +135,34 @@ fn diagnostic_evidence_partition(
         }),
     };
     (source, vec![row, TelemetryRecord::DiagnosticCheckpoint(checkpoint)])
+}
+
+fn activity_original(
+    target: CollectionTarget,
+    partition: SourcePartition,
+) -> (CollectionDescription, ActivityObservation) {
+    let (mut baseline, _) = activity_evidence_cases().remove(0);
+    baseline.target = target;
+    baseline.partition = partition;
+    let SourceObservation::Activity(frame) = &mut baseline.observation else { unreachable!() };
+    frame.observations = 1;
+    frame.native_rows = 1;
+    if matches!(&baseline.partition, SourcePartition::InstanceLocal { .. }) {
+        frame.epoch = baseline.partition.native_epoch().map(str::to_owned);
+    }
+    frame.scope =
+        if baseline.target.database().is_some() { MeasurementScope::Database } else { MeasurementScope::Server };
+    frame.coverage =
+        StateSourceCoverage::observed(baseline.source.clone(), 1, frame.scope == MeasurementScope::Database);
+    let mut observation =
+        activity_observation(DefinitionPayload::Unavailable { reason: PayloadUnavailable::NotCollected });
+    observation.database = baseline.target.database().map(|database| database.database.clone());
+    if matches!(&baseline.target, CollectionTarget::Shared(instance) if instance.kind == SharedResourceKind::Instance) {
+        frame.population = ActivityPopulation::UserSessionsCurrentRequestsAndBlockers;
+        frame.database_writable = None;
+        observation.scope = ActivityScopeBasis::InstanceMember;
+    }
+    (baseline, observation)
 }
 
 pub fn assert_diagnostic_capture(

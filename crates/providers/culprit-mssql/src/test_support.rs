@@ -2,19 +2,29 @@
 use crate::conn::MsClient;
 use std::time::Duration;
 use tiberius::{AuthMethod, Config, EncryptionLevel};
+#[cfg(test)]
 mod actual_plans;
 mod cost_receipts;
+#[cfg(test)]
 pub(crate) mod idle_sessions;
 pub(crate) mod owned_case;
+#[cfg(test)]
 pub(crate) mod owned_control;
 mod owned_source;
+#[cfg(test)]
 pub(crate) mod parameter_variants;
+#[cfg(test)]
 pub(crate) mod query_store_probes;
+#[cfg(test)]
 pub(crate) mod recorded_runtime;
+#[cfg(test)]
 pub(crate) use actual_plans::{actual_plan_capture, actual_plan_capture_admitted, actual_plans};
+#[cfg(test)]
 pub(crate) mod owned_captures;
 pub(crate) use cost_receipts::{receipt_directory, save_cost_receipt};
-pub(crate) use owned_source::{OwnedSourceFixture, verify_owned_source};
+#[cfg(test)]
+pub(crate) use owned_source::OwnedSourceFixture;
+pub(crate) use owned_source::verify_owned_source;
 
 pub(crate) fn config(port: u16, database: &str, password: &str, application: &str) -> Config {
     let mut config = Config::new();
@@ -29,6 +39,7 @@ pub(crate) fn config(port: u16, database: &str, password: &str, application: &st
     config
 }
 /// Local fixture setup stays separate from portable measurement and never changes source admission.
+#[cfg(test)]
 pub(crate) async fn measured_read(
     pool: std::sync::Arc<crate::conn::Pool>,
     port: u16,
@@ -44,10 +55,12 @@ pub(crate) async fn measured_read(
     crate::read::measurement::MeasuredRead::open(pool, "127.0.0.1", port, observer, budget).await
 }
 
+#[cfg(test)]
 pub(crate) async fn batch(client: &mut MsClient, sql: &str) {
     client.simple_query(sql).await.unwrap().into_results().await.unwrap();
 }
 
+#[cfg(test)]
 pub(crate) async fn session_id(client: &mut MsClient) -> String {
     crate::conn::query_one(client, "SELECT /* culprit fixture */ CONVERT(varchar(16),@@SPID) AS id")
         .await
@@ -60,6 +73,7 @@ pub(crate) async fn connect(config: &Config, kind: crate::conn::SessionKind) -> 
     crate::conn::Pool::new(config.clone(), None).connect(kind).await
 }
 
+#[cfg(test)]
 pub(crate) async fn query_store_ready(client: &mut crate::conn::MsClient) {
     const READINESS_TIMEOUT: Duration = Duration::from_secs(10);
     const READINESS_POLL: Duration = Duration::from_millis(50);
@@ -89,6 +103,7 @@ pub(crate) async fn query_store_ready(client: &mut crate::conn::MsClient) {
     }
 }
 
+#[cfg(test)]
 pub(crate) async fn assert_no_execution_grant(
     client: &mut MsClient,
     sql: &str,
@@ -102,6 +117,7 @@ pub(crate) async fn assert_no_execution_grant(
 }
 
 /// Optional showplan applies only to source metadata replay. None means unknown, never a zero-grant proof.
+#[cfg(test)]
 pub(crate) async fn observe_metadata_execution_grant(
     client: &mut MsClient,
     sql: &str,
@@ -112,6 +128,7 @@ pub(crate) async fn observe_metadata_execution_grant(
     Some(plans)
 }
 
+#[cfg(test)]
 fn assert_plans_without_execution_grant(plans: &[String]) {
     for xml in plans {
         culprit_core::xml::read(xml, |document| {

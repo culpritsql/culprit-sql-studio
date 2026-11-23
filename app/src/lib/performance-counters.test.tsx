@@ -187,3 +187,16 @@ test("Common missing base renders the canonical unknown input without reconstruc
   expect(report.ratios!.entries[0]!.issues).toEqual(["missing-base"]);
   expect(report.ratios!.entries[0]!.metrics).toHaveLength(2);
 });
+
+test("pool presentation keeps the shared native scope and never labels it selected-database work", () => {
+  const report = performanceCounterReport(1);
+  report.population = "shared-pool";
+  report.database = null;
+  report.native_database_id = null;
+  const before = JSON.stringify(report);
+  const html = renderToStaticMarkup(<PerformanceCounters report={report} />);
+  expect(html).toContain(t("view.performance_counters.pool_scope"));
+  expect(html).not.toContain(t("view.performance_counters.selected_scope"));
+  expect(html).not.toContain("sig-dot");
+  expect(JSON.stringify(report)).toBe(before);
+});

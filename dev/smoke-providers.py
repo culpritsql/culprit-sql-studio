@@ -14,7 +14,7 @@ import tempfile
 import time
 from dataclasses import dataclass, replace
 
-from replication_fixtures import MySqlReplication, PostgresReplication
+from replication_fixtures import MySqlReplication, PostgresReplication, PostgresReadableRecovery
 from mssql_replication_fixture import SqlServerReplication
 from mysql_replication_fixture import MySqlMovingReplication
 from mysql_group_replication_fixture import MySqlGroupReplication
@@ -80,7 +80,10 @@ OPTIONAL_NATIVE_MODULES = {
         "telemetry::native_tests::group_replication::", "telemetry::native_tests::galera::",
     ),
     "culprit-mssql": (
+        "conn::native_tests::refused_connection::",
         "activity::native_tests::census::idle_connections::",
+        "activity::native_tests::census::instance::",
+        "activity::page_targets::native_tests::schema_queue::",
         "telemetry::replication::native_tests::", "jobs::",
         "an_owned_native_page_task_holder_requires_the_reported_pointer_and_exact_current_request",
         "local_native_writer_plans_keep_targeted_writes_separate_from_readers_and_other_resources",
@@ -91,6 +94,54 @@ OPTIONAL_NATIVE_MODULES = {
 NATIVE_TEST_FEATURES = {
     "culprit-engine": "collector",
     "culprit-postgres": "native-test-support",
+}
+
+
+@dataclass(frozen=True)
+class MySqlAcceptancePolicy:
+    name: str
+    selection: str
+    test_features: tuple[str, ...]
+    seed_current_statements: bool
+    startup_options: tuple[str, ...] = ()
+
+    def accepts(self, crate, selection):
+        return crate == "culprit-engine" and selection.startswith(self.selection)
+
+
+MYSQL_AUTOMATIC_BLOCKING = MySqlAcceptancePolicy(
+    "automatic-blocking",
+    "collector_service::monitoring::mysql_native_tests::normal_builtin_mysql_enrollment_",
+    ("mysql-native-tests", "store-adx", "recovery-azure", "auth-azure"),
+    seed_current_statements=True,
+)
+MYSQL_AUTOMATIC_RECOVERY = MySqlAcceptancePolicy(
+    "automatic-recovery",
+    "collector_service::monitoring::mysql_native_tests::normal_builtin_mysql_incident_resolves_",
+    MYSQL_AUTOMATIC_BLOCKING.test_features,
+    seed_current_statements=True,
+)
+MYSQL_METADATA_CONTEXT = MySqlAcceptancePolicy(
+    "metadata-context",
+    "checks_synthesis::explanations::context_tests::mysql_metadata_context::native::"
+    "owned_metadata_ticket_context_retains_three_native_actors_canonical_eof_and_candidate_only_gold_with_ended_refusal",
+    ("mysql-native-tests",),
+    seed_current_statements=False,
+    # Explicit startup prerequisites on this disposable fixture. Native code observes them without changing them.
+    startup_options=(
+        "--performance-schema-consumer-global-instrumentation=ON",
+        "--performance-schema-consumer-thread-instrumentation=ON",
+        "--performance-schema-consumer-events-statements-current=ON",
+        "--performance-schema-instrument=wait/lock/metadata/sql/mdl=ON",
+    ),
+)
+MYSQL_ACCEPTANCE_CASES = {
+    "mysql-automatic-blocking": ("mysql", MYSQL_AUTOMATIC_BLOCKING),
+    "mariadb-automatic-blocking": ("mariadb-11.8", MYSQL_AUTOMATIC_BLOCKING),
+    "mysql-automatic-recovery": ("mysql", MYSQL_AUTOMATIC_RECOVERY),
+    "mariadb-automatic-recovery": ("mariadb-11.8", MYSQL_AUTOMATIC_RECOVERY),
+    "mysql-metadata-context": ("mysql", MYSQL_METADATA_CONTEXT),
+    "mariadb-metadata-context": ("mariadb-11.8", MYSQL_METADATA_CONTEXT),
 }
 
 
@@ -188,13 +239,14 @@ class Commands:
         return process.returncode, output
 
 
-def run_tests(commands, crate, selection, environment, *, library=True, skip=None):
+def run_tests(commands, crate, selection, environment, *, library=True, skip=None, test_features=()):
     target = ["--lib"] if library else ["--test", "all"]
     print(f"  Testing {crate} {selection}", flush=True)
     skips = [skip] if isinstance(skip, str) else (skip or [])
     filters = [argument for selection in skips for argument in ("--skip", selection)]
-    required_features = NATIVE_TEST_FEATURES.get(crate)
-    features = ["--features", required_features] if required_features else []
+    required_features = list(dict.fromkeys([*NATIVE_TEST_FEATURES.get(crate, "").split(","), *test_features]))
+    required_features = [feature for feature in required_features if feature]
+    features = ["--features", ",".join(required_features)] if required_features else []
     _, output = commands.run(["cargo", "test", "--locked", "-p", crate, *features, *target, selection,
                              "--", "--ignored", "--test-threads=1", *filters],
                             env=environment, timeout=TEST_BUDGET, echo=True)
@@ -368,10 +420,7 @@ class Database:
         schema = "dbo" if fixture.engine == "mssql" else (fixture.database if fixture.engine == "mysql" else "public")
         table = f"{schema}.smoke_rows"
         if fixture.engine == "mysql" and "--performance-schema=OFF" not in self.options:
-            # Explicit setup on this owned fixture, never collector behavior. MariaDB leaves the current-statement
-            # consumer off by default; provider tests separately verify that disabled instrumentation stays unknown.
-            self.sql("UPDATE performance_schema.setup_consumers SET ENABLED='YES' WHERE NAME IN "
-                     "('global_instrumentation','thread_instrumentation','statements_digest','events_statements_current');")
+            self.prepare_mysql_current_statements()
         values = ",".join(f"({i},{i * 3})" for i in range(1, 101))
         self.sql(f"CREATE TABLE {table} (id int PRIMARY KEY, value int NOT NULL); INSERT INTO {table} VALUES {values};")
         self.create_reader(table)
@@ -380,6 +429,12 @@ class Database:
             self.sql("EXEC sys.sp_query_store_flush_db;")
         if fixture.name == "timescale":
             self.prepare_timescale_jobs()
+
+    def prepare_mysql_current_statements(self):
+        # Explicit setup on this owned fixture, never collector behavior. MariaDB leaves the current-statement
+        # consumer off by default; provider tests separately verify that disabled instrumentation stays unknown.
+        self.sql("UPDATE performance_schema.setup_consumers SET ENABLED='YES' WHERE NAME IN "
+                 "('global_instrumentation','thread_instrumentation','statements_digest','events_statements_current');")
 
     def prepare_timescale_jobs(self):
         if self.fixture.name != "timescale" or self.fixture.engine != "postgres":
@@ -440,11 +495,11 @@ class Database:
                 "CULPRIT_MSSQL_REPLICATION_EXPECT_EXPANDED_AG":
                     self.configuration()[0].get("MSSQL_ENABLE_HADR", "0")}
 
-    def test(self, crate, selection, *, library=True, skip=None, environment=None):
+    def test(self, crate, selection, *, library=True, skip=None, environment=None, test_features=()):
         skips = [skip] if isinstance(skip, str) else list(skip or [])
         skips += [module for module in OPTIONAL_NATIVE_MODULES.get(crate, ()) if module not in selection]
         run_tests(self.commands, crate, selection, self.test_environment() | (environment or {}),
-                  library=library, skip=list(dict.fromkeys(skips)))
+                  library=library, skip=list(dict.fromkeys(skips)), test_features=test_features)
 
     def verify(self, selected_tests=None):
         if selected_tests:
@@ -507,6 +562,50 @@ class Database:
         self.commands.run(["docker", "unpause", self.name], check=False)
         self.commands.run(["docker", "rm", "--force", "--volumes", self.name])
         print(f"Removed owned {self.fixture.name} container and anonymous volumes", flush=True)
+
+
+class MySqlAcceptanceDatabase(Database):
+    """One supervisor for the explicit automatic and deep native library policies."""
+    RECEIPT_ENV = "CULPRIT_NATIVE_SAFETY_RECEIPT_DIR"
+
+    def __init__(self, fixture, policy):
+        super().__init__(fixture)
+        self.policy = policy
+        self.options.extend(policy.startup_options)
+
+    def prepare_mysql_current_statements(self):
+        if self.policy.seed_current_statements:
+            super().prepare_mysql_current_statements()
+
+    def receipt_environment(self):
+        directory = os.environ.get(self.RECEIPT_ENV)
+        if directory is None:
+            directory = tempfile.mkdtemp(prefix=f"culprit-{self.fixture.name}-{self.policy.name}-")
+        if not directory:
+            raise RuntimeError("native safety receipt directory must not be empty")
+        root = Path(directory)
+        root.mkdir(parents=True, exist_ok=True)
+        path = root / f"{self.policy.name}-fixture.json"
+        descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(descriptor, "w") as output:
+            json.dump({"fixture": self.fixture.name, "image": self.fixture.image,
+                       "selection": self.policy.selection, "startup_prerequisites": self.policy.startup_options,
+                       "seed_current_statement_setup": self.policy.seed_current_statements,
+                       "native_prerequisite_observation_required": True, "native_acceptance": "not-yet-run"},
+                      output, indent=2)
+            output.write("\n")
+        print(self.commands.sanitized(f"  Native safety receipts: {directory}"), flush=True)
+        return {self.RECEIPT_ENV: directory}
+
+    def verify(self, selected_tests=None):
+        if self.fixture.name not in ("mysql", "mariadb-11.8"):
+            raise RuntimeError("native safety acceptance requires exactly MySQL8.4 or MariaDB11.8")
+        tests = selected_tests or [("culprit-engine", self.policy.selection)]
+        if any(not self.policy.accepts(crate, selection) for crate, selection in tests):
+            raise RuntimeError("native fixture accepts only its explicit library selector")
+        environment = self.receipt_environment()
+        for crate, selection in tests:
+            self.test(crate, selection, library=True, test_features=self.policy.test_features, environment=environment)
 
 
 class AgentDatabase(Database):
@@ -725,8 +824,8 @@ def interrupted(*_):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("fixtures", nargs="+", choices=[f.name for f in FIXTURES + REPLICATION_FIXTURES]
-                        + list(POSTGRES_REPLICATION_IMAGES)
-                        + ["mariadb-galera", "mssql-agent", "mssql-hadr", "mssql-replication", "mysql-moving-replication", "mysql-group-replication", "yugabyte-cluster", "ssh", "all"])
+                        + list(POSTGRES_REPLICATION_IMAGES) + list(MYSQL_ACCEPTANCE_CASES)
+                        + ["postgres-readable-secondary", "mariadb-galera", "mssql-agent", "mssql-hadr", "mssql-replication", "mysql-moving-replication", "mysql-group-replication", "yugabyte-cluster", "ssh", "all"])
     parser.add_argument("--test", nargs=2, action="append", metavar=("CRATE", "FILTER"),
                         help="run only this live test selection; repeat for multiple commands in the same fixture")
     args = parser.parse_args()
@@ -737,6 +836,13 @@ def main():
             database.seed()
             database.verify(args.test)
     count = len(selected)
+    for name, (source, policy) in MYSQL_ACCEPTANCE_CASES.items():
+        if name in args.fixtures:
+            fixture = next(fixture for fixture in FIXTURES if fixture.name == source)
+            with MySqlAcceptanceDatabase(fixture, policy) as database:
+                database.seed()
+                database.verify(args.test)
+            count += 1
     for fixture in REPLICATION_FIXTURES:
         if fixture.name in args.fixtures:
             with MySqlReplication(Database(fixture)) as database:
@@ -754,6 +860,12 @@ def main():
             with PostgresReplication(primary, standby, OWNER_LABEL) as database:
                 database.verify(args.test)
             count += 1
+    if "postgres-readable-secondary" in args.fixtures:
+        primary = Database(Fixture("pg-recovery-primary", "postgres:18.6", "postgres", 5432, "culprit_replication", "postgres"))
+        standby = Database(Fixture("pg-recovery-standby", "postgres:18.6", "postgres", 5432, "culprit_replication", "postgres"))
+        with PostgresReadableRecovery(primary, standby, OWNER_LABEL) as database:
+            database.verify(args.test)
+        count += 1
     if "mssql-agent" in args.fixtures:
         fixture = replace(next(fixture for fixture in FIXTURES if fixture.name == "mssql"), name="mssql-agent")
         with AgentDatabase(fixture) as database:

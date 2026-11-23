@@ -11,15 +11,44 @@ use crate::{
 };
 
 pub(crate) const SOURCE: &str = culprit_core::source_id::MSSQL_CURRENT_REQUEST_WORK;
-struct Point {
-    check: Check,
-    work: Option<MssqlCurrentRequestWork>,
+pub(super) struct Point {
+    pub check: Check,
+    pub work: Option<MssqlCurrentRequestWork>,
 }
-struct CachePoint {
+pub(super) struct CachePoint {
     at: String,
     context: Option<CachedStatementContext>,
     unavailable: MssqlCurrentPlanUnavailable,
     bodies: payloads::Bodies,
+    module: ModuleRead,
+}
+enum ModuleRead {
+    NotRequested,
+    Unavailable,
+    Observed(Option<MssqlModuleParameters>),
+}
+impl ModuleRead {
+    fn from_row(row: &Rec, context: &CachedStatementContext) -> Result<Self> {
+        if crate::read::optional_boolean(row, "encrypted")? != Some(false) {
+            return Ok(Self::Unavailable);
+        }
+        if let Some(parameters) = crate::relational_inputs::parameters(row, context)? {
+            return Ok(Self::Observed(Some(parameters)));
+        }
+        let native_module = ["module_database_id", "module_object_id", "module_number"]
+            .into_iter()
+            .map(|name| crate::read::optional_signed_integer(row, name))
+            .collect::<Result<Vec<_>>>()?;
+        // Native ad-hoc text has no module header. A hidden/truncated positive module never becomes that case.
+        Ok(if native_module.iter().all(Option::is_none) { Self::Observed(None) } else { Self::Unavailable })
+    }
+}
+/// Original bounded inputs remain private until the completed native owner can bind their classification.
+pub(crate) struct OriginalCacheInputs {
+    pub context: CachedStatementContext,
+    pub module_parameters: Option<MssqlModuleParameters>,
+    pub statement: String,
+    pub plan: String,
 }
 
 impl<R: NativeRead> ActivityReader<R> {
@@ -114,7 +143,11 @@ impl<R: NativeRead> ActivityReader<R> {
         Ok(snapshot)
     }
 
-    async fn current_work_point(&mut self, focus: &ActivityRequestFocus, role: Option<bool>) -> Result<Point> {
+    pub(super) async fn current_work_point(
+        &mut self,
+        focus: &ActivityRequestFocus,
+        role: Option<bool>,
+    ) -> Result<Point> {
         let rows = self
             .io
             .query(&point_sql(), vec![Parameter::Text(participants::selector_keys(&[(0, &focus.original.key)])?)], 2)
@@ -174,11 +207,28 @@ impl<R: NativeRead> ActivityReader<R> {
         let right = self.current_work_cache(focus, plan, role).await?;
         Ok((left, right))
     }
-    async fn current_work_cache(
+    pub(super) async fn current_work_cache(
         &mut self,
         focus: &ActivityRequestFocus,
         plan: &NativeIdentity,
         role: Option<bool>,
+    ) -> Result<CacheReading> {
+        self.selected_cache(focus, plan, role, payloads::Kind::CurrentRequest).await
+    }
+    pub(super) async fn current_execution_cache(
+        &mut self,
+        focus: &ActivityRequestFocus,
+        plan: &NativeIdentity,
+        role: Option<bool>,
+    ) -> Result<CacheReading> {
+        self.selected_cache(focus, plan, role, payloads::Kind::CurrentExecutionInputs).await
+    }
+    async fn selected_cache(
+        &mut self,
+        focus: &ActivityRequestFocus,
+        plan: &NativeIdentity,
+        role: Option<bool>,
+        projection: payloads::Kind,
     ) -> Result<CacheReading> {
         let allowance = payload_allowance(&self.options.budget)?;
         // An errored native read retires ReadSession's held client. Continuing would need a new
@@ -186,7 +236,7 @@ impl<R: NativeRead> ActivityReader<R> {
         let rows = self
             .io
             .query(
-                &payloads::query(payloads::Kind::CurrentRequest),
+                &payloads::query(projection),
                 vec![
                     payloads::parameter(&focus.original.key, &focus.statement_identity, plan)?,
                     Parameter::Integer(allowance.0 as i64),
@@ -240,34 +290,58 @@ impl<R: NativeRead> ActivityReader<R> {
         } else {
             None
         };
+        let module = match (projection, context.as_ref()) {
+            (payloads::Kind::CurrentExecutionInputs, Some(context)) => ModuleRead::from_row(row, context)?,
+            _ => ModuleRead::NotRequested,
+        };
         Ok(CacheReading::Observed(Box::new(CachePoint {
             at: canonical_time(&text(row, "observed_at")?)?,
             context,
             unavailable,
             bodies: payloads::decode(row, allowance.0, allowance.1)?,
+            module,
         })))
     }
 }
 
-enum CacheReading {
+pub(super) enum CacheReading {
     Observed(Box<CachePoint>),
     Unavailable(MssqlCurrentPlanUnavailable),
 }
-fn qualify_cache(
+pub(super) fn qualify_cache(
     left: CacheReading,
     right: CacheReading,
     request_plan: Option<&NativeIdentity>,
     statement: &mut DefinitionPayload,
 ) -> Result<MssqlCurrentRequestPlan> {
+    qualify_cache_inputs(left, right, request_plan, statement).map(|(plan, _)| plan)
+}
+pub(super) fn qualify_cache_inputs(
+    left: CacheReading,
+    right: CacheReading,
+    request_plan: Option<&NativeIdentity>,
+    statement: &mut DefinitionPayload,
+) -> Result<(MssqlCurrentRequestPlan, Option<Box<OriginalCacheInputs>>)> {
     let (left, right) = match (left, right) {
         (CacheReading::Observed(left), CacheReading::Observed(right)) => (left, right),
         (CacheReading::Unavailable(reason), _) | (_, CacheReading::Unavailable(reason)) => {
-            return Ok(MssqlCurrentRequestPlan::Unavailable { reason });
+            return Ok((MssqlCurrentRequestPlan::Unavailable { reason }, None));
         }
     };
     if ObservationBounds::new(&left.at, &right.at).is_none() {
         return Err(CollectionStop::SourceChanged.error());
     }
+    let original_module = match (&left.module, &right.module) {
+        (ModuleRead::Observed(first), ModuleRead::Observed(last)) if first == last => Some(first.clone()),
+        (ModuleRead::Observed(_), ModuleRead::Observed(_)) => return Err(CollectionStop::SourceChanged.error()),
+        _ => None,
+    };
+    let original_bodies = original_module.and_then(|module_parameters| {
+        let statement = left.bodies.statement.text()?;
+        let plan = left.bodies.plan.text()?;
+        (Some(statement) == right.bodies.statement.text() && Some(plan) == right.bodies.plan.text())
+            .then(|| (module_parameters, statement.to_owned(), plan.to_owned()))
+    });
     *statement = if left.bodies.statement.text() == right.bodies.statement.text() {
         match left.bodies.statement {
             Payload::Text(raw) => DefinitionPayload::sql(&raw, Engine::Mssql),
@@ -278,14 +352,17 @@ fn qualify_cache(
     };
     let missing_reason = if left.context.is_none() { left.unavailable } else { right.unavailable };
     let (Some(left_context), Some(right_context)) = (left.context, right.context) else {
-        return Ok(MssqlCurrentRequestPlan::Unavailable { reason: missing_reason });
+        return Ok((MssqlCurrentRequestPlan::Unavailable { reason: missing_reason }, None));
     };
     if request_plan.is_none()
         || left_context.identity.key()? != right_context.identity.key()?
         || left_context.database_id != right_context.database_id
         || left_context.query_hash != right_context.query_hash
     {
-        return Ok(MssqlCurrentRequestPlan::Unavailable { reason: MssqlCurrentPlanUnavailable::ChangedDuringRead });
+        return Ok((
+            MssqlCurrentRequestPlan::Unavailable { reason: MssqlCurrentPlanUnavailable::ChangedDuringRead },
+            None,
+        ));
     }
     let plan = if left.bodies.plan.text() == right.bodies.plan.text() {
         match left.bodies.plan {
@@ -295,12 +372,18 @@ fn qualify_cache(
     } else {
         DefinitionPayload::Unavailable { reason: PayloadUnavailable::SourceUnavailable }
     };
-    Ok(MssqlCurrentRequestPlan::Observed {
-        observed_from: left.at,
-        observed_until: right.at,
-        context: Box::new(left_context),
-        plan,
-    })
+    let inputs = original_bodies.map(|(module_parameters, statement, plan)| {
+        Box::new(OriginalCacheInputs { context: left_context.clone(), module_parameters, statement, plan })
+    });
+    Ok((
+        MssqlCurrentRequestPlan::Observed {
+            observed_from: left.at,
+            observed_until: right.at,
+            context: Box::new(left_context),
+            plan,
+        },
+        inputs,
+    ))
 }
 fn focused_binding(state: RequestState) -> FocusedRequestBinding {
     match state {
@@ -326,7 +409,7 @@ pub(crate) fn validate_focus(focus: &ActivityRequestFocus) -> Result<()> {
     }
     Ok(())
 }
-fn admit(context: &Context, focus: &ActivityRequestFocus) -> Result<()> {
+pub(super) fn admit(context: &Context, focus: &ActivityRequestFocus) -> Result<()> {
     let supported = matches!(context.activity.edition, 2 | 3 | 4 | 8) && context.activity.major >= 16
         || context.activity.edition == 5 && context.activity.major >= 12;
     if !supported {

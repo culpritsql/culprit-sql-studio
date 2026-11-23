@@ -6,20 +6,21 @@ use crate::{
 };
 use culprit_core::{ConnectionSpec, Engine};
 
-fn connector() -> Arc<Connector> {
-    Arc::new(
-        Connector::new(&ConnectionSpec {
-            engine: Some(Engine::Mysql),
-            host: "127.0.0.1".into(),
-            port: Some(1),
-            database: Some("shop".into()),
-            user: Some("unused".into()),
-            password: Some("unused".into()),
-            ..Default::default()
-        })
-        .unwrap(),
-    )
+pub(in crate::telemetry) fn specification() -> ConnectionSpec {
+    ConnectionSpec {
+        engine: Some(Engine::Mysql),
+        host: "127.0.0.1".into(),
+        port: Some(1),
+        database: Some("shop".into()),
+        user: Some("unused".into()),
+        password: Some("unused".into()),
+        ..Default::default()
+    }
 }
+pub(in crate::telemetry) fn connector() -> Arc<Connector> {
+    Arc::new(Connector::new(&specification()).unwrap())
+}
+
 fn request() -> CollectionRequest {
     CollectionRequest {
         subject: CollectionSubject::Database,
@@ -27,7 +28,7 @@ fn request() -> CollectionRequest {
         budget: CollectionBudget::default(),
     }
 }
-fn context(at: &str, server: u64) -> Result<Vec<Rec>> {
+pub(in crate::telemetry) fn context(at: &str, server: u64) -> Result<Vec<Rec>> {
     Ok(vec![Rec::from_values(vec![
         ("database_name", "shop".into()),
         ("server_id", server.into()),
@@ -40,10 +41,10 @@ fn context(at: &str, server: u64) -> Result<Vec<Rec>> {
         ("observed_at", at.into()),
     ])])
 }
-fn epoch() -> Result<Vec<Rec>> {
+pub(in crate::telemetry) fn epoch() -> Result<Vec<Rec>> {
     Ok(vec![Rec::from_values(vec![("observed_second", 10_000u64.into()), ("uptime", 100u64.into())])])
 }
-fn visibility() -> Result<Vec<Rec>> {
+pub(in crate::telemetry) fn visibility() -> Result<Vec<Rec>> {
     Ok(vec![Rec::from_values(vec![
         ("database_wide", 1u64.into()),
         ("process_wide", 1u64.into()),
@@ -66,6 +67,7 @@ fn reader(after: Result<Vec<Rec>>) -> ActivityReader<Read> {
         .with_query_budget(20, 7),
         connector: connector(),
         verified: None,
+        generation: None,
     }
 }
 #[tokio::test]
@@ -212,5 +214,109 @@ async fn foreign_default_schema_and_cancelled_frames_close_the_same_native_owner
             "close must retain the provided native owner, not acquire a replacement"
         );
         assert_eq!(source.query_count(), queried);
+    }
+}
+
+/// The same actual source adapter freezes and verifies the scripted native original before a focused test uses it.
+pub(in crate::telemetry) async fn original_actor_on(
+    native: Rec,
+    version: &str,
+    member: &str,
+) -> (CollectionDescription, ActivityObservation) {
+    let request = bounded_request(&request());
+    let mut reader = reader(context("2020-01-01T06:00:00.200000Z", 1));
+    for index in [0, 5] {
+        let row = reader.io.replies[index].as_mut().unwrap().remove(0);
+        reader.io.replies[index] = Ok(vec![row.with_fields(&[("version", version.into())])]);
+    }
+    for index in [2, 7] {
+        let row = reader.io.replies[index].as_mut().unwrap().remove(0);
+        reader.io.replies[index] = Ok(vec![row.with_fields(&[("native_member", member.into())])]);
+    }
+    reader.io.replies[4] = Ok(vec![native]);
+    let mut source = FrozenSource::new(reader, &request).unwrap();
+    let description = source.describe().await.unwrap();
+    let CollectionRead::Page { records, next_cursor: None } =
+        source.read_page(TelemetryStream::ActivityObservations, None).await.unwrap()
+    else {
+        panic!()
+    };
+    assert_eq!(source.finish().await.unwrap(), SourceCompletion::Verified);
+    assert_eq!(source.close().await, SourceShutdown::Quiescent);
+    let [TelemetryRecord::Activity(actor)] = records.as_slice() else { panic!() };
+    (description, actor.as_ref().clone())
+}
+
+fn admitted(reader: &mut ActivityReader<Read>, request: &CollectionRequest) {
+    let recipe = crate::telemetry_recipes().into_iter().find(|recipe| recipe.id == "mysql.activity").unwrap();
+    let RecipeAdmission::BuiltinSafety(policy) = recipe.admission else { panic!() };
+    let admission = SourceProfileAdmission::for_builtin(
+        digest(b"saved MySQL source route"),
+        *policy,
+        None,
+        request.budget.clone(),
+        || true,
+    )
+    .unwrap();
+    reader.connector =
+        Arc::new(reader.connector.with_profile(culprit_read::SourceProfileGuard::new(request, &admission).unwrap()));
+}
+#[tokio::test]
+async fn source_owned_baseline_admission_binds_both_supported_native_members_and_the_same_held_generation() {
+    for (version, member) in
+        [("8.4.6", "f54a461c-0001-4000-8000-000000000001"), ("11.8.9-MariaDB-ubu2404", "q83hHHfky00d9QAi5bwmy+JVlfE=")]
+    {
+        let request = bounded_request(&request());
+        let mut reader = reader(context("2020-01-01T06:00:00.200000Z", 1));
+        for index in [0, 5] {
+            let row = reader.io.replies[index].as_mut().unwrap().remove(0);
+            reader.io.replies[index] = Ok(vec![row.with_fields(&[("version", version.into())])]);
+        }
+        for index in [2, 7] {
+            reader.io.replies[index] =
+                Ok(vec![visibility().unwrap().remove(0).with_fields(&[("native_member", member.into())])]);
+        }
+        admitted(&mut reader, &request);
+        let mut source = FrozenSource::new(reader, &request).unwrap();
+        let description = source.describe().await.unwrap();
+        assert!(NativeReadContext::from_activity(&description).unwrap().has_qualified_local_owner());
+        assert!(description.observation.activity().unwrap().coverage.complete_scope);
+        let CollectionRead::Page { next_cursor: None, .. } =
+            source.read_page(TelemetryStream::ActivityObservations, None).await.unwrap()
+        else {
+            panic!()
+        };
+        assert!(matches!(source.finish().await.unwrap(), SourceCompletion::Verified));
+        assert_eq!(source.query_count(), 20);
+        assert_eq!(source.close().await, SourceShutdown::Quiescent);
+    }
+}
+#[tokio::test]
+async fn builtin_baseline_refuses_missing_member_unsupported_version_or_unvalidated_replica_before_population() {
+    for case in ["missing-member", "unsupported-version", "readonly", "missing-role"] {
+        let request = bounded_request(&request());
+        let mut reader = reader(context("2020-01-01T06:00:00.200000Z", 1));
+        if case == "missing-member" {
+            reader.io.replies[2] =
+                Ok(vec![visibility().unwrap().remove(0).with_fields(&[("native_member", mysql_async::Value::NULL)])]);
+        } else {
+            let (field, value) = match case {
+                "unsupported-version" => ("version", "8.0.42".into()),
+                "readonly" => ("read_only", 1u64.into()),
+                "missing-role" => ("read_only", mysql_async::Value::NULL),
+                _ => unreachable!(),
+            };
+            let row = reader.io.replies[0].as_mut().unwrap().remove(0);
+            reader.io.replies[0] = Ok(vec![row.with_fields(&[(field, value)])]);
+        }
+        admitted(&mut reader, &request);
+        assert!(reader.observe(&request).await.is_err());
+        assert!(reader.verified.is_none());
+        assert!(reader.query_count() <= 12);
+        assert!(
+            reader.io.queries.iter().all(|(sql, _, _)| !sql.contains("FROM performance_schema.threads")),
+            "no population query can borrow invalid native profile authority"
+        );
+        assert_eq!(reader.close().await, SourceShutdown::Quiescent);
     }
 }

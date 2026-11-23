@@ -11,9 +11,13 @@ use crate::{format, t};
 mod activity;
 mod metadata_queue;
 mod native_lock;
+mod native_output;
+mod output_retention;
 pub use activity::analyze_activity;
 pub use metadata_queue::*;
 pub use native_lock::*;
+pub use native_output::*;
+pub use output_retention::*;
 
 /// The lock a waiting session asked for and didn't get.
 #[derive(Serialize, Deserialize, TS, Clone, Debug, PartialEq, Eq, Default)]

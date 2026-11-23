@@ -3,6 +3,7 @@
 pub(crate) mod actor;
 pub mod case;
 mod maintenance;
+mod readable_secondary;
 use crate::{
     connect::Connector,
     read::{NativeRead, QueryRead, ReadSession},
@@ -11,6 +12,7 @@ use culprit_core::{ConnectionSpec, Engine, telemetry::*};
 pub use maintenance::{
     AutomaticCase, MaintenanceFixture, RelationQueueCase, RelationQueueRole, TransactionMetadataRole,
 };
+pub use readable_secondary::ReadableSecondaryFixture;
 
 pub fn connection_spec() -> ConnectionSpec {
     let database = std::env::var("CULPRIT_PREVIEW_PG_DATABASE").unwrap();
@@ -66,6 +68,8 @@ pub fn write_automatic_receipt(case: &str, name: &str, value: &serde_json::Value
             | "relation-queue-medium"
             | "relation-queue-parallel"
             | "transaction-metadata"
+            | "readable-secondary"
+            | "readable-secondary-endpoint"
     ));
     assert!(name.ends_with(".json") && !name.contains('/') && !name.contains('\\'));
     let directory = automatic_directory(case)?;
@@ -91,6 +95,8 @@ pub fn automatic_directory(case: &str) -> std::io::Result<std::path::PathBuf> {
             | "relation-queue-medium"
             | "relation-queue-parallel"
             | "transaction-metadata"
+            | "readable-secondary"
+            | "readable-secondary-endpoint"
     ));
     let root = std::path::PathBuf::from(std::env::var("CULPRIT_NATIVE_SAFETY_RECEIPT_DIR").map_err(|_| {
         std::io::Error::new(std::io::ErrorKind::NotFound, "explicit private native safety receipt directory required")

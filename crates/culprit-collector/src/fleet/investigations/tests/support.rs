@@ -293,7 +293,12 @@ impl FleetBackend for Backend {
                                 focus,
                                 execution.logical().expect("logical log owner"),
                             ),
-                            SourceReadQuestion::RelationalInputContext | SourceReadQuestion::TransactionMetadata => {
+                            SourceReadQuestion::RelationalInputContext
+                            | SourceReadQuestion::CurrentExecutionProfile
+                            | SourceReadQuestion::TransactionMetadata
+                            | SourceReadQuestion::ReadableSecondaryRecovery
+                            | SourceReadQuestion::OutputGrantRetention
+                            | SourceReadQuestion::MetadataLockContext => {
                                 return Err(DeliveryProblem::Integrity.error());
                             }
                             SourceReadQuestion::TemporarySpaceContributors => {
@@ -751,6 +756,7 @@ pub(in crate::fleet::investigations) async fn capture_frame(outbox: &mut Outbox,
 async fn capture_artifact(outbox: &mut Outbox, frame: Frame) -> (CollectionManifest, std::path::PathBuf) {
     let request = CollectionRequest {
         subject: match &frame.source.target {
+            CollectionTarget::ConfiguredConnection(_) => panic!("native fixture cannot represent collector control"),
             CollectionTarget::Database(_) => CollectionSubject::Database,
             CollectionTarget::Shared(resource) => CollectionSubject::Shared { resource: resource.clone() },
         },

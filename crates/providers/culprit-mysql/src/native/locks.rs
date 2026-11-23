@@ -3,6 +3,9 @@ use crate::connect::Flavor;
 use crate::rows::Rec;
 use culprit_core::{LockWait, ObservedWaitResource, Result, WaitResourceKind, telemetry::NativeIdentity};
 
+pub(crate) mod metadata_context;
+pub(crate) mod selected;
+#[derive(Clone)]
 pub(crate) struct LockPair {
     pub session: u64,
     pub blocking: u64,
@@ -26,31 +29,30 @@ impl LockPair {
 }
 
 pub(crate) fn decode(rows: Vec<Rec>) -> Result<Vec<LockPair>> {
-    rows.iter()
-        .map(|row| {
-            let identified_resource = row
-                .native_text("native_lock_id")?
-                .map(|id| {
-                    Ok::<_, culprit_core::Error>(ObservedWaitResource {
-                        kind: WaitResourceKind::DataLock,
-                        native: NativeIdentity::new(id).qualified("engine", super::text(row, "native_engine")?),
-                    })
-                })
-                .transpose()?;
-            if identified_resource.as_ref().is_some_and(|resource| !resource.is_valid()) {
-                return Err(super::invalid());
-            }
-            Ok(LockPair {
-                session: super::integer(row, "session")?,
-                blocking: super::integer(row, "blocking")?,
-                mode: row.native_text("mode")?,
-                resource: row.native_text("resource")?,
-                object: row.native_text("object")?,
-                index: row.native_text("index_name")?,
-                identified_resource,
+    rows.iter().map(decode_row).collect()
+}
+fn decode_row(row: &Rec) -> Result<LockPair> {
+    let identified_resource = row
+        .native_text("native_lock_id")?
+        .map(|id| {
+            Ok::<_, culprit_core::Error>(ObservedWaitResource {
+                kind: WaitResourceKind::DataLock,
+                native: NativeIdentity::new(id).qualified("engine", super::text(row, "native_engine")?),
             })
         })
-        .collect()
+        .transpose()?;
+    if identified_resource.as_ref().is_some_and(|resource| !resource.is_valid()) {
+        return Err(super::invalid());
+    }
+    Ok(LockPair {
+        session: super::integer(row, "session")?,
+        blocking: super::integer(row, "blocking")?,
+        mode: row.native_text("mode")?,
+        resource: row.native_text("resource")?,
+        object: row.native_text("object")?,
+        index: row.native_text("index_name")?,
+        identified_resource,
+    })
 }
 
 pub(crate) struct RowLockLayout {

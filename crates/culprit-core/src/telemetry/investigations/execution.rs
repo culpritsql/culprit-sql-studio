@@ -157,7 +157,12 @@ impl DiagnosticInvestigationIntent {
             && match &self.execution {
                 DiagnosticExecutionBinding::NativeRead { execution } => {
                     execution.matches_target(&source.target)
-                        && source.partition == SourcePartition::Target
+                        && (if matches!(source.observation, SourceObservation::MetadataLockContext { .. }) {
+                            matches!(&self.focus,DiagnosticFocus::SourceRead {focus} if focus.question==SourceReadQuestion::MetadataLockContext)
+                                && &source.partition == execution.partition()
+                        } else {
+                            source.partition == SourcePartition::Target
+                        })
                         && source
                             .observation
                             .execution_context()

@@ -1,5 +1,6 @@
 //! Existing publication schema and parameterized ClickHouse dialect; hints are not native authority.
 use super::*;
+use culprit_evidence::analytical::evidence::PublishedResourceClock;
 
 pub(super) async fn read(
     store: &ClickHouseReadStore,
@@ -15,9 +16,28 @@ pub(super) async fn read(
         ("recovery".into(), request.recovery_store_id.clone()),
         ("as_of".into(), nanos(&request.selection.as_of)?),
     ]);
+    let database = if let Some(database) = &request.database {
+        parameters.insert("database".into(), database.key().into());
+        " AND DatabaseSelector={database:String}"
+    } else {
+        ""
+    };
+    let content = if let Some(kind) = request.content.observation_kind() {
+        parameters.insert("observation".into(), kind.into());
+        " AND JSONExtractString(SourceDescription,'observation','kind')={observation:String}"
+    } else {
+        ""
+    };
     let window = if let Some(window) = &request.selection.window {
         parameters.extend([("from".into(), nanos(&window.from)?), ("until".into(), nanos(&window.until)?)]);
-        " AND CollectedFrom<fromUnixTimestamp64Nano({until:Int64}) AND CollectedUntil>=fromUnixTimestamp64Nano({from:Int64})"
+        match request.clock {
+            PublishedResourceClock::Acquisition => {
+                " AND CollectedFrom<fromUnixTimestamp64Nano({until:Int64}) AND CollectedUntil>=fromUnixTimestamp64Nano({from:Int64})"
+            }
+            PublishedResourceClock::NativeWindowCandidates => {
+                " AND (isNull(IntervalFrom) OR isNull(IntervalUntil) OR (IntervalFrom<=fromUnixTimestamp64Nano({until:Int64}) AND IntervalUntil>=fromUnixTimestamp64Nano({from:Int64})))"
+            }
+        }
     } else {
         ""
     };
@@ -32,7 +52,7 @@ pub(super) async fn read(
         ""
     };
     let text = format!(
-        "SELECT DISTINCT {} FROM {} WHERE ContractId={{contract:String}} AND SchemaDigest={{schema:String}} AND RecoveryStoreId={{recovery:String}} AND ResourceKind='database' AND CollectedUntil<=fromUnixTimestamp64Nano({{as_of:Int64}}){window}{after} ORDER BY ResourceId,SourceId,RangeId LIMIT {}",
+        "SELECT DISTINCT {} FROM {} WHERE ContractId={{contract:String}} AND SchemaDigest={{schema:String}} AND RecoveryStoreId={{recovery:String}} AND ResourceKind='database' AND CollectedUntil<=fromUnixTimestamp64Nano({{as_of:Int64}}){database}{content}{window}{after} ORDER BY ResourceId,SourceId,RangeId LIMIT {}",
         schema.verification_projection(),
         quote(schema.table()),
         request.selection.page_rows + 1,

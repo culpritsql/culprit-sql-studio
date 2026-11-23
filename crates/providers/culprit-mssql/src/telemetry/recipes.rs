@@ -66,6 +66,7 @@ impl Registration {
     fn accepts(&self, request: &CollectionRequest) -> bool {
         let provider_matches = match &request.subject {
             CollectionSubject::Database => true,
+            CollectionSubject::ConfiguredConnection { .. } => false,
             CollectionSubject::Shared { resource } => resource.engine == culprit_core::Engine::Mssql,
         };
         provider_matches
@@ -101,6 +102,23 @@ macro_rules! state {
 }
 
 const REGISTRATIONS: &[Registration] = &[
+    Registration::database(
+        "mssql.readable-secondary-recovery",
+        RecipeSelector::Collection(TelemetryCollection::Snapshot(SnapshotDataset::ReadableSecondaryRecovery)),
+        readable_secondary_recovery::source,
+    )
+    .on_editions(&[3])
+    .bounded(readable_secondary_recovery::bounded_budget),
+    Registration::database(
+        "mssql.current-execution-profile",
+        RecipeSelector::Collection(TelemetryCollection::Snapshot(SnapshotDataset::CurrentExecutionProfile)),
+        |pool, request, host, port| {
+            Ok(Box::new(current_execution_profile::CurrentExecutionProfileSource::new(pool, request, host, port)?))
+        },
+    )
+    .version(3)
+    .on_editions(&[2, 3, 4, 5, 8])
+    .bounded(current_execution_profile::bounded_budget),
     Registration::database("mssql.worker-starvation", RecipeSelector::WorkerStarvation, |pool, request, host, port| {
         Ok(Box::new(worker_starvation::WorkerStarvationSource::new(pool, request, host, port)?))
     })
@@ -145,7 +163,7 @@ const REGISTRATIONS: &[Registration] = &[
         |pool, request, host, port| Ok(Box::new(resources::ResourceSource::new(pool, request, host, port)?)),
     )
     .baseline()
-    .version(3),
+    .version(4),
     Registration::database(
         "mssql.managed-instance-resource-history",
         RecipeSelector::Collection(TelemetryCollection::ResourceHistory),
@@ -186,9 +204,19 @@ const REGISTRATIONS: &[Registration] = &[
     .bounded(activity::bounded_budget)
     .baseline()
     .version(8),
+    Registration::database(
+        "mssql.instance-activity",
+        RecipeSelector::Collection(TelemetryCollection::Activity),
+        |pool, request, host, port| Ok(Box::new(activity::ActivitySource::new(pool, request, host, port)?)),
+    )
+    .shared(&[RecipeSubject::Shared(SharedResourceKind::Instance)])
+    .on_editions(crate::instance::SUPPORTED_EDITIONS)
+    .bounded(activity::bounded_budget)
+    .baseline(),
     Registration::database("mssql.blocking", RecipeSelector::FocusedBlocking, blocking::source)
         .on_editions(&[3])
-        .bounded(blocking::bounded_budget),
+        .bounded(blocking::bounded_budget)
+        .version(3),
     Registration::database(
         "mssql.page-wait-targets",
         RecipeSelector::Collection(TelemetryCollection::Snapshot(SnapshotDataset::PageWaitTargets)),
@@ -261,20 +289,21 @@ const REGISTRATIONS: &[Registration] = &[
         |pool, request, host, port| Ok(Box::new(request_memory::MemorySource::new(pool, request, host, port)?)),
     )
     .bounded(request_memory::bounded_budget)
-    .version(6),
+    .version(7),
     Registration::database(
         "mssql.current-request-work",
         RecipeSelector::CurrentRequestWork,
         |pool, request, host, port| Ok(Box::new(current_request_work::Source::new(pool, request, host, port)?)),
     )
-    .bounded(current_request_work::bounded_budget),
+    .bounded(current_request_work::bounded_budget)
+    .version(2),
     Registration::database(
         "mssql.focused-request-memory",
         RecipeSelector::FocusedRequestMemory,
         |pool, request, host, port| Ok(Box::new(request_memory::MemorySource::new(pool, request, host, port)?)),
     )
     .bounded(request_memory::bounded_budget)
-    .version(6),
+    .version(7),
     Registration::database(
         "mssql.cache-entry-memory",
         RecipeSelector::CacheEntryMemory,
@@ -353,6 +382,11 @@ const REGISTRATIONS: &[Registration] = &[
         .shared(&[RecipeSubject::Shared(SharedResourceKind::Instance)])
         .on_editions(crate::instance::SUPPORTED_EDITIONS)
         .bounded(state::numa_nodes_budget),
+    state!("mssql.pool-operational", Operational)
+        .baseline()
+        .shared(&[RecipeSubject::Shared(SharedResourceKind::Pool)])
+        .on_editions(&[crate::probe::ENGINE_EDITION_AZURE_SQL_DATABASE])
+        .bounded(state::pool_operational_budget),
     state!("mssql.shared-operational", Operational)
         .shared(&[RecipeSubject::Shared(SharedResourceKind::Instance)])
         .baseline()
@@ -364,7 +398,11 @@ const REGISTRATIONS: &[Registration] = &[
         .baseline()
         .version(2),
     state!("mssql.plan-cache-summary", PlanCacheSummary).baseline().version(2),
-    state!("mssql.missing-indexes", MissingIndexes).version(2),
+    state!("mssql.missing-indexes", MissingIndexes)
+        .baseline()
+        .on_editions(&[2, 3, 4, 5, 8])
+        .bounded(streamed::catalog_budget)
+        .version(3),
     state!("mssql.tuning", Tuning).bounded(state::tuning_budget).version(4),
     state!("mssql.pool-wait-counters", WaitCounters)
         .shared(&[RecipeSubject::Shared(SharedResourceKind::Pool)])
@@ -389,18 +427,58 @@ const REGISTRATIONS: &[Registration] = &[
     .on_editions(&[5])
     .bounded(state::pool_settings_budget),
     streamed!("mssql.statement-grants", StatementGrants, grants::Grants).version(3),
-    streamed!("mssql.index-operations", IndexOperations, index_operations::IndexOperations).version(2),
-    streamed!("mssql.tables", Tables, tables::Tables).version(8),
-    streamed!("mssql.foreign-keys", ForeignKeys, foreign_keys::ForeignKeys).version(2),
-    streamed!("mssql.columns", Columns, columns::Columns).version(2),
-    streamed!("mssql.statistics", Statistics, statistics::Statistics).version(2),
-    streamed!("mssql.indexes", Indexes, indexes::Indexes).version(5),
-    streamed!("mssql.check-constraints", CheckConstraints, check_constraints::CheckConstraints).version(2),
+    streamed!("mssql.index-operations", IndexOperations, index_operations::IndexOperations)
+        .baseline()
+        .on_editions(&[2, 3, 4, 5, 8])
+        .bounded(streamed::catalog_budget)
+        .version(3),
+    streamed!("mssql.tables", Tables, tables::Tables)
+        .baseline()
+        .on_editions(&[2, 3, 4, 5, 8])
+        .bounded(streamed::catalog_budget)
+        .version(9),
+    streamed!("mssql.foreign-keys", ForeignKeys, foreign_keys::ForeignKeys)
+        .baseline()
+        .on_editions(&[2, 3, 4, 5, 8])
+        .bounded(streamed::catalog_budget)
+        .version(3),
+    streamed!("mssql.columns", Columns, columns::Columns)
+        .baseline()
+        .on_editions(&[2, 3, 4, 5, 8])
+        .bounded(streamed::catalog_budget)
+        .version(3),
+    streamed!("mssql.statistics", Statistics, statistics::Statistics)
+        .baseline()
+        .on_editions(&[2, 3, 4, 5, 8])
+        .bounded(streamed::catalog_budget)
+        .version(3),
+    streamed!("mssql.indexes", Indexes, indexes::Indexes)
+        .baseline()
+        .on_editions(&[2, 3, 4, 5, 8])
+        .bounded(streamed::catalog_budget)
+        .version(6),
+    streamed!("mssql.check-constraints", CheckConstraints, check_constraints::CheckConstraints)
+        .baseline()
+        .on_editions(&[2, 3, 4, 5, 8])
+        .bounded(streamed::catalog_budget)
+        .version(3),
     streamed!("mssql.query-compilation", QueryCompilation, compilation::QueryCompilation).version(6),
     streamed!("mssql.cached-runtime", CachedRuntime, cached_runtime::CachedRuntime).version(4),
-    streamed!("mssql.objects", Objects, objects::Objects).version(2),
-    streamed!("mssql.triggers", Triggers, triggers::Triggers).version(2),
-    streamed!("mssql.partitions", Partitions, partitions::Partitions).version(2),
+    streamed!("mssql.objects", Objects, objects::Objects)
+        .baseline()
+        .on_editions(&[2, 3, 4, 5, 8])
+        .bounded(streamed::catalog_budget)
+        .version(3),
+    streamed!("mssql.triggers", Triggers, triggers::Triggers)
+        .baseline()
+        .on_editions(&[2, 3, 4, 5, 8])
+        .bounded(streamed::catalog_budget)
+        .version(3),
+    streamed!("mssql.partitions", Partitions, partitions::Partitions)
+        .baseline()
+        .on_editions(&[2, 3, 4, 5, 8])
+        .bounded(streamed::catalog_budget)
+        .version(3),
     streamed!("mssql.cached-definitions", CachedDefinitions, cached_definitions::CachedDefinitions).version(7),
     streamed!("mssql.retained-plans", RetainedPlans, retained_definitions::RetainedPlans)
         .version(9)

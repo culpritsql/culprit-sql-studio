@@ -4,6 +4,7 @@ import type { ChangeEvent } from "../gen/ChangeEvent";
 import type { Changes } from "../gen/Changes";
 import { AroundThen, PeriodStrip, chartEvents } from "../components/ChangeTimeline";
 import { partial } from "../test/fixtures";
+import { t } from "./i18n";
 
 function recorded(): ChangeEvent {
   return {
@@ -48,4 +49,15 @@ test("chart and period labels preserve saved event keys and native bounds indepe
   const html = renderToStaticMarkup(<PeriodStrip changes={changes([raw])} />);
   expect(html).toContain("raw &lt;script&gt;event-canary()&lt;/script&gt;");
   expect(html).not.toContain("[object Object]");
+});
+
+
+test("imported native XML events retain explicit artifact provenance and plain text without cloud or database authority", () => {
+  const event: ChangeEvent = { ...recorded(), id: "native-event:artifact:0:2026-11-21T10:00:00Z", kind: "native-event", source: "imported-artifact", by: null };
+  const html = renderToStaticMarkup(<AroundThen changes={changes([event])} onFocusQuery={() => {}} />);
+  expect(html).toContain(t("ui.change_timeline.imported_artifact"));
+  expect(html).not.toContain(t("ui.change_timeline.from_cloud"));
+  expect(html).not.toContain(t("ui.change_timeline.dated_by_database"));
+  expect(html).toContain("raw &lt;script&gt;event-canary()&lt;/script&gt;");
+  expect(chartEvents([event])[0]!.kind).toBe("native-event");
 });

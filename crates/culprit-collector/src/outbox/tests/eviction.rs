@@ -5,7 +5,7 @@ use crate::delivery::recovery::*;
 use culprit_evidence::delivery::contract::Contract;
 use culprit_evidence::delivery::recovery::*;
 
-pub(super) async fn remote_box(root: &Path) -> (FileRecoveryStore, FileOwnership, Contract, Outbox) {
+pub(in crate::outbox) async fn remote_box(root: &Path) -> (FileRecoveryStore, FileOwnership, Contract, Outbox) {
     let contract = Contract::new("pipeline".into(), "shard-0".into(), "file:test".into(), digest(b"schema")).unwrap();
     let store = FileRecoveryStore::create(&root.join("recovery"), contract.clone()).unwrap();
     let owner = store.acquire().await.unwrap();

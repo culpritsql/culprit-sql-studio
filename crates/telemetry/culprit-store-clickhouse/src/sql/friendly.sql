@@ -69,58 +69,123 @@ Bodies AS (SELECT *,uniqExact((AnalysisId,DetailSha256,InputReadComplete,OutputC
 SELECT * EXCEPT (HeadRecordedAt,BodyVersions) FROM Bodies WHERE BodyVersions=1
 ORDER BY ResourceId,TargetId,OriginalScopeId,OriginalSource,EpisodeId,ControllerVersion,RangeId,BatchId,RowOrdinal LIMIT 1 BY ResourceId,TargetId,OriginalScopeId,OriginalSource,EpisodeId,ControllerVersion;
 
-CREATE OR REPLACE VIEW $NIncidents SQL SECURITY INVOKER AS
-WITH (SELECT groupArray(ResourceId) FROM $NMatches(resource={resource:String},asof={asof:DateTime64(9, 'UTC')})) AS Matches
-SELECT ConnectionAlias,DatabaseName,toBool(isNotNull(DatabaseName)) AS DatabaseNameKnown,Environment,toBool(isNotNull(Environment)) AS EnvironmentKnown,Title,Lifecycle,EnrichmentStatus,VictimSummary,AffectedQueries,CulpritQueries,CandidateQueries,AttributionStatus,Mechanism,toBool(isNotNull(Mechanism)) AS MechanismKnown,DeveloperAction,Verification,Caller,OriginalRecordedAt,OriginalObservedFrom,OriginalObservedUntil,OriginalIntervalFrom,OriginalIntervalUntil,OriginalScope,OriginalScopeId,OriginalSource,TargetId,EpisodeId,ControllerVersion,Revision,RevisionId,Details,RecordedAt AS InterpretationRecordedAt,RulesVersion,Analyzer,InputReadComplete,OutputCoverage,OutputLimitations,ContextIssues FROM $NHeads(asof={asof:DateTime64(9, 'UTC')})
-WHERE has(Matches,ResourceId) AND length(Matches)=1 AND {from:DateTime64(9, 'UTC')}>=$FROM AND {from:DateTime64(9, 'UTC')}<{until:DateTime64(9, 'UTC')} AND {until:DateTime64(9, 'UTC')}<={asof:DateTime64(9, 'UTC')}
+CREATE OR REPLACE VIEW $NIncidentWindow SQL SECURITY INVOKER AS
+SELECT ResourceId,ConnectionAlias,DatabaseName,toBool(isNotNull(DatabaseName)) AS DatabaseNameKnown,Environment,toBool(isNotNull(Environment)) AS EnvironmentKnown,Title,Lifecycle,EnrichmentStatus,VictimSummary,AffectedQueries,CulpritQueries,CandidateQueries,AttributionStatus,Mechanism,toBool(isNotNull(Mechanism)) AS MechanismKnown,DeveloperAction,Verification,Caller,OriginalRecordedAt,OriginalObservedFrom,OriginalObservedUntil,OriginalIntervalFrom,OriginalIntervalUntil,OriginalScope,OriginalScopeId,OriginalSource,TargetId,EpisodeId,ControllerVersion,Revision,RevisionId,Details,RecordedAt AS InterpretationRecordedAt,RulesVersion,Analyzer,InputReadComplete,OutputCoverage,OutputLimitations,ContextIssues FROM $NHeads(asof={asof:DateTime64(9, 'UTC')})
+WHERE {from:DateTime64(9, 'UTC')}>=$FROM AND {from:DateTime64(9, 'UTC')}<{until:DateTime64(9, 'UTC')} AND {until:DateTime64(9, 'UTC')}<={asof:DateTime64(9, 'UTC')}
 AND ((OriginalObservedFrom<{until:DateTime64(9, 'UTC')} AND OriginalObservedUntil>={from:DateTime64(9, 'UTC')})
  OR (OriginalIntervalFrom<{until:DateTime64(9, 'UTC')} AND OriginalIntervalUntil>={from:DateTime64(9, 'UTC')})
  OR (OriginalRecordedAt>={from:DateTime64(9, 'UTC')} AND OriginalRecordedAt<{until:DateTime64(9, 'UTC')}));
 
+CREATE OR REPLACE VIEW $NIncidents SQL SECURITY INVOKER AS
+WITH (SELECT groupArray(ResourceId) FROM $NMatches(resource={resource:String},asof={asof:DateTime64(9, 'UTC')})) AS Matches
+SELECT * EXCEPT (ResourceId) FROM $NIncidentWindow(from={from:DateTime64(9, 'UTC')},until={until:DateTime64(9, 'UTC')},asof={asof:DateTime64(9, 'UTC')})
+WHERE has(Matches,ResourceId) AND length(Matches)=1;
+
+
+CREATE OR REPLACE VIEW $NHistoryWindow SQL SECURITY INVOKER AS
+SELECT ResourceId,ConnectionAlias,DatabaseName,toBool(isNotNull(DatabaseName)) AS DatabaseNameKnown,Environment,toBool(isNotNull(Environment)) AS EnvironmentKnown,Title,Lifecycle,EnrichmentStatus,VictimSummary,AffectedQueries,CulpritQueries,CandidateQueries,AttributionStatus,Mechanism,toBool(isNotNull(Mechanism)) AS MechanismKnown,DeveloperAction,Verification,Caller,OriginalRecordedAt,OriginalObservedFrom,OriginalObservedUntil,OriginalIntervalFrom,OriginalIntervalUntil,OriginalScope,OriginalScopeId,OriginalSource,TargetId,EpisodeId,ControllerVersion,Revision,RevisionId,Details,RecordedAt AS InterpretationRecordedAt,RulesVersion,Analyzer,InputReadComplete,OutputCoverage,OutputLimitations,ContextIssues FROM $NIncidentRows(asof={asof:DateTime64(9, 'UTC')})
+WHERE {from:DateTime64(9, 'UTC')}>=$FROM AND {from:DateTime64(9, 'UTC')}<{until:DateTime64(9, 'UTC')} AND {until:DateTime64(9, 'UTC')}<={asof:DateTime64(9, 'UTC')} AND ($ANALYZER_MATCH) AND RulesVersion=$RULES
+AND OriginalRecordedAt>={from:DateTime64(9, 'UTC')} AND OriginalRecordedAt<{until:DateTime64(9, 'UTC')};
+
 CREATE OR REPLACE VIEW $NIncidentHistory SQL SECURITY INVOKER AS
 WITH (SELECT groupArray(ResourceId) FROM $NMatches(resource={resource:String},asof={asof:DateTime64(9, 'UTC')})) AS Matches
-SELECT ConnectionAlias,DatabaseName,toBool(isNotNull(DatabaseName)) AS DatabaseNameKnown,Environment,toBool(isNotNull(Environment)) AS EnvironmentKnown,Title,Lifecycle,EnrichmentStatus,VictimSummary,AffectedQueries,CulpritQueries,CandidateQueries,AttributionStatus,Mechanism,toBool(isNotNull(Mechanism)) AS MechanismKnown,DeveloperAction,Verification,Caller,OriginalRecordedAt,OriginalObservedFrom,OriginalObservedUntil,OriginalIntervalFrom,OriginalIntervalUntil,OriginalScope,OriginalScopeId,OriginalSource,TargetId,EpisodeId,ControllerVersion,Revision,RevisionId,Details,RecordedAt AS InterpretationRecordedAt,RulesVersion,Analyzer,InputReadComplete,OutputCoverage,OutputLimitations,ContextIssues FROM $NIncidentRows(asof={asof:DateTime64(9, 'UTC')})
-WHERE has(Matches,ResourceId) AND length(Matches)=1 AND {from:DateTime64(9, 'UTC')}>=$FROM AND {from:DateTime64(9, 'UTC')}<{until:DateTime64(9, 'UTC')} AND {until:DateTime64(9, 'UTC')}<={asof:DateTime64(9, 'UTC')} AND ($ANALYZER_MATCH) AND RulesVersion=$RULES
-AND OriginalRecordedAt>={from:DateTime64(9, 'UTC')} AND OriginalRecordedAt<{until:DateTime64(9, 'UTC')};
+SELECT * EXCEPT (ResourceId) FROM $NHistoryWindow(from={from:DateTime64(9, 'UTC')},until={until:DateTime64(9, 'UTC')},asof={asof:DateTime64(9, 'UTC')})
+WHERE has(Matches,ResourceId) AND length(Matches)=1;
+
+CREATE OR REPLACE VIEW $NFindingWindow SQL SECURITY INVOKER AS
+SELECT ResourceId,ConnectionAlias,DatabaseName,toBool(isNotNull(DatabaseName)) AS DatabaseNameKnown,Environment,toBool(isNotNull(Environment)) AS EnvironmentKnown,Title,Summary,FindingId,CheckId,Severity,Actionability,Confidence,Subject,Impact,Metrics,AffectedQueries,OriginalQuery,EstablishedCause,DeveloperAction,Verification,Caveats,Inactive,Guidance,OriginalObservedFrom,OriginalObservedUntil,SourceId,LogicalSourceId,Details,RecordedAt AS InterpretationRecordedAt,RulesVersion,Analyzer,FindingEvaluations,InputReadComplete,OutputCoverage,OutputLimitations,ContextIssues FROM $NFindingRows(asof={asof:DateTime64(9, 'UTC')})
+WHERE {from:DateTime64(9, 'UTC')}>=$FROM AND {from:DateTime64(9, 'UTC')}<{until:DateTime64(9, 'UTC')} AND {until:DateTime64(9, 'UTC')}<={asof:DateTime64(9, 'UTC')} AND ($ANALYZER_MATCH) AND RulesVersion=$RULES
+AND OriginalObservedFrom<{until:DateTime64(9, 'UTC')} AND OriginalObservedUntil>={from:DateTime64(9, 'UTC')};
 
 CREATE OR REPLACE VIEW $NFindings SQL SECURITY INVOKER AS
 WITH (SELECT groupArray(ResourceId) FROM $NMatches(resource={resource:String},asof={asof:DateTime64(9, 'UTC')})) AS Matches
-SELECT ConnectionAlias,DatabaseName,toBool(isNotNull(DatabaseName)) AS DatabaseNameKnown,Environment,toBool(isNotNull(Environment)) AS EnvironmentKnown,Title,Summary,FindingId,CheckId,Severity,Actionability,Confidence,Subject,Impact,Metrics,AffectedQueries,OriginalQuery,EstablishedCause,DeveloperAction,Verification,Caveats,Inactive,Guidance,OriginalObservedFrom,OriginalObservedUntil,SourceId,LogicalSourceId,Details,RecordedAt AS InterpretationRecordedAt,RulesVersion,Analyzer,FindingEvaluations,InputReadComplete,OutputCoverage,OutputLimitations,ContextIssues FROM $NFindingRows(asof={asof:DateTime64(9, 'UTC')})
-WHERE has(Matches,ResourceId) AND length(Matches)=1 AND {from:DateTime64(9, 'UTC')}>=$FROM AND {from:DateTime64(9, 'UTC')}<{until:DateTime64(9, 'UTC')} AND {until:DateTime64(9, 'UTC')}<={asof:DateTime64(9, 'UTC')} AND ($ANALYZER_MATCH) AND RulesVersion=$RULES
+SELECT * EXCEPT (ResourceId) FROM $NFindingWindow(from={from:DateTime64(9, 'UTC')},until={until:DateTime64(9, 'UTC')},asof={asof:DateTime64(9, 'UTC')})
+WHERE has(Matches,ResourceId) AND length(Matches)=1;
+
+
+CREATE OR REPLACE VIEW $NChangeWindow SQL SECURITY INVOKER AS
+SELECT ResourceId,ConnectionAlias,DatabaseName,toBool(isNotNull(DatabaseName)) AS DatabaseNameKnown,Environment,toBool(isNotNull(Environment)) AS EnvironmentKnown,Title,Detail,toBool(isNotNull(Detail)) AS DetailKnown,ChangeId,ChangeKind,OriginalSource,Action,toBool(isNotNull(Action)) AS ActionKnown,ChangedAt,ChangedAfter,toBool(isNotNull(ChangedAfter)) AS ChangedAfterKnown,ChangedUntil,toBool(isNotNull(ChangedUntil)) AS ChangedUntilKnown,TableName,toBool(isNotNull(TableName)) AS TableNameKnown,ObjectName,toBool(isNotNull(ObjectName)) AS ObjectNameKnown,OriginalObservedFrom,OriginalObservedUntil,SourceId,LogicalSourceId,Details,RecordedAt AS InterpretationRecordedAt,RulesVersion,Analyzer,ChangeEvaluations,InputReadComplete,OutputCoverage,OutputLimitations,ContextIssues FROM $NChangeRows(asof={asof:DateTime64(9, 'UTC')})
+WHERE {from:DateTime64(9, 'UTC')}>=$FROM AND {from:DateTime64(9, 'UTC')}<{until:DateTime64(9, 'UTC')} AND {until:DateTime64(9, 'UTC')}<={asof:DateTime64(9, 'UTC')} AND ($ANALYZER_MATCH) AND RulesVersion=$RULES
 AND OriginalObservedFrom<{until:DateTime64(9, 'UTC')} AND OriginalObservedUntil>={from:DateTime64(9, 'UTC')};
 
 CREATE OR REPLACE VIEW $NChanges SQL SECURITY INVOKER AS
 WITH (SELECT groupArray(ResourceId) FROM $NMatches(resource={resource:String},asof={asof:DateTime64(9, 'UTC')})) AS Matches
-SELECT ConnectionAlias,DatabaseName,toBool(isNotNull(DatabaseName)) AS DatabaseNameKnown,Environment,toBool(isNotNull(Environment)) AS EnvironmentKnown,Title,Detail,toBool(isNotNull(Detail)) AS DetailKnown,ChangeId,ChangeKind,OriginalSource,Action,toBool(isNotNull(Action)) AS ActionKnown,ChangedAt,ChangedAfter,toBool(isNotNull(ChangedAfter)) AS ChangedAfterKnown,ChangedUntil,toBool(isNotNull(ChangedUntil)) AS ChangedUntilKnown,TableName,toBool(isNotNull(TableName)) AS TableNameKnown,ObjectName,toBool(isNotNull(ObjectName)) AS ObjectNameKnown,OriginalObservedFrom,OriginalObservedUntil,SourceId,LogicalSourceId,Details,RecordedAt AS InterpretationRecordedAt,RulesVersion,Analyzer,ChangeEvaluations,InputReadComplete,OutputCoverage,OutputLimitations,ContextIssues FROM $NChangeRows(asof={asof:DateTime64(9, 'UTC')})
-WHERE has(Matches,ResourceId) AND length(Matches)=1 AND {from:DateTime64(9, 'UTC')}>=$FROM AND {from:DateTime64(9, 'UTC')}<{until:DateTime64(9, 'UTC')} AND {until:DateTime64(9, 'UTC')}<={asof:DateTime64(9, 'UTC')} AND ($ANALYZER_MATCH) AND RulesVersion=$RULES
-AND OriginalObservedFrom<{until:DateTime64(9, 'UTC')} AND OriginalObservedUntil>={from:DateTime64(9, 'UTC')};
+SELECT * EXCEPT (ResourceId) FROM $NChangeWindow(from={from:DateTime64(9, 'UTC')},until={until:DateTime64(9, 'UTC')},asof={asof:DateTime64(9, 'UTC')})
+WHERE has(Matches,ResourceId) AND length(Matches)=1;
+
+
+CREATE OR REPLACE VIEW $NNewIncidentWindow SQL SECURITY INVOKER AS
+WITH CompleteResources AS (SELECT ResourceId FROM $NCompleteness(asof={asof:DateTime64(9, 'UTC')}) GROUP BY ResourceId HAVING countIf(NOT OutputRowsComplete)=0),
+Heads AS (SELECT * FROM $NHeads(asof={asof:DateTime64(9, 'UTC')}) WHERE ResourceId IN (SELECT ResourceId FROM CompleteResources)
+    AND {from:DateTime64(9, 'UTC')}>=$FROM AND {from:DateTime64(9, 'UTC')}<{until:DateTime64(9, 'UTC')} AND {until:DateTime64(9, 'UTC')}<={asof:DateTime64(9, 'UTC')}
+    AND Lifecycle='active' AND InputReadComplete AND JSONExtractString(OutputCoverage,'incidents','state')='evaluated'
+    AND FirstRecordedObservation>={from:DateTime64(9, 'UTC')} AND FirstRecordedObservation<{until:DateTime64(9, 'UTC')})
+SELECT H.ResourceId,H.EpisodeId,H.ControllerVersion,H.OriginalScopeId,H.OriginalSource,H.TargetId,H.FirstRecordedObservation,
+    H.ConnectionAlias,H.DatabaseName,H.Title,H.Lifecycle,H.EnrichmentStatus,H.VictimSummary,H.AffectedQueries,H.CulpritQueries,H.CandidateQueries,H.AttributionStatus,H.Mechanism,toBool(isNotNull(H.Mechanism)) AS MechanismKnown,H.DeveloperAction,H.Verification,H.Caller,
+    H.OriginalRecordedAt,H.OriginalObservedFrom,H.OriginalObservedUntil,H.OriginalIntervalFrom,H.OriginalIntervalUntil,H.Revision,H.RevisionId,H.RecordedAt AS InterpretationRecordedAt,H.OutputLimitations,H.ContextIssues
+FROM Heads AS H;
 
 CREATE OR REPLACE VIEW $NNewIncidents SQL SECURITY INVOKER AS
-WITH (SELECT groupArray(ResourceId) FROM $NMatches(resource={resource:String},asof={asof:DateTime64(9, 'UTC')})) AS Matches,
-Incomplete AS (SELECT count() AS Count FROM $NCompleteness(asof={asof:DateTime64(9, 'UTC')}) WHERE has(Matches,ResourceId) AND NOT OutputRowsComplete),
-Heads AS (SELECT * FROM $NHeads(asof={asof:DateTime64(9, 'UTC')}) WHERE has(Matches,ResourceId) AND length(Matches)=1 AND {from:DateTime64(9, 'UTC')}>=$FROM AND {from:DateTime64(9, 'UTC')}<{until:DateTime64(9, 'UTC')} AND {until:DateTime64(9, 'UTC')}<={asof:DateTime64(9, 'UTC')}
-    AND (SELECT Count FROM Incomplete)=0 AND Lifecycle='active' AND InputReadComplete AND JSONExtractString(OutputCoverage,'incidents','state')='evaluated'
-    AND FirstRecordedObservation>={from:DateTime64(9, 'UTC')} AND FirstRecordedObservation<{until:DateTime64(9, 'UTC')})
-SELECT H.EpisodeId,H.ControllerVersion,H.OriginalScopeId,H.OriginalSource,H.TargetId,H.FirstRecordedObservation,
-    H.ConnectionAlias,H.DatabaseName,H.Title,H.VictimSummary,H.AffectedQueries,H.CulpritQueries,H.CandidateQueries,H.AttributionStatus,H.Mechanism,toBool(isNotNull(H.Mechanism)) AS MechanismKnown,H.DeveloperAction,H.Verification,H.Caller,
-    H.OriginalRecordedAt,H.OriginalObservedFrom,H.OriginalObservedUntil,H.Revision,H.RevisionId,H.RecordedAt AS InterpretationRecordedAt,H.OutputLimitations,H.ContextIssues
-FROM Heads AS H;
+WITH (SELECT groupArray(ResourceId) FROM $NMatches(resource={resource:String},asof={asof:DateTime64(9, 'UTC')})) AS Matches
+SELECT * EXCEPT (ResourceId) FROM $NNewIncidentWindow(from={from:DateTime64(9, 'UTC')},until={until:DateTime64(9, 'UTC')},asof={asof:DateTime64(9, 'UTC')})
+WHERE has(Matches,ResourceId) AND length(Matches)=1;
+
+
+CREATE OR REPLACE VIEW $NStatusRows SQL SECURITY INVOKER AS
+WITH Headers AS (SELECT *,max(CollectedUntil) OVER (PARTITION BY ResourceId,SourceId,LogicalSourceId) AS LastAcquired
+    FROM $NCompleteness(asof={asof:DateTime64(9, 'UTC')})),
+OriginalHeads AS (SELECT ResourceId,TargetId,OriginalScopeId,OriginalSource,EpisodeId,ControllerVersion FROM $NIncidentRows(asof={asof:DateTime64(9, 'UTC')}) GROUP BY ResourceId,TargetId,OriginalScopeId,OriginalSource,EpisodeId,ControllerVersion),
+OriginalCounts AS (SELECT ResourceId,count() AS OriginalHeadCount FROM OriginalHeads GROUP BY ResourceId),
+SelectedCounts AS (SELECT ResourceId,count() AS SelectedHeadCount,countIf(isNull(FirstRecordedObservation)) AS UnavailableFirst FROM $NHeads(asof={asof:DateTime64(9, 'UTC')}) GROUP BY ResourceId)
+SELECT ResourceId,LogicalSourceId,multiIf({max_age_seconds:UInt32}=0,'invalid-max-age',isNull(parseDateTime64BestEffortOrNull(JSONExtractString(Header,'observed_until'),9,'UTC')),'unknown-clock',parseDateTime64BestEffortOrNull(JSONExtractString(Header,'observed_until'),9,'UTC')>{asof:DateTime64(9, 'UTC')},'clock-boundary',parseDateTime64BestEffortOrNull(JSONExtractString(Header,'observed_until'),9,'UTC')<{asof:DateTime64(9, 'UTC')}-toIntervalSecond({max_age_seconds:UInt32}),'stale',
+    NOT ($HEADER_ANALYZER_MATCH) OR JSONExtractString(Header,'rules_version')!=$RULES,'rules-unavailable',NOT OutputRowsComplete,'incomplete-output',NOT JSONExtractBool(Header,'input_read_complete') OR length(JSONExtractArrayRaw(Header,'context_issues'))>0 OR JSONExtractString(Header,'output_coverage','incidents','state')!='evaluated' OR JSONExtractString(Header,'output_coverage','findings','state')!='evaluated' OR JSONExtractString(Header,'output_coverage','changes','state')!='evaluated','partial',ifNull(O.OriginalHeadCount,0)-ifNull(S.SelectedHeadCount,0)>0,'head-interpretation-unavailable',ifNull(S.UnavailableFirst,0)>0,'first-observation-unavailable','observed') AS State,
+    Alias,DatabaseName,SourceId,CollectedFrom,CollectedUntil,JSONExtractString(Header,'observed_from') AS OriginalObservedFrom,JSONExtractString(Header,'observed_until') AS OriginalObservedUntil,
+    JSONExtractBool(Header,'input_read_complete') AS InputReadComplete,OutputRowsComplete,JSONExtractRaw(Header,'output_coverage') AS OutputCoverage,
+    JSONExtractRaw(Header,'counts') AS Counts,JSONExtractRaw(Header,'context_issues') AS ContextIssues,ifNull(O.OriginalHeadCount,0)-ifNull(S.SelectedHeadCount,0) AS UnselectedIncidentHeads,ifNull(S.UnavailableFirst,0) AS UnavailableFirstObservations,'unknown' AS NativeHistoryCoverage,parseDateTime64BestEffortOrNull(JSONExtractString(Header,'recorded_at'),9,'UTC') AS InterpretationRecordedAt
+FROM Headers ALL LEFT JOIN OriginalCounts AS O USING (ResourceId) ALL LEFT JOIN SelectedCounts AS S USING (ResourceId) WHERE CollectedUntil=LastAcquired;
 
 CREATE OR REPLACE VIEW $NStatus SQL SECURITY INVOKER AS
 WITH (SELECT groupArray(ResourceId) FROM $NMatches(resource={resource:String},asof={asof:DateTime64(9, 'UTC')})) AS Matches,
 N AS (SELECT length(Matches) AS Count),
-Headers AS (SELECT *,max(CollectedUntil) OVER (PARTITION BY ResourceId,SourceId,LogicalSourceId) AS LastAcquired
-    FROM $NCompleteness(asof={asof:DateTime64(9, 'UTC')}) WHERE has(Matches,ResourceId) AND length(Matches)=1),
-OriginalHeads AS (SELECT ResourceId,TargetId,OriginalScopeId,OriginalSource,EpisodeId,ControllerVersion FROM $NIncidentRows(asof={asof:DateTime64(9, 'UTC')}) WHERE has(Matches,ResourceId) GROUP BY ResourceId,TargetId,OriginalScopeId,OriginalSource,EpisodeId,ControllerVersion),
-(SELECT (count(),countIf(isNull(FirstRecordedObservation))) FROM $NHeads(asof={asof:DateTime64(9, 'UTC')}) WHERE has(Matches,ResourceId)) AS HeadCounts,
-MissingHeads AS (SELECT (SELECT count() FROM OriginalHeads)-tupleElement(HeadCounts,1) AS Count)
-SELECT multiIf({max_age_seconds:UInt32}=0,'invalid-max-age',isNull(parseDateTime64BestEffortOrNull(JSONExtractString(Header,'observed_until'),9,'UTC')),'unknown-clock',parseDateTime64BestEffortOrNull(JSONExtractString(Header,'observed_until'),9,'UTC')>{asof:DateTime64(9, 'UTC')},'clock-boundary',parseDateTime64BestEffortOrNull(JSONExtractString(Header,'observed_until'),9,'UTC')<{asof:DateTime64(9, 'UTC')}-toIntervalSecond({max_age_seconds:UInt32}),'stale',
-    NOT ($HEADER_ANALYZER_MATCH) OR JSONExtractString(Header,'rules_version')!=$RULES,'rules-unavailable',NOT OutputRowsComplete,'incomplete-output',NOT JSONExtractBool(Header,'input_read_complete') OR length(JSONExtractArrayRaw(Header,'context_issues'))>0 OR JSONExtractString(Header,'output_coverage','incidents','state')!='evaluated' OR JSONExtractString(Header,'output_coverage','findings','state')!='evaluated' OR JSONExtractString(Header,'output_coverage','changes','state')!='evaluated','partial',(SELECT Count FROM MissingHeads)>0,'head-interpretation-unavailable',tupleElement(HeadCounts,2)>0,'first-observation-unavailable','observed') AS State,
-    Alias,DatabaseName,SourceId,CollectedFrom,CollectedUntil,JSONExtractString(Header,'observed_from') AS OriginalObservedFrom,JSONExtractString(Header,'observed_until') AS OriginalObservedUntil,
-    JSONExtractBool(Header,'input_read_complete') AS InputReadComplete,OutputRowsComplete,JSONExtractRaw(Header,'output_coverage') AS OutputCoverage,
-    JSONExtractRaw(Header,'counts') AS Counts,JSONExtractRaw(Header,'context_issues') AS ContextIssues,ifNull((SELECT Count FROM MissingHeads),toUInt64(0)) AS UnselectedIncidentHeads,ifNull(tupleElement(HeadCounts,2),toUInt64(0)) AS UnavailableFirstObservations,'unknown' AS NativeHistoryCoverage
-FROM Headers WHERE CollectedUntil=LastAcquired
+Headers AS (SELECT * EXCEPT (ResourceId,LogicalSourceId) FROM $NStatusRows(asof={asof:DateTime64(9, 'UTC')},max_age_seconds={max_age_seconds:UInt32}) WHERE has(Matches,ResourceId) AND length(Matches)=1)
+SELECT * FROM Headers
 UNION ALL SELECT multiIf((SELECT Count FROM N)=0,'unknown-label',(SELECT Count FROM N)!=1,'ambiguous-label','no-published-analysis') AS State,
     {resource:String} AS Alias,'' AS DatabaseName,'' AS SourceId,NULL AS CollectedFrom,NULL AS CollectedUntil,'' AS OriginalObservedFrom,'' AS OriginalObservedUntil,
-    false AS InputReadComplete,false AS OutputRowsComplete,'null' AS OutputCoverage,'null' AS Counts,'[]' AS ContextIssues,0 AS UnselectedIncidentHeads,0 AS UnavailableFirstObservations,'unknown' AS NativeHistoryCoverage
+    false AS InputReadComplete,false AS OutputRowsComplete,'null' AS OutputCoverage,'null' AS Counts,'[]' AS ContextIssues,0 AS UnselectedIncidentHeads,0 AS UnavailableFirstObservations,'unknown' AS NativeHistoryCoverage,NULL AS InterpretationRecordedAt
 WHERE (SELECT Count FROM N)!=1 OR (SELECT count() FROM Headers)=0;
+
+
+CREATE OR REPLACE VIEW $NIncidentsDuring SQL SECURITY INVOKER AS
+SELECT *,toBool(0) AS PublicationTimeKnown FROM $NIncidents(resource={resource:String},from={window_from:DateTime64(9, 'UTC')},until={window_until:DateTime64(9, 'UTC')},asof=now64(9,'UTC'));
+
+CREATE OR REPLACE VIEW $NFindingsDuring SQL SECURITY INVOKER AS
+SELECT *,toBool(0) AS PublicationTimeKnown FROM $NFindings(resource={resource:String},from={window_from:DateTime64(9, 'UTC')},until={window_until:DateTime64(9, 'UTC')},asof=now64(9,'UTC'));
+
+CREATE OR REPLACE VIEW $NChangesDuring SQL SECURITY INVOKER AS
+SELECT *,toBool(0) AS PublicationTimeKnown FROM $NChanges(resource={resource:String},from={window_from:DateTime64(9, 'UTC')},until={window_until:DateTime64(9, 'UTC')},asof=now64(9,'UTC'));
+
+CREATE OR REPLACE VIEW $NRecordedIncidentAlertsDuring SQL SECURITY INVOKER AS
+SELECT *,toBool(0) AS PublicationTimeKnown FROM $NNewIncidents(resource={resource:String},from={window_from:DateTime64(9, 'UTC')},until={window_until:DateTime64(9, 'UTC')},asof=now64(9,'UTC'));
+
+CREATE OR REPLACE VIEW $NStatusNow SQL SECURITY INVOKER AS
+SELECT *,toBool(0) AS PublicationTimeKnown FROM $NStatus(resource={resource:String},asof=now64(9,'UTC'),max_age_seconds={max_age_seconds:UInt32});
+
+CREATE OR REPLACE VIEW $NDeadlockWindow SQL SECURITY INVOKER AS
+SELECT ResourceId,ResourceKind,SourceId,LogicalSourceId,EventPosition,EventAt,Pattern,ProcessCount,ResourceCount,VictimCount,DetailState,Details,CollectedFrom,CollectedUntil
+FROM CulpritDeadlocksV1NamespaceRows(contract=$CONTRACT,store=$STORE,captured_from=$FROM,asof={asof:DateTime64(9, 'UTC')})
+WHERE {from:DateTime64(9, 'UTC')}>=$FROM AND {from:DateTime64(9, 'UTC')}<{until:DateTime64(9, 'UTC')} AND {until:DateTime64(9, 'UTC')}<={asof:DateTime64(9, 'UTC')} AND EventAt>={from:DateTime64(9, 'UTC')} AND EventAt<{until:DateTime64(9, 'UTC')};
+
+CREATE OR REPLACE VIEW $NDeadlocksDuring SQL SECURITY INVOKER AS
+WITH (SELECT groupArray(ResourceId) FROM $NMatches(resource={resource:String},asof=now64(9,'UTC'))) AS Matches
+SELECT * FROM $NDeadlockWindow(from={window_from:DateTime64(9, 'UTC')},until={window_until:DateTime64(9, 'UTC')},asof=now64(9,'UTC')) WHERE has(Matches,ResourceId) AND length(Matches)=1;
+
+CREATE OR REPLACE VIEW $NCollectionStatus SQL SECURITY INVOKER AS
+WITH Rows AS (SELECT *,max(CollectedUntil) OVER (PARTITION BY ResourceId,SourceId,LogicalSourceId) AS LastAcquired
+    FROM $NPublished(asof={asof:DateTime64(9, 'UTC')}) WHERE JSONExtractString(SourceDescription,'observation','kind') NOT IN ('derived-diagnosis','diagnostic-context')),
+Names AS (SELECT ResourceId,groupUniqArray(16)(Alias) AS RetainedAliases FROM $NHeaders(asof={asof:DateTime64(9, 'UTC')}) GROUP BY ResourceId)
+SELECT ResourceId,ResourceKind,SourceId,LogicalSourceId,SourceName,Engine,RetainedAliases,CollectedFrom,CollectedUntil,
+    IntervalFrom AS NativeIntervalFrom,IntervalUntil AS NativeIntervalUntil,ObservedFrom AS NativeObservedFrom,ObservedUntil AS NativeObservedUntil,SourceContinuity,ReferenceCoverage,
+    JSONExtractRaw(SourceDescription,'observation') AS SourceCoverage,
+    multiIf({max_age_seconds:UInt32}=0,'invalid-max-age',isNull(CollectedUntil),'unknown-clock',CollectedUntil>{asof:DateTime64(9, 'UTC')},'clock-boundary',CollectedUntil<{asof:DateTime64(9, 'UTC')}-toIntervalSecond({max_age_seconds:UInt32}),'stale','observed-acquisition') AS State,
+    false AS ConfiguredFleetKnown,false AS PublicationTimeKnown
+FROM Rows ALL LEFT JOIN Names USING (ResourceId) WHERE CollectedUntil=LastAcquired;

@@ -21,6 +21,7 @@ impl SourcePartition {
             Self::Target => target.is_valid(),
             Self::InstanceLocal { member, epoch } => {
                 target.is_valid()
+                    && !matches!(target, CollectionTarget::ConfiguredConnection(_))
                     && member.as_ref().is_none_or(|member| {
                         member.is_valid()
                             && member.engine == target.engine()
@@ -59,18 +60,48 @@ impl SourcePartition {
 }
 
 impl CollectionDescription {
+    /// Structural native-instance census ownership; storage authenticity and selected-source admission stay separate.
+    pub fn has_qualified_instance_activity(&self) -> bool {
+        let SourceObservation::Activity(frame) = &self.observation else { return false };
+        let CollectionTarget::Shared(instance) = &self.target else { return false };
+        let SourcePartition::InstanceLocal { member: Some(member), epoch: Some(epoch) } = &self.partition else {
+            return false;
+        };
+        instance.kind == SharedResourceKind::Instance
+            && instance == member
+            && self.partition.is_valid_for(&self.target)
+            && frame.is_valid()
+            && frame.scope == crate::MeasurementScope::Server
+            && frame.population == ActivityPopulation::UserSessionsCurrentRequestsAndBlockers
+            && frame.database_writable.is_none()
+            && frame.epoch.as_ref() == Some(epoch)
+    }
     pub fn is_partition_qualified(&self) -> bool {
-        self.partition.is_valid_for(&self.target) && self.partition.is_qualified()
+        !matches!(self.target, CollectionTarget::ConfiguredConnection(_))
+            && self.partition.is_valid_for(&self.target)
+            && self.partition.is_qualified()
     }
 
     /// An unknown local member preserves partial native points. It cannot publish complete current heads,
     /// authorize absence, or provide a stable native definition/history namespace.
     pub fn partition_is_consistent(&self) -> bool {
+        if matches!(self.target, CollectionTarget::ConfiguredConnection(_))
+            || matches!(self.observation, SourceObservation::CollectorConnection(_))
+            || self.source == COLLECTOR_CONNECTION_SOURCE
+        {
+            return matches!(&self.observation, SourceObservation::CollectorConnection(header) if header.matches_source(self));
+        }
         if !self.partition.is_valid_for(&self.target) {
             return false;
         }
+        if self.observation.activity().is_some_and(|frame| frame.scope == crate::MeasurementScope::Server) {
+            return self.has_qualified_instance_activity();
+        }
         if matches!(self.observation, SourceObservation::MssqlPoolCurrent { .. }) {
             return mssql_pool_current_authority(self).is_ok_and(|authority| authority.is_some());
+        }
+        if mssql_pool_operational_candidate(self) {
+            return false;
         }
         if self.observation.collection() == TelemetryCollection::Snapshot(SnapshotDataset::WaitCounters)
             && matches!(&self.target, CollectionTarget::Shared(pool) if pool.engine == crate::Engine::Mssql && pool.kind == SharedResourceKind::Pool)
@@ -82,6 +113,12 @@ impl CollectionDescription {
         }
         if self.observation.collection() == TelemetryCollection::Snapshot(SnapshotDataset::NumaNodes) {
             return numa_node_header_is_valid(self);
+        }
+        if let SourceObservation::MssqlReadableResources(history) = &self.observation {
+            return history.matches_source(self);
+        }
+        if self.source == MSSQL_READABLE_RESOURCE_HISTORY_SOURCE {
+            return false;
         }
         if let SourceObservation::MssqlManagedInstanceResources(history) = &self.observation {
             return history.matches_source(self);
@@ -107,9 +144,20 @@ impl CollectionDescription {
         }
         if let SourceObservation::LocalResource { snapshot, .. } = &self.observation {
             return local_resource_header_is_valid(snapshot)
+                && (!snapshot.dataset.is_mssql_database_catalog()
+                    || (self.target.engine() == crate::Engine::Mssql
+                        && matches!(&self.partition, SourcePartition::InstanceLocal { member: Some(member), .. }
+                            if member.kind == SharedResourceKind::Instance)))
                 && self.target.database().is_some()
                 && matches!(&self.partition, SourcePartition::InstanceLocal { member: Some(_), epoch: Some(_) })
                 && self.partition.is_qualified();
+        }
+        if let SourceObservation::MetadataLockContext { snapshot, execution, result, .. } = &self.observation {
+            return self.observation.covers_request()
+                && result.is_valid_source(self, snapshot)
+                && execution.target == self.target
+                && execution.partition == self.partition
+                && execution.database_writable == snapshot.database_writable;
         }
         if let Some(execution) = self.observation.execution_context() {
             let Some(question) = self
@@ -124,7 +172,9 @@ impl CollectionDescription {
             else {
                 return false;
             };
-            let Ok(scope) = SourceReadExecutionScope::from_context(question, execution) else { return false };
+            let Ok(scope) = SourceReadExecutionScope::from_context(question, execution) else {
+                return false;
+            };
             let header_valid = match &self.observation {
                 SourceObservation::SourceRead { .. } => self.observation.covers_request(),
                 SourceObservation::PagedSourceRead { snapshot, focus_key, .. } => {

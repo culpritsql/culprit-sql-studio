@@ -12,7 +12,7 @@ pub(crate) use decode::decode;
 pub(crate) use pause::ReplayPauseAccess;
 pub(crate) use project::project;
 pub(crate) use scan::acquire;
-pub(crate) use sql::query;
+pub(crate) use sql::{query, selected_recovery};
 #[cfg(test)]
 mod tests;
 

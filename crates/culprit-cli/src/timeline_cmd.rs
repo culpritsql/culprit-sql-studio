@@ -147,6 +147,7 @@ fn label(kind: EventKind) -> String {
         EventKind::Statistics => t!("cli.events.kind.stats"),
         EventKind::Throttle => t!("cli.events.kind.cloud"),
         EventKind::JobExecution => t!("cli.events.kind.job_execution"),
+        EventKind::NativeEvent => t!("cli.events.kind.native_event"),
     }
 }
 

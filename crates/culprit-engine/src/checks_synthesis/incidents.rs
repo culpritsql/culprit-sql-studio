@@ -62,6 +62,15 @@ pub(super) fn project(
                 entry.reasons.push(reason.clone());
             }
         }
+        for evidence in &explanation.context_evidence {
+            let reference = evidence.reference.as_ref().ok_or_else(invalid)?;
+            if !description.contains_capture_for(reference) {
+                return Err(invalid());
+            }
+            if !entry.evidence.iter().any(|before| before.reference.as_ref() == Some(reference)) {
+                entry.evidence.push(evidence.clone());
+            }
+        }
         let attribution_status = explanation.attribution_status();
         let candidates = explanation.candidates;
         let culprits = explanation.culprits;

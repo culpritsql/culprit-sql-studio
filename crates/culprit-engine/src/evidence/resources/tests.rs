@@ -482,7 +482,7 @@ async fn all_existing_session_read_routes_charge_metadata_before_publication_or_
             .unwrap();
         let error = match mode {
             0 => session.read_metadata(&manifest.range_id).await.unwrap_err(),
-            1 => session.read_metadata_reference(&reference).await.unwrap_err(),
+            1 => session.lookup_metadata_reference(&reference).await.unwrap_err(),
             2 => session.read(&manifest.range_id, &[EvidenceFamily::QueryRuntime]).await.unwrap_err(),
             _ => session.read_reference(&reference, &[EvidenceFamily::QueryRuntime]).await.unwrap_err(),
         };

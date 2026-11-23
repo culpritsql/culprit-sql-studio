@@ -8,7 +8,7 @@ use culprit_core::{
 };
 
 mod layout;
-mod progress;
+pub(crate) mod progress;
 pub(crate) use progress::query_progress;
 #[cfg(test)]
 mod native_tests;

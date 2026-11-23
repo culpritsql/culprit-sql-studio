@@ -25,7 +25,25 @@ const REQUEST_JOIN: &str = r#"LEFT JOIN sys.dm_exec_requests r ON r.session_id=t
  LEFT JOIN sys.dm_exec_sessions s ON s.session_id=r.session_id AND s.is_user_process=1
  LEFT JOIN sys.dm_exec_sessions b ON b.session_id=r.blocking_session_id"#;
 
+#[derive(Clone, Copy)]
+pub(super) enum WorkerSelection {
+    Shared,
+    Request,
+}
 pub(super) fn observation(identity: IdentityDetail, availability: Availability) -> String {
+    observation_for(identity, availability, WorkerSelection::Shared)
+}
+pub(super) fn observation_for(
+    identity: IdentityDetail,
+    availability: Availability,
+    selection: WorkerSelection,
+) -> String {
+    let (task_filter, wait_filter) = match selection {
+        WorkerSelection::Shared => ("", ""),
+        // A selected point reuses the same task/worker/wait joins. The separate sessionless THREADPOOL
+        // roster belongs to the shared question only; it cannot be rebound to a selected request.
+        WorkerSelection::Request => (" AND session_id=@P4 AND request_id=@P5", " AND 1=0"),
+    };
     let requests = format!(
         r#"{},CASE WHEN r.request_id IS NULL THEN 1 ELSE 0 END AS no_current_request,
  CASE WHEN r.database_id=DB_ID() THEN 1 ELSE 5 END AS scope_basis,
@@ -35,7 +53,7 @@ pub(super) fn observation(identity: IdentityDetail, availability: Availability) 
     let rows = format!(
         r#"SELECT 1 AS worker_row_kind,{TASK_COLUMNS},{WAIT_COLUMNS},{requests}
  FROM (SELECT TOP(@P2) task_address,task_state,scheduler_id,session_id,request_id,exec_context_id,worker_address
-       FROM sys.dm_os_tasks WHERE @worker_visibility=1 AND (session_id IS NULL OR session_id<>@@SPID)) task
+       FROM sys.dm_os_tasks WHERE @worker_visibility=1 AND (session_id IS NULL OR session_id<>@@SPID){task_filter}) task
  LEFT JOIN sys.dm_os_workers worker ON worker.worker_address=task.worker_address
  LEFT JOIN sys.dm_os_schedulers node ON node.scheduler_id=task.scheduler_id
  LEFT JOIN sys.dm_os_waiting_tasks waiter ON waiter.waiting_task_address=task.task_address
@@ -47,7 +65,7 @@ pub(super) fn observation(identity: IdentityDetail, availability: Availability) 
  FROM (SELECT TOP(@P3) waiting_task_address,session_id,exec_context_id,wait_type,wait_duration_ms,
        blocking_task_address,blocking_session_id,blocking_exec_context_id
        FROM sys.dm_os_waiting_tasks WHERE @worker_visibility=1 AND wait_type=N'THREADPOOL'
-          AND (session_id IS NULL OR session_id<>@@SPID)) waiter
+          AND (session_id IS NULL OR session_id<>@@SPID){wait_filter}) waiter
  LEFT JOIN sys.dm_os_tasks task ON task.task_address=waiter.waiting_task_address
    AND (task.session_id=waiter.session_id OR task.session_id IS NULL AND waiter.session_id IS NULL)
    AND task.exec_context_id=waiter.exec_context_id

@@ -3,11 +3,11 @@ use crate::activity::blocking::tests::{focus, owner, reader, replies, unconfirme
 use crate::read::ReadSession;
 
 #[test]
-fn the_new_focused_envelope_pays_ten_total_and_preserves_every_tighter_caller_limit() {
+fn the_selected_schema_lock_envelope_pays_twelve_total_and_preserves_every_tighter_caller_limit() {
     let budget = bounded_budget(&CollectionBudget::default());
-    assert_eq!(budget.max_queries, 10);
+    assert_eq!(budget.max_queries, 12);
     assert_eq!(super::super::activity::bounded_budget(&CollectionBudget::default()).max_queries, 8);
-    assert_eq!(ReadSession::budget_after_setup(budget.clone()).unwrap().max_queries, 9);
+    assert_eq!(ReadSession::budget_after_setup(budget.clone()).unwrap().max_queries, 11);
     assert_eq!(budget.statement_timeout_ms, 1_000);
     assert_eq!(budget.total_timeout_ms, 5_000);
     assert_eq!(budget.max_snapshot_rows, 500);
@@ -23,6 +23,10 @@ fn the_new_focused_envelope_pays_ten_total_and_preserves_every_tighter_caller_li
     let recipes = crate::telemetry::recipes();
     let recipe = recipes.iter().find(|recipe| recipe.id == "mssql.blocking").unwrap();
     assert_eq!(recipe.selector, RecipeSelector::FocusedBlocking);
+    assert_eq!(
+        recipe.version, 3,
+        "Root-owned revision: two selected native endpoint reads invalidate revision2 receipts"
+    );
     assert_eq!(recipe.purpose, RecipePurpose::Investigation);
     assert_eq!(recipe.budget, bounded_budget(&CollectionBudget::upper_limits()));
     assert_eq!(

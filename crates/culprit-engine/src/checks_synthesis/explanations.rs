@@ -13,6 +13,7 @@ pub(super) struct Explanation {
     pub candidates: Vec<DerivedIncidentQuery>,
     pub culprits: Vec<DerivedIncidentQuery>,
     pub limitations: Vec<String>,
+    pub context_evidence: Vec<IncidentHistoryEvidence>,
 }
 impl Explanation {
     fn merge_followup(&mut self, followup: Self) {
@@ -24,6 +25,7 @@ impl Explanation {
         self.candidates.extend(followup.candidates);
         self.culprits.extend(followup.culprits);
         self.limitations.extend(followup.limitations);
+        self.context_evidence.extend(followup.context_evidence);
     }
 
     pub fn attribution_status(&self) -> DerivedAttributionStatus {
@@ -45,6 +47,7 @@ impl Explanation {
             candidates: vec![],
             culprits: vec![],
             limitations: vec![],
+            context_evidence: vec![],
         }
     }
 }
@@ -59,11 +62,13 @@ fn append_paragraph(existing: &mut Option<String>, additional: Option<String>) {
         None => *existing = Some(additional),
     }
 }
+mod commit_pipeline;
 mod source_answers;
 
 pub(super) fn for_episode(originals: &[&dyn OriginalProjection], episode: &DiagnosticEpisode) -> Result<Explanation> {
     let mut explanation = from_report(originals, episode)?;
     source_answers::append(originals, episode, &mut explanation)?;
+    commit_pipeline::append(originals, episode, &mut explanation)?;
     explanation.candidates = super::incidents::distinct(explanation.candidates)?;
     Ok(explanation)
 }
@@ -327,10 +332,21 @@ pub(super) fn blocking(original: &dyn OriginalProjection) -> Result<Explanation>
         explanation.action = Some(words.investigation.clone());
         explanation.verify = Some(words.verify.clone());
     }
+    if let SourceObservation::FocusedBlocking { result, .. } = &original.source().observation
+        && let Some(case) =
+            report.output_retention.evidence.cases.iter().find(|case| case.waiter == result.focus.original.key)
+        && let Some(words) = report.output_retention.explanations.iter().find(|words| words.key == case.key)
+    {
+        explanation.victim_summary = Some(words.victim_summary.clone());
+        explanation.mechanism = Some(words.mechanism.clone());
+        explanation.action = Some(words.investigation.clone());
+        explanation.verify = Some(words.verify.clone());
+    }
     explanation.culprits = actors.culprits;
     explanation.candidates = actors.candidates;
     explanation.limitations = report.limitations;
     explanation.limitations.extend(report.metadata_queue.limitations);
+    explanation.limitations.extend(report.output_retention.limitations);
     Ok(explanation)
 }
 pub(super) fn original_observation(original: &dyn OriginalProjection, position: usize) -> Result<Explanation> {

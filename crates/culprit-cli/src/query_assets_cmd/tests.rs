@@ -43,6 +43,10 @@ fn text_output_moves_the_store_owned_script_verbatim_and_bounds_both_formats() {
             commands: vec!["raw command requiring store-specific framing".into()],
             script: "owned-script\n".into(),
             examples: vec![],
+            operator: culprit_evidence::analytical::query_helpers::operators::OperatorDeploymentAssets {
+                dashboard: serde_json::json!({"panels": []}),
+                alerts: serde_json::json!({"apiVersion": 1, "groups": []}),
+            },
         }
     };
     let exact = assets().script.len();
@@ -51,4 +55,7 @@ fn text_output_moves_the_store_owned_script_verbatim_and_bounds_both_formats() {
     let json = encoded(assets(), Format::Json, bounded_output::DEFAULT_JSON_BYTES).unwrap();
     assert_eq!(serde_json::from_slice::<serde_json::Value>(&json).unwrap()["script"], "owned-script\n");
     assert!(encoded(assets(), Format::Json, 1).is_err());
+    let value: serde_json::Value = serde_json::from_slice(&json).unwrap();
+    assert!(value["operator"]["dashboard"]["panels"].is_array());
+    assert_eq!(value["operator"]["alerts"]["apiVersion"], 1);
 }

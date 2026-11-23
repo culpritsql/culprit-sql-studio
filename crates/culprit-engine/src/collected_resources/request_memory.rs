@@ -5,7 +5,7 @@ use culprit_core::collected_resource_analysis::CollectedMemoryParticipantsAnalys
 pub fn request_memory(capture: &EvidenceCapture) -> Result<CollectedMemoryParticipantsAnalysis> {
     let input = CapturedState::new(capture, SnapshotDataset::CurrentRequestMemory)?;
     input.database()?;
-    let context = NativeReadContext::from_snapshot(capture.source()).map_err(|_| invalid())?;
+    let context = RequestMemorySnapshot::acquisition_context(capture.source()).map_err(|_| invalid())?;
     let observations = input
         .rows()?
         .into_iter()

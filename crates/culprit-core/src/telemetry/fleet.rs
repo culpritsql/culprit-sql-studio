@@ -98,6 +98,9 @@ impl FleetInventory {
         let mut selected = false;
         for target in &self.targets {
             target.subject.validate()?;
+            if matches!(target.subject, CollectionSubject::ConfiguredConnection { .. }) {
+                return Err(invalid_inventory());
+            }
             let assignment = (&target.shard, &target.admission_group);
             if !identifier(&target.id)
                 || !identifier(&target.connection)

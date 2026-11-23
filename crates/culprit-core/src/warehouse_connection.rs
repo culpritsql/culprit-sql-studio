@@ -82,27 +82,32 @@ pub struct WarehouseIncidentView {
 }
 impl WarehouseIncidentView {
     pub fn new(mut report: crate::IncidentReadReport) -> Self {
-        let analysis_limitations = report
-            .analyses
-            .iter()
-            .map(|analysis| WarehouseAnalysisLimitations {
-                observed_from: analysis.description.observed_from.clone(),
-                observed_until: analysis.description.observed_until.clone(),
-                reasons: analysis.description.limitations(),
-            })
-            .collect();
-        for incident in &mut report.incidents {
-            for query in incident
-                .affected_queries
-                .iter_mut()
-                .chain(&mut incident.culprit_queries)
-                .chain(&mut incident.candidate_queries)
-            {
-                if let Some(role) = &mut query.causal_role {
-                    role.explanation.render();
-                }
-            }
-        }
+        let analysis_limitations = prepare_incident_report(&mut report);
         Self { report, analysis_limitations }
     }
+}
+
+pub(crate) fn prepare_incident_report(report: &mut crate::IncidentReadReport) -> Vec<WarehouseAnalysisLimitations> {
+    let analysis_limitations = report
+        .analyses
+        .iter()
+        .map(|analysis| WarehouseAnalysisLimitations {
+            observed_from: analysis.description.observed_from.clone(),
+            observed_until: analysis.description.observed_until.clone(),
+            reasons: analysis.description.limitations(),
+        })
+        .collect();
+    for incident in &mut report.incidents {
+        for query in incident
+            .affected_queries
+            .iter_mut()
+            .chain(&mut incident.culprit_queries)
+            .chain(&mut incident.candidate_queries)
+        {
+            if let Some(role) = &mut query.causal_role {
+                role.explanation.render();
+            }
+        }
+    }
+    analysis_limitations
 }

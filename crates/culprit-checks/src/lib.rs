@@ -30,13 +30,13 @@ pub(crate) use views::{advisor, brief, digest};
 pub use views::{
     backup_history, cache_entry_memory, cdc, change_feed, cleanup, columnstore_rowgroups, compilation,
     compiler_admission, completed_spills, configured_log_rates, connection_outcomes, counter_ratios,
-    current_request_work, dashboard, database_properties, drift, focused_blocking, full_text_populations,
-    hyperscale_log_components, instance_resources, jobs, maintenance, maintenance_blocking, maintenance_progress,
-    memory_clerks, memory_failures, native_failures, page_server_reads, page_waits, performance_counters,
-    query_runtime_fragments, query_store_definitions, query_wait_fragments, replication, request_memory,
-    runtime_distributions, session_census, session_memory, source_overhead, statement_grants, statement_work, storage,
-    suspect_pages, table_catalog, table_full_text, table_memory, table_temporal, task_space, tempdb_metadata_memory,
-    temporary_work, wait_counters, waits, worker_starvation,
+    current_execution_profile, current_request_work, dashboard, database_properties, drift, focused_blocking,
+    full_text_populations, hyperscale_log_components, instance_resources, jobs, maintenance, maintenance_blocking,
+    maintenance_progress, memory_clerks, memory_failures, native_failures, page_server_reads, page_waits,
+    performance_counters, query_runtime_fragments, query_store_definitions, query_wait_fragments, replication,
+    request_memory, runtime_distributions, session_census, session_memory, source_overhead, statement_grants,
+    statement_work, storage, suspect_pages, table_catalog, table_full_text, table_memory, table_temporal, task_space,
+    tempdb_metadata_memory, temporary_work, wait_counters, waits, worker_starvation,
 };
 
 use std::sync::Arc;
@@ -136,7 +136,9 @@ pub use views::index_configuration;
 
 pub use views::indexed_views;
 
+pub use views::commit_pipeline;
 pub use views::incident_history;
+pub use views::output_grant_retention;
 pub use views::provider_acquisition;
 pub use views::transaction_metadata;
 
@@ -166,3 +168,5 @@ mod tests {
         }
     }
 }
+
+pub use views::readable_secondary_recovery;

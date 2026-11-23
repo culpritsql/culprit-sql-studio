@@ -6,8 +6,19 @@ use serde_json::Value;
 #[derive(Serialize)]
 #[serde(tag = "kind", content = "data", rename_all = "kebab-case")]
 enum PublicObservation<'a> {
+    CollectorConnectionContext {
+        attempt: &'a CaptureIdentity,
+        snapshot_sha256: &'a str,
+        collector_started_at: &'a str,
+        collector_finished_at: &'a str,
+    },
     QueryHistory(&'a QueryHistoryDescription),
     RetainedSamples(&'a SampleHistoryDescription),
+    MssqlReadableResourcesContext {
+        history: &'a SampleHistoryDescription,
+        observed_role: Option<MssqlResourceReplicaRole>,
+        limitations: Vec<MssqlReadableResourceLimitation>,
+    },
     MssqlManagedInstanceResources {
         from: &'a str,
         until: &'a str,
@@ -26,6 +37,15 @@ enum PublicObservation<'a> {
         membership: FocusedRequestMembership,
         request_end: BlockingRequestState,
         closure: &'a BlockingClosureDescription,
+    },
+    MetadataLockContext {
+        snapshot: &'a ActivitySnapshotDescription,
+        focus_key: &'a str,
+        execution_key: String,
+        binding: FocusedRequestBinding,
+        membership: FocusedRequestMembership,
+        request_end: BlockingRequestState,
+        cohort_rows: u32,
     },
     Snapshot(&'a StateSnapshotDescription),
     LocalResourceContext(LocalPointContext<'a>),
@@ -189,8 +209,19 @@ impl<'a> LocalPointContext<'a> {
 
 pub(super) fn observation(value: &SourceObservation) -> Result<Value> {
     let projected = match value {
+        SourceObservation::CollectorConnection(value) => PublicObservation::CollectorConnectionContext {
+            attempt: &value.attempt,
+            snapshot_sha256: &value.snapshot_sha256,
+            collector_started_at: &value.observed_from,
+            collector_finished_at: &value.observed_until,
+        },
         SourceObservation::QueryHistory(value) => PublicObservation::QueryHistory(value),
         SourceObservation::RetainedSamples(value) => PublicObservation::RetainedSamples(value),
+        SourceObservation::MssqlReadableResources(value) => PublicObservation::MssqlReadableResourcesContext {
+            history: &value.history,
+            observed_role: value.observed_role,
+            limitations: value.limitations(),
+        },
         SourceObservation::MssqlManagedInstanceResources(history) => PublicObservation::MssqlManagedInstanceResources {
             from: &history.from,
             until: &history.until,
@@ -210,6 +241,21 @@ pub(super) fn observation(value: &SourceObservation) -> Result<Value> {
             request_end: result.request_end,
             closure: &result.closure,
         },
+        SourceObservation::MetadataLockContext { snapshot, focus_key, execution, result } => {
+            PublicObservation::MetadataLockContext {
+                snapshot,
+                focus_key,
+                execution_key: SourceReadExecutionScope::from_context(
+                    SourceReadQuestion::MetadataLockContext,
+                    execution,
+                )?
+                .key()?,
+                binding: result.request.binding,
+                membership: result.request.membership,
+                request_end: result.request.request_end,
+                cohort_rows: result.cohort.len() as u32,
+            }
+        }
         SourceObservation::Snapshot(value) => PublicObservation::Snapshot(value),
         SourceObservation::LocalResource { snapshot, database_writable } => {
             PublicObservation::LocalResourceContext(LocalPointContext::new(snapshot, *database_writable))
@@ -555,5 +601,78 @@ mod pool_settings_tests {
         assert_eq!(value["data"]["snapshot"], serde_json::to_value(source.observation.snapshot().unwrap()).unwrap());
         assert!(!value.to_string().contains("11111111-1111-1111-1111-111111111111"));
         assert!(serde_json::from_value::<SourceObservation>(value).is_err());
+    }
+}
+
+#[cfg(test)]
+mod pool_operational_tests;
+
+#[cfg(test)]
+mod readable_resource_tests {
+    use super::*;
+    #[test]
+    fn readable_history_public_context_keeps_role_and_unknowns_without_native_reader_authority() {
+        let mut database =
+            culprit_core::DatabaseIdentity::server(culprit_core::Engine::Mssql, "shop", "fixture.invalid", 1433, None);
+        database.incarnation = Some("11111111-1111-1111-1111-111111111111".into());
+        let native = SourceObservation::MssqlReadableResources(Box::new(MssqlReadableResourceHistory {
+            history: SampleHistoryDescription {
+                from: "2020-01-01T06:00:00Z".into(),
+                until: "2020-01-01T06:01:00Z".into(),
+                observed_at: "2020-01-01T06:02:00Z".into(),
+                available_from: None,
+                available_until: None,
+                expected_samples: 0,
+                nominal_period_ms: Some(15000),
+            },
+            current_reader: Box::new(NativeReadContext {
+                target: database.into(),
+                partition: SourcePartition::InstanceLocal { member: None, epoch: Some("a".repeat(64)) },
+                observed_from: "2020-01-01T06:02:00Z".into(),
+                observed_until: "2020-01-01T06:02:00Z".into(),
+                database_writable: Some(false),
+            }),
+            observed_role: None,
+        }));
+        let public = observation(&native).unwrap();
+        assert_eq!(public["kind"], "mssql-readable-resources-context");
+        assert!(public["data"]["observed_role"].is_null());
+        assert_eq!(public["data"]["limitations"].as_array().unwrap().len(), 4);
+        let text = public.to_string();
+        for field in ["current_reader", "process_epoch", "database_writable", "11111111-1111-1111-1111-111111111111"] {
+            assert!(!text.contains(field));
+        }
+        assert!(!text.contains(&"a".repeat(64)));
+        assert!(serde_json::from_value::<SourceObservation>(public).is_err());
+    }
+}
+
+#[cfg(test)]
+mod collector_connection_tests {
+    use super::*;
+
+    #[test]
+    fn collector_control_projection_keeps_client_clocks_and_no_native_admission_authority() {
+        let (source, _) = crate::analytical::test_support::collector_connection_evidence(
+            crate::analytical::test_support::CollectorConnectionCase::MissingRecorder,
+        );
+        let SourceObservation::CollectorConnection(original) = &source.observation else { panic!() };
+        let public = observation(&source.observation).unwrap();
+        assert_eq!(public["kind"], "collector-connection-context");
+        assert_eq!(public["data"]["attempt"], serde_json::to_value(&original.attempt).unwrap());
+        assert_eq!(public["data"]["snapshot_sha256"], original.snapshot_sha256);
+        assert_eq!(public["data"]["collector_started_at"], original.observed_from);
+        assert_eq!(public["data"]["collector_finished_at"], original.observed_until);
+        assert_eq!(public["data"].as_object().unwrap().len(), 4);
+        for field in
+            ["target", "partition", "member", "epoch", "database_writable", "native", "observed_from", "observed_until"]
+        {
+            assert!(public["data"].get(field).is_none(), "{field}");
+        }
+        assert!(serde_json::from_value::<SourceObservation>(public).is_err());
+        assert!(NativeReadContext::from_activity(&source).is_err());
+        assert!(NativeReadContext::from_snapshot(&source).is_err());
+        assert!(!source.is_partition_qualified());
+        assert!(source.target.database().is_none());
     }
 }

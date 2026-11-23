@@ -11,6 +11,7 @@ use culprit_core::{Result, telemetry::*};
 pub(crate) enum Kind {
     Writers,
     CurrentRequest,
+    CurrentExecutionInputs,
 }
 
 pub(crate) fn attributes(
@@ -61,17 +62,21 @@ pub(crate) fn query(kind: Kind) -> String {
     let statement = crate::cached_statements::statement_expression("r", "st.text");
     let statement_columns = crate::cached_payload::columns("fragment.statement", "statement_bytes", "statement", "@P2");
     let plan_columns = crate::cached_payload::columns("qp.query_plan", "plan_bytes", "plan", "@P3");
-    let (clock,columns,cache) = match kind {
+    let (clock,mut columns,cache) = match kind {
         Kind::Writers => (String::new(),String::new(),String::new()),
-        Kind::CurrentRequest => (
+        Kind::CurrentRequest | Kind::CurrentExecutionInputs => (
             ",@at datetime2=SYSUTCDATETIME()".into(),
-            format!(",CONVERT(varchar(40),@at,126)+'Z' AS observed_at,@culprit_cache_updateability AS updateability,{}",crate::cached_statements::context_columns_from("qs","st","qp.dbid")),
+            format!(",CONVERT(varchar(40),@at,126)+'Z' AS observed_at,@culprit_cache_updateability AS updateability,{}",crate::cached_statements::selected_request_context_columns("qs","st","qp.dbid")),
             "\nOUTER APPLY(SELECT TOP(2) stats.plan_handle,stats.sql_handle,stats.statement_start_offset,stats.statement_end_offset,stats.creation_time,stats.plan_generation_num,stats.query_hash FROM sys.dm_exec_query_stats stats WHERE stats.plan_handle=r.plan_handle AND stats.sql_handle=r.sql_handle AND stats.statement_start_offset=r.statement_start_offset AND stats.statement_end_offset=r.statement_end_offset)qs".into(),
         ),
     };
+    if matches!(kind, Kind::CurrentExecutionInputs) {
+        columns.push(',');
+        columns.push_str(&crate::relational_inputs::module_columns("st"));
+    }
     let path = match kind {
         Kind::Writers => "writers",
-        Kind::CurrentRequest => "requests",
+        Kind::CurrentRequest | Kind::CurrentExecutionInputs => "requests",
     };
     let sql = format!(
         r#"
@@ -99,6 +104,8 @@ OPTION(MAXDOP 1,LOOP JOIN)"#,
     );
     match kind {
         Kind::Writers => sql,
-        Kind::CurrentRequest => crate::cached_statements::acquisition_frame::Projection::AcquisitionFrame.batch(sql),
+        Kind::CurrentRequest | Kind::CurrentExecutionInputs => {
+            crate::cached_statements::acquisition_frame::Projection::AcquisitionFrame.batch(sql)
+        }
     }
 }

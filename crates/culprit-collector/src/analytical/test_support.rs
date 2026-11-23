@@ -28,3 +28,6 @@ pub use local_recovery::collected_resource_recovery;
 
 mod qualification;
 pub use qualification::{QualificationFixture, QualificationFixtureCase};
+
+/// Actual source captures retained by one fixture journal and the production canonical verifier.
+pub mod native_capture;

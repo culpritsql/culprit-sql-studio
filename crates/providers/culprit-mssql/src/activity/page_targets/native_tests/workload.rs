@@ -1,14 +1,25 @@
-use super::fixture::{Fixture, actors, invalid};
+#[cfg(test)]
+use super::fixture::invalid;
+use super::fixture::{Fixture, actors};
 use culprit_core::Result;
+#[cfg(test)]
 use std::time::Instant;
 
+#[cfg(test)]
 pub(super) const WRITERS_PER_PATTERN: usize = 8;
+#[cfg(test)]
 pub(super) const ABBA_INSERTS_PER_WORKER: usize = 2048;
+#[cfg(test)]
 pub(super) const HOLDER_INSERTS_PER_WORKER: usize = ABBA_INSERTS_PER_WORKER;
+#[cfg(test)]
 pub(crate) const WRITER_APPLICATIONS: [&str; 2] = ["page-fixture-write-a", "page-fixture-write-b"];
+#[cfg(test)]
 const HOLDER_LOCK_TIMEOUT_MS: u32 = 5000;
+#[cfg(test)]
 const MAX_INSERTS: usize = 16_384;
+#[cfg(test)]
 const _: () = assert!(ABBA_INSERTS_PER_WORKER <= MAX_INSERTS);
+#[cfg(test)]
 const RUN_MS: u32 = 4000;
 
 #[derive(Debug)]
@@ -17,20 +28,24 @@ pub(crate) struct CompletedWorker {
     pub inserts: u64,
 }
 
+#[cfg(test)]
 struct WorkerStatement {
     pattern: u8,
     sql: String,
 }
 
 impl Fixture {
+    #[cfg(test)]
     pub async fn start_workload(&mut self, split_second: bool, unrelated_select: bool) -> Result<Instant> {
         self.start_workload_with_limit(split_second, unrelated_select, MAX_INSERTS).await
     }
 
+    #[cfg(test)]
     pub async fn start_abba_workload(&mut self, split_second: bool) -> Result<Instant> {
         self.start_workload_with_limit(split_second, false, ABBA_INSERTS_PER_WORKER).await
     }
 
+    #[cfg(test)]
     async fn start_workload_with_limit(
         &mut self,
         split_second: bool,
@@ -49,6 +64,7 @@ impl Fixture {
 
     /// One bounded batch repeats its gated one-row INSERT at the same native statement locator. Each native
     /// request/token check still applies; this neither forces a holder nor changes the independent A/B workload.
+    #[cfg(test)]
     pub async fn start_holder_workload(&mut self) -> Result<Instant> {
         if !self.holder_gate_active() {
             return Err(invalid("owned repeated-INSERT actors require their retained seed gate"));
@@ -62,6 +78,7 @@ impl Fixture {
         self.start_workers(workers).await
     }
 
+    #[cfg(test)]
     async fn start_workers(&mut self, workers: Vec<WorkerStatement>) -> Result<Instant> {
         self.require_idle_workload()?;
         // Establish every connection before starting the comparable native work window.
@@ -79,6 +96,7 @@ impl Fixture {
         })
         .await
     }
+    #[cfg(test)]
     pub fn workers_finished(&self) -> bool {
         self.workers.iter().flatten().all(|task| task.is_finished())
     }
@@ -87,6 +105,7 @@ impl Fixture {
     }
 }
 
+#[cfg(test)]
 fn holder_statement(pattern: u8) -> String {
     // The seed gate is inside the actual repeated INSERT, so original capture does not select a separate
     // gate statement. Count only inserted rows, bounded by both the existing native deadline and actor quota.
@@ -95,6 +114,7 @@ fn holder_statement(pattern: u8) -> String {
     )
 }
 
+#[cfg(test)]
 pub(super) fn require_abba_completions(completed: &[CompletedWorker]) -> Result<()> {
     let mut counts = [0; WRITER_APPLICATIONS.len()];
     for worker in completed {
@@ -112,6 +132,7 @@ pub(super) fn require_abba_completions(completed: &[CompletedWorker]) -> Result<
     Ok(())
 }
 
+#[cfg(test)]
 fn statement(pattern: u8, split_second: bool, inserts_per_worker: usize) -> String {
     let work=match pattern {
         1=>"INSERT dbo.page_fixture_hot(marker) VALUES(1)".to_string(),

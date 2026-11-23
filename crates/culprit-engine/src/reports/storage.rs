@@ -6,8 +6,8 @@ use serde::{Deserialize, Serialize, de::Error};
 use serde_json::Value;
 
 const KEY: &str = "_culprit_store";
-// This encoding stores catalog arguments instead of rendered observation text.
-const STORAGE_VERSION: u32 = 5;
+// Catalog arguments own observation text; imported native events retain their distinct provenance.
+const STORAGE_VERSION: u32 = 6;
 
 fn retained_snapshot(snapshot: &culprit_core::Snapshot) -> serde_json::Result<Value> {
     let mut snapshot = snapshot.clone();

@@ -231,18 +231,17 @@ impl DiagnosticInvestigationIntent {
         component: &ComponentVersion,
         caller_budget: &CollectionBudget,
     ) -> Result<Self> {
-        let RecipeAdmission::Measured(receipt) = &recipe.admission else {
-            return Err(invalid());
-        };
+        let execution = execution.into();
+        let qualification = RecipeExecutionAdmission::for_source_read(recipe, &execution, caller_budget)?;
         let value = Self {
             episode_id: episode.id.clone(),
             episode_revision: episode.revision.clone(),
             recipe_id: recipe.id.clone(),
             recipe_version: recipe.version,
             focus: DiagnosticFocus::SourceRead { focus: Box::new(focus) },
-            execution: DiagnosticExecutionBinding::NativeRead { execution: Box::new(execution.into()) },
-            budget: receipt.tested_budget.clone(),
-            qualification: receipt.as_ref().clone().into(),
+            execution: DiagnosticExecutionBinding::NativeRead { execution: Box::new(execution) },
+            budget: qualification.budget().clone(),
+            qualification,
         };
         if !value.matches_admission(episode, recipe, component, caller_budget) {
             return Err(invalid());
@@ -314,7 +313,7 @@ impl DiagnosticInvestigationIntent {
             return page_wait_tasks_stage_key(&focus.parent.capture_ref(), &self.qualification.scope().target());
         }
         if let DiagnosticFocus::SourceRead { focus } = &self.focus {
-            return question_stage_key(&self.episode_id, QuestionStage::SourceRead(focus.question), &focus.target);
+            return focus.stage_key(&self.episode_id);
         }
         question_stage_key(
             &self.episode_id,
@@ -346,7 +345,7 @@ impl DiagnosticInvestigationIntent {
 
 pub(super) enum QuestionStage {
     Native(RecipeSelector),
-    SourceRead(SourceReadQuestion),
+    SourceRead { question: SourceReadQuestion, observation: source_read::ObservationOrdinal },
 }
 pub(super) fn question_stage_key(
     episode_id: &str,
@@ -360,9 +359,14 @@ pub(super) fn question_stage_key(
         QuestionStage::Native(selector) => {
             hash(&("diagnostic-question-stage-v3", episode_id, selector, target.telemetry_id()?))
         }
-        QuestionStage::SourceRead(question) => {
-            hash(&("diagnostic-source-question-stage-v1", episode_id, question, target.telemetry_id()?))
-        }
+        QuestionStage::SourceRead { question, observation } => match observation {
+            source_read::ObservationOrdinal::Initial => {
+                hash(&("diagnostic-source-question-stage-v1", episode_id, question, target.telemetry_id()?))
+            }
+            source_read::ObservationOrdinal::Continuation => {
+                hash(&("diagnostic-source-question-continuation-v1", episode_id, question, target.telemetry_id()?))
+            }
+        },
     }
 }
 

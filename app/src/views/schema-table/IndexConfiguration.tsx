@@ -6,7 +6,7 @@ import { IndexConfigurationDetails } from "../../components/IndexConfigurations"
 /** Current report entries match the embedded native owner, never a historical capture with similar labels. */
 export function IndexConfiguration({ report, index, table }: { report: Report; index?: IndexStat; table?: TableStat }) {
   const native = index?.mssql_configuration ?? table?.mssql_heap_configuration;
-  if (!native || native.parent_kind !== "table" || report.snapshot.server.engine !== "mssql") return null;
+  if (native?.parent_kind !== "table" || report.snapshot.server.engine !== "mssql") return null;
   const expectedDataset = index ? "indexes" : "tables";
   if (report.snapshot.sources?.find((source) => source.source === expectedDataset)?.state === "unavailable") return null;
   const entries = report.index_configuration.filter((view) => view.context === null && view.dataset === expectedDataset && view.source_state !== "unavailable")

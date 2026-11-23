@@ -116,7 +116,9 @@ fn assert_native_cascade(fixture: &MaintenanceFixture, report: &culprit_core::Bl
     assert_eq!(case.holders[0].granted_modes, ["AccessShareLock"]);
     assert_eq!(case.affected[0].actor.session, *fixture.relation_identity(RelationQueueRole::Affected));
     assert_eq!(case.affected[0].requested_mode, "AccessShareLock");
-    let MetadataQueueResource::PostgresRelation(tag) = &case.resource;
+    let MetadataQueueResource::PostgresRelation(tag) = &case.resource else {
+        panic!("expected PostgreSQL relation");
+    };
     assert_eq!(tag.database_oid, fixture.relation_database_oid());
     assert_eq!(tag.relation_oid, fixture.relation_oid());
     assert_ne!(tag.relation_oid, fixture.competing_relation_oid());
@@ -149,7 +151,15 @@ fn assert_native_parallel_refusal(
         .as_ref()
         .unwrap()
         .iter()
-        .find_map(|resource| resource.native.as_deref().map(|NativeLockEvidence::Postgres(point)| point.as_ref()))
+        .find_map(|resource| match resource.native.as_deref() {
+            Some(NativeLockEvidence::Postgres(point)) => Some(point.as_ref()),
+            Some(
+                NativeLockEvidence::MssqlBlockingSession(_)
+                | NativeLockEvidence::MssqlObject(_)
+                | NativeLockEvidence::MysqlMetadata(_),
+            )
+            | None => None,
+        })
         .unwrap();
     assert!(
         native.waiter_matches && native.single_backend && native.actor_rows > 3,

@@ -14,8 +14,10 @@ pub(crate) fn validate_capture(capture: &EvidenceCapture) -> Result<()> {
 }
 
 pub(crate) fn from_record(capture: &EvidenceCapture, record: &VerifiedEvidenceRecord) -> Result<DiagnosticEvidenceRef> {
-    let ordinal = original_ordinal(capture, record)?;
-    DiagnosticEvidenceRef::from_export(capture.source(), capture.capture_manifest_sha256(), record.row(), ordinal)
+    if record.row().capture != *capture.capture() {
+        return Err(invalid());
+    }
+    record.reference(capture.source(), capture.capture_manifest_sha256())
 }
 
 /// An exact historical pointer must match the independently authenticated original, never a latest same-name source.
@@ -78,18 +80,6 @@ pub(crate) fn analysis_reference(
         return Err(invalid());
     }
     original.reference(&record.row, ordinal)
-}
-
-fn original_ordinal(capture: &EvidenceCapture, record: &VerifiedEvidenceRecord) -> Result<u32> {
-    let row = record.row();
-    let ordinal = record.row_ordinal().checked_sub(1).ok_or_else(invalid)?;
-    if row.capture != *capture.capture()
-        || row.batch_id != record.batch_id()
-        || row.payload_sha256()? != record.native_payload_sha256()
-    {
-        return Err(invalid());
-    }
-    Ok(ordinal)
 }
 
 pub(super) fn operational_read(capture: &EvidenceCapture, dataset: SnapshotDataset) -> Result<CapturedOperationalRead> {

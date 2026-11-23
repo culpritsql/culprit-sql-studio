@@ -20,7 +20,7 @@ impl VerificationObserver for DiagnosticRows {
         self.selected = match self.selection {
             RowSelection::All => true,
             RowSelection::Diagnostic => {
-                !matches!(source.observation, SourceObservation::SourceRead { .. })
+                !source.observation.is_source_read_result()
                     || source_read_retains_rows(source, manifest.investigation.as_ref())?
             }
             RowSelection::SharedOwner => shared_owner_source(source),

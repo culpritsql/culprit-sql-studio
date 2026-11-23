@@ -1,5 +1,6 @@
 import importlib.util
 import io
+import json
 import os
 from pathlib import Path
 import sys
@@ -238,6 +239,63 @@ class ReplicationOwnership(unittest.TestCase):
         with self.assertRaises(KeyboardInterrupt):
             with topology:
                 self.fail("a failed standby cannot expose a ready topology")
+        self.assertEqual(events, ["standby", "primary", "network"])
+
+
+class ReadableSecondaryOwnership(unittest.TestCase):
+    def pair(self):
+        fixture = smoke.Fixture("recovery", "postgres:18.6", "postgres", 5432, "culprit_replication", "postgres")
+        return smoke.Database(fixture), smoke.Database(fixture)
+
+    def test_selected_recovery_configuration_reuses_the_pair_without_changing_default_replication(self):
+        primary, standby = self.pair()
+        default = smoke.PostgresReplication(primary, standby, smoke.OWNER_LABEL)
+        self.assertNotIn("max_standby_streaming_delay=120s", standby.launch_configuration[1])
+        primary, standby = self.pair()
+        selected = smoke.PostgresReadableRecovery(primary, standby, smoke.OWNER_LABEL)
+        self.assertIsInstance(selected, smoke.PostgresReplication)
+        self.assertEqual(selected.nonce, primary.owner)
+        self.assertEqual(selected.network.owner, primary.owner)
+        self.assertEqual(standby.password, primary.password)
+        command = standby.launch_configuration[1]
+        self.assertIn('"$@"', command[1])
+        for option in ("max_connections=128", "max_locks_per_transaction=256", "max_prepared_transactions=16",
+                       "max_standby_streaming_delay=120s", "max_standby_archive_delay=120s"):
+            self.assertIn(option, command)
+        self.assertEqual(default.slot[:13], selected.slot[:13])
+
+    def test_recovery_engine_library_including_shared_driver_guards_uses_the_same_owned_standby(self):
+        primary, standby = self.pair()
+        primary.port, standby.port = "55439", "55440"
+        primary.test = Mock()
+        topology = smoke.PostgresReadableRecovery(primary, standby, smoke.OWNER_LABEL)
+        topology.verify()
+        calls = primary.test.call_args_list
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0].args, ("culprit-engine", "collector_service::monitoring::native_tests::readable_secondary::"))
+        self.assertEqual(calls[0].kwargs["test_features"],
+                         ("postgres-native-tests", "store-adx", "recovery-azure", "auth-azure"))
+        self.assertTrue(all(call.kwargs["library"] for call in calls))
+        for call in calls:
+            environment = call.kwargs["environment"]
+            self.assertEqual(environment["CULPRIT_PREVIEW_PG_PORT"], standby.port)
+            self.assertEqual(environment["CULPRIT_PG_REPLICATION_NONCE"], primary.owner)
+            self.assertEqual(environment["CULPRIT_PG_RECOVERY_FIXTURE"], "owned-physical-standby")
+
+    def test_failed_recovery_standby_setup_keeps_existing_exact_reverse_cleanup(self):
+        primary, standby = self.pair()
+        events = []
+        primary.commands = Mock()
+        primary.commands.run.side_effect = lambda args, **_: (events.append("network") or (0, "")) if args[:3] == ["docker", "network", "rm"] else (0, primary.owner)
+        primary.start = Mock()
+        primary.close = Mock(side_effect=lambda: events.append("primary"))
+        primary.owns_container = Mock(return_value=True)
+        primary.sql = Mock()
+        standby.start = Mock(side_effect=KeyboardInterrupt)
+        standby.close = Mock(side_effect=lambda: events.append("standby"))
+        with self.assertRaises(KeyboardInterrupt):
+            with smoke.PostgresReadableRecovery(primary, standby, smoke.OWNER_LABEL):
+                self.fail("an incomplete pair cannot admit a test")
         self.assertEqual(events, ["standby", "primary", "network"])
 
 
@@ -624,13 +682,46 @@ class NativeSelection(unittest.TestCase):
         cache_control = "exact_original_scalar_metadata_is_observed_without_memory_collection"
         phase_control = "exact_original_scalar_metadata_is_observed_between_memory_source_phases"
         mars_control = "activity::native_tests::census::idle_connections::"
+        instance_control = "activity::native_tests::census::instance::"
+        schema_queue_control = "activity::page_targets::native_tests::schema_queue::"
+        refused_connection_control = "conn::native_tests::refused_connection::"
         for selection, expected in [
-            ("native_tests::", [mars_control, "telemetry::replication::native_tests::", "jobs::", strict_holder, strict_writer, cache_control, phase_control]),
-            ("jobs::native_tests::", [mars_control, "telemetry::replication::native_tests::", strict_holder, strict_writer, cache_control, phase_control]),
+            ("native_tests::", [refused_connection_control, mars_control, instance_control, schema_queue_control, "telemetry::replication::native_tests::", "jobs::", strict_holder, strict_writer, cache_control, phase_control]),
+            ("jobs::native_tests::", [refused_connection_control, mars_control, instance_control, schema_queue_control, "telemetry::replication::native_tests::", strict_holder, strict_writer, cache_control, phase_control]),
         ]:
             with self.subTest(selection=selection), patch.object(smoke, "run_tests") as run_tests:
                 plain.test("culprit-mssql", selection)
                 self.assertEqual(run_tests.call_args.kwargs["skip"], expected)
+
+    def test_refused_connection_control_requires_its_explicit_owned_selection(self):
+        database = smoke.Database(next(fixture for fixture in smoke.FIXTURES if fixture.name == "mssql"))
+        database.test_environment = Mock(return_value={})
+        module = "conn::native_tests::refused_connection::"
+        selected = module + "owned_refused_loopback_preserves_real_admission_and_retires_only_the_sealed_empty_original"
+        for selection in ("", "native_tests::", "conn::native_tests::", module, selected):
+            with self.subTest(selection=selection), patch.object(smoke, "run_tests") as run_tests:
+                database.test("culprit-mssql", selection)
+                self.assertEqual(module in run_tests.call_args.kwargs["skip"], selection in ("", "native_tests::", "conn::native_tests::"))
+
+    def test_instance_census_requires_its_explicit_owned_namespace(self):
+        database = smoke.Database(next(fixture for fixture in smoke.FIXTURES if fixture.name == "mssql"))
+        database.test_environment = Mock(return_value={})
+        module = "activity::native_tests::census::instance::"
+        selected = module + "owned_boxed_instance_census_preserves_native_member_idle_clients_recent_view_and_canonical_original"
+        for selection in ("", "native_tests::", module, selected):
+            with self.subTest(selection=selection), patch.object(smoke, "run_tests") as run_tests:
+                database.test("culprit-mssql", selection)
+                self.assertEqual(module in run_tests.call_args.kwargs["skip"], selection in ("", "native_tests::"))
+
+    def test_schema_queue_requires_its_explicit_owned_namespace(self):
+        database = smoke.Database(next(fixture for fixture in smoke.FIXTURES if fixture.name == "mssql"))
+        database.test_environment = Mock(return_value={})
+        module = "activity::page_targets::native_tests::schema_queue::"
+        selected = module + "same_owned_schema_queue_excludes_the_other_object_and_ended_request"
+        for selection in ("", "native_tests::", module, selected):
+            with self.subTest(selection=selection), patch.object(smoke, "run_tests") as run_tests:
+                database.test("culprit-mssql", selection)
+                self.assertEqual(module in run_tests.call_args.kwargs["skip"], selection in ("", "native_tests::"))
 
     def test_mssql_broad_selection_runs_compatibility_once_and_exact_selection_preserves_strict_qualification(self):
         database = smoke.Database(next(fixture for fixture in smoke.FIXTURES if fixture.name == "mssql"))
@@ -743,6 +834,7 @@ class NativeSelection(unittest.TestCase):
                     database.test("culprit-postgres", selection)
                     self.assertEqual(run_tests.call_args.kwargs["skip"], [
                         "telemetry::native_tests::replication::", "jobs::", "maintenance_waits::",
+                        "metadata_queue::", "transaction_metadata::native_tests::",
                     ])
 
     def test_explicit_short_and_qualified_jobs_filters_run_without_unrelated_optional_fixtures(self):
@@ -753,6 +845,7 @@ class NativeSelection(unittest.TestCase):
                 database.test("culprit-postgres", selection)
                 self.assertEqual(run_tests.call_args.kwargs["skip"], [
                     "telemetry::native_tests::replication::", "maintenance_waits::",
+                    "metadata_queue::", "transaction_metadata::native_tests::",
                 ])
 
     def test_explicit_maintenance_filters_do_not_start_unrelated_optional_fixtures(self):
@@ -763,6 +856,7 @@ class NativeSelection(unittest.TestCase):
                 database.test("culprit-postgres", selection)
                 self.assertEqual(run_tests.call_args.kwargs["skip"], [
                     "telemetry::native_tests::replication::", "jobs::",
+                    "metadata_queue::", "transaction_metadata::native_tests::",
                 ])
 
     def test_default_verification_keeps_installed_and_absent_job_cases_on_their_own_fixtures(self):
@@ -1147,6 +1241,176 @@ class GaleraSupervisor(unittest.TestCase):
                 database.test("culprit-mysql", selection)
                 skips = run_tests.call_args.kwargs["skip"]
                 self.assertEqual(any("telemetry::native_tests::galera::" == skip for skip in skips), selection != NATIVE_SELECTION)
+
+
+
+
+class MySqlNativeAcceptance(unittest.TestCase):
+    def database(self, source, policy):
+        fixture = next(fixture for fixture in smoke.FIXTURES if fixture.name == source)
+        return smoke.MySqlAcceptanceDatabase(fixture, policy)
+
+    def test_all_explicit_cases_share_library_selection_and_preserve_feature_boundaries(self):
+        for name, (source, policy) in smoke.MYSQL_ACCEPTANCE_CASES.items():
+            with self.subTest(case=name):
+                database = self.database(source, policy)
+                with patch.object(database, "receipt_environment", return_value={"receipt": "owned"}), \
+                     patch.object(database, "test") as execute:
+                    database.verify()
+                execute.assert_called_once_with("culprit-engine", policy.selection, library=True,
+                                                test_features=policy.test_features, environment={"receipt": "owned"})
+        self.assertEqual(set(smoke.MYSQL_ACCEPTANCE_CASES), {
+            "mysql-automatic-blocking", "mariadb-automatic-blocking", "mysql-metadata-context", "mariadb-metadata-context",
+            "mysql-automatic-recovery", "mariadb-automatic-recovery",
+        })
+        self.assertNotIn("mysql-native-tests", smoke.NATIVE_TEST_FEATURES["culprit-engine"])
+        self.assertEqual(smoke.MYSQL_METADATA_CONTEXT.test_features, ("mysql-native-tests",))
+
+    def test_both_policies_reach_the_real_command_builder_with_the_engine_library_and_exact_features(self):
+        for policy in (smoke.MYSQL_AUTOMATIC_BLOCKING, smoke.MYSQL_AUTOMATIC_RECOVERY, smoke.MYSQL_METADATA_CONTEXT):
+            database = self.database("mysql", policy)
+            database.commands = Mock()
+            database.commands.run.return_value = (0, "test result: ok. 1 passed; 0 failed")
+            database.test_environment = Mock(return_value={"original": "environment"})
+            with patch.object(database, "receipt_environment", return_value={"receipt": "owned"}), \
+                 redirect_stdout(io.StringIO()):
+                database.verify()
+            call = database.commands.run.call_args
+            command = call.args[0]
+            self.assertEqual(command[:5], ["cargo", "test", "--locked", "-p", "culprit-engine"])
+            self.assertIn("--lib", command)
+            self.assertNotIn("--test", command)
+            self.assertEqual(command[command.index("--features") + 1].split(","),
+                             ["collector", *policy.test_features])
+            self.assertIn(policy.selection, command)
+            self.assertIn("--ignored", command)
+            self.assertEqual(call.kwargs["env"], {"original": "environment", "receipt": "owned"})
+
+    def test_other_versions_and_cross_policy_or_unrelated_selectors_refuse_before_receipts_or_test(self):
+        for policy in (smoke.MYSQL_AUTOMATIC_BLOCKING, smoke.MYSQL_AUTOMATIC_RECOVERY, smoke.MYSQL_METADATA_CONTEXT):
+            old = self.database("mysql-5.7", policy)
+            with patch.object(old, "receipt_environment") as receipts, patch.object(old, "test") as execute:
+                with self.assertRaisesRegex(RuntimeError, "exactly MySQL8.4"):
+                    old.verify()
+                receipts.assert_not_called()
+                execute.assert_not_called()
+            selected = self.database("mysql", policy)
+            other = smoke.MYSQL_METADATA_CONTEXT if policy == smoke.MYSQL_AUTOMATIC_BLOCKING else smoke.MYSQL_AUTOMATIC_BLOCKING
+            for tests in [[("culprit-engine", "unrelated_test")], [("culprit-mysql", policy.selection)],
+                          [("culprit-engine", policy.selection), ("culprit-engine", other.selection)]]:
+                with self.subTest(policy=policy.name, tests=tests), \
+                     patch.object(selected, "receipt_environment") as receipts, patch.object(selected, "test") as execute:
+                    with self.assertRaisesRegex(RuntimeError, "explicit library selector"):
+                        selected.verify(tests)
+                    receipts.assert_not_called()
+                    execute.assert_not_called()
+
+    def test_deep_prerequisites_are_explicit_startup_options_on_each_existing_fixture(self):
+        for source in ("mysql", "mariadb-11.8"):
+            deep = self.database(source, smoke.MYSQL_METADATA_CONTEXT)
+            automatic = self.database(source, smoke.MYSQL_AUTOMATIC_BLOCKING)
+            self.assertEqual(tuple(deep.options), smoke.MYSQL_METADATA_CONTEXT.startup_options)
+            self.assertEqual(automatic.options, list(automatic.fixture.options))
+            _, command = deep.configuration()
+            self.assertIn("--performance-schema=ON", command)
+            self.assertEqual(deep.fixture.options, ())
+            self.assertEqual(len(deep.options), 4)
+            self.assertTrue(all("loose-" not in option and "%" not in option for option in deep.options))
+
+    def test_deep_seed_never_changes_instrumentation_and_automatic_seed_keeps_its_original_setup(self):
+        for source in ("mysql", "mariadb-11.8"):
+            for policy in (smoke.MYSQL_AUTOMATIC_BLOCKING, smoke.MYSQL_AUTOMATIC_RECOVERY, smoke.MYSQL_METADATA_CONTEXT):
+                database = self.database(source, policy)
+                database.sql = Mock(return_value=(0, ""))
+                database.seed()
+                statements = [call.args[0] for call in database.sql.call_args_list]
+                changes = [sql for sql in statements if "performance_schema.setup_" in sql]
+                self.assertEqual(len(changes), int(policy.seed_current_statements))
+                if changes:
+                    self.assertEqual(changes, ["UPDATE performance_schema.setup_consumers SET ENABLED='YES' WHERE NAME IN "
+                                               "('global_instrumentation','thread_instrumentation','statements_digest','events_statements_current');"])
+                self.assertTrue(any("CREATE TABLE" in sql for sql in statements))
+                self.assertTrue(any("smoke_reader" in sql for sql in statements))
+
+    def test_each_absent_receipt_directory_is_fresh_private_retained_and_not_an_environment_mutation(self):
+        original_mkdtemp = tempfile.mkdtemp
+        with tempfile.TemporaryDirectory() as parent:
+            def directory(**kwargs):
+                return original_mkdtemp(dir=parent, **kwargs)
+            roots = []
+            for name, (source, policy) in smoke.MYSQL_ACCEPTANCE_CASES.items():
+                database = self.database(source, policy)
+                output = io.StringIO()
+                with patch.dict(os.environ), patch.object(smoke.tempfile, "mkdtemp", side_effect=directory), \
+                     patch.object(database, "test") as execute, redirect_stdout(output):
+                    os.environ.pop(database.RECEIPT_ENV, None)
+                    database.verify()
+                    self.assertNotIn(database.RECEIPT_ENV, os.environ)
+                root = Path(execute.call_args.kwargs["environment"][database.RECEIPT_ENV])
+                roots.append(root)
+                self.assertTrue(root.is_dir(), "receipts must survive the verifier returning")
+                self.assertEqual(root.stat().st_mode & 0o777, 0o700)
+                self.assertIn(str(root), output.getvalue())
+                self.assertIn(source, root.name)
+                receipt = root / f"{policy.name}-fixture.json"
+                self.assertEqual(receipt.stat().st_mode & 0o777, 0o600)
+                data = json.loads(receipt.read_text())
+                self.assertEqual(data["startup_prerequisites"], list(policy.startup_options))
+                self.assertEqual(data["native_acceptance"], "not-yet-run")
+                self.assertNotIn(database.password, receipt.read_text())
+                self.assertNotIn(database.password, output.getvalue())
+            self.assertEqual(len(roots), len(set(roots)))
+
+    def test_caller_supplied_receipt_directory_is_passed_unchanged_and_existing_receipt_is_not_overwritten(self):
+        database = self.database("mysql", smoke.MYSQL_METADATA_CONTEXT)
+        with tempfile.TemporaryDirectory() as directory:
+            with patch.dict(os.environ, {database.RECEIPT_ENV: directory}), \
+                 patch.object(smoke.tempfile, "mkdtemp") as allocate, patch.object(database, "test") as execute, \
+                 redirect_stdout(io.StringIO()):
+                database.verify()
+                self.assertEqual(execute.call_args.kwargs["environment"], {database.RECEIPT_ENV: directory})
+                allocate.assert_not_called()
+                receipt = Path(directory) / "metadata-context-fixture.json"
+                original = receipt.read_bytes()
+                with self.assertRaises(FileExistsError):
+                    database.verify()
+                self.assertEqual(receipt.read_bytes(), original)
+                execute.assert_called_once()
+
+    def test_failed_or_cancelled_test_keeps_receipt_location_and_does_not_retry_or_issue_fixture_sql(self):
+        for failure in (RuntimeError("native failure"), KeyboardInterrupt()):
+            database = self.database("mariadb-11.8", smoke.MYSQL_METADATA_CONTEXT)
+            with tempfile.TemporaryDirectory() as directory:
+                output = io.StringIO()
+                with patch.dict(os.environ, {database.RECEIPT_ENV: directory}), \
+                     patch.object(database, "test", side_effect=failure) as execute, patch.object(database, "sql") as sql, \
+                     redirect_stdout(output), self.assertRaises(type(failure)):
+                    database.verify()
+                execute.assert_called_once()
+                sql.assert_not_called()
+                self.assertIn(directory, output.getvalue())
+                self.assertTrue((Path(directory) / "metadata-context-fixture.json").is_file())
+
+    def test_empty_explicit_receipt_directory_refuses_without_starting_a_test(self):
+        database = self.database("mysql", smoke.MYSQL_AUTOMATIC_BLOCKING)
+        with patch.dict(os.environ, {database.RECEIPT_ENV: ""}), patch.object(database, "test") as execute:
+            with self.assertRaisesRegex(RuntimeError, "must not be empty"):
+                database.verify()
+            execute.assert_not_called()
+
+    def test_cli_routes_all_explicit_cases_through_one_seed_and_owned_context(self):
+        for name, (source, policy) in smoke.MYSQL_ACCEPTANCE_CASES.items():
+            with self.subTest(case=name), patch.object(sys, "argv", ["smoke-providers.py", name]), \
+                 patch.object(smoke.signal, "signal"), patch.object(smoke, "MySqlAcceptanceDatabase") as owner, \
+                 redirect_stdout(io.StringIO()):
+                smoke.main()
+            fixture = next(fixture for fixture in smoke.FIXTURES if fixture.name == source)
+            owner.assert_called_once_with(fixture, policy)
+            context = owner.return_value
+            context.__enter__.assert_called_once()
+            context.__enter__.return_value.seed.assert_called_once()
+            context.__enter__.return_value.verify.assert_called_once_with(None)
+            context.__exit__.assert_called_once()
 
 
 if __name__ == "__main__":

@@ -223,3 +223,51 @@ fn an_earlier_scope_requires_exact_known_owner_role_target_and_ordered_native_bo
     let unknown = NativeReadContext { database_writable: None, ..original };
     assert!(!current.matches_earlier_scope(&unknown));
 }
+
+#[test]
+fn local_database_owner_is_not_a_global_namespace_role_or_execution_claim() {
+    let original = read_context();
+    assert!(original.target.database().unwrap().incarnation.is_none());
+    let mut independent = original.clone();
+    independent.observed_from = "2020-01-01T12:00:02Z".into();
+    independent.observed_until = "2020-01-01T12:00:03Z".into();
+    for role in [None, Some(false), Some(true)] {
+        independent.database_writable = role;
+        assert!(original.same_local_database_owner(&independent));
+        assert_eq!(independent.matches_earlier_scope(&original), role == Some(true));
+    }
+    assert!(LocalResourceReadScope::from_context(&original).is_ok());
+    assert!(
+        NativeSourceReadScope::from_context(&original).is_err(),
+        "local recovery identity does not become a global logical history namespace"
+    );
+    for changed in ["database", "member", "epoch", "unknown", "shared"] {
+        let mut other = independent.clone();
+        match changed {
+            "database" => {
+                let CollectionTarget::Database(database) = &mut other.target else { panic!() };
+                database.database = "another-native-database".into();
+            }
+            "member" => {
+                let SourcePartition::InstanceLocal { member: Some(member), .. } = &mut other.partition else {
+                    panic!()
+                };
+                member.native.id = "another-native-member".into();
+            }
+            "epoch" => {
+                let SourcePartition::InstanceLocal { epoch, .. } = &mut other.partition else { panic!() };
+                *epoch = Some("changed-database-recovery-or-process-epoch".into());
+            }
+            "unknown" => {
+                let SourcePartition::InstanceLocal { epoch, .. } = &mut other.partition else { panic!() };
+                *epoch = None;
+            }
+            "shared" => {
+                let SourcePartition::InstanceLocal { member: Some(member), .. } = &other.partition else { panic!() };
+                other.target = CollectionTarget::Shared(member.clone());
+            }
+            _ => unreachable!(),
+        }
+        assert!(!original.same_local_database_owner(&other), "{changed}");
+    }
+}

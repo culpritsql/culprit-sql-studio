@@ -12,15 +12,19 @@ use serde_json::{Value, json};
 
 use crate::CulpritMcp;
 use crate::view;
+mod artifacts;
 mod incidents;
 mod local_captures;
 mod resources;
 mod response;
 mod warehouse;
+mod windows;
+pub(crate) use artifacts::ARTIFACTS_TOOL;
 pub(crate) use incidents::INCIDENT_TOOL;
 pub(crate) use resources::RESOURCES_TOOL;
+pub(crate) use windows::WINDOW_TOOL;
 pub(crate) fn is_warehouse_tool(tool: &str) -> bool {
-    matches!(tool, INCIDENT_TOOL | RESOURCES_TOOL)
+    matches!(tool, INCIDENT_TOOL | RESOURCES_TOOL | WINDOW_TOOL | ARTIFACTS_TOOL)
 }
 pub(crate) use local_captures::{LOCAL_CAPTURE_TOOL, check_operation as check_local_operation};
 
@@ -290,7 +294,12 @@ pub fn definitions(mode: crate::ToolMode, local_captures: bool, warehouse: bool)
         tools.push(local_captures::definition());
     }
     if warehouse {
-        tools.extend([resources::definition(), incidents::definition()]);
+        tools.extend([
+            resources::definition(),
+            incidents::definition(),
+            windows::definition(),
+            artifacts::definition(),
+        ]);
     }
     tools
 }
@@ -595,6 +604,8 @@ impl CulpritMcp {
         warehouse_cancellation: Option<culprit_read::cancellation::CollectionCancellation>,
     ) -> ToolTask<'a> {
         match tool {
+            WINDOW_TOOL => tool_task(move || self.warehouse_window(value, warehouse_cancellation)),
+            ARTIFACTS_TOOL => tool_task(move || self.warehouse_artifacts(value, warehouse_cancellation)),
             INCIDENT_TOOL => tool_task(move || self.incident(value, warehouse_cancellation)),
             RESOURCES_TOOL => tool_task(move || self.resources(value, warehouse_cancellation)),
             LOCAL_CAPTURE_TOOL => tool_task(move || self.analyze_capture(value, operation)),

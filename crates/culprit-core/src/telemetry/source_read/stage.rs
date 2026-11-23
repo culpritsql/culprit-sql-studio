@@ -1,6 +1,35 @@
 //! One immutable question focus owns its finite state transitions.
 use super::*;
 
+/// Only the implemented transaction metadata question can own one later observation.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub(in crate::telemetry) enum ObservationOrdinal {
+    Initial,
+    Continuation,
+}
+impl SourceReadFocus {
+    pub(in crate::telemetry) fn observation_ordinal(&self) -> ObservationOrdinal {
+        match self.prerequisite {
+            SourceReadPrerequisite::ObservedTransactionMetadataContinuation { .. } => ObservationOrdinal::Continuation,
+            _ => ObservationOrdinal::Initial,
+        }
+    }
+    /// One identity owner serves model transitions and durable scheduler deduplication.
+    pub fn stage_key(&self, episode_id: &str) -> Result<String> {
+        if !self.is_valid() {
+            return Err(invalid());
+        }
+        crate::telemetry::investigations::question_stage_key(
+            episode_id,
+            crate::telemetry::investigations::QuestionStage::SourceRead {
+                question: self.question,
+                observation: self.observation_ordinal(),
+            },
+            &self.target,
+        )
+    }
+}
+
 #[derive(Serialize, Deserialize, TS, Clone, Debug, PartialEq)]
 #[serde(deny_unknown_fields)]
 #[ts(export)]
@@ -40,11 +69,7 @@ impl SourceReadStage {
         if !self.is_valid() {
             return Err(invalid());
         }
-        crate::telemetry::investigations::question_stage_key(
-            episode_id,
-            crate::telemetry::investigations::QuestionStage::SourceRead(self.focus.question),
-            &self.focus.target,
-        )
+        self.focus.stage_key(episode_id)
     }
     pub fn needs_work(&self) -> bool {
         matches!(
@@ -71,6 +96,24 @@ impl SourceReadStage {
                 || self.focus.question.requires_live_episode() && episode.lifecycle == DiagnosticLifecycle::Resolved)
             && match (&episode.signal, &self.focus.prerequisite, &episode.report) {
                 (
+                    DiagnosticSignal::LockWait { key },
+                    SourceReadPrerequisite::ObservedMetadataLockWait { request },
+                    _,
+                ) => {
+                    request.original.key == *key
+                        && request.is_metadata_lock_focus()
+                        && episode.matches_recorded_request_origin(request)
+                }
+                (
+                    DiagnosticSignal::Activity { condition: ActivityCondition::LongRunning, .. },
+                    SourceReadPrerequisite::ObservedReadableSecondaryReader { request },
+                    _,
+                ) => {
+                    request.parent == episode.first
+                        && request.is_readable_secondary_recovery_focus()
+                        && episode.matches_recorded_request_origin(request)
+                }
+                (
                     DiagnosticSignal::CompilationAdmission { .. },
                     SourceReadPrerequisite::CompilationAdmission { report },
                     Some(DiagnosticReport::CompilationAdmission { report: original }),
@@ -86,6 +129,15 @@ impl SourceReadStage {
                 (DiagnosticSignal::LogRateGovernance { .. }, SourceReadPrerequisite::ObservedLogRateWait, None) => true,
                 (DiagnosticSignal::WorkerStarvation { .. }, SourceReadPrerequisite::ObservedWorkerQueue, None) => true,
                 (
+                    DiagnosticSignal::ClientResultOutput { key, statement_identity: Some(statement) },
+                    SourceReadPrerequisite::ObservedClientOutputWait { request },
+                    None,
+                ) => {
+                    request.original.key == *key
+                        && request.statement_identity == *statement
+                        && request.is_output_memory_focus()
+                }
+                (
                     DiagnosticSignal::OriginalObservation {
                         condition: DiagnosticOriginalCondition::MssqlWorkerQueue,
                         ..
@@ -98,6 +150,16 @@ impl SourceReadStage {
                     SourceReadPrerequisite::ObservedCurrentRequestPlan { observation, .. },
                     Some(DiagnosticReport::CurrentRequestWork { observation: actual }),
                 ) => observation.as_ref() == actual,
+                (
+                    DiagnosticSignal::Activity { condition: ActivityCondition::LongRunning, .. },
+                    SourceReadPrerequisite::ObservedCurrentExecutionRequest { observation, .. },
+                    Some(DiagnosticReport::CurrentRequestWork { observation: actual }),
+                ) => observation.as_ref() == actual,
+                (
+                    DiagnosticSignal::TransactionMetadataWait { .. },
+                    SourceReadPrerequisite::ObservedTransactionMetadataContinuation { continuation },
+                    None,
+                ) => continuation.matches_episode(episode),
                 (
                     DiagnosticSignal::TransactionMetadataWait { key, statement_identity: Some(statement), mechanism },
                     SourceReadPrerequisite::ObservedTransactionMetadataWait {
@@ -123,10 +185,23 @@ impl SourceReadStage {
     }
     fn basis_matches_episode(&self, episode: &DiagnosticEpisode) -> bool {
         // These questions may retain a later authenticated observation of the same native original.
+        if let SourceReadPrerequisite::ObservedTransactionMetadataContinuation { continuation } =
+            &self.focus.prerequisite
+        {
+            return self.focus.basis.as_ref() == &continuation.request.parent
+                && episode.matches_recorded_request_origin(&continuation.request);
+        }
         match self.focus.question {
             SourceReadQuestion::TemporarySpaceContributors | SourceReadQuestion::RelationalInputContext => {
                 self.focus.basis.source_scope_id == episode.first.source_scope_id
                     && self.focus.basis.native_key == episode.first.native_key
+            }
+            SourceReadQuestion::CurrentExecutionProfile => {
+                let SourceReadPrerequisite::ObservedCurrentExecutionRequest { request, .. } = &self.focus.prerequisite
+                else {
+                    return false;
+                };
+                self.focus.basis.as_ref() == &request.parent && episode.matches_recorded_request_origin(request)
             }
             _ => self.focus.basis.as_ref() == &episode.first,
         }

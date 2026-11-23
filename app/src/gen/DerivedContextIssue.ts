@@ -3,4 +3,4 @@
 /**
  * Selection and interpretation gaps are separate from EOF-completeness of available selected bodies.
  */
-export type DerivedContextIssue = "missing-original" | "unavailable-original" | "context-limit" | "unqualified-catalog-scope" | "unknown-catalog-clock" | "catalog-not-retained-as-of" | "partial-catalog" | "ambiguous-catalog" | "changed-catalog-subject" | "acquisition-catalog-only";
+export type DerivedContextIssue = "missing-original" | "unavailable-original" | "context-limit" | "unqualified-catalog-scope" | "unknown-catalog-clock" | "catalog-not-retained-as-of" | "partial-catalog" | "ambiguous-catalog" | "changed-catalog-subject" | "acquisition-catalog-only" | "unqualified-point-scope" | "unknown-point-clock" | "point-not-retained-near-observation" | "point-outside-observation-window" | "independent-point-role" | "ambiguous-point-context";

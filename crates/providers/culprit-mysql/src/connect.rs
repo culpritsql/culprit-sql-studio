@@ -136,6 +136,7 @@ pub struct Connector {
     pub database: Option<String>,
     pub(crate) fence: culprit_read::ReadFence,
     pub(crate) observation: culprit_core::ProviderReadContext,
+    profile: Option<culprit_read::SourceProfileGuard>,
 }
 
 impl Connector {
@@ -212,9 +213,32 @@ impl Connector {
             database: spec.database.clone().filter(|d| !d.is_empty()),
             fence: culprit_read::ReadFence::default(),
             observation: culprit_core::ProviderReadContext::unobserved(),
+            profile: None,
         })
     }
 
+    pub(crate) fn with_profile(&self, profile: culprit_read::SourceProfileGuard) -> Self {
+        Self {
+            base: self.base.clone(),
+            transport: self.transport.clone(),
+            flavor: OnceLock::new(),
+            version: OnceLock::new(),
+            tls: self.tls,
+            root_cert: self.root_cert.clone(),
+            host: self.host.clone(),
+            port: self.port,
+            database: self.database.clone(),
+            fence: self.fence.clone(),
+            observation: self.observation.clone(),
+            profile: Some(profile),
+        }
+    }
+    pub(crate) fn profile(&self) -> Option<&culprit_read::SourceProfileGuard> {
+        self.profile.as_ref()
+    }
+    pub(crate) fn check_profile(&self) -> Result<()> {
+        check_admission(self.profile())
+    }
     fn ssl_opts(&self, tls: Tls) -> Option<SslOpts> {
         let roots = |opts: SslOpts| match &self.root_cert {
             Some(path) => opts.with_root_certs(vec![path.clone().into()]),
@@ -235,7 +259,7 @@ impl Connector {
     pub async fn connect(&self, scope: Scope) -> Result<Conn> {
         self.observation.partial_reader_coverage(culprit_core::ProviderReadGap::UnhookedEnrichment);
         self.fence.ensure_available()?;
-        let mut conn = self.open_connection(Bootstrap::DriverManaged).await?;
+        let mut conn = self.open_connection(Bootstrap::DriverManaged, self.profile()).await?;
         let flavor = match self.flavor.get() {
             Some(flavor) => *flavor,
             None => {
@@ -258,12 +282,12 @@ impl Connector {
 
     pub(crate) async fn connect_unconfigured(&self) -> Result<Conn> {
         self.fence.ensure_available()?;
-        self.open_connection(Bootstrap::Owned).await
+        self.open_connection(Bootstrap::Owned, self.profile()).await
     }
 
     /// Retirement must still be able to stop already admitted work after its caller closes the shared fence.
     pub(crate) async fn connect_for_cancellation(&self) -> Result<Conn> {
-        self.open_connection(Bootstrap::Owned).await
+        self.open_connection(Bootstrap::Owned, None).await
     }
 
     pub(crate) fn record_version(&self, version: String) -> Flavor {
@@ -272,21 +296,37 @@ impl Connector {
         flavor
     }
 
-    async fn open_connection(&self, bootstrap: Bootstrap) -> Result<Conn> {
-        let (base, endpoint) = self.dial_options().await?;
+    async fn open_connection(
+        &self,
+        bootstrap: Bootstrap,
+        profile: Option<&culprit_read::SourceProfileGuard>,
+    ) -> Result<Conn> {
+        let (base, endpoint) = self.dial_options(profile).await?;
         let base = bootstrap.options(base);
+        check_admission(profile)?;
         let attempt = self.open(self.tls, &base).await;
-        match attempt {
+        let result = match attempt {
             // PREFERRED: the server doesn't do TLS at all, or no encrypted session can be agreed (MySQL 5.7 builds on
             // OpenSSL 1.0 only negotiate DHE suites, which rustls doesn't offer). Continue in plaintext like the mysql
             // client does; PREFERRED never verified the certificate, so nothing that was protected is given up.
             Err(e) if self.tls == Tls::Preferred && (no_server_tls(&e) || is_tls_handshake_error(&e)) => {
-                let (base, endpoint) = self.dial_options().await?;
+                let (base, endpoint) = self.dial_options(profile).await?;
+                check_admission(profile)?;
                 self.open(Tls::Disabled, &bootstrap.options(base))
                     .await
                     .map_err(|e| self.connect_error(endpoint.as_ref(), e))
             }
             other => other.map_err(|e| self.connect_error(endpoint.as_ref(), e)),
+        };
+        match result {
+            Ok(connection) => match check_admission(profile) {
+                Ok(()) => Ok(connection),
+                Err(error) => {
+                    let _ = connection.disconnect().await;
+                    Err(error)
+                }
+            },
+            Err(error) => Err(error),
         }
     }
 
@@ -313,10 +353,15 @@ impl Connector {
         self.flavor() == Flavor::Mariadb || self.version().is_none_or(|v| culprit_core::version_at_least(v, [8, 0, 18]))
     }
 
-    async fn dial_options(&self) -> Result<(OptsBuilder, Option<ConnectionEndpoint>)> {
+    async fn dial_options(
+        &self,
+        profile: Option<&culprit_read::SourceProfileGuard>,
+    ) -> Result<(OptsBuilder, Option<ConnectionEndpoint>)> {
+        check_admission(profile)?;
         let mut base = self.base.clone();
         let endpoint = if let Some(transport) = &self.transport {
             let address = transport.endpoint(&self.host, self.port).await?;
+            check_admission(profile)?;
             // Retain ip_or_hostname for TLS SNI and certificate verification; resolved_ips changes TCP dialing only.
             base = base.resolved_ips(Some(vec![address.address.ip()])).tcp_port(address.address.port());
             Some(address)
@@ -380,6 +425,10 @@ impl Connector {
         }
         mapped
     }
+}
+
+fn check_admission(profile: Option<&culprit_read::SourceProfileGuard>) -> Result<()> {
+    profile.map_or(Ok(()), culprit_read::SourceProfileGuard::ensure_active)
 }
 
 fn no_server_tls(error: &mysql_async::Error) -> bool {
@@ -486,12 +535,71 @@ mod tests {
             ..spec()
         };
         let connector = Connector::new(&spec).unwrap();
-        let opts: mysql_async::Opts = connector.dial_options().await.unwrap().0.into();
+        let opts: mysql_async::Opts = connector.dial_options(None).await.unwrap().0.into();
         assert_eq!(opts.ip_or_hostname(), spec.host);
         assert_eq!(opts.resolved_ips().as_deref(), Some(&["127.0.0.1".parse::<std::net::IpAddr>().unwrap()][..]));
         assert_eq!(opts.tcp_port(), 13306);
         assert_eq!(connector.tls, Tls::VerifyIdentity);
         assert_eq!(connector.port, 3306);
+    }
+
+    struct RetiringRoute {
+        active: Arc<std::sync::atomic::AtomicBool>,
+        calls: Arc<std::sync::atomic::AtomicUsize>,
+    }
+    #[async_trait::async_trait]
+    impl ConnectionTransport for RetiringRoute {
+        async fn endpoint(&self, _: &str, _: u16) -> Result<ConnectionEndpoint> {
+            self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            self.active.store(false, std::sync::atomic::Ordering::SeqCst);
+            Ok(ConnectionEndpoint::new("127.0.0.1:13306".parse().unwrap()))
+        }
+    }
+    #[tokio::test]
+    async fn source_profile_retirement_before_route_or_during_route_never_admits_login_or_fallback() {
+        use culprit_core::telemetry::*;
+        use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+        for retired_before_route in [true, false] {
+            let active = Arc::new(AtomicBool::new(true));
+            let calls = Arc::new(AtomicUsize::new(0));
+            let connector = Connector::new(&ConnectionSpec {
+                database: Some("shop".into()),
+                transport: Some(Arc::new(RetiringRoute { active: active.clone(), calls: calls.clone() })),
+                ..spec()
+            })
+            .unwrap();
+            let recipe = crate::telemetry_recipes().into_iter().find(|recipe| recipe.id == "mysql.activity").unwrap();
+            let RecipeAdmission::BuiltinSafety(policy) = recipe.admission else { panic!() };
+            let request = CollectionRequest {
+                subject: CollectionSubject::Database,
+                selection: CollectionSelection::Activity,
+                budget: recipe.budget,
+            };
+            let observed = active.clone();
+            let admission = SourceProfileAdmission::for_builtin(
+                digest(b"native saved route"),
+                *policy,
+                None,
+                request.budget.clone(),
+                move || observed.load(Ordering::SeqCst),
+            )
+            .unwrap();
+            let connector =
+                connector.with_profile(culprit_read::SourceProfileGuard::new(&request, &admission).unwrap());
+            if retired_before_route {
+                active.store(false, Ordering::SeqCst);
+            }
+            // Endpoint would return loopback, but retirement refuses before Conn::new can make any native attempt.
+            let error = connector.connect_unconfigured().await.err().expect("retired source policy must refuse");
+            assert_eq!(CollectionStop::from_error(&error), CollectionStop::SourceChanged);
+            assert_eq!(calls.load(Ordering::SeqCst), usize::from(!retired_before_route));
+            assert!(connector.connect_unconfigured().await.is_err());
+            assert_eq!(
+                calls.load(Ordering::SeqCst),
+                usize::from(!retired_before_route),
+                "retirement is sticky across retries"
+            );
+        }
     }
 
     fn spec() -> ConnectionSpec {

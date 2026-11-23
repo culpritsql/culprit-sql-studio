@@ -51,7 +51,9 @@ impl CapturedOperationalRead {
     }
 
     fn accepts_rows(&self) -> bool {
-        let Some(header) = self.description.observation.snapshot() else { return false };
+        let Some(header) = self.description.observation.snapshot() else {
+            return false;
+        };
         if header.dataset.stream() != TelemetryStream::OperationalSamples
             || !header.is_valid()
             || !self.description.target.is_valid()
@@ -69,8 +71,12 @@ impl CapturedOperationalRead {
             .collect::<BTreeMap<_, _>>();
         let mut keys = BTreeSet::new();
         for row in &self.observations {
-            let Some((coverage, count)) = counts.get_mut(row.source.as_str()) else { return false };
+            let Some((coverage, count)) = counts.get_mut(row.source.as_str()) else {
+                return false;
+            };
             if !row.is_valid()
+                || matches!(&self.description.observation, SourceObservation::MssqlPoolCurrent { authority, .. }
+                    if authority.native.is_some() && !authority.accepts_operational(row))
                 || !matches!(coverage.state, crate::SourceState::Collected | crate::SourceState::Partial)
                 || !keys.insert((row.source.as_str(), row.key.as_str()))
                 || *count >= coverage.records as usize
@@ -164,7 +170,9 @@ impl<'a> OriginalIndex<'a> {
     fn new(originals: &'a [RecordedOperationalRead]) -> Self {
         let mut captures: BTreeMap<OriginalKey<'a>, OriginalEntry<'a>> = BTreeMap::new();
         for (position, original) in originals.iter().enumerate() {
-            let RecordedOperationalRead::Captured { read } = original else { continue };
+            let RecordedOperationalRead::Captured { read } = original else {
+                continue;
+            };
             match captures.entry(original_key(read)) {
                 Entry::Vacant(entry) => {
                     entry.insert(OriginalEntry { position, read, conflicted: false });

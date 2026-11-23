@@ -62,6 +62,7 @@ function resourceKey(identity: SharedResourceIdentity): unknown[] {
 
 function targetKey(target: CollectionTarget): unknown[] {
   if (target.scope === "shared") return [target.scope, resourceKey(target.identity)];
+  if (target.scope === "configured-connection") return [target.scope, target.identity.id, target.identity.route_revision];
   const database = target.identity;
   return [target.scope, database.engine, database.database, locationKey(database.location), database.incarnation];
 }

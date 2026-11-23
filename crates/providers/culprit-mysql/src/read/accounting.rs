@@ -10,6 +10,10 @@ pub(crate) struct Accounting {
     connection_generation: Arc<std::sync::atomic::AtomicU64>,
 }
 impl Accounting {
+    pub(crate) fn query_count(&self) -> u32 {
+        self.queries.load(Ordering::Acquire)
+    }
+
     /// Cancellation remains admitted after an ordinary read budget expires, but its work still appears in cost
     /// diagnostics and query counts. Suppressing cleanup at the limit could leave the database request running.
     pub(crate) fn control_query(&self, sql: &str) -> ControlQuery {
@@ -51,9 +55,15 @@ impl Accounting {
             observer.checkpoint(self.queries.load(Ordering::Acquire), self.snapshot());
         }
     }
-    pub(super) fn acquired(&self, attempt: &ReadConnectionAttemptRecorder) {
+    pub(super) fn acquired(&self, attempt: Option<&ReadConnectionAttemptRecorder>) {
         let generation = self.connection_generation.fetch_add(1, Ordering::AcqRel).saturating_add(1);
-        attempt.acquired(generation);
+        if let Some(attempt) = attempt {
+            attempt.acquired(generation);
+        }
+    }
+    pub(super) fn connection_generation(&self) -> Option<u64> {
+        let generation = self.connection_generation.load(Ordering::Acquire);
+        (generation > 0).then_some(generation)
     }
     pub(super) fn remaining(&self) -> Result<Duration> {
         let remaining = self
@@ -123,6 +133,17 @@ impl Drop for ControlQuery {
 mod tests {
     use super::*;
 
+    #[test]
+    fn unobserved_native_acquisition_generations_are_positive_shared_and_independent_of_sql_counts() {
+        let accounting = Accounting::new(CollectionBudget::default());
+        assert_eq!(accounting.connection_generation(), None);
+        accounting.acquired(None);
+        assert_eq!(accounting.connection_generation(), Some(1));
+        let another = accounting.clone();
+        another.acquired(None);
+        assert_eq!(accounting.connection_generation(), Some(2));
+        assert_eq!(accounting.queries.load(Ordering::Acquire), 0, "native handshakes are not invented SQL");
+    }
     #[test]
     fn abandoning_a_control_guard_retains_unknown_original_cause_and_unconfirmed_accounting() {
         let accounting = Accounting::new(CollectionBudget::default());

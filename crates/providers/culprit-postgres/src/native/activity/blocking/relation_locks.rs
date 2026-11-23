@@ -1,11 +1,12 @@
 //! One bounded focused projection reuses the native activity owner and does not change baseline/Live lock SQL.
 use super::*;
 use culprit_core::blocking::{
-    MAX_FOCUSED_LOCK_SNAPSHOT_ROWS, MAX_NATIVE_RELATION_LOCK_MODES, NativeLockEvidence, PostgresLockBlocker,
-    PostgresLockPoint, PostgresRelationLockMode, PostgresRelationLockTag,
+    MAX_FOCUSED_LOCK_SNAPSHOT_ROWS, MAX_NATIVE_RELATION_LOCK_MODES, NativeBlockingOwnerContext, NativeLockEvidence,
+    PostgresLockBlocker, PostgresLockPoint, PostgresRelationLockMode, PostgresRelationLockTag,
 };
 use serde::Deserialize;
 mod sql;
+pub(crate) use sql::recovery_projection;
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -15,6 +16,9 @@ struct Owner {
     single_backend: bool,
     granted: Vec<String>,
     waiting: Vec<String>,
+    active: bool,
+    wait_event_type: Option<String>,
+    wait_event: Option<String>,
 }
 
 /// True means a retained lock/mode/edge prefix cannot qualify a queue mechanism.
@@ -78,12 +82,38 @@ pub(super) async fn read<R: QueryRead>(
             } else {
                 None
             };
+            let owner_identity = ActivityWaitOwner::Session {
+                id: owner.pid.clone(),
+                generation: actor.as_ref().map(|key| key.session.generation.clone()),
+            };
+            let output_context = actor
+                .as_ref()
+                .map(|key| {
+                    let index = *by_pid.get(&pid).ok_or_else(invalid)?;
+                    let original = frame.records[index].facts.as_ref().ok_or_else(invalid)?;
+                    let native_wait = match (owner.wait_event_type.as_ref(), owner.wait_event.as_ref()) {
+                        (Some(kind), Some(event)) => Some(format!("{kind}: {event}")),
+                        (Some(kind), None) => Some(kind.clone()),
+                        _ => None,
+                    };
+                    Ok::<_, culprit_core::Error>(NativeBlockingOwnerContext {
+                        owner: owner_identity.clone(),
+                        actor: Some(key.clone()),
+                        statement: original.statement_identity.clone(),
+                        native_wait,
+                        wait_ms: None,
+                        current_requests: Some(if owner.active { "1" } else { "0" }.into()),
+                        complete_request_population: owner.single_backend,
+                    })
+                })
+                .transpose()?;
             blockers.push(PostgresLockBlocker {
                 native_pid: owner.pid,
                 actor,
                 single_backend: owner.single_backend,
                 granted_modes: owner.granted.iter().map(|raw| PostgresRelationLockMode::from_native(raw)).collect(),
                 waiting_mode: owner.waiting.first().map(|raw| PostgresRelationLockMode::from_native(raw)),
+                output_context,
             });
         }
         let point = PostgresLockPoint {

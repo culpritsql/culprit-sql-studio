@@ -38,6 +38,7 @@ export const KIND_LABEL: Record<EventKind, string> = {
     return t("ui.events.kind.statistics");
   },
   get "job-execution"() { return t("ui.events.kind.job_execution"); },
+  get "native-event"() { return t("ui.events.kind.native_event"); },
   get throttle() {
     return t("ui.events.kind.throttle");
   },

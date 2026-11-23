@@ -53,7 +53,7 @@ async fn observe_phase(
         return Err(CollectionStop::SourceUnavailable.error());
     }
     let generation = admitted.connection_generation().ok_or_else(|| CollectionStop::SourceUnavailable.error())?;
-    let mut held = SameConnection { reader: &mut admitted, generation };
+    let mut held = SameConnection::new(&mut admitted, generation);
     let owner = Box::new(
         Box::pin(Context::observe(&mut held, &before))
             .await?

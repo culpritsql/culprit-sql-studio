@@ -16,7 +16,7 @@ mod resource_governor;
 mod row;
 pub(crate) use database::read_current;
 pub(crate) use ratios::PerformanceRead;
-pub(crate) use resource_governor::read as read_for_instance;
+pub(crate) use resource_governor::{read as read_for_instance, read_pool as read_for_pool};
 pub(crate) const MAX_COUNTERS: usize = MAX_NATIVE_COUNTERS;
 const COUNTER_COLUMNS: &str = "RTRIM(object_name) AS native_object, RTRIM(counter_name) AS native_name,\nRTRIM(instance_name) AS native_instance, cntr_value AS value, cntr_type AS native_type";
 #[derive(Clone, Copy)]
@@ -66,6 +66,12 @@ fn sql() -> String {
     query(false)
 }
 fn query(governed: bool) -> String {
+    query_with_context(governed, "")
+}
+fn pool_query() -> String {
+    query_with_context(true, ",CONVERT(nvarchar(60),DATABASEPROPERTYEX(DB_NAME(),N'Updateability')) AS updateability")
+}
+fn query_with_context(governed: bool, native_context: &str) -> String {
     // The selector grammar comes only from these fixed specifications, never from a database value or user input.
     let investigation = culprit_core::Engine::Mssql
         .spec()
@@ -98,7 +104,7 @@ fn query(governed: bool) -> String {
 CONVERT(nvarchar(40),@counter_observed_at,127)+N'Z' AS counter_observed_at,
 CONVERT(int,SERVERPROPERTY(N'EngineEdition')) AS engine_edition,
 CONVERT(nvarchar(128),DATABASEPROPERTYEX(DB_NAME(),N'Edition')) AS database_edition,
-CONVERT(nvarchar(128),DATABASEPROPERTYEX(DB_NAME(),N'ReplicaID')) AS replica_id{extra}
+CONVERT(nvarchar(128),DATABASEPROPERTYEX(DB_NAME(),N'ReplicaID')) AS replica_id{native_context}{extra}
 {relation} WHERE {filter} OPTION(MAXDOP 1)"
     )
 }

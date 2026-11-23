@@ -39,9 +39,11 @@ function sourceWords(e: ChangeEvent): string {
       return e.by === "app" ? t("ui.change_timeline.marked_by_you") : e.by ? t("ui.change_timeline.marked_by", { who: e.by }) : t("ui.change_timeline.marked");
     case "database":
       return t("ui.change_timeline.dated_by_database");
+    case "imported-artifact":
+      return t("ui.change_timeline.imported_artifact");
     case "scans":
       return t("ui.change_timeline.between_scans");
-    default:
+    case "cloud":
       return e.object ? t("ui.change_timeline.from_cloud_object", { object: e.object }) : t("ui.change_timeline.from_cloud");
   }
 }

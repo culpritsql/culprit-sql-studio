@@ -57,7 +57,12 @@ fn question_and_prerequisite_are_closed_pairs_and_reject_cross_family_admission(
     assert!(!log.focus.matches_basis(&compiler.source, &compiler.row, &compiler.execution.clone().into()));
     assert!(!compiler.focus.matches_basis(&log.source, &log.row, &log.execution.clone().into()));
     for question in SourceReadQuestion::ALL {
-        assert_eq!(SourceReadQuestion::for_dataset(question.dataset()), Some(*question));
+        if let Some(dataset) = question.dataset() {
+            assert_eq!(SourceReadQuestion::for_dataset(dataset), Some(*question));
+        } else {
+            assert_eq!(question.collection(), TelemetryCollection::Activity);
+            assert_eq!(*question, SourceReadQuestion::MetadataLockContext);
+        }
     }
     assert_eq!(SourceReadQuestion::for_dataset(SnapshotDataset::Operational), None);
 }

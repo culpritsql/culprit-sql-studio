@@ -7,6 +7,7 @@ pub(crate) mod test_support;
 #[cfg(test)]
 mod tests;
 
+pub(crate) mod payload;
 pub(crate) const SOURCE: &str = "mysql-current-activity";
 // Native status codes documented as waits, unlike the ambiguous System lock/User lock states.
 // https://dev.mysql.com/doc/refman/8.4/en/general-thread-states.html
@@ -130,14 +131,42 @@ pub(crate) fn target_query() -> String {
 
 /// Both exact live controls and explicit current-work reads retain the same native actor/statement projection.
 pub(crate) fn selected_request_query(projection: &str, limit: usize) -> String {
+    selected_query(projection, SelectedRows::Request, limit)
+}
+pub(crate) fn selected_participants_query(projection: &str, participants: usize, limit: usize) -> Result<String> {
+    if participants == 0 || participants > MAX_BLOCKING_PARTICIPANTS as usize {
+        return Err(invalid());
+    }
+    Ok(selected_query(projection, SelectedRows::Participants(participants), limit))
+}
+enum SelectedRows {
+    Request,
+    Participants(usize),
+}
+fn selected_query(projection: &str, rows: SelectedRows, limit: usize) -> String {
+    let (selection, database, include_idle_holders) = match rows {
+        SelectedRows::Request => ("t.PROCESSLIST_ID=?".to_owned(), "t.PROCESSLIST_DB=? AND ", false),
+        SelectedRows::Participants(count) => {
+            (format!("t.PROCESSLIST_ID IN ({})", vec!["?"; count].join(",")), "", true)
+        }
+    };
+    let live_statement =
+        "(e.SQL_TEXT IS NULL OR (e.SQL_TEXT NOT LIKE '%/* culprit */%' AND e.SQL_TEXT NOT LIKE '%/* culprit:%'))";
+    // A completed/idle statement is never acquiring SQL. Its session may nevertheless hold the exact native
+    // grant sampled by the lock owner, including after a tagged fixture/control statement.
+    let statement = if include_idle_holders {
+        format!("(t.PROCESSLIST_COMMAND='Sleep' OR e.END_EVENT_ID IS NOT NULL OR {live_statement})")
+    } else {
+        live_statement.into()
+    };
     format!("SELECT t.PROCESSLIST_ID AS id, t.PROCESSLIST_DB AS db,
         t.PROCESSLIST_USER AS user_name, t.PROCESSLIST_HOST AS host, t.PROCESSLIST_COMMAND AS command,
         t.PROCESSLIST_STATE AS state, t.PROCESSLIST_TIME AS seconds, {GENERATION_COLUMNS}, {projection}
         FROM performance_schema.threads t LEFT JOIN performance_schema.events_statements_current e ON e.THREAD_ID=t.THREAD_ID
-        WHERE t.TYPE='FOREGROUND' AND t.PROCESSLIST_ID=? AND t.PROCESSLIST_ID<>CONNECTION_ID()
-          AND t.PROCESSLIST_DB=? AND t.PROCESSLIST_COMMAND NOT IN ('Daemon','Binlog Dump','Binlog Dump GTID')
+        WHERE t.TYPE='FOREGROUND' AND {selection} AND t.PROCESSLIST_ID<>CONNECTION_ID()
+          AND {database}t.PROCESSLIST_COMMAND NOT IN ('Daemon','Binlog Dump','Binlog Dump GTID')
           AND t.PROCESSLIST_USER<>'system user'
-          AND (e.SQL_TEXT IS NULL OR (e.SQL_TEXT NOT LIKE '%/* culprit */%' AND e.SQL_TEXT NOT LIKE '%/* culprit:%')) LIMIT {limit}")
+          AND {statement} LIMIT {limit}")
 }
 
 async fn sessions<R: QueryRead>(reader: &mut R, database: &str, limit: usize) -> Result<Vec<Rec>> {

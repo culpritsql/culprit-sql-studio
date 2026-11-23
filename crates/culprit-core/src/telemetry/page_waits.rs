@@ -450,6 +450,7 @@ impl PageWaitObservation {
             None => match &source.target {
                 CollectionTarget::Database(database) => self.fits_database_capture(&database.database),
                 CollectionTarget::Shared(_) => source.is_partition_qualified(),
+                CollectionTarget::ConfiguredConnection(_) => false,
             },
         }
     }

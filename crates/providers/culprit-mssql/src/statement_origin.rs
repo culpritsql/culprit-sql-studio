@@ -2,6 +2,11 @@
 use crate::{read::integer, value::Rec};
 use culprit_core::{Engine, telemetry::StatementOrigin};
 pub(crate) const PROVENANCE_PREFIX_CHARACTERS: usize = 2048;
+/// Native boxed editions have no cloud-internal query population. Other products remain unknown.
+/// https://learn.microsoft.com/sql/relational-databases/system-catalog-views/sys-query-store-query-transact-sql
+/// https://learn.microsoft.com/sql/t-sql/functions/serverproperty-transact-sql
+pub(crate) const BOXED_CACHE_CLOUD_INTERNAL: &str =
+    "CASE WHEN CONVERT(int,SERVERPROPERTY('EngineEdition')) IN(2,3,4) THEN 0 ELSE CAST(NULL AS int) END";
 pub(crate) const OWN_QUERY_MARKER: &str = "/* culprit */";
 pub(crate) const MONITORING_QUERY_MARKER: &str = "/* culprit:monitor */";
 
@@ -127,6 +132,20 @@ mod tests {
             let classified = read(&row, Some(&requested));
             assert_eq!(classified.origin, StatementOrigin::Culprit);
             assert!(classified.template_id.is_none(), "requested commands are not collector templates");
+        }
+    }
+
+    #[test]
+    fn boxed_negative_cloud_fact_does_not_supply_missing_engine_ownership_or_hide_internal_queries() {
+        for (engine, cloud, expected) in [
+            (Val::Int(0), Val::Int(0), StatementOrigin::Application),
+            (Val::Null, Val::Int(0), StatementOrigin::Unknown),
+            (Val::Int(0), Val::Null, StatementOrigin::Unknown),
+            (Val::Int(1), Val::Int(0), StatementOrigin::EngineInternal),
+            (Val::Int(0), Val::Int(1), StatementOrigin::EngineInternal),
+        ] {
+            let row = Rec::of(&[("engine_internal", engine), ("cloud_internal", cloud)]);
+            assert_eq!(read(&row, Some("SELECT id FROM dbo.items")).origin, expected);
         }
     }
 

@@ -105,6 +105,16 @@ pub(crate) struct NativeRecommendations {
     pub query_link_failure: Option<Error>,
 }
 pub(crate) async fn read(reader: &mut impl NativeRead, limit: usize) -> Result<NativeRecommendations> {
+    read_for_database(reader, limit, None).await
+}
+
+/// The scheduled native catalog supplies its acquired DB id before optional association SQL may run.
+/// Normal scans keep their existing source contract and use the same query/decoder without this binding.
+pub(crate) async fn read_for_database(
+    reader: &mut impl NativeRead,
+    limit: usize,
+    database_id: Option<u32>,
+) -> Result<NativeRecommendations> {
     let rows = reader
         .query(&missing_indexes_sql(), vec![Parameter::Integer((limit + 1) as i64)], limit + 1)
         .await
@@ -116,6 +126,9 @@ pub(crate) async fn read(reader: &mut impl NativeRead, limit: usize) -> Result<N
     let mut groups = std::collections::BTreeMap::new();
     for row in &rows {
         let index = decode(row)?;
+        if database_id.is_some_and(|expected| index.sample.table.database_id != expected) {
+            return Err(CollectionStop::SourceChanged.error());
+        }
         if groups.insert(index.sample.group_handle, indexes.len()).is_some() {
             return Err(invalid_data());
         }

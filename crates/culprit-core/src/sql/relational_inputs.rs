@@ -14,7 +14,9 @@ pub fn mssql_declared_table_variable(text: &str) -> Option<String> {
 }
 
 mod references;
-pub use references::{MssqlRelationName, MssqlRelationReference, mssql_relational_references};
+pub use references::{
+    MssqlRelationName, MssqlRelationReference, mssql_redacted_relational_references, mssql_relational_references,
+};
 
 fn declaration(tokens: &[Token<'_>]) -> Option<String> {
     let start = tokens.iter().take_while(|token| matches!(token, Token::Semicolon(_))).count();

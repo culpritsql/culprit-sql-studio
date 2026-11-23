@@ -17,3 +17,10 @@ pub(super) fn admits(value: &impl Serialize) -> Result<bool> {
 pub(super) fn bounded(value: Value) -> Result<Value> {
     if admits(&value)? { Ok(value) } else { Err(DeliveryProblem::Capacity.error()) }
 }
+
+/// Admit the actual tool-result envelope, including the JSON string's second escaping and metadata.
+pub(super) fn bounded_tool_result(value: Value) -> Result<Value> {
+    use rmcp::model::{CallToolResult, ContentBlock};
+    let result = CallToolResult::success(vec![ContentBlock::text(value.to_string())]);
+    if admits(&result)? { Ok(value) } else { Err(DeliveryProblem::Capacity.error()) }
+}

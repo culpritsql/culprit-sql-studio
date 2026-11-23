@@ -266,12 +266,13 @@ impl ObservationFiles {
         if let Some(source) = &self.manifest.description
             && !source.observation.covers_request()
         {
-            let reason = match source.observation {
-                culprit_core::telemetry::SourceObservation::RetainedSamples(ref history) => {
-                    history.coverage_stop().unwrap_or(CollectionStop::InvalidPage)
+            let reason = if let Some(history) = source.observation.sample_history() {
+                history.coverage_stop().unwrap_or(CollectionStop::InvalidPage)
+            } else {
+                match source.observation {
+                    culprit_core::telemetry::SourceObservation::Activity(_) => CollectionStop::SourceUnavailable,
+                    _ => CollectionStop::RetentionGap,
                 }
-                culprit_core::telemetry::SourceObservation::Activity(_) => CollectionStop::SourceUnavailable,
-                _ => CollectionStop::RetentionGap,
             };
             self.invalidate(reason);
         }

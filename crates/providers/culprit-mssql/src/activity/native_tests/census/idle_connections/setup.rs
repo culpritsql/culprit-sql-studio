@@ -22,7 +22,7 @@ impl Work {
     }
 }
 
-pub(super) struct IdleClients {
+pub(in super::super) struct IdleClients {
     clients: Vec<MsClient>,
     identities: Vec<IdleIdentity>,
     work: Work,

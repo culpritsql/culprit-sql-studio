@@ -7,6 +7,7 @@ mod scheduler;
 mod storage;
 mod windows;
 mod work;
+pub(crate) use investigations::FOCUSED_COOLDOWN_SECONDS;
 pub use journal::FleetJournal;
 pub use scheduler::{MIN_RESOURCE_GAP_SECONDS, minimum_collection_slot};
 

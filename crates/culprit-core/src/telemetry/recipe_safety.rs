@@ -38,7 +38,25 @@ impl BuiltinRecipeSafety {
                     matches!(self.selector, RecipeSelector::Collection(collection)
                     if !collection.is_local_output())
                 }
-                RecipePurpose::Investigation => !matches!(self.selector, RecipeSelector::Collection(_)),
+                RecipePurpose::Investigation => {
+                    !matches!(self.selector, RecipeSelector::Collection(_))
+                        || SourceReadQuestion::ALL.iter().any(|question| question.selector() == self.selector)
+                }
+            }
+    }
+    /// Structural scope matching only; the selected source verifier still owns policy authority.
+    pub(super) fn matches_execution_scope(&self, scope: &RecipeCostScope) -> bool {
+        self.is_valid()
+            && self.purpose == RecipePurpose::Investigation
+            && scope.is_valid()
+            && scope.native_epoch().is_some()
+            && scope.partition().is_qualified()
+            && match scope {
+                RecipeCostScope::Activity(_) => !matches!(self.selector, RecipeSelector::Collection(_)),
+                RecipeCostScope::NativeRead(execution) => SourceReadQuestion::ALL
+                    .iter()
+                    .any(|question| question.selector() == self.selector && execution.accepts_question(*question)),
+                _ => false,
             }
     }
     pub fn matches_recipe(&self, recipe: &RecipeDescriptor) -> bool {
@@ -79,6 +97,16 @@ impl RecipeExecutionAdmission {
         original: &DiagnosticScope,
         caller: &CollectionBudget,
     ) -> Result<Self> {
+        Self::for_scope(recipe, RecipeCostScope::Activity(original.clone()), caller)
+    }
+    pub fn for_source_read(
+        recipe: &RecipeDescriptor,
+        execution: &SourceReadExecutionScope,
+        caller: &CollectionBudget,
+    ) -> Result<Self> {
+        Self::for_scope(recipe, RecipeCostScope::NativeRead(execution.clone()), caller)
+    }
+    fn for_scope(recipe: &RecipeDescriptor, scope: RecipeCostScope, caller: &CollectionBudget) -> Result<Self> {
         let value = match &recipe.admission {
             RecipeAdmission::Measured(receipt) => Self::from(receipt.as_ref().clone()),
             RecipeAdmission::BuiltinSafety(policy)
@@ -86,7 +114,7 @@ impl RecipeExecutionAdmission {
             {
                 Self::BuiltinSafety {
                     policy: policy.clone(),
-                    scope: Box::new(RecipeCostScope::Activity(original.clone())),
+                    scope: Box::new(scope),
                     budget: policy.budget.intersection(caller),
                 }
             }
@@ -104,11 +132,7 @@ impl RecipeExecutionAdmission {
                 policy.is_valid()
                     && budget.validate().is_ok()
                     && budget.intersection(&policy.budget) == *budget
-                    && policy.purpose == RecipePurpose::Investigation
-                    && scope.is_valid()
-                    && scope.native_epoch().is_some()
-                    && scope.partition().is_qualified()
-                    && matches!(scope.as_ref(), RecipeCostScope::Activity(_))
+                    && policy.matches_execution_scope(scope)
             }
         }
     }

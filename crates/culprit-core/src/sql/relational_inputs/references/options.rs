@@ -1,15 +1,31 @@
 //! Relation inventory accepts these execution hints as syntax, never as native behavior or runtime proof.
 //! https://learn.microsoft.com/sql/t-sql/queries/hints-transact-sql-query
 use super::{Engine, Token, expressions::MAX_EXPRESSION_DEPTH, word};
-use crate::sql::lexer::literal_free_readings;
+use crate::sql::lexer::{literal_fragments, literal_free_readings};
 
-const MAX_HINTS: usize = 4;
+const MAX_HINTS: usize = 6;
+const PROFILE_HINT: usize = 5;
 const MAX_DOP: u32 = 32_767;
 const MAX_PERCENT: u32 = 100;
 const MAX_DECIMAL_DIGITS: usize = 38;
 
+#[derive(Clone, Copy)]
+pub(super) enum TextForm {
+    Original,
+    Redacted,
+}
+
+pub(super) struct StatementScope<'tokens, 'sql> {
+    pub(super) text: &'sql str,
+    pub(super) tokens: &'tokens [Token<'sql>],
+}
+
 /// Return only a proved statement token scope. Original SQL and native statement text are never rewritten.
-pub(super) fn statement<'a, 'sql>(text: &str, tokens: &'a [Token<'sql>]) -> Option<&'a [Token<'sql>]> {
+pub(super) fn statement<'a, 'sql>(
+    text: &'sql str,
+    tokens: &'a [Token<'sql>],
+    form: TextForm,
+) -> Option<StatementScope<'a, 'sql>> {
     let end = tokens.iter().rposition(|token| !matches!(token, Token::Semicolon(_)))? + 1;
     let tokens = &tokens[..end];
     let mut depth = 0usize;
@@ -33,15 +49,15 @@ pub(super) fn statement<'a, 'sql>(text: &str, tokens: &'a [Token<'sql>]) -> Opti
         return None;
     }
     let Some(at) = option else {
-        return Some(tokens);
+        return Some(StatementScope { text, tokens });
     };
     let Token::Word(option) = tokens[at] else {
         return None;
     };
     let offset = (option.as_ptr() as usize).checked_sub(text.as_ptr() as usize)?;
-    // The ordinary statement lexer deliberately omits literals. The admitted hint clause must contain none,
-    // so a quoted operand cannot disappear and leave an apparently valid configuration or column scope.
-    literal_free_readings(text.get(offset..)?, Engine::Mssql)?;
+    // The ordinary token view omits strings. Bind the only admitted literal to its exact USE HINT operand;
+    // an omitted string elsewhere must not leave apparently valid hint syntax.
+    let literals = literal_fragments(text.get(offset..)?, Engine::Mssql)?;
     let tail = &tokens[at + 1..];
     if tail.first() != Some(&Token::Punct('(')) || tail.last() != Some(&Token::Punct(')')) {
         return None;
@@ -49,21 +65,28 @@ pub(super) fn statement<'a, 'sql>(text: &str, tokens: &'a [Token<'sql>]) -> Opti
     let mut seen = [false; MAX_HINTS];
     let mut count = 0usize;
     for hint in tail[1..tail.len() - 1].split(|token| *token == Token::Punct(',')) {
-        let category = hint_category(text, hint)?;
+        let category = hint_category(text, hint, &literals, form)?;
         if seen[category] || count == MAX_HINTS {
             return None;
         }
         seen[category] = true;
         count += 1;
     }
-    (count > 0).then_some(&tokens[..at])
+    (count > 0 && (literals.is_empty() || seen[PROFILE_HINT]))
+        .then_some(StatementScope { text: text.get(..offset)?, tokens: &tokens[..at] })
 }
-fn hint_category(text: &str, tokens: &[Token<'_>]) -> Option<usize> {
+fn hint_category(text: &str, tokens: &[Token<'_>], literals: &[&str], form: TextForm) -> Option<usize> {
     let Token::Word(name) = tokens.first()? else {
         return None;
     };
     if word(tokens.first(), "HASH") && tokens.len() == 2 && word(tokens.get(1), "GROUP") {
         return Some(0);
+    }
+    if word(tokens.first(), "FORCE") && tokens.len() == 2 && word(tokens.get(1), "ORDER") {
+        return Some(4);
+    }
+    if profile_hint(text, tokens, literals, form) {
+        return Some(PROFILE_HINT);
     }
     if word(tokens.first(), "MAXDOP") {
         let spelling = numeric_spelling(text, name, &tokens[1..], false)?;
@@ -81,6 +104,27 @@ fn hint_category(text: &str, tokens: &[Token<'_>]) -> Option<usize> {
     }
     let spelling = numeric_spelling(text, name, &tokens[2..], true)?;
     valid_percentage(spelling).then_some(category)
+}
+/// The original scanner owns quoting/escapes. A supported string must occur after the opening parenthesis,
+/// not in a comment or another hint operand; no other quoted spelling or extra literal is admitted.
+fn profile_hint(text: &str, tokens: &[Token<'_>], literals: &[&str], form: TextForm) -> bool {
+    let [Token::Word(start), Token::Word(_), Token::Punct('('), Token::Punct(')')] = tokens else {
+        return false;
+    };
+    if !word(tokens.first(), "USE") || !word(tokens.get(1), "HINT") {
+        return false;
+    }
+    let [literal] = literals else { return false };
+    if !literal.eq_ignore_ascii_case("'QUERY_PLAN_PROFILE'")
+        && !(matches!(form, TextForm::Redacted) && *literal == "'?'")
+    {
+        return false;
+    }
+    let Some(from) = (start.as_ptr() as usize).checked_sub(text.as_ptr() as usize) else { return false };
+    let Some(until) = (literal.as_ptr() as usize).checked_sub(text.as_ptr() as usize) else { return false };
+    text.get(from..until)
+        .and_then(|prefix| literal_free_readings(prefix, Engine::Mssql))
+        .is_some_and(|readings| readings.iter().all(|reading| reading == &tokens[..3]))
 }
 /// Bind a decimal's exact spelling to the existing lexical tokens. Values split by whitespace, removed strings
 /// or extra expressions cannot concatenate into another number. This is a numeric leaf parser, not SQL lexing.

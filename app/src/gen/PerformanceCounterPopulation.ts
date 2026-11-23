@@ -3,4 +3,4 @@
 /**
  * Native populations remain distinct even when an original identity has been withheld.
  */
-export type PerformanceCounterPopulation = "shared-server" | "selected-database";
+export type PerformanceCounterPopulation = "shared-server" | "shared-pool" | "selected-database";

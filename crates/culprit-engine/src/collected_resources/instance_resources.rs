@@ -15,6 +15,22 @@ pub fn instance_resources(capture: &EvidenceCapture) -> Result<CollectedInstance
         return Err(DeliveryProblem::UnsupportedSchema.error());
     }
     let inputs = CapturedState::sources(capture, dataset)?;
+    if mssql_pool_current_authority(capture.source())?.is_some_and(|authority| authority.native.is_some()) {
+        let rows = inputs
+            .iter()
+            .map(|input| input.rows())
+            .collect::<Result<Vec<_>>>()?
+            .into_iter()
+            .flatten()
+            .cloned()
+            .collect::<Vec<_>>();
+        let report =
+            culprit_checks::instance_resources::explain_source(capture.source(), &rows, capture.is_read_complete())?;
+        return Ok(CollectedInstanceResourceAnalysis {
+            context: crate::collected_context::from_capture(capture),
+            report: Box::new(report),
+        });
+    }
     if dataset == SnapshotDataset::NumaNodes {
         for input in &inputs {
             input.shared(&[SharedResourceKind::Instance])?;

@@ -47,6 +47,24 @@ impl Metadata {
             && self.started_second == other.started_second
             && self.member == other.member
     }
+    pub(crate) fn activity_context(&self, after: &Self) -> Result<culprit_core::telemetry::NativeReadContext> {
+        use culprit_core::telemetry::{CollectionStop, NativeReadContext, SourcePartition, canonical_time};
+        if !self.same_activity_source(after) {
+            return Err(CollectionStop::SourceChanged.error());
+        }
+        let epoch = super::local_context::process_epoch(self.started_second.ok_or_else(invalid)?);
+        let context = NativeReadContext {
+            target: self.connection.database.clone().into(),
+            partition: SourcePartition::InstanceLocal { member: self.member.clone(), epoch: Some(epoch) },
+            database_writable: Some(!self.connection.read_only),
+            observed_from: canonical_time(&self.connection.at)?,
+            observed_until: canonical_time(&after.connection.at)?,
+        };
+        if !context.is_valid() {
+            return Err(CollectionStop::SourceChanged.error());
+        }
+        Ok(context)
+    }
     pub(crate) fn same_source(&self, other: &Self) -> bool {
         self.connection.same_source(&other.connection)
             && self.database_wide == other.database_wide

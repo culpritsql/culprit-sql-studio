@@ -1,3 +1,4 @@
+#[cfg(test)]
 use crate::{
     activity::page_targets::PageWaitCapture,
     activity::{ActivityReader, IdentityDetail, ReadOptions},
@@ -6,13 +7,25 @@ use crate::{
     read::ReadSession,
     test_support::config,
 };
-use culprit_core::{Engine, Error, ErrorCode, Result, telemetry::*};
+#[cfg(not(test))]
+use crate::{
+    conn::{MsClient, Pool, SessionKind, map_error},
+    test_support::config,
+};
+#[cfg(test)]
+use culprit_core::{Engine, telemetry::*};
+use culprit_core::{Error, ErrorCode, Result};
 use futures_util::{FutureExt, future::BoxFuture};
-use std::{collections::BTreeMap, future::Future, panic::AssertUnwindSafe, sync::Arc, time::Duration};
+#[cfg(test)]
+use std::collections::BTreeMap;
+use std::{future::Future, panic::AssertUnwindSafe, sync::Arc, time::Duration};
 
 pub(super) mod actors;
+#[cfg(test)]
 mod index_measurement;
+#[cfg(test)]
 use actors::WORKER_CLEANUP_TIMEOUT;
+#[cfg(test)]
 pub(super) use index_measurement::{IndexWindow, counter_delta};
 
 const HOLDER_GATE_CONTROL_TIMEOUT: Duration = Duration::from_secs(2);
@@ -21,9 +34,11 @@ const DATABASE_CLEANUP_TIMEOUT: Duration = Duration::from_secs(8);
 struct HolderGate {
     client: Option<MsClient>,
     transaction_possible: bool,
+    #[cfg(test)]
     connection_owner: GateConnectionOwner,
 }
 
+#[cfg(test)]
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum GateConnectionOwner {
     Dedicated,
@@ -36,15 +51,18 @@ pub(crate) struct Fixture {
     password: String,
     pub(crate) pool: Option<Arc<Pool>>,
     pub(super) workers: Vec<Option<tokio::task::JoinHandle<Result<super::workload::CompletedWorker>>>>,
+    #[cfg(test)]
     pub(super) writer_workers: Vec<Option<tokio::task::JoinHandle<Result<super::writers::workload::CompletedWriter>>>>,
     pub(super) setup_elapsed_ms: f64,
     setup_started: std::time::Instant,
     admin: Option<MsClient>,
     holder_gate: Option<HolderGate>,
+    #[cfg(test)]
     index_measurement: Option<index_measurement::IndexMeasurement<ReadSession>>,
     owned_host: bool,
 }
 impl Fixture {
+    #[cfg(test)]
     pub(super) fn database_name(&self) -> &str {
         &self.name
     }
@@ -63,11 +81,13 @@ impl Fixture {
             password,
             pool: None,
             workers: Vec::new(),
+            #[cfg(test)]
             writer_workers: Vec::new(),
             setup_elapsed_ms: 0.0,
             setup_started,
             admin: Some(admin),
             holder_gate: None,
+            #[cfg(test)]
             index_measurement: None,
             owned_host: false,
         })
@@ -117,6 +137,7 @@ impl Fixture {
     }
     /// The retained owner exists before connection or transaction work can be cancelled. Only this nonce
     /// fixture's seed table is locked; no page latch, task pointer or native holder relationship is imposed.
+    #[cfg(test)]
     pub async fn start_holder_gate(&mut self) -> Result<()> {
         self.start_holder_gate_with_statement(
             "SET LOCK_TIMEOUT 1000; BEGIN TRANSACTION; SELECT TOP(1) id FROM dbo.page_fixture_select WITH(TABLOCKX,HOLDLOCK);",
@@ -130,6 +151,7 @@ impl Fixture {
         self.holder_gate = Some(HolderGate {
             client: None,
             transaction_possible: false,
+            #[cfg(test)]
             connection_owner: GateConnectionOwner::Dedicated,
         });
         let client = tokio::time::timeout(HOLDER_GATE_CONTROL_TIMEOUT, self.client("page-fixture-holder-gate"))
@@ -141,6 +163,7 @@ impl Fixture {
 
     /// Borrow the already-owned admin so the wrong-target UPDATE remains pending without another actor
     /// or additional data work. Its native lock timeout and the workload's clock remain unchanged.
+    #[cfg(test)]
     pub(super) async fn start_other_target_gate(&mut self) -> Result<()> {
         self.require_idle_workload()?;
         if self.holder_gate.is_some() {
@@ -167,7 +190,10 @@ impl Fixture {
     }
 
     fn has_workers(&self) -> bool {
-        !self.workers.is_empty() || !self.writer_workers.is_empty()
+        let workers = !self.workers.is_empty();
+        #[cfg(test)]
+        let workers = workers || !self.writer_workers.is_empty();
+        workers
     }
 
     pub async fn release_holder_gate(&mut self) -> Result<()> {
@@ -176,6 +202,9 @@ impl Fixture {
         }
         self.holder_gate_command("IF @@TRANCOUNT>0 ROLLBACK TRANSACTION;").await?;
         let gate = self.holder_gate.take().ok_or_else(|| invalid("owned holder gate was retired"))?;
+        #[cfg(not(test))]
+        drop(gate);
+        #[cfg(test)]
         if gate.connection_owner == GateConnectionOwner::FixtureAdmin {
             // Only the fully drained rollback returns this connection to database cleanup. An interrupted
             // command leaves no reusable client, and cleanup independently reports that missing authority.
@@ -213,6 +242,7 @@ impl Fixture {
         result
     }
 
+    #[cfg(test)]
     pub async fn reset(&self) -> Result<()> {
         if self.index_measurement.is_some() || self.has_workers() {
             return Err(invalid("owned fixture reset cannot change an active measurement or workload"));
@@ -220,6 +250,7 @@ impl Fixture {
         let mut client = self.client("page-fixture-reset").await?;
         execute(&mut client,"TRUNCATE TABLE dbo.page_fixture_hot; TRUNCATE TABLE dbo.page_fixture_split; INSERT dbo.page_fixture_hot(marker) VALUES(0); INSERT dbo.page_fixture_split(marker) VALUES(0); CHECKPOINT").await
     }
+    #[cfg(test)]
     pub async fn inspect(&self) -> Result<(PageWaitCapture, ReadWorkMetrics)> {
         let mut reader = ActivityReader::open(
             self.pool.as_ref().unwrap().clone(),
@@ -251,6 +282,7 @@ impl Fixture {
         }
         Ok((captured?, metrics.ok_or_else(|| Error::invalid("missing owned native read metrics"))?))
     }
+    #[cfg(test)]
     pub async fn indexes(&self) -> Result<BTreeMap<String, MssqlIndexOperations>> {
         let mut reader = ReadSession::new(
             self.pool.as_ref().unwrap().clone(),
@@ -263,6 +295,7 @@ impl Fixture {
         );
         let result = async {
             let layout = index_operations::Layout::read(&mut reader).await?;
+            #[cfg(test)]
             index_measurement::read_indexes(&mut reader, &layout).await
         }
         .await;
@@ -273,6 +306,7 @@ impl Fixture {
             result
         }
     }
+    #[cfg(test)]
     pub async fn begin_index_measurement(&mut self) -> Result<()> {
         if !self.owned_host || self.index_measurement.is_some() || self.has_workers() {
             return Err(invalid("an owned index measurement requires an idle fixture"));
@@ -286,6 +320,7 @@ impl Fixture {
         ));
         self.index_measurement.as_mut().ok_or_else(|| invalid("owned index measurement was retired"))?.begin().await
     }
+    #[cfg(test)]
     pub(super) async fn finish_index_measurement(&mut self) -> Result<IndexWindow> {
         let result = self
             .index_measurement
@@ -297,6 +332,7 @@ impl Fixture {
         self.index_measurement.take();
         result
     }
+    #[cfg(test)]
     async fn close_index_measurement(&mut self) -> Result<()> {
         let Some(measurement) = self.index_measurement.as_mut() else { return Ok(()) };
         let shutdown = measurement.close().await;
@@ -307,6 +343,7 @@ impl Fixture {
             Err(CollectionStop::CancellationUnconfirmed.error())
         }
     }
+    #[cfg(test)]
     pub async fn qualify_index_point(&self, point: &PageIndexOperations) -> Result<()> {
         let PageIndexOperations::Observed { counters, partition_id: Some(partition_id), .. } = point else {
             return Err(invalid("native cost proof needs the captured checked partition identity"));
@@ -378,7 +415,10 @@ impl Fixture {
         Ok(())
     }
     async fn close(&mut self) -> Result<()> {
+        #[cfg(test)]
         let measurement = self.close_index_measurement().await;
+        #[cfg(not(test))]
+        let measurement: Result<()> = Ok(());
         let gate = self.close_holder_gate().await;
         let workers = self.stop_workers().await;
         self.pool.take();
@@ -395,6 +435,7 @@ impl Fixture {
         }
         first_error.map_or(Ok(()), Err)
     }
+    #[cfg(test)]
     async fn stop_workers(&mut self) -> Result<()> {
         let (inserts, writers) = tokio::join!(actors::stop(&mut self.workers), actors::stop(&mut self.writer_workers));
         if inserts.is_err()
@@ -403,6 +444,10 @@ impl Fixture {
             eprintln!("owned writer cleanup also failed: {error}");
         }
         inserts.and(writers)
+    }
+    #[cfg(not(test))]
+    async fn stop_workers(&mut self) -> Result<()> {
+        actors::stop(&mut self.workers).await
     }
     async fn drop_owned_database(&mut self) -> Result<()> {
         if !self.owned_host {
@@ -426,12 +471,15 @@ impl Drop for Fixture {
         // Close the gate first, including cancellation during cleanup. Drop requests cancellation; only
         // acknowledged control, joined workers and exact database cleanup establish their own settlement.
         self.holder_gate.take();
+        #[cfg(test)]
         self.index_measurement.take();
         actors::abort(&self.workers);
+        #[cfg(test)]
         actors::abort(&self.writer_workers);
     }
 }
 
+#[cfg(test)]
 fn other_target_gate_statement(database: &str) -> String {
     let database = Engine::Mssql.dialect().quote(database);
     format!(
@@ -502,11 +550,13 @@ mod cleanup_tests {
             password: String::new(),
             pool: None,
             workers: Vec::new(),
+            #[cfg(test)]
             writer_workers: Vec::new(),
             setup_elapsed_ms: 0.0,
             setup_started: std::time::Instant::now(),
             admin: None,
             holder_gate: None,
+            #[cfg(test)]
             index_measurement: None,
             owned_host: false,
         }
@@ -605,6 +655,7 @@ mod cleanup_tests {
         fixture.holder_gate = Some(HolderGate {
             client: None,
             transaction_possible: true,
+            #[cfg(test)]
             connection_owner: GateConnectionOwner::Dedicated,
         });
         let retired = pending_worker(&mut fixture).await;

@@ -180,6 +180,9 @@ impl Harness {
         };
         let request = CollectionRequest {
             subject: match &frame.source.target {
+                CollectionTarget::ConfiguredConnection(_) => {
+                    panic!("native fixture cannot represent collector control")
+                }
                 CollectionTarget::Database(_) => CollectionSubject::Database,
                 CollectionTarget::Shared(resource) => CollectionSubject::Shared { resource: resource.clone() },
             },
@@ -498,3 +501,5 @@ async fn cancellation_and_turn_limits_leave_sealed_inputs_pending_without_native
     assert_eq!(harness.work(1).await, 0);
     assert_eq!(harness.calls.counts(), [2, 2, 2, 2]);
 }
+
+mod mysql_metadata_context;

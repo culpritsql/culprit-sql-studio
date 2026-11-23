@@ -17,7 +17,24 @@ pub(crate) const CONTROL_TIMEOUT: Duration = Duration::from_secs(3);
 #[cfg(test)]
 pub(crate) const SHARED_APPLICATION: &str = "fixture-shared-pooled-driver";
 const ACTOR_STATEMENT_TIMEOUT: &str = "50s";
-type Completed = (Client, Result<()>);
+struct StatementResult {
+    result: Result<()>,
+    database_code: Option<String>,
+}
+impl StatementResult {
+    fn native(result: std::result::Result<(), tokio_postgres::Error>) -> Self {
+        let database_code = result
+            .as_ref()
+            .err()
+            .and_then(tokio_postgres::Error::as_db_error)
+            .map(|error| error.code().code().to_owned());
+        Self { result: result.map_err(map_error), database_code }
+    }
+    fn refused(error: culprit_core::Error) -> Self {
+        Self { result: Err(error), database_code: None }
+    }
+}
+type Completed = (Client, StatementResult);
 
 pub(crate) struct Actor {
     pub identity: NativeActivityIdentity,
@@ -103,14 +120,15 @@ impl Actor {
         let cancellation = self.cancellation.clone();
         self.queries += 1;
         self.task = Some(tokio::spawn(async move {
-            let result = case::admitted(&cancellation, async {
-                client
-                    .query(&tagged("SELECT pg_catalog.pg_advisory_xact_lock_shared($1)"), &[&key])
-                    .await
-                    .map(|_| ())
-                    .map_err(map_error)
-            })
-            .await;
+            let result = match case::require_active(&cancellation) {
+                Ok(()) => StatementResult::native(
+                    client
+                        .query(&tagged("SELECT pg_catalog.pg_advisory_xact_lock_shared($1)"), &[&key])
+                        .await
+                        .map(|_| ()),
+                ),
+                Err(error) => StatementResult::refused(error),
+            };
             (client, result)
         }));
         Ok(())
@@ -135,6 +153,13 @@ impl Actor {
     }
     /// The task owns the original command and Client until its complete native response is joined.
     pub fn start(&mut self, sql: String) -> Result<()> {
+        self.start_original(tagged(&sql))
+    }
+    /// Only nonce-owned fixture workload is intentionally visible to Activity; controls remain tagged.
+    pub(crate) fn start_workload(&mut self, sql: String) -> Result<()> {
+        self.start_original(sql)
+    }
+    fn start_original(&mut self, sql: String) -> Result<()> {
         case::require_active(&self.cancellation)?;
         if self.task.is_some() || self.settlement_failed {
             return Err(unconfirmed());
@@ -143,9 +168,10 @@ impl Actor {
         let cancellation = self.cancellation.clone();
         self.queries += 1;
         self.task = Some(tokio::spawn(async move {
-            let result =
-                case::admitted(&cancellation, async { client.batch_execute(&tagged(&sql)).await.map_err(map_error) })
-                    .await;
+            let result = match case::require_active(&cancellation) {
+                Ok(()) => StatementResult::native(client.batch_execute(&sql).await),
+                Err(error) => StatementResult::refused(error),
+            };
             (client, result)
         }));
         Ok(())
@@ -154,6 +180,11 @@ impl Actor {
         self.settle_for(CONTROL_TIMEOUT).await
     }
     pub async fn settle_for(&mut self, allowance: Duration) -> Result<()> {
+        let completion = self.join_original(allowance).await?;
+        self.settlement_failed |= completion.result.is_err();
+        completion.result
+    }
+    async fn join_original(&mut self, allowance: Duration) -> Result<StatementResult> {
         let task = self.task.as_mut().ok_or_else(unconfirmed)?;
         let joined = match timeout(allowance, task).await {
             Ok(joined) => joined,
@@ -163,7 +194,7 @@ impl Actor {
             }
         };
         self.task.take();
-        let (client, result) = match joined {
+        let (client, completion) = match joined {
             Ok(completed) => completed,
             Err(_) => {
                 self.settlement_failed = true;
@@ -171,8 +202,60 @@ impl Actor {
             }
         };
         self.client = Some(client);
-        self.settlement_failed |= result.is_err();
-        result
+        Ok(completion)
+    }
+    /// A real recovery-conflict response plus an acknowledged rollback settles this fixture transaction.
+    /// Timeout/transport loss cannot enter this path and retain their original task/fence.
+    pub(crate) async fn settle_recovery_conflict(&mut self, allowance: Duration) -> Result<()> {
+        let completion = self.join_original(allowance).await?;
+        self.rollback_after_native_stop(completion, "40001").await
+    }
+    /// Stop only this fixture's original statement, join its native cancellation response, then
+    /// acknowledge rollback on that SAME client before schema cleanup is allowed.
+    pub(crate) async fn cancel_and_rollback(&mut self) -> Result<()> {
+        case::require_active(&self.cancellation)?;
+        if self.task.is_none() || self.settlement_failed {
+            return Err(unconfirmed());
+        }
+        self.settlement_failed = true;
+        self.cancellation_attempts += 1;
+        timeout(CONTROL_TIMEOUT, self.connector.cancel(&self.cancel)).await.map_err(|_| unconfirmed())??;
+        let completion = self.join_original(CONTROL_TIMEOUT).await?;
+        self.rollback_after_native_stop(completion, "57014").await
+    }
+    async fn rollback_after_native_stop(&mut self, completion: StatementResult, required_code: &str) -> Result<()> {
+        self.settlement_failed = true;
+        if completion.database_code.as_deref() != Some(required_code) || completion.result.is_ok() {
+            return Err(unconfirmed());
+        }
+        case::require_active(&self.cancellation)?;
+        let client = self.client.as_ref().ok_or_else(unconfirmed)?;
+        self.queries += 1;
+        timeout(CONTROL_TIMEOUT, client.batch_execute(&tagged("ROLLBACK")))
+            .await
+            .map_err(|_| unconfirmed())?
+            .map_err(map_error)?;
+        self.settlement_failed = false;
+        Ok(())
+    }
+    pub(crate) async fn one(
+        &mut self,
+        sql: &str,
+        parameters: &[&(dyn tokio_postgres::types::ToSql + Sync)],
+    ) -> Result<tokio_postgres::Row> {
+        case::require_active(&self.cancellation)?;
+        if self.task.is_some() || self.settlement_failed {
+            return Err(unconfirmed());
+        }
+        let client = self.client.as_ref().ok_or_else(unconfirmed)?;
+        self.queries += 1;
+        self.settlement_failed = true;
+        let row = timeout(CONTROL_TIMEOUT, client.query_one(&tagged(sql), parameters))
+            .await
+            .map_err(|_| unconfirmed())?
+            .map_err(map_error)?;
+        self.settlement_failed = false;
+        Ok(row)
     }
     #[cfg(test)]
     pub fn close_idle(&mut self) -> Result<()> {

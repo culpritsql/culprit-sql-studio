@@ -22,7 +22,6 @@ pub(crate) fn dataset(original: &dyn OriginalProjection) -> Option<SnapshotDatas
 pub(crate) fn same_scope(primary: &dyn OriginalProjection, original: &dyn OriginalProjection) -> bool {
     let Some(database) = primary.source().target.database() else { return false };
     if database.engine != culprit_core::Engine::Mssql
-        || database.incarnation.is_none()
         || primary.source().target != original.source().target
         || !primary.source().partition_is_consistent()
         || !original.source().partition_is_consistent()
@@ -30,6 +29,9 @@ pub(crate) fn same_scope(primary: &dyn OriginalProjection, original: &dyn Origin
         || !original.source().partition.is_qualified()
     {
         return false;
+    }
+    if database.incarnation.is_none() {
+        return same_local_catalog_owner(primary.source(), original.source());
     }
     if primary.source().partition == original.source().partition {
         return true;
@@ -39,6 +41,27 @@ pub(crate) fn same_scope(primary: &dyn OriginalProjection, original: &dyn Origin
         owner.has_qualified_local_owner()
             && owner.target == original.source().target
             && owner.partition == original.source().partition
+    })
+}
+
+fn same_local_catalog_owner(primary: &CollectionDescription, catalog: &CollectionDescription) -> bool {
+    if !matches!(catalog.observation, SourceObservation::LocalResource { .. }) {
+        return false;
+    }
+    let Ok(catalog_owner) = NativeReadContext::from_snapshot(catalog) else { return false };
+    let primary_owner = if let Some(history) = primary.query_history() {
+        history.acquisition_owner.as_deref().cloned()
+    } else if primary.observation.activity().is_some() {
+        NativeReadContext::from_activity(primary).ok()
+    } else {
+        primary.observation.execution_context().cloned().or_else(|| NativeReadContext::from_snapshot(primary).ok())
+    };
+    // Local partitions encode the source-observed DB recovery/file identity as well as its member/process.
+    // Known equal endpoint roles do not establish continuous role or historical execution ownership.
+    primary_owner.is_some_and(|owner| {
+        owner.same_local_database_owner(&catalog_owner)
+            && owner.database_writable.is_some()
+            && owner.database_writable == catalog_owner.database_writable
     })
 }
 

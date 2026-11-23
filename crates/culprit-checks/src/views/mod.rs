@@ -16,6 +16,7 @@ pub mod compiler_admission;
 pub mod completed_spills;
 pub mod connection_outcomes;
 pub mod counter_ratios;
+pub mod current_execution_profile;
 pub mod current_request_work;
 pub mod dashboard;
 pub(crate) mod digest;
@@ -62,6 +63,7 @@ pub mod configured_log_rates;
 pub mod database_properties;
 pub mod hyperscale_log_components;
 pub mod memory_clerks;
+mod pool_operational_context;
 pub mod pool_settings;
 pub mod suspect_pages;
 pub mod table_catalog;
@@ -83,3 +85,7 @@ pub mod index_configuration;
 pub mod indexed_views;
 
 pub mod provider_acquisition;
+
+pub mod commit_pipeline;
+pub mod output_grant_retention;
+pub mod readable_secondary_recovery;

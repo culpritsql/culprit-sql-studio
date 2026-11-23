@@ -113,11 +113,7 @@ fn validate_references<'a>(
         if !row.observation.native_locks_fit_source(source) {
             return Err(invalid());
         }
-        if source
-            .target
-            .database()
-            .is_some_and(|database| !row.observation.database_context_is_consistent(&database.database))
-        {
+        if !row.observation.fits_source_scope(source) {
             return Err(invalid());
         }
         let Some(reference) = row.reference else { continue };

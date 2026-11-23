@@ -27,11 +27,14 @@ fn qualify_question(
     if episode.lifecycle == DiagnosticLifecycle::Resolved && question.requires_live_episode() {
         return Ok(());
     }
-    let existing = episode.source_reads.get(question);
-    if existing.is_some_and(|stage| !stage.needs_admission()) {
+    let Some(focus) = nominated_focus(input, episode, question)? else { return Ok(()) };
+    let existing = episode.source_reads.get_focus(&focus);
+    if existing.is_some_and(|stage| !stage.needs_admission()) || !continuation_due(episode, &focus) {
         return Ok(());
     }
-    let Some(focus) = nominated_focus(input, episode, question)? else { return Ok(()) };
+    if episode.source_read_context_reuse(&focus).is_some() {
+        return Ok(());
+    }
     if existing.is_none() && !input_justifies_enrollment(input, episode, &focus) {
         return Ok(());
     }
@@ -58,7 +61,9 @@ fn nominated_focus(
     episode: &DiagnosticEpisode,
     question: SourceReadQuestion,
 ) -> Result<Option<SourceReadFocus>> {
-    if let Some(focus) = episode.source_read_focus(question)? {
+    if episode.source_reads.latest(question).is_none_or(SourceReadStage::needs_admission)
+        && let Some(focus) = episode.source_read_focus(question)?
+    {
         return Ok(Some(focus));
     }
     let mut selected = None;
@@ -77,7 +82,8 @@ fn nominated_focus(
 
 fn input_justifies_enrollment(input: &DiagnosticInput, episode: &DiagnosticEpisode, focus: &SourceReadFocus) -> bool {
     let original_input = match &focus.prerequisite {
-        SourceReadPrerequisite::ObservedCleanupBoundary { .. } => focus.basis.capture_ref(),
+        SourceReadPrerequisite::ObservedCleanupBoundary { .. }
+        | SourceReadPrerequisite::ObservedTransactionMetadataContinuation { .. } => focus.basis.capture_ref(),
         prerequisite => prerequisite
             .observation()
             .map(DiagnosticEvidenceRef::capture_ref)
@@ -86,9 +92,37 @@ fn input_justifies_enrollment(input: &DiagnosticInput, episode: &DiagnosticEpiso
     if original_input != input.parent {
         return false;
     }
-    if focus.question != SourceReadQuestion::TemporarySpaceContributors {
+    if focus.question != SourceReadQuestion::TemporarySpaceContributors
+        && !matches!(focus.prerequisite, SourceReadPrerequisite::ObservedTransactionMetadataContinuation { .. })
+    {
         return true;
     }
     // The native body, not boundary presence or cost qualification, satisfies the shared attention policy.
     input.rows.iter().any(|row| row.reference == *focus.basis && focus.matches_original(&input.source, &row.row))
+}
+
+/// Native observation clocks must witness continued adversity after the SAME scheduler cooldown.
+/// This does not reserve work; durable admission independently enforces resource/family cooldown and debt.
+pub(crate) fn continuation_due(episode: &DiagnosticEpisode, focus: &SourceReadFocus) -> bool {
+    let SourceReadPrerequisite::ObservedTransactionMetadataContinuation { continuation } = &focus.prerequisite else {
+        return true;
+    };
+    let Some(stage) = episode.source_reads.get(SourceReadQuestion::TransactionMetadata) else {
+        return false;
+    };
+    let SourceReadStageState::Answered { answer } = &stage.state else {
+        return false;
+    };
+    let SourceReadAnswer::TransactionMetadata(first) = answer.as_ref() else {
+        return false;
+    };
+    let (Ok(first_until), Ok(fresh_at)) = (
+        chrono::DateTime::parse_from_rfc3339(&first.result_context.observed_until),
+        chrono::DateTime::parse_from_rfc3339(&continuation.request.original_observed_at),
+    ) else {
+        return false;
+    };
+    first_until
+        .checked_add_signed(chrono::Duration::seconds(i64::from(crate::fleet::FOCUSED_COOLDOWN_SECONDS)))
+        .is_some_and(|after_cooldown| fresh_at >= after_cooldown)
 }

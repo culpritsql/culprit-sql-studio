@@ -157,7 +157,7 @@ fn every_existing_pointer_stage_is_curated_without_publishing_its_original_targe
     let reference = DiagnosticEvidenceRef::from_export(&source, &digest(b"log-wait-manifest"), &original, 0).unwrap();
     let focus = SourceReadFocus {
         basis: Box::new(reference),
-        target: source.target,
+        target: source.target.clone(),
         question: SourceReadQuestion::HyperscaleLogComponents,
         prerequisite: SourceReadPrerequisite::ObservedLogRateWait,
     };
@@ -182,7 +182,19 @@ fn every_existing_pointer_stage_is_curated_without_publishing_its_original_targe
     ] {
         let stage = SourceReadStage { focus: focus.clone(), state };
         let raw = serde_json::to_vec(&stage).unwrap();
-        let public = crate::analytical::investigations::source_stage(&stage).unwrap();
+        let TelemetryRecord::Activity(actor) = &original.record else { panic!() };
+        let mut episode = DiagnosticEpisode::start(
+            DiagnosticScope::from_source(&source).unwrap(),
+            DiagnosticSignal::LogRateGovernance {
+                key: actor.key.clone(),
+                statement_identity: actor.statement_identity.clone(),
+            },
+            source.observation.activity().unwrap().at.clone(),
+            focus.basis.as_ref().clone(),
+        )
+        .unwrap();
+        episode.source_reads = SourceReadStages::from_stages(vec![stage.clone()]).unwrap();
+        let public = crate::analytical::investigations::source_stage(&episode, &stage).unwrap();
         assert_eq!(public.as_object().unwrap().len(), 5);
         assert_eq!(public["focus_key"], focus.key().unwrap());
         assert_eq!(public["content_sha256"], digest(&raw));

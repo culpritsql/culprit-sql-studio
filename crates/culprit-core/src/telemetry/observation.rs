@@ -11,12 +11,13 @@ pub enum TelemetryCollection {
     Activity,
     Diagnostics,
     DerivedDiagnosis,
+    CollectorConnections,
     Snapshot(SnapshotDataset),
 }
 impl TelemetryCollection {
     /// Local synthesis is sealed through the canonical path, never enrolled or acquired by a native provider.
     pub fn is_local_output(self) -> bool {
-        matches!(self, Self::Diagnostics | Self::DerivedDiagnosis)
+        matches!(self, Self::Diagnostics | Self::DerivedDiagnosis | Self::CollectorConnections)
     }
     pub fn streams(self) -> &'static [TelemetryStream] {
         match self {
@@ -29,6 +30,7 @@ impl TelemetryCollection {
             Self::ResourceHistory => &[TelemetryStream::ResourceSamples],
             Self::DeadlockHistory => &[TelemetryStream::DeadlockEvents],
             Self::Activity => &[TelemetryStream::ActivityObservations],
+            Self::CollectorConnections => &[TelemetryStream::CollectorConnections],
             Self::Diagnostics => &[TelemetryStream::OperationalSamples, TelemetryStream::DiagnosticCheckpoints],
             Self::DerivedDiagnosis => {
                 &[TelemetryStream::DerivedIncidents, TelemetryStream::DerivedFindings, TelemetryStream::DerivedChanges]
@@ -45,6 +47,9 @@ impl TelemetryCollection {
 #[serde(tag = "kind", rename_all = "kebab-case")]
 #[ts(export)]
 pub enum CollectionSelection {
+    CollectorConnection {
+        attempt: CaptureIdentity,
+    },
     SourceRead {
         focus: Box<SourceReadFocus>,
         execution: Box<SourceReadExecutionScope>,
@@ -128,7 +133,7 @@ pub enum CollectionSelection {
 impl CollectionSelection {
     pub fn collection(&self) -> TelemetryCollection {
         match self {
-            Self::SourceRead { focus, .. } => TelemetryCollection::Snapshot(focus.question.dataset()),
+            Self::SourceRead { focus, .. } => focus.question.collection(),
             Self::ResourcePoolSettings => TelemetryCollection::Snapshot(SnapshotDataset::Settings),
             Self::QueryHistory { .. } => TelemetryCollection::QueryHistory,
             Self::ResourceHistory { .. } => TelemetryCollection::ResourceHistory,
@@ -150,6 +155,7 @@ impl CollectionSelection {
             Self::PageWaitWriters { .. } => TelemetryCollection::Snapshot(SnapshotDataset::PageWaitWriters),
             Self::PageTaskHolders { .. } => TelemetryCollection::Snapshot(SnapshotDataset::PageTaskHolders),
             Self::DerivedDiagnosis { .. } => TelemetryCollection::DerivedDiagnosis,
+            Self::CollectorConnection { .. } => TelemetryCollection::CollectorConnections,
             Self::Diagnostics { .. } => TelemetryCollection::Diagnostics,
             Self::Snapshot { dataset } => TelemetryCollection::Snapshot(*dataset),
         }
@@ -198,6 +204,8 @@ pub enum TelemetrySemantics {
     CumulativeCounter,
     Definition,
     Checkpoint,
+    /// Collector control observation; no native database availability, execution or counter semantics.
+    Control,
     /// Persisted interpretation of exact original inputs, separate from native events or samples.
     Derived,
 }
@@ -216,6 +224,7 @@ impl TelemetryStream {
             Self::SettingObservations => TelemetrySemantics::Sample,
             Self::TuningObservations => TelemetrySemantics::Sample,
             Self::DerivedIncidents | Self::DerivedFindings | Self::DerivedChanges => TelemetrySemantics::Derived,
+            Self::CollectorConnections => TelemetrySemantics::Control,
         }
     }
 }
@@ -362,7 +371,7 @@ impl SampleHistoryDescription {
             _ => false,
         }
     }
-    fn is_valid(&self) -> bool {
+    pub(super) fn is_valid(&self) -> bool {
         let time = |value: &str| value.len() <= 64 && DateTime::parse_from_rfc3339(value).is_ok();
         time(&self.from)
             && time(&self.until)
@@ -425,6 +434,7 @@ impl DiagnosticCaptureDescription {
 #[serde(tag = "kind", content = "data", rename_all = "kebab-case")]
 #[ts(export)]
 pub enum SourceObservation {
+    CollectorConnection(CollectorConnectionDescription),
     /// Existing held local readers retain their actual native role; identity/bounds stay in the source/snapshot.
     LocalResource {
         snapshot: StateSnapshotDescription,
@@ -444,12 +454,19 @@ pub enum SourceObservation {
     },
     QueryHistory(QueryHistoryDescription),
     RetainedSamples(SampleHistoryDescription),
+    MssqlReadableResources(Box<MssqlReadableResourceHistory>),
     MssqlManagedInstanceResources(Box<MssqlManagedInstanceResourceHistory>),
     RetainedEvents(EventHistoryDescription),
     Activity(ActivitySnapshotDescription),
     FocusedBlocking {
         snapshot: ActivitySnapshotDescription,
         result: Box<ActivityBlockingFocusResult>,
+    },
+    MetadataLockContext {
+        snapshot: ActivitySnapshotDescription,
+        focus_key: String,
+        execution: Box<NativeReadContext>,
+        result: Box<MetadataLockContextDescription>,
     },
     Jobs {
         snapshot: StateSnapshotDescription,
@@ -568,6 +585,7 @@ impl SourceObservation {
     pub fn focus(&self) -> Option<&ActivityRequestFocus> {
         match self {
             Self::FocusedBlocking { result, .. } => Some(&result.focus),
+            Self::MetadataLockContext { result, .. } => Some(&result.request.focus),
             Self::FocusedPageWait { result, .. } => Some(&result.focus.participant),
             Self::PageWaitWriters { focus, .. } => Some(&focus.waiter.participant),
             Self::PageTaskHolders { focus, .. } => Some(&focus.participant),
@@ -606,9 +624,13 @@ impl SourceObservation {
                 TelemetryCollection::Snapshot(SnapshotDataset::CompilerAdmission)
             }
             Self::QueryHistory(_) => TelemetryCollection::QueryHistory,
-            Self::RetainedSamples(_) | Self::MssqlManagedInstanceResources(_) => TelemetryCollection::ResourceHistory,
+            Self::RetainedSamples(_) | Self::MssqlReadableResources(_) | Self::MssqlManagedInstanceResources(_) => {
+                TelemetryCollection::ResourceHistory
+            }
             Self::RetainedEvents(_) => TelemetryCollection::DeadlockHistory,
-            Self::Activity(_) | Self::FocusedBlocking { .. } => TelemetryCollection::Activity,
+            Self::Activity(_) | Self::FocusedBlocking { .. } | Self::MetadataLockContext { .. } => {
+                TelemetryCollection::Activity
+            }
             Self::CacheEntryMemory { .. } => TelemetryCollection::Snapshot(SnapshotDataset::CacheEntryMemory),
             Self::BackupHistory { .. } => TelemetryCollection::Snapshot(SnapshotDataset::BackupHistory),
             Self::SuspectPages { .. } => TelemetryCollection::Snapshot(SnapshotDataset::SuspectPages),
@@ -616,7 +638,7 @@ impl SourceObservation {
                 TelemetryCollection::Snapshot(SnapshotDataset::DatabasePerformanceCounters)
             }
             Self::TableMemory { .. } => TelemetryCollection::Snapshot(SnapshotDataset::TableMemory),
-            Self::MssqlPoolCurrent { .. } => TelemetryCollection::Snapshot(SnapshotDataset::WaitCounters),
+            Self::MssqlPoolCurrent { snapshot, .. } => TelemetryCollection::Snapshot(snapshot.dataset),
             Self::MssqlPoolSettings { .. } => TelemetryCollection::Snapshot(SnapshotDataset::Settings),
             Self::MssqlReplication { .. } => TelemetryCollection::Snapshot(SnapshotDataset::Replication),
             Self::GroupReplication { .. } => TelemetryCollection::Snapshot(SnapshotDataset::GroupReplication),
@@ -633,6 +655,7 @@ impl SourceObservation {
             Self::CurrentRequestWork { .. } => TelemetryCollection::Snapshot(SnapshotDataset::CurrentRequestWork),
             Self::Diagnostics(_) => TelemetryCollection::Diagnostics,
             Self::DerivedDiagnosis(_) => TelemetryCollection::DerivedDiagnosis,
+            Self::CollectorConnection(_) => TelemetryCollection::CollectorConnections,
             Self::MysqlEvents { .. } | Self::Jobs { .. } | Self::MssqlAgentJobs { .. } => {
                 TelemetryCollection::Snapshot(SnapshotDataset::Jobs)
             }
@@ -644,14 +667,25 @@ impl SourceObservation {
             }
         }
     }
+    /// The same retained-window semantics serve ordinary and explicitly scoped readable-member histories.
+    pub fn sample_history(&self) -> Option<&SampleHistoryDescription> {
+        match self {
+            Self::RetainedSamples(history) => Some(history),
+            Self::MssqlReadableResources(history) => Some(&history.history),
+            _ => None,
+        }
+    }
     pub fn range(&self) -> Result<TelemetryRange> {
         Ok(match self {
-            Self::SourceRead { focus_key, .. } | Self::PagedSourceRead { focus_key, .. } => {
-                TelemetryRange::Focused { key: focus_key.clone() }
-            }
+            Self::SourceRead { focus_key, .. }
+            | Self::PagedSourceRead { focus_key, .. }
+            | Self::MetadataLockContext { focus_key, .. } => TelemetryRange::Focused { key: focus_key.clone() },
             Self::QueryHistory(history) => TelemetryRange::NativeInterval { interval: history.interval.clone() },
             Self::RetainedSamples(history) => {
                 TelemetryRange::TimeWindow { from: history.from.clone(), until: history.until.clone() }
+            }
+            Self::MssqlReadableResources(history) => {
+                TelemetryRange::TimeWindow { from: history.history.from.clone(), until: history.history.until.clone() }
             }
             Self::MssqlManagedInstanceResources(history) => {
                 TelemetryRange::TimeWindow { from: history.from.clone(), until: history.until.clone() }
@@ -681,6 +715,9 @@ impl SourceObservation {
             Self::FocusedCompilationAdmission { result, .. } => TelemetryRange::Focused { key: result.focus.key()? },
             Self::Diagnostics(description) => TelemetryRange::Focused { key: description.work_key()? },
             Self::DerivedDiagnosis(description) => TelemetryRange::Focused { key: description.analysis_id.clone() },
+            Self::CollectorConnection(description) => {
+                TelemetryRange::Focused { key: description.snapshot_sha256.clone() }
+            }
             Self::PageWaitTargets { original_activity: Some(activity), .. } => TelemetryRange::Focused {
                 key: digest(
                     &serde_json::to_vec(&("page-wait-task-population-v1", activity))
@@ -707,6 +744,9 @@ impl SourceObservation {
     pub fn accepts_sample(&self, at: &str) -> bool {
         let (from, until) = match self {
             Self::RetainedSamples(history) => (&history.from, &history.until),
+            Self::MssqlReadableResources(history) if history.is_valid() => {
+                (&history.history.from, &history.history.until)
+            }
             Self::MssqlManagedInstanceResources(history) if history.is_valid() => (&history.from, &history.until),
             _ => return false,
         };
@@ -718,6 +758,7 @@ impl SourceObservation {
     pub fn can_advance_history_window(&self) -> bool {
         match self {
             Self::RetainedSamples(history) => history.covers_request(),
+            Self::MssqlReadableResources(history) => history.is_valid() && history.history.covers_request(),
             Self::RetainedEvents(_) => true,
             Self::MssqlManagedInstanceResources(history) => {
                 history.is_valid()
@@ -732,6 +773,13 @@ impl SourceObservation {
     pub fn native_coverage_state(&self) -> Result<Option<crate::SourceState>> {
         match self {
             Self::MssqlManagedInstanceResources(history) => Ok(Some(history.coverage.state)),
+            Self::MssqlReadableResources(history) => {
+                if !history.is_valid() {
+                    return Err(CollectionStop::InvalidPage.error());
+                }
+                // EOF and retained timestamp bounds do not supply historical member/role continuity.
+                Ok(Some(crate::SourceState::Partial))
+            }
             _ => self.snapshot().map(StateSnapshotDescription::coverage_state).transpose(),
         }
     }
@@ -739,6 +787,7 @@ impl SourceObservation {
     pub fn covers_request(&self) -> bool {
         match self {
             Self::DerivedDiagnosis(description) => description.is_valid(),
+            Self::CollectorConnection(description) => description.is_valid(),
             Self::LocalResource { snapshot, .. } => local_resource_header_is_valid(snapshot),
             Self::SourceRead { snapshot, focus_key, execution } => {
                 snapshot.is_valid()
@@ -751,6 +800,7 @@ impl SourceObservation {
             }
             Self::QueryHistory(history) => history.is_valid(),
             Self::RetainedSamples(history) => history.covers_request(),
+            Self::MssqlReadableResources(history) => history.is_valid() && history.history.covers_request(),
             // A bounded published prefix is independently marked partial; this is not publication freshness.
             Self::MssqlManagedInstanceResources(history) => history.is_valid(),
             // This proves a complete retained-source read; historical completeness is a separate explicit fact.
@@ -768,6 +818,14 @@ impl SourceObservation {
             Self::MysqlEvents { snapshot, metadata } => metadata.matches_snapshot(snapshot),
             Self::Activity(snapshot) => snapshot.is_valid(),
             Self::FocusedBlocking { snapshot, result } => result.is_valid_header(snapshot),
+            Self::MetadataLockContext { snapshot, focus_key, execution, result } => {
+                result.is_valid_header(snapshot)
+                    && valid_digest(focus_key)
+                    && SourceReadExecutionScope::from_context(SourceReadQuestion::MetadataLockContext, execution)
+                        .is_ok()
+                    && same_time(&snapshot.observed_from, &execution.observed_from)
+                    && same_time(&snapshot.observed_until, &execution.observed_until)
+            }
             Self::MssqlPoolCurrent { snapshot, authority } => authority.matches_snapshot(snapshot),
             Self::MssqlPoolSettings { snapshot, membership } => membership.matches_snapshot(snapshot),
             Self::MssqlReplication { snapshot, scope, .. } => {
@@ -874,7 +932,9 @@ impl SourceObservation {
     }
     pub fn activity(&self) -> Option<&ActivitySnapshotDescription> {
         match self {
-            Self::Activity(snapshot) | Self::FocusedBlocking { snapshot, .. } => Some(snapshot),
+            Self::Activity(snapshot)
+            | Self::FocusedBlocking { snapshot, .. }
+            | Self::MetadataLockContext { snapshot, .. } => Some(snapshot),
             _ => None,
         }
     }
@@ -946,14 +1006,20 @@ impl SourceObservation {
         let count =
             |stream| files.iter().filter(|file| file.stream == stream).map(|file| u64::from(file.rows)).sum::<u64>();
         match self {
+            Self::CollectorConnection(_) => count(TelemetryStream::CollectorConnections) == 1,
             Self::QueryHistory(_) | Self::RetainedEvents(_) => true,
             Self::RetainedSamples(history) => {
                 count(TelemetryStream::ResourceSamples) == u64::from(history.expected_samples)
             }
+            Self::MssqlReadableResources(history) => {
+                count(TelemetryStream::ResourceSamples) == u64::from(history.history.expected_samples)
+            }
             Self::MssqlManagedInstanceResources(history) => {
                 count(TelemetryStream::ResourceSamples) == u64::from(history.coverage.records)
             }
-            Self::Activity(snapshot) | Self::FocusedBlocking { snapshot, .. } => {
+            Self::Activity(snapshot)
+            | Self::FocusedBlocking { snapshot, .. }
+            | Self::MetadataLockContext { snapshot, .. } => {
                 count(TelemetryStream::ActivityObservations) == u64::from(snapshot.observations)
             }
             Self::PageWaitTargets { snapshot, .. }
@@ -1079,6 +1145,34 @@ impl CollectionDescription {
                 }
                 Ok(Some(completed))
             }
+            SourceCompletion::LocalResource { snapshot, execution } => {
+                let SourceObservation::PagedSnapshot(declared) = &self.observation else {
+                    return Err(CollectionStop::InvalidPage.error());
+                };
+                let Some(database_writable) = execution.database_writable else {
+                    return Err(CollectionStop::InvalidPage.error());
+                };
+                if !snapshot.dataset.is_mssql_database_catalog()
+                    || self.target.engine() != crate::Engine::Mssql
+                    || self.target.database().is_none()
+                    || !declared.accepts_completion(&snapshot)
+                    || !execution.has_qualified_local_owner()
+                    || !matches!(&execution.partition, SourcePartition::InstanceLocal { member: Some(member), .. }
+                        if member.kind == SharedResourceKind::Instance)
+                    || self.target != execution.target
+                    || self.partition != execution.partition
+                    || !same_time(&snapshot.observed_from, &execution.observed_from)
+                    || !same_time(&snapshot.observed_until, &execution.observed_until)
+                {
+                    return Err(CollectionStop::InvalidPage.error());
+                }
+                let mut completed = self.clone();
+                completed.observation = SourceObservation::LocalResource { snapshot, database_writable };
+                if !completed.partition_is_consistent() {
+                    return Err(CollectionStop::InvalidPage.error());
+                }
+                Ok(Some(completed))
+            }
             SourceCompletion::Snapshot(snapshot) => {
                 let SourceObservation::PagedSnapshot(declared) = &self.observation else {
                     return Err(CollectionStop::InvalidPage.error());
@@ -1109,6 +1203,23 @@ impl CollectionDescription {
             || !request.subject.accepts(&self.target)
         {
             return false;
+        }
+        if let (
+            SourceObservation::MetadataLockContext { snapshot, focus_key, execution: actual, result },
+            CollectionSelection::SourceRead { focus, execution: expected },
+        ) = (&self.observation, &request.selection)
+        {
+            return focus.question == SourceReadQuestion::MetadataLockContext
+                && focus.metadata_lock_request() == Some(&result.request.focus)
+                && focus.key().ok().as_ref() == Some(focus_key)
+                && result.is_valid_source(self, snapshot)
+                && self.observation.covers_request()
+                && expected.accepts_question(focus.question)
+                && expected.matches_context(actual)
+                && expected.matches_target(&self.target)
+                && expected.partition() == &self.partition
+                && snapshot.coverage.source == self.source
+                && snapshot.observations <= request.budget.max_snapshot_rows;
         }
         if let CollectionSelection::SourceRead { focus, execution: expected } = &request.selection {
             let Some(actual) = self.observation.execution_context() else {
@@ -1227,6 +1338,13 @@ impl CollectionDescription {
                 && request.subject == CollectionSubject::Database
                 && focus.target.telemetry_id().ok() == self.target.telemetry_id().ok()
                 && snapshot.records <= request.budget.max_snapshot_rows;
+        }
+        if let (
+            SourceObservation::CollectorConnection(description),
+            CollectionSelection::CollectorConnection { attempt },
+        ) = (&self.observation, &request.selection)
+        {
+            return description.matches_source(self) && &description.attempt == attempt;
         }
         if let (
             SourceObservation::DerivedDiagnosis(description),
@@ -1368,6 +1486,11 @@ impl CollectionDescription {
             (SourceObservation::RetainedSamples(history), TelemetryCollection::ResourceHistory) => {
                 (&history.from, &history.until, history.is_valid())
             }
+            (SourceObservation::MssqlReadableResources(history), TelemetryCollection::ResourceHistory) => (
+                &history.history.from,
+                &history.history.until,
+                history.matches_source(self) && history.history.expected_samples <= request.budget.max_snapshot_rows,
+            ),
             (SourceObservation::MssqlManagedInstanceResources(history), TelemetryCollection::ResourceHistory) => (
                 &history.from,
                 &history.until,

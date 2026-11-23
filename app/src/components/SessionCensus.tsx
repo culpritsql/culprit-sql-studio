@@ -21,16 +21,21 @@ export function SessionCensus({ report }: { report: SessionCensusReport }) {
       })}<br />{t("ui.memory_participants.observed_at", { at: report.observed_at })}</>}
       renderEntry={renderEntry}
     >
-      <details>
-        <summary>{report.client_groups.title}</summary>
-        <ObservationList
-          collapseEntries
-          source={report.native_source.source}
-          report={{ ...report.client_groups, sources: report.sources }}
-          scope={t("view.session_census.scope")}
-          renderEntry={renderGroup}
-        />
-      </details>
+      {[
+        { id: "captured", groups: report.client_groups, sources: report.sources },
+        { id: "recent", groups: report.recent_clients.groups, sources: [report.recent_clients.source] },
+      ].map(({ id, groups, sources }) => (
+        <details key={id}>
+          <summary>{groups.title}</summary>
+          <ObservationList
+            collapseEntries
+            source={report.native_source.source}
+            report={{ ...groups, sources }}
+            scope={t("view.session_census.scope")}
+            renderEntry={renderGroup}
+          />
+        </details>
+      ))}
     </ObservationList>
   );
 }

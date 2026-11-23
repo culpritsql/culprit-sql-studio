@@ -267,6 +267,7 @@ pub fn compare(connection: &str, engine: Engine, data: PeriodData, options: &Com
             TimelineSource::QueryStore => t!("core.changes.coverage.query_store", share = share),
             TimelineSource::Scans => t!("core.changes.coverage.scans", share = share),
             TimelineSource::SlowLog => t!("core.changes.coverage.slow_log", share = share),
+            TimelineSource::NativeIntervals => t!("core.changes.coverage.native_intervals", share = share),
         });
     }
     // A comparison that couldn't be made says so first, rather than "no queries ran".
@@ -344,6 +345,7 @@ fn judge(
             TimelineSource::QueryStore => t!("core.changes.reason.query_store"),
             TimelineSource::Scans => t!("core.changes.reason.scans"),
             TimelineSource::SlowLog => t!("core.changes.reason.slow_log"),
+            TimelineSource::NativeIntervals => t!("core.changes.reason.native_intervals"),
         })),
         _ => None,
     };
@@ -1048,5 +1050,20 @@ not a time: not a time | not a time
         let changes = compare("shop", Engine::Mssql, data(vec![same], 1.0), &CompareOptions::default());
         assert!(changes.queries[0].same_plan);
         assert!(changes.queries[0].headline.contains("with the same plan"));
+    }
+
+    #[test]
+    fn native_intervals_keep_their_own_unobserved_query_and_coverage_meaning() {
+        let mut measured = data(vec![query("unobserved", None, Some(stats(100.0, 3.0)))], 0.4);
+        measured.source = TimelineSource::NativeIntervals;
+        let changes = compare("", Engine::Postgres, measured, &CompareOptions::default());
+        assert_eq!(changes.source, TimelineSource::NativeIntervals);
+        let [query] = changes.queries.as_slice() else { panic!() };
+        assert_eq!(query.status, ChangeStatus::NotComparable);
+        assert_eq!(query.reason.as_deref(), Some(t!("core.changes.reason.native_intervals").as_str()));
+        assert_eq!(changes.notes, [t!("core.changes.coverage.native_intervals", share = format::percent(0.4))]);
+        assert!(
+            !changes.notes.iter().any(|note| note == &t!("core.changes.coverage.scans", share = format::percent(0.4)))
+        );
     }
 }

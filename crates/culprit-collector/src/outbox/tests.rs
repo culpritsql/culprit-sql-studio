@@ -4,14 +4,14 @@ use culprit_evidence::delivery::contract::Contract;
 use culprit_evidence::delivery::recovery::RecoveryRead as _;
 mod attempts;
 mod delivery_worker;
-mod eviction;
+pub(super) mod eviction;
 mod informational;
 mod inspection;
 mod requests;
 mod restored_diagnostics;
 mod synthesis;
 
-fn request() -> CollectionRequest {
+pub(super) fn request() -> CollectionRequest {
     CollectionRequest {
         subject: culprit_core::telemetry::CollectionSubject::Database,
         selection: culprit_core::telemetry::CollectionSelection::QueryHistory {
@@ -21,7 +21,7 @@ fn request() -> CollectionRequest {
         budget: CollectionBudget::default(),
     }
 }
-fn source() -> CollectionDescription {
+pub(super) fn source() -> CollectionDescription {
     let mut database =
         culprit_core::DatabaseIdentity::server(culprit_core::Engine::Mssql, "fixture", "fixture.invalid", 1433, None);
     database.incarnation = Some("native-fixture-guid".into());
@@ -71,7 +71,7 @@ fn plan() -> NativePlanIdentity {
         .into(),
     }
 }
-fn records(stream: TelemetryStream) -> Vec<TelemetryRecord> {
+pub(super) fn records(stream: TelemetryStream) -> Vec<TelemetryRecord> {
     let identity = plan();
     let source = source();
     match stream {
@@ -133,6 +133,7 @@ fn records(stream: TelemetryStream) -> Vec<TelemetryRecord> {
         TelemetryStream::DerivedIncidents
         | TelemetryStream::DerivedFindings
         | TelemetryStream::DerivedChanges
+        | TelemetryStream::CollectorConnections
         | TelemetryStream::DeadlockEvents
         | TelemetryStream::OperationalSamples
         | TelemetryStream::WaitCounterSamples

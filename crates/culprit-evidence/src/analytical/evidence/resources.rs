@@ -2,7 +2,7 @@
 use super::{EvidenceReadBudget, EvidenceReadMetrics};
 use crate::delivery::{contract::Contract, recovery::CommittedRange};
 use culprit_core::{
-    PublishedResourceCursor, PublishedResourcePosition, PublishedResourceRequest, Result,
+    IncidentDatabaseSelector, PublishedResourceCursor, PublishedResourcePosition, PublishedResourceRequest, Result,
     telemetry::{DeliveryProblem, digest, valid_digest},
 };
 use serde_json::{Map, Value};
@@ -19,20 +19,69 @@ pub fn resource_namespace_id(contract: &Contract, recovery_store_id: &str) -> Re
     ))
 }
 
+/// Candidate discovery policy only. Exact immutable native clocks are rechecked by the window resolver.
+#[derive(Clone, Copy, Debug, serde::Serialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum PublishedResourceClock {
+    Acquisition,
+    /// Late historical/derived captures and unknown native clocks remain candidates. No acquisition window
+    /// may erase a native history interval, a retained catalog ancestor or an empty derived evaluation.
+    NativeWindowCandidates,
+}
+
+/// Selection of existing published headers, never an inference from a provider/source display name.
+#[derive(Clone, Copy, Debug, serde::Serialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum PublishedResourceContent {
+    All,
+    DerivedDiagnosis,
+}
+impl PublishedResourceContent {
+    pub fn observation_kind(self) -> Option<&'static str> {
+        match self {
+            Self::All => None,
+            Self::DerivedDiagnosis => Some("derived-diagnosis"),
+        }
+    }
+    pub fn accepts_source(self, source: &culprit_core::telemetry::CollectionDescription) -> bool {
+        match self {
+            Self::All => true,
+            Self::DerivedDiagnosis => {
+                matches!(&source.observation, culprit_core::telemetry::SourceObservation::DerivedDiagnosis(_))
+            }
+        }
+    }
+    pub fn accepts_publication(self, values: &Map<String, Value>) -> bool {
+        self.observation_kind().is_none_or(|kind| {
+            values
+                .get("SourceDescription")
+                .and_then(|source| source.pointer("/observation/kind"))
+                .and_then(Value::as_str)
+                == Some(kind)
+        })
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct PublishedResourceQuery {
     pub selection: PublishedResourceRequest,
     pub recovery_store_id: String,
+    pub database: Option<IncidentDatabaseSelector>,
+    pub clock: PublishedResourceClock,
+    pub content: PublishedResourceContent,
 }
 impl PublishedResourceQuery {
     pub fn key(&self, contract: &Contract) -> Result<String> {
         Ok(digest(
             &serde_json::to_vec(&(
-                "published-resource-selection-v1",
+                "published-resource-selection-v3",
                 contract.id()?,
                 &self.recovery_store_id,
                 &self.selection.as_of,
                 &self.selection.window,
+                &self.database,
+                self.clock,
+                self.content,
             ))
             .map_err(|_| invalid())?,
         ))
@@ -40,7 +89,10 @@ impl PublishedResourceQuery {
     pub fn validate(&self, contract: &Contract) -> Result<()> {
         contract.validate()?;
         self.selection.validate()?;
-        if !valid_digest(&self.recovery_store_id)
+        if self.database.as_ref().is_some_and(|database| !database.is_valid())
+            || self.clock == PublishedResourceClock::NativeWindowCandidates
+                && (self.database.is_none() || self.selection.window.is_none())
+            || !valid_digest(&self.recovery_store_id)
             || self
                 .selection
                 .after
@@ -50,6 +102,23 @@ impl PublishedResourceQuery {
             return Err(invalid());
         }
         Ok(())
+    }
+    pub fn accepts(&self, hint: &PublishedResourceHint) -> bool {
+        let mut cutoff = self.selection.clone();
+        cutoff.window = None;
+        if !cutoff.accepts_acquisition(&hint.collected_from, &hint.collected_until) {
+            return false;
+        }
+        match self.clock {
+            PublishedResourceClock::Acquisition => {
+                self.selection.accepts_acquisition(&hint.collected_from, &hint.collected_until)
+            }
+            PublishedResourceClock::NativeWindowCandidates => match (&hint.interval, &self.selection.window) {
+                (Some(interval), Some(window)) => interval.is_valid() && overlaps(interval, window),
+                (None, Some(_)) => true,
+                _ => false,
+            },
+        }
     }
     pub fn within_budget(&self, contract: &Contract, budget: EvidenceReadBudget) -> Result<Self> {
         self.validate(contract)?;
@@ -66,6 +135,8 @@ impl PublishedResourceQuery {
 
 #[derive(Clone, Debug)]
 pub struct PublishedResourceHint {
+    pub database: Option<IncidentDatabaseSelector>,
+    pub interval: Option<culprit_core::PublishedResourceWindow>,
     pub position: PublishedResourcePosition,
     pub logical_source_id: String,
     pub manifest_sha256: String,
@@ -78,7 +149,16 @@ impl PublishedResourceHint {
         request: &PublishedResourceQuery,
         values: &Map<String, Value>,
     ) -> Result<Self> {
+        let interval = match (nullable_text(values, "IntervalFrom")?, nullable_text(values, "IntervalUntil")?) {
+            (None, None) => None,
+            (Some(from), Some(until)) => {
+                Some(culprit_core::PublishedResourceWindow { from: from.into(), until: until.into() })
+            }
+            _ => return Err(invalid()),
+        };
         let hint = Self {
+            database: nullable_text(values, "DatabaseSelector")?.map(IncidentDatabaseSelector::from_key).transpose()?,
+            interval,
             position: PublishedResourcePosition {
                 resource_id: text(values, "ResourceId")?.into(),
                 source_id: text(values, "SourceId")?.into(),
@@ -96,7 +176,10 @@ impl PublishedResourceHint {
             || !hint.position.is_valid()
             || !valid_digest(&hint.logical_source_id)
             || !valid_digest(&hint.manifest_sha256)
-            || !request.selection.accepts_acquisition(&hint.collected_from, &hint.collected_until)
+            || hint.interval.as_ref().is_some_and(|interval| !interval.is_valid())
+            || !request.accepts(&hint)
+            || !request.content.accepts_publication(values)
+            || request.database.as_ref().is_some_and(|database| hint.database.as_ref() != Some(database))
         {
             return Err(invalid());
         }
@@ -107,6 +190,8 @@ impl PublishedResourceHint {
     pub fn matches_original(&self, range: &CommittedRange) -> Result<bool> {
         let manifest = range.manifest();
         Ok(manifest.source.target.database().is_some()
+            && self.database
+                == manifest.source.target.database().map(IncidentDatabaseSelector::from_route).transpose()?
             && self.position.range_id == manifest.range_id
             && self.manifest_sha256 == range.manifest_digest()
             && self.position.resource_id == manifest.source.target.telemetry_id()?
@@ -150,6 +235,22 @@ pub(super) fn page(
     };
     Ok(ResourceDiscoveryPage { candidates, next, charged_candidate_rows, metrics })
 }
+
+fn overlaps(a: &culprit_core::PublishedResourceWindow, b: &culprit_core::PublishedResourceWindow) -> bool {
+    let at = |value: &str| chrono::DateTime::parse_from_rfc3339(value).ok();
+    at(&a.from)
+        .zip(at(&a.until))
+        .zip(at(&b.from).zip(at(&b.until)))
+        .is_some_and(|((start, end), (from, until))| start <= until && end >= from)
+}
+fn nullable_text<'a>(values: &'a Map<String, Value>, key: &str) -> Result<Option<&'a str>> {
+    match values.get(key) {
+        Some(Value::Null) => Ok(None),
+        Some(Value::String(value)) => Ok(Some(value)),
+        _ => Err(invalid()),
+    }
+}
+
 fn text<'a>(values: &'a Map<String, Value>, key: &str) -> Result<&'a str> {
     values.get(key).and_then(Value::as_str).ok_or_else(invalid)
 }

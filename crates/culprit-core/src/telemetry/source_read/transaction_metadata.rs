@@ -29,9 +29,7 @@ impl TransactionMetadataAnswer {
         capture: &DiagnosticCaptureRef,
         rows: &[(&DiagnosticEvidenceRef, &ExportedRecord)],
     ) -> Result<Self> {
-        let SourceReadPrerequisite::ObservedTransactionMetadataWait { key, mechanism, .. } = &focus.prerequisite else {
-            return Err(invalid());
-        };
+        let (key, _, mechanism) = focus.transaction_metadata_participant().ok_or_else(invalid)?;
         let SourceObservation::SourceRead { snapshot, focus_key, execution: result_context } = &source.observation
         else {
             return Err(invalid());
@@ -86,7 +84,7 @@ impl TransactionMetadataAnswer {
             basis_context: focus.original_context(original_source)?,
             result: capture.clone(),
             result_context: result_context.as_ref().clone(),
-            mechanism: *mechanism,
+            mechanism,
             source_state: snapshot.coverage_state()?,
             observation,
             request_end,

@@ -1,5 +1,5 @@
 use super::*;
-fn input() -> CurrentRequestWorkSnapshot {
+pub(in crate::telemetry) fn input() -> CurrentRequestWorkSnapshot {
     let mut input = snapshot();
     input.profile = CurrentRequestWorkProfile::MssqlRequest;
     input.source = crate::source_id::MSSQL_CURRENT_REQUEST_WORK.into();

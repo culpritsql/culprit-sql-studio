@@ -113,6 +113,9 @@ impl SourceReadExecutionScope {
         NativeReadContext::from_activity(source).or_else(|_| NativeReadContext::from_snapshot(source))
     }
     pub fn from_context(question: SourceReadQuestion, context: &NativeReadContext) -> Result<Self> {
+        if question == SourceReadQuestion::ReadableSecondaryRecovery && context.database_writable != Some(false) {
+            return Err(invalid());
+        }
         match question {
             SourceReadQuestion::CompilationHistory | SourceReadQuestion::HyperscaleLogComponents => {
                 NativeSourceReadScope::from_context(context).map(Self::Logical)
@@ -123,7 +126,13 @@ impl SourceReadExecutionScope {
             SourceReadQuestion::TemporarySpaceContributors
             | SourceReadQuestion::WorkerStarvation
             | SourceReadQuestion::RelationalInputContext
-            | SourceReadQuestion::TransactionMetadata => LocalResourceReadScope::from_context(context).map(Self::Local),
+            | SourceReadQuestion::CurrentExecutionProfile
+            | SourceReadQuestion::TransactionMetadata
+            | SourceReadQuestion::OutputGrantRetention
+            | SourceReadQuestion::MetadataLockContext
+            | SourceReadQuestion::ReadableSecondaryRecovery => {
+                LocalResourceReadScope::from_context(context).map(Self::Local)
+            }
         }
     }
     pub fn is_valid(&self) -> bool {
@@ -135,6 +144,7 @@ impl SourceReadExecutionScope {
     }
     pub fn accepts_question(&self, question: SourceReadQuestion) -> bool {
         self.is_valid()
+            && (question != SourceReadQuestion::ReadableSecondaryRecovery || self.database_writable() == Some(false))
             && matches!(
                 (self, question),
                 (
@@ -145,7 +155,11 @@ impl SourceReadExecutionScope {
                     SourceReadQuestion::TemporarySpaceContributors
                         | SourceReadQuestion::WorkerStarvation
                         | SourceReadQuestion::RelationalInputContext
+                        | SourceReadQuestion::CurrentExecutionProfile
                         | SourceReadQuestion::TransactionMetadata
+                        | SourceReadQuestion::OutputGrantRetention
+                        | SourceReadQuestion::MetadataLockContext
+                        | SourceReadQuestion::ReadableSecondaryRecovery
                 ) | (Self::Shared(_), SourceReadQuestion::WorkerStarvation)
             )
     }
@@ -163,9 +177,9 @@ impl SourceReadExecutionScope {
         }
     }
     pub fn subject(&self) -> CollectionSubject {
-        match self.target() {
-            CollectionTarget::Database(_) => CollectionSubject::Database,
-            CollectionTarget::Shared(resource) => CollectionSubject::Shared { resource },
+        match self {
+            Self::Logical(_) | Self::Local(_) => CollectionSubject::Database,
+            Self::Shared(scope) => CollectionSubject::Shared { resource: scope.target.clone() },
         }
     }
     pub fn partition(&self) -> &SourcePartition {
@@ -207,7 +221,9 @@ impl SourceReadExecutionScope {
     }
 }
 
-/// Only these already implemented resource profiles preserve role on ordinary snapshot originals.
+/// These implemented local profiles preserve their actual role on ordinary snapshot originals.
 pub fn local_resource_header_is_valid(snapshot: &StateSnapshotDescription) -> bool {
-    snapshot.is_valid() && matches!(snapshot.dataset, SnapshotDataset::Cleanup | SnapshotDataset::TaskSpace)
+    snapshot.is_valid()
+        && (matches!(snapshot.dataset, SnapshotDataset::Cleanup | SnapshotDataset::TaskSpace)
+            || snapshot.dataset.is_mssql_database_catalog())
 }

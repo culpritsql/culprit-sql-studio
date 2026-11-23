@@ -9,6 +9,7 @@ use std::fmt;
 pub const MAX_MSSQL_RELATIONAL_INPUT_BINDINGS: usize = 64;
 pub const MAX_MSSQL_RELATIONAL_INPUT_PROOF_BYTES: usize = 8 * 1024;
 const SCOPE_DOMAIN: &str = "mssql-relational-input-scope-v1";
+mod execution;
 
 #[derive(Serialize, Deserialize, TS, Clone, Debug, PartialEq, Eq)]
 #[ts(export)]

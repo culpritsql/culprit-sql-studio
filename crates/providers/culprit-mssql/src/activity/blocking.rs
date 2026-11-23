@@ -1,11 +1,14 @@
-//! A focused closure selects from the existing native Activity frame; it owns no SQL or connection.
+//! A focused closure reuses the held Activity reader; selected native details keep its original lifecycle.
 use super::{
     ActivityFrame, ActivityReader, ActivityRecord, NativeRead, RequestLocator,
-    capture::{ActivityAuthorityPolicy, CompletedActivityFrame, PendingActivityFrame},
+    capture::{CompletedActivityFrame, PendingActivityFrame},
     participants::{self, RequestState},
 };
 use culprit_core::{Engine, Result, telemetry::*};
 use std::collections::BTreeSet;
+
+mod metadata_locks;
+pub(in crate::activity) mod output_context;
 
 pub(crate) const SOURCE: &str = "mssql-blocking";
 
@@ -15,26 +18,51 @@ impl<R: NativeRead> ActivityReader<R> {
         focus: &ActivityRequestFocus,
     ) -> Result<culprit_read::FrozenObservation> {
         validate_focus(focus)?;
-        let mut pending = PendingActivityFrame::begin(self, ActivityAuthorityPolicy::AdministrativeCandidates).await?;
+        let mut pending = PendingActivityFrame::begin_blocking(self, focus).await?;
         // A truncated/hidden census cannot prove that the original native request is absent.
         pending.require_complete()?;
         let authority = pending.native_authority()?;
-        validate_native_profile(authority)?;
         participants::matches_owner(focus, authority)?;
+        let connection_generation = authority.connection_generation();
+        self.require_blocking_connection(connection_generation)?;
         let selected = BlockingSelection::from_frame(&pending.baseline.frame, focus, &self.options.budget)?;
         selected.restrict(&mut pending);
+        let lock_snapshot = if selected.observed()
+            && selected.context.closure.status == BlockingClosureStatus::Observed
+            && metadata_locks::selected(&pending.baseline.frame, focus)
+            && let Some(limit) = metadata_locks::snapshot_limit(&pending.baseline.frame, &self.options.budget)
+        {
+            let observed = metadata_locks::read(self, &pending.baseline.frame, limit).await?;
+            self.require_blocking_connection(connection_generation)?;
+            Some(observed)
+        } else {
+            None
+        };
         if selected.observed() && selected.context.closure.status != BlockingClosureStatus::NotRead {
             let limit = self.options.budget.max_sql_bytes;
             // Current SQL only. The same enrichment guards generations/locators; idle previous batches stay uncollected.
             self.enrich(&mut pending.baseline.frame, &selected.context.keys, false, limit).await?;
+            self.require_blocking_connection(connection_generation)?;
+        }
+        if let Some(first) = lock_snapshot {
+            let last = metadata_locks::read(self, &pending.baseline.frame, first.limit).await?;
+            self.require_blocking_connection(connection_generation)?;
+            metadata_locks::attach(&mut pending.baseline.frame, &first, &last)?;
         }
         let check = if selected.observed() {
             self.check_blocking_request(&pending.baseline.frame, focus).await?
         } else {
             FinalRequestCheck { state: BlockingRequestState::NotRead, at: None }
         };
+        self.require_blocking_connection(connection_generation)?;
         let completed = pending.finish(self).await?;
         finish_observation(completed, focus, selected, check)
+    }
+    fn require_blocking_connection(&self, original: Option<u64>) -> Result<()> {
+        if self.connection_generation() != original {
+            return Err(CollectionStop::SourceChanged.error());
+        }
+        Ok(())
     }
     async fn check_blocking_request(
         &mut self,
@@ -147,7 +175,7 @@ fn validate_focus(focus: &ActivityRequestFocus) -> Result<()> {
     }
     Ok(())
 }
-fn validate_native_profile(authority: &crate::local_source::Context) -> Result<()> {
+pub(super) fn validate_native_profile(authority: &crate::local_source::Context) -> Result<()> {
     // The new manual route declares only the owned boxed SQL16 profile. Ordinary Activity keeps its own support.
     if authority.activity.edition != 3
         || authority.activity.major != 16
@@ -159,7 +187,7 @@ fn validate_native_profile(authority: &crate::local_source::Context) -> Result<(
             culprit_core::t!("collection.unsupported"),
         ));
     }
-    if !authority.is_qualified() {
+    if !authority.is_qualified() || !authority.database_wide {
         return Err(CollectionStop::SourceUnavailable.error());
     }
     Ok(())

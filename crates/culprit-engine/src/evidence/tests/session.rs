@@ -302,7 +302,11 @@ async fn exact_metadata_reference_keeps_header_binding_and_failed_publication_ex
     fixture.store.publication.lock().unwrap().take();
     let before = io_counts(&fixture);
     let mut session = fixture.service.session(fixture.request.budget, &cancellation).unwrap();
-    let metadata = session.read_metadata_reference(&reference).await.unwrap();
+    let crate::evidence::EvidenceMetadataLookup::Available(metadata) =
+        session.lookup_metadata_reference(&reference).await.unwrap()
+    else {
+        panic!("the actual header is committed")
+    };
     assert_eq!(metadata.capture(), &reference.capture);
     assert_eq!(metadata.metrics().queries, 1);
     assert_eq!(metadata.gaps()[0].reason, EvidenceGapReason::NotPublished);
@@ -341,4 +345,93 @@ async fn three_materialized_gold_families_share_one_action_row_allowance_without
         assert_eq!(capture.metrics().recovery_objects, 0);
     }
     assert_poisoned(&mut session, &fixture).await;
+}
+
+#[tokio::test]
+async fn an_original_not_committed_in_a_valid_root_is_a_paid_lookup_value_and_does_not_refill_or_poison_other_reads() {
+    let fixture = Fixture::new().await;
+    let token = CollectionCancellation::default();
+    let first = fixture.service.read(&fixture.request, &token).await.unwrap();
+    let original = culprit_core::telemetry::DiagnosticCaptureRef {
+        capture: first.capture().clone(),
+        manifest_sha256: first.capture_manifest_sha256().into(),
+        source_scope_id: first.source().captured_range().unwrap().scope_id,
+    };
+    let (source, rows) = culprit_evidence::analytical::test_support::memory_failure_evidence();
+    let next = fixture.append_capture(source, rows, 100_001).await;
+    let next_reference = culprit_core::telemetry::DiagnosticCaptureRef {
+        capture: next.manifest().capture.clone(),
+        manifest_sha256: next.manifest().capture_manifest_sha256.clone(),
+        source_scope_id: next.manifest().source.captured_range().unwrap().scope_id,
+    };
+    fixture.objects.remove_range_index(&fixture.request.range_id);
+    let mut session = fixture.service.session(fixture.request.budget, &token).unwrap();
+    let before = io_counts(&fixture);
+    assert!(matches!(
+        session.lookup_metadata_reference(&original).await.unwrap(),
+        crate::evidence::EvidenceMetadataLookup::NotCommitted
+    ));
+    let paid_missing = session.completed_metrics().proof_bytes;
+    assert!(paid_missing > 0, "the current root/index lookup bytes are charged even without a warehouse query");
+    assert_eq!(io_counts(&fixture).1, before.1);
+    let crate::evidence::EvidenceMetadataLookup::Available(metadata) =
+        session.lookup_metadata_reference(&next_reference).await.unwrap()
+    else {
+        panic!("this actual original is committed")
+    };
+    assert_eq!(metadata.capture(), &next_reference.capture);
+    assert!(session.completed_metrics().proof_bytes > paid_missing);
+    assert_eq!(session.completed_metrics().queries, 1);
+    let mut limited = fixture
+        .service
+        .session(EvidenceReadBudget { max_proof_bytes: paid_missing - 1, ..fixture.request.budget }, &token)
+        .unwrap();
+    assert_eq!(
+        limited.lookup_metadata_reference(&original).await.unwrap_err().detail,
+        Some(ErrorDetail::Delivery(DeliveryProblem::Capacity))
+    );
+    let stopped = io_counts(&fixture);
+    assert!(limited.lookup_metadata_reference(&next_reference).await.is_err());
+    assert_eq!(
+        io_counts(&fixture),
+        stopped,
+        "capacity failure remains poisoned; the missing outcome did not grant an allowance"
+    );
+    let mut strict = fixture.service.session(fixture.request.budget, &token).unwrap();
+    assert_eq!(
+        strict.read_reference(&original, &fixture.request.families).await.unwrap_err().detail,
+        Some(ErrorDetail::Delivery(DeliveryProblem::NotReady))
+    );
+    assert_poisoned(&mut strict, &fixture).await;
+}
+
+#[tokio::test]
+async fn missing_unvalidated_root_corrupt_manifest_and_denied_publication_never_become_soft_original_absence() {
+    for failure in ["root", "manifest", "permission"] {
+        let fixture = Fixture::new().await;
+        let token = CollectionCancellation::default();
+        let actual = fixture.service.read(&fixture.request, &token).await.unwrap();
+        let reference = culprit_core::telemetry::DiagnosticCaptureRef {
+            capture: actual.capture().clone(),
+            manifest_sha256: actual.capture_manifest_sha256().into(),
+            source_scope_id: actual.source().captured_range().unwrap().scope_id,
+        };
+        match failure {
+            "root" => fixture.objects.remove_history(),
+            "manifest" => fixture.objects.corrupt_manifest(),
+            "permission" => fixture.store.denied.store(true, Ordering::SeqCst),
+            _ => unreachable!(),
+        }
+        let mut session = fixture.service.session(fixture.request.budget, &token).unwrap();
+        let error = session.lookup_metadata_reference(&reference).await.unwrap_err();
+        if failure == "permission" {
+            assert_eq!(error.code, culprit_core::ErrorCode::PermissionDenied);
+        } else {
+            assert!(matches!(
+                error.detail,
+                Some(ErrorDetail::Delivery(DeliveryProblem::NotReady | DeliveryProblem::Integrity))
+            ));
+        }
+        assert_poisoned(&mut session, &fixture).await;
+    }
 }

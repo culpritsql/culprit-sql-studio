@@ -2,7 +2,7 @@
 use culprit_core::{
     DeadlockPattern, Error, Result, RetainedFailureExplanation, RetainedFailureReport, SourceOutcome, SourceState,
     format, t,
-    telemetry::{NativeFailureRecord, NativeFailureSnapshot, PostgresFailureKind},
+    telemetry::{MssqlExtendedEventKind, NativeFailureRecord, NativeFailureSnapshot, PostgresFailureKind},
 };
 
 pub fn explain(evidence: &NativeFailureSnapshot, source: Option<&SourceOutcome>) -> Result<RetainedFailureReport> {
@@ -24,6 +24,17 @@ pub fn explain(evidence: &NativeFailureSnapshot, source: Option<&SourceOutcome>)
         .any(|row| matches!(row, NativeFailureRecord::PostgresLog(row) if row.timestamp_utc.is_none()))
     {
         limitations.push(t!("view.native_failures.postgres.limit.clock"));
+    }
+    if evidence.observations.iter().any(|row| matches!(row, NativeFailureRecord::MssqlExtendedEvent(_))) {
+        limitations.push(t!("native_logs.mssql.limit.scope"));
+        limitations.push(t!("native_logs.mssql.limit.coverage"));
+    }
+    if evidence
+        .observations
+        .iter()
+        .any(|row| matches!(row, NativeFailureRecord::MssqlExtendedEvent(row) if row.timestamp_utc.is_none()))
+    {
+        limitations.push(t!("native_logs.mssql.unplaced"));
     }
     match source.map(|source| source.state) {
         None => limitations.push(t!("view.memory_failures.limit.source_unknown")),
@@ -77,6 +88,16 @@ impl NativeFailureCase {
             NativeFailureRecord::MysqlErrorLog(row) => {
                 Self { position: row.position, meaning: NativeFailureMeaning::mysql(row.error_code.as_deref()) }
             }
+            NativeFailureRecord::MssqlExtendedEvent(row) => Self {
+                position: row.position,
+                meaning: match row.kind {
+                    MssqlExtendedEventKind::Attention { .. } => NativeFailureMeaning::MssqlAttention,
+                    MssqlExtendedEventKind::ErrorReported { number, severity, .. } => {
+                        NativeFailureMeaning::MssqlError { number, severity }
+                    }
+                    MssqlExtendedEventKind::DeadlockReport { .. } => NativeFailureMeaning::MssqlDeadlock,
+                },
+            },
             NativeFailureRecord::PostgresLog(row) => Self {
                 position: row.position,
                 meaning: NativeFailureMeaning::Postgres {
@@ -96,6 +117,9 @@ enum NativeFailureMeaning {
     Resources,
     SortMemory,
     Postgres { kind: PostgresFailureKind, deadlock_pattern: Option<DeadlockPattern> },
+    MssqlAttention,
+    MssqlError { number: u32, severity: u8 },
+    MssqlDeadlock,
     Unclassified,
 }
 
@@ -128,6 +152,21 @@ fn render(case: NativeFailureCase) -> RetainedFailureExplanation {
             t!("view.native_failures.cause.sort.investigation"),
         ),
         NativeFailureMeaning::Postgres { kind, deadlock_pattern } => postgres_explanation(kind, deadlock_pattern),
+        NativeFailureMeaning::MssqlAttention => (
+            t!("native_logs.mssql.attention.title"),
+            t!("native_logs.mssql.attention.explanation"),
+            t!("native_logs.mssql.attention.investigation"),
+        ),
+        NativeFailureMeaning::MssqlError { number, severity } => (
+            t!("native_logs.mssql.error.title", number = number.to_string(), severity = format::count(severity as f64)),
+            t!("native_logs.mssql.error.explanation"),
+            t!("native_logs.mssql.error.investigation"),
+        ),
+        NativeFailureMeaning::MssqlDeadlock => (
+            t!("native_logs.mssql.deadlock.title"),
+            t!("native_logs.mssql.deadlock.explanation"),
+            t!("native_logs.mssql.deadlock.investigation"),
+        ),
         NativeFailureMeaning::Unclassified => (
             t!("view.native_failures.cause.unknown.title"),
             t!("view.native_failures.cause.unknown.explanation"),

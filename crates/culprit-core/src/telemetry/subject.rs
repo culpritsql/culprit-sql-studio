@@ -9,12 +9,18 @@ pub const MAX_RESOURCE_COLLECTIONS: usize = 32;
 pub enum CollectionSubject {
     Database,
     Shared { resource: SharedResourceIdentity },
+    ConfiguredConnection { connection: ConfiguredConnectionIdentity },
 }
 
 impl CollectionSubject {
     pub fn validate(&self) -> Result<()> {
         if let Self::Shared { resource } = self
             && !resource.is_valid()
+        {
+            return Err(Error::invalid(t!("collection.invalid_subject")));
+        }
+        if let Self::ConfiguredConnection { connection } = self
+            && !connection.is_valid()
         {
             return Err(Error::invalid(t!("collection.invalid_subject")));
         }
@@ -29,6 +35,9 @@ impl CollectionSubject {
                 .ok()
                 .zip(actual.telemetry_id().ok())
                 .is_some_and(|(expected, actual)| expected == actual),
+            (Self::ConfiguredConnection { connection }, CollectionTarget::ConfiguredConnection(actual)) => {
+                connection == actual
+            }
             _ => false,
         }
     }
@@ -36,7 +45,9 @@ impl CollectionSubject {
     pub fn require_database(&self) -> Result<()> {
         match self {
             Self::Database => Ok(()),
-            Self::Shared { .. } => Err(Error::new(ErrorCode::Unsupported, t!("collection.unsupported"))),
+            Self::Shared { .. } | Self::ConfiguredConnection { .. } => {
+                Err(Error::new(ErrorCode::Unsupported, t!("collection.unsupported")))
+            }
         }
     }
 
@@ -48,6 +59,7 @@ impl CollectionSubject {
                 .map(|bytes| digest(&bytes))
                 .map_err(|_| CollectionStop::InvalidPage.error()),
             Self::Shared { resource } => resource.telemetry_id(),
+            Self::ConfiguredConnection { connection } => Ok(connection.id.clone()),
         }
     }
 }

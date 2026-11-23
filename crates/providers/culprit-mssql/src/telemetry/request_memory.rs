@@ -33,8 +33,17 @@ impl<R: NativeRead> MemorySource<R> {
             request.selection,
             CollectionSelection::Snapshot { dataset: SnapshotDataset::CurrentRequestMemory }
                 | CollectionSelection::FocusedRequestMemory { .. }
+                | CollectionSelection::SourceRead { .. }
         ) {
             return Err(crate::read::invalid_data());
+        }
+        if let CollectionSelection::SourceRead { focus, execution } = &request.selection {
+            if focus.output_request().is_none()
+                || !execution.accepts_question(SourceReadQuestion::OutputGrantRetention)
+                || !execution.matches_target(&focus.target)
+            {
+                return Err(crate::read::invalid_data());
+            }
         }
         Ok(Self { inner: culprit_read::FrozenSource::new(MemoryObservationReader { reader, context: None }, request)? })
     }
@@ -43,6 +52,11 @@ impl<R: NativeRead> MemorySource<R> {
 impl<R: NativeRead> culprit_read::ObservationReader for MemoryObservationReader<R> {
     async fn observe(&mut self, request: &CollectionRequest) -> Result<culprit_read::FrozenObservation> {
         let (captured, focused) = match &request.selection {
+            CollectionSelection::SourceRead { focus, execution } => {
+                let request = focus.output_request().ok_or_else(crate::read::invalid_data)?;
+                let observed = Box::pin(self.reader.capture_output_memory(request, execution)).await?;
+                (observed.capture, Some(observed.result))
+            }
             CollectionSelection::FocusedRequestMemory { focus } => {
                 let observed = self.reader.capture_focused_memory(focus).await?;
                 (observed.capture, Some(observed.result))
@@ -73,21 +87,43 @@ impl<R: NativeRead> culprit_read::ObservationReader for MemoryObservationReader<
             )],
         };
         let description = CollectionDescription {
-            partition: captured.owner.source_partition()?,
+            partition: if matches!(request.selection, CollectionSelection::SourceRead { .. }) {
+                SourcePartition::Target
+            } else {
+                captured.owner.source_partition()?
+            },
             target: captured.owner.activity.database.clone().into(),
             source: sources::CURRENT_REQUEST_MEMORY.name.into(),
             continuity: SourceContinuity::Unverified,
-            observation: match focused {
-                Some(result) => SourceObservation::FocusedRequestMemory { snapshot, result: Box::new(result) },
-                None => SourceObservation::Snapshot(snapshot),
+            observation: match (&request.selection, focused) {
+                (CollectionSelection::SourceRead { focus, .. }, Some(_)) => SourceObservation::SourceRead {
+                    execution: Box::new(NativeReadContext {
+                        target: captured.owner.activity.database.clone().into(),
+                        partition: captured.owner.source_partition()?,
+                        database_writable: captured.owner.activity.writable,
+                        observed_from: snapshot.observed_from.clone(),
+                        observed_until: snapshot.observed_until.clone(),
+                    }),
+                    focus_key: focus.key()?,
+                    snapshot,
+                },
+                (_, Some(result)) => SourceObservation::FocusedRequestMemory { snapshot, result: Box::new(result) },
+                (_, None) => SourceObservation::Snapshot(snapshot),
             },
         };
         self.context = Some(captured.owner);
         Ok(culprit_read::FrozenObservation { description, records })
     }
-    async fn verify(&mut self, _: &CollectionDescription) -> Result<bool> {
+    async fn verify(&mut self, source: &CollectionDescription) -> Result<bool> {
         match self.reader.verify_memory_context(self.context.as_ref().ok_or_else(crate::read::invalid_data)?).await {
-            Ok(_) => Ok(true),
+            Ok(current) => match &source.observation {
+                SourceObservation::SourceRead { snapshot, execution, .. } => {
+                    Ok(SourceReadExecutionScope::from_context(SourceReadQuestion::OutputGrantRetention, execution)?
+                        .matches_context(&current)
+                        && ObservationBounds::new(&snapshot.observed_until, &current.observed_until).is_some())
+                }
+                _ => Ok(true),
+            },
             Err(error) if CollectionStop::from_error(&error) == CollectionStop::SourceChanged => Ok(false),
             Err(error) => Err(error),
         }
@@ -133,3 +169,6 @@ mod focused_tests;
 mod native_tests;
 #[cfg(test)]
 mod profile_tests;
+
+#[cfg(test)]
+mod output_tests;

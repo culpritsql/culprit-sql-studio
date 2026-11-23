@@ -71,7 +71,7 @@ impl DiagnosticEpisode {
         if !self.is_valid() {
             return Err(invalid());
         }
-        if !self.analysis.needs_work() {
+        if !self.owes_primary_analysis() {
             return Ok(DiagnosticFocusPlan::NotRequired);
         }
         let Some(DiagnosticReport::PageWait { observation, .. }) = &self.report else {

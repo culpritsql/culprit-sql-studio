@@ -1,3 +1,4 @@
+mod commit_pipeline;
 use culprit_evidence::analytical::indexes::ProjectionIndexWriter;
 mod columnstore;
 mod columnstore_rowgroups;
@@ -20,6 +21,7 @@ mod blocking;
 mod cache_entry_memory;
 mod cached_runtime;
 mod cleanup;
+mod collector_connections;
 mod compilation;
 mod compilation_definitions;
 mod compiler_admission;
@@ -47,6 +49,7 @@ mod parameters;
 mod performance_counters;
 mod populations;
 mod queries;
+mod readable_secondary_recovery;
 mod replication;
 mod resource_io;
 mod session_census;
@@ -551,3 +554,8 @@ mod derived_outputs;
 mod resource_discovery;
 
 mod transaction_metadata;
+
+mod output_blocking;
+mod output_grant;
+
+mod readable_resource_history;

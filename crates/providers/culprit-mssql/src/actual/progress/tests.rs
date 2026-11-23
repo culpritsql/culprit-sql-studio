@@ -209,11 +209,11 @@ async fn one_selected_request_uses_native_generations_handles_offsets_and_the_gu
         "r.request_id=p.request_id",
         "r.sql_handle=p.sql_handle",
         "r.plan_handle=p.plan_handle",
-        "r.start_time=CONVERT(datetime,@P4,126)",
-        "s.login_time=CONVERT(datetime,@P3,126)",
+        "CAST(r.start_time AS datetime2(7))=CONVERT(datetime2(7),@P4,126)",
+        "CAST(s.login_time AS datetime2(7))=CONVERT(datetime2(7),@P3,126)",
         "r.statement_start_offset=@P7",
         "r.statement_end_offset=@P8",
-        "'guard' AS row_kind",
+        "THEN 'guard' ELSE 'profile' END AS row_kind",
     ] {
         assert!(sql.contains(required), "{required}");
     }

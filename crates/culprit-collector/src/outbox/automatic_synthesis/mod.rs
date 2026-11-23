@@ -9,7 +9,9 @@ use culprit_core::{Result, limits::OperationHandle, telemetry::*};
 use tokio::time::Instant;
 mod catalog;
 mod context;
+mod heads;
 mod journal;
+mod points;
 use context::{ContextPlan, decode_plan, encode_plan};
 pub(super) use journal::{SCHEMA, archived, before_remove, charged_bytes, committed, reserve_allowance};
 
@@ -65,7 +67,7 @@ impl OutboxDelivery {
         let registration = automatic.registration().clone();
         control.check()?;
         self.with_read_operation(control, worker_guard, move |files, control| {
-            if !files.synthesis_mutation_ready()? {
+            if !files.local_output_mutation_ready()? {
                 return Ok(CaptureWork::Read(SynthesisTurn::Deferred {
                     reason: SynthesisDeferral::NativeCaptureOwned,
                 }));
@@ -153,7 +155,7 @@ fn control(operation: OperationHandle, budget: super::CompletedCaptureBudget) ->
 
 impl Files {
     fn register_synthesis(&mut self, registration: &SynthesisRegistration) -> Result<()> {
-        if self.native_reservation_started || !self.synthesis_mutation_ready()? {
+        if self.native_reservation_started || !self.local_output_mutation_ready()? {
             return Err(problem(OutboxProblem::RecoveryRequired));
         }
         let headroom = MAX_DERIVED_OUTPUT_BYTES as u64 + super::CAPTURE_ALLOWANCE + super::MAX_REQUEST_BYTES as u64;

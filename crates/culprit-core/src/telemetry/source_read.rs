@@ -6,19 +6,31 @@ pub use scope::*;
 mod answer;
 pub use answer::*;
 mod stage;
-pub use stage::*;
+pub(in crate::telemetry) use stage::ObservationOrdinal;
+pub use stage::{SourceReadStage, SourceReadStageState};
 mod stages;
-pub use stages::SourceReadStages;
+pub use stages::{MAX_SOURCE_READ_STAGES, MAX_TRANSACTION_METADATA_OBSERVATIONS, SourceReadStages};
 mod followup;
 mod lifecycle;
+mod preference;
 mod temporary;
 pub use temporary::*;
+mod readable_secondary_recovery;
+pub use readable_secondary_recovery::*;
 mod transaction_metadata;
 pub use transaction_metadata::*;
+mod transaction_metadata_continuation;
+pub use transaction_metadata_continuation::TransactionMetadataContinuation;
+mod output_grant;
+pub use output_grant::*;
+mod metadata_locks;
+pub use metadata_locks::*;
 mod workers;
 pub use workers::*;
 mod query_compilation;
 pub use query_compilation::*;
+mod execution_profile;
+pub use execution_profile::*;
 mod relational_input;
 pub use relational_input::*;
 
@@ -77,8 +89,12 @@ pub enum SourceReadQuestion {
     HyperscaleLogComponents,
     TemporarySpaceContributors,
     TransactionMetadata,
+    ReadableSecondaryRecovery,
     WorkerStarvation,
     RelationalInputContext,
+    CurrentExecutionProfile,
+    OutputGrantRetention,
+    MetadataLockContext,
 }
 impl SourceReadQuestion {
     pub const ALL: &'static [Self] = &[
@@ -86,28 +102,43 @@ impl SourceReadQuestion {
         Self::HyperscaleLogComponents,
         Self::TemporarySpaceContributors,
         Self::TransactionMetadata,
+        Self::ReadableSecondaryRecovery,
         Self::WorkerStarvation,
         Self::RelationalInputContext,
+        Self::CurrentExecutionProfile,
+        Self::OutputGrantRetention,
+        Self::MetadataLockContext,
     ];
 
-    pub const fn dataset(self) -> SnapshotDataset {
-        match self {
+    pub const fn dataset(self) -> Option<SnapshotDataset> {
+        Some(match self {
             Self::CompilationHistory => SnapshotDataset::QueryCompilation,
             Self::HyperscaleLogComponents => SnapshotDataset::HyperscaleLogComponents,
             Self::TemporarySpaceContributors => SnapshotDataset::TaskSpace,
             Self::TransactionMetadata => SnapshotDataset::TransactionMetadata,
+            Self::ReadableSecondaryRecovery => SnapshotDataset::ReadableSecondaryRecovery,
             Self::WorkerStarvation => SnapshotDataset::WorkerStarvation,
             Self::RelationalInputContext => SnapshotDataset::RetainedPlans,
+            Self::CurrentExecutionProfile => SnapshotDataset::CurrentExecutionProfile,
+            Self::OutputGrantRetention => SnapshotDataset::CurrentRequestMemory,
+            Self::MetadataLockContext => return None,
+        })
+    }
+    pub const fn collection(self) -> TelemetryCollection {
+        match self.dataset() {
+            Some(dataset) => TelemetryCollection::Snapshot(dataset),
+            None => TelemetryCollection::Activity,
         }
     }
     pub const fn selector(self) -> RecipeSelector {
         match self {
             Self::WorkerStarvation => RecipeSelector::WorkerStarvation,
-            _ => RecipeSelector::Collection(TelemetryCollection::Snapshot(self.dataset())),
+            Self::MetadataLockContext => RecipeSelector::FocusedMetadataLocks,
+            _ => RecipeSelector::Collection(self.collection()),
         }
     }
     pub fn accepts_dataset(self, dataset: SnapshotDataset) -> bool {
-        self.dataset() == dataset
+        self.dataset() == Some(dataset)
     }
     pub fn for_dataset(dataset: SnapshotDataset) -> Option<Self> {
         Self::ALL.iter().copied().find(|question| question.accepts_dataset(dataset))
@@ -123,11 +154,17 @@ pub enum SourceReadPrerequisite {
     CompilationAdmission {
         report: Box<CompilationAdmissionReport>,
     },
+    ObservedReadableSecondaryReader {
+        request: Box<ActivityRequestFocus>,
+    },
     ObservedLogRateWait,
     ObservedTransactionMetadataWait {
         key: ActivityKey,
         statement_identity: NativeIdentity,
         mechanism: TransactionMetadataWait,
+    },
+    ObservedTransactionMetadataContinuation {
+        continuation: Box<TransactionMetadataContinuation>,
     },
     ObservedCleanupBoundary {
         session: NativeActivityIdentity,
@@ -137,6 +174,20 @@ pub enum SourceReadPrerequisite {
         query: NativeQueryIdentity,
     },
     ObservedWorkerQueue,
+    /// Existing adverse original +exact matched CurrentWork row; never a plan/type-only trigger.
+    ObservedCurrentExecutionRequest {
+        observation: Box<DiagnosticEvidenceRef>,
+        request: Box<ActivityRequestFocus>,
+        observed_until: String,
+        #[serde(deserialize_with = "Option::deserialize")]
+        exchange_wait: Option<MssqlParallelExchangeWait>,
+    },
+    ObservedClientOutputWait {
+        request: Box<ActivityRequestFocus>,
+    },
+    ObservedMetadataLockWait {
+        request: Box<ActivityRequestFocus>,
+    },
     /// A later current-cache point, not an execution-plan or runtime-input attestation for the adverse parent.
     ObservedCurrentRequestPlan {
         observation: Box<DiagnosticEvidenceRef>,
@@ -149,7 +200,12 @@ impl SourceReadPrerequisite {
     pub fn references(&self) -> impl Iterator<Item = &DiagnosticEvidenceRef> {
         let references: Vec<_> = match self {
             Self::CompilationAdmission { report } => report.references().collect(),
-            Self::ObservedCurrentRequestPlan { observation, .. } => vec![observation.as_ref()],
+            Self::ObservedReadableSecondaryReader { request } => vec![&request.parent],
+            Self::ObservedTransactionMetadataContinuation { continuation } => {
+                vec![&continuation.previous, &continuation.request.parent]
+            }
+            Self::ObservedCurrentRequestPlan { observation, .. }
+            | Self::ObservedCurrentExecutionRequest { observation, .. } => vec![observation.as_ref()],
             _ => Vec::new(),
         };
         references.into_iter()
@@ -159,20 +215,46 @@ impl SourceReadPrerequisite {
     pub fn observation(&self) -> Option<&DiagnosticEvidenceRef> {
         match self {
             Self::CompilationAdmission { report } => Some(&report.observation),
-            Self::ObservedCurrentRequestPlan { observation, .. } => Some(observation),
+            Self::ObservedTransactionMetadataContinuation { continuation } => Some(&continuation.previous),
+            Self::ObservedCurrentRequestPlan { observation, .. }
+            | Self::ObservedCurrentExecutionRequest { observation, .. } => Some(observation),
             _ => None,
+        }
+    }
+
+    /// A prior selected metadata point has its own completed canonical source proof, not an Activity focus.
+    /// Other existing native prerequisites must still authenticate their actual focused participant.
+    pub fn activity_participant<'a>(
+        &self,
+        source: &'a CollectionDescription,
+    ) -> Result<Option<&'a ActivityRequestFocus>> {
+        match self {
+            Self::ObservedTransactionMetadataContinuation { .. } => {
+                if !matches!(&source.observation, SourceObservation::SourceRead { snapshot, .. }
+                    if snapshot.dataset == SnapshotDataset::TransactionMetadata)
+                {
+                    return Err(invalid());
+                }
+                Ok(None)
+            }
+            _ => source.observation.focus().map(Some).ok_or_else(invalid),
         }
     }
 
     pub fn compilation_admission(&self) -> Option<&CompilationAdmissionReport> {
         match self {
             Self::CompilationAdmission { report } => Some(report),
-            Self::ObservedTransactionMetadataWait { .. }
+            Self::ObservedReadableSecondaryReader { .. }
+            | Self::ObservedTransactionMetadataWait { .. }
+            | Self::ObservedTransactionMetadataContinuation { .. }
             | Self::ObservedLogRateWait
+            | Self::ObservedClientOutputWait { .. }
+            | Self::ObservedMetadataLockWait { .. }
             | Self::ObservedWorkerQueue
             | Self::ObservedCleanupBoundary { .. }
             | Self::ObservedQueryHistoryFailure { .. }
-            | Self::ObservedCurrentRequestPlan { .. } => None,
+            | Self::ObservedCurrentRequestPlan { .. }
+            | Self::ObservedCurrentExecutionRequest { .. } => None,
         }
     }
     fn matches_cleanup_condition(&self, condition: &DiagnosticOriginalCondition) -> bool {
@@ -189,12 +271,45 @@ impl SourceReadPrerequisite {
     }
     fn is_valid_for(&self, question: SourceReadQuestion) -> bool {
         match (self, question) {
+            (Self::ObservedMetadataLockWait { request }, SourceReadQuestion::MetadataLockContext) => {
+                request.is_metadata_lock_focus()
+            }
             (Self::CompilationAdmission { report }, SourceReadQuestion::CompilationHistory) => report.is_valid(),
             (Self::ObservedQueryHistoryFailure { query }, SourceReadQuestion::CompilationHistory) => {
                 query_store_query_identity_is_complete(query)
             }
+            (Self::ObservedReadableSecondaryReader { request }, SourceReadQuestion::ReadableSecondaryRecovery) => {
+                request.is_readable_secondary_recovery_focus()
+            }
+            (
+                Self::ObservedTransactionMetadataContinuation { continuation },
+                SourceReadQuestion::TransactionMetadata,
+            ) => continuation.is_valid(),
             (Self::ObservedLogRateWait, SourceReadQuestion::HyperscaleLogComponents) => true,
             (Self::ObservedWorkerQueue, SourceReadQuestion::WorkerStarvation) => true,
+            (Self::ObservedClientOutputWait { request }, SourceReadQuestion::OutputGrantRetention) => {
+                request.is_output_memory_focus()
+            }
+            (
+                Self::ObservedCurrentExecutionRequest { observation, request, observed_until, exchange_wait },
+                SourceReadQuestion::CurrentExecutionProfile,
+            ) => {
+                observation.is_valid()
+                    && observation.stream == TelemetryStream::OperationalSamples
+                    && matches!(&observation.native_key,NativeRecordIdentity::Operational{source,..} if source==crate::source_id::MSSQL_CURRENT_REQUEST_WORK)
+                    && request.is_valid()
+                    && CurrentRequestWorkProfile::MssqlRequest.accepts_focus(request)
+                    && request.database_writable.is_some()
+                    && request.partition.native_epoch().is_some()
+                    && request
+                        .original
+                        .wait
+                        .as_ref()
+                        .and_then(|wait| wait.native_type.as_deref())
+                        .and_then(MssqlParallelExchangeWait::from_native)
+                        == *exchange_wait
+                    && ObservationBounds::new(&request.original_observed_at, observed_until).is_some()
+            }
             (
                 Self::ObservedCurrentRequestPlan { observation, context, observed_from, observed_until },
                 SourceReadQuestion::RelationalInputContext,
@@ -248,6 +363,14 @@ impl SourceReadFocus {
             && self.prerequisite.is_valid_for(self.question)
             && match (&self.prerequisite, self.question) {
                 (
+                    SourceReadPrerequisite::ObservedCurrentExecutionRequest { request, observation, .. },
+                    SourceReadQuestion::CurrentExecutionProfile,
+                ) => {
+                    request.parent == *self.basis
+                        && request.target == self.target
+                        && observation.capture != self.basis.capture
+                }
+                (
                     SourceReadPrerequisite::ObservedQueryHistoryFailure { .. },
                     SourceReadQuestion::CompilationHistory,
                 ) => {
@@ -270,6 +393,16 @@ impl SourceReadFocus {
                         && matches!(self.basis.native_key, NativeRecordIdentity::Activity(_))
                 }
             }
+            && match &self.prerequisite {
+                SourceReadPrerequisite::ObservedReadableSecondaryReader { request }
+                | SourceReadPrerequisite::ObservedMetadataLockWait { request } => {
+                    request.parent == *self.basis && request.target == self.target
+                }
+                SourceReadPrerequisite::ObservedTransactionMetadataContinuation { continuation } => {
+                    continuation.request.parent == *self.basis && continuation.request.target == self.target
+                }
+                _ => true,
+            }
             && self.target.is_valid()
             && (self.target.database().is_some()
                 || self.question == SourceReadQuestion::WorkerStarvation
@@ -291,6 +424,12 @@ impl SourceReadFocus {
         source: &CollectionDescription,
         rows: impl IntoIterator<Item = (&'a DiagnosticEvidenceRef, &'a OperationalObservation)>,
     ) -> bool {
+        if let SourceReadPrerequisite::ObservedTransactionMetadataContinuation { continuation } = &self.prerequisite {
+            return continuation.matches_input(self, original_source, original_row, source, rows);
+        }
+        if matches!(self.prerequisite, SourceReadPrerequisite::ObservedCurrentExecutionRequest { .. }) {
+            return self.matches_execution_profile_input(original_source, original_row, source, rows);
+        }
         if matches!(self.prerequisite, SourceReadPrerequisite::ObservedCurrentRequestPlan { .. }) {
             return self.matches_current_plan_input(original_source, original_row, source, rows);
         }
@@ -326,11 +465,16 @@ impl SourceReadFocus {
     pub fn retains_result_rows(&self) -> bool {
         matches!(
             self.prerequisite,
-            SourceReadPrerequisite::ObservedCleanupBoundary { .. }
+            SourceReadPrerequisite::ObservedReadableSecondaryReader { .. }
+                | SourceReadPrerequisite::ObservedCleanupBoundary { .. }
                 | SourceReadPrerequisite::ObservedQueryHistoryFailure { .. }
                 | SourceReadPrerequisite::ObservedTransactionMetadataWait { .. }
+                | SourceReadPrerequisite::ObservedTransactionMetadataContinuation { .. }
+                | SourceReadPrerequisite::ObservedClientOutputWait { .. }
+                | SourceReadPrerequisite::ObservedMetadataLockWait { .. }
                 | SourceReadPrerequisite::ObservedWorkerQueue
                 | SourceReadPrerequisite::ObservedCurrentRequestPlan { .. }
+                | SourceReadPrerequisite::ObservedCurrentExecutionRequest { .. }
         )
     }
     /// The existing canonical reader verifies every original row and byte before retaining this selection.
@@ -382,15 +526,30 @@ impl SourceReadFocus {
             return worker_starvation::original_worker_queue_matches(source, row);
         }
         match self.question {
+            SourceReadQuestion::CurrentExecutionProfile => {
+                let SourceReadPrerequisite::ObservedCurrentExecutionRequest { request, .. } = &self.prerequisite else {
+                    return false;
+                };
+                matches!(row,TelemetryRecord::Activity(original)
+                    if original.as_ref()==&request.original && request.parent==*self.basis)
+            }
+            SourceReadQuestion::MetadataLockContext => self.metadata_lock_request().is_some_and(|request|matches!(row,TelemetryRecord::Activity(original) if request.matches_parent(source,original,&self.basis))),
+            SourceReadQuestion::OutputGrantRetention => self.output_request().is_some_and(|request|matches!(row,TelemetryRecord::Activity(original) if request.matches_parent(source,original,&self.basis))),
             SourceReadQuestion::RelationalInputContext => matches!(row, TelemetryRecord::Activity(original)
                 if original.has_session_generation_authority()
                     && original.scope == ActivityScopeBasis::RequestDatabase
                     && original.key.request.is_some()
                     && original.statement_identity.as_ref().is_some_and(mssql_request_statement_identity_is_valid)),
+            SourceReadQuestion::ReadableSecondaryRecovery => {
+                let SourceReadPrerequisite::ObservedReadableSecondaryReader { request } = &self.prerequisite else {return false};
+                matches!(row, TelemetryRecord::Activity(original) if original.as_ref() == &request.original && request.matches_parent(source, original, &self.basis))
+            }
             SourceReadQuestion::TransactionMetadata => {
-                let SourceReadPrerequisite::ObservedTransactionMetadataWait { key, statement_identity, mechanism } =
-                    &self.prerequisite
-                else {
+                if let SourceReadPrerequisite::ObservedTransactionMetadataContinuation { continuation } = &self.prerequisite {
+                    return matches!(row, TelemetryRecord::Activity(original)
+                        if continuation.request.matches_parent(source, original, &self.basis));
+                }
+                let Some((key, statement_identity, mechanism)) = self.transaction_metadata_participant() else {
                     return false;
                 };
                 matches!(row, TelemetryRecord::Activity(original)
@@ -411,7 +570,7 @@ impl SourceReadFocus {
                 && original.wait.as_ref().is_some_and(|wait| wait.class == Some(match question {
                     SourceReadQuestion::CompilationHistory => ActivityWaitClass::CompilationAdmission,
                     SourceReadQuestion::HyperscaleLogComponents => ActivityWaitClass::LogRateGovernance,
-                    SourceReadQuestion::TemporarySpaceContributors | SourceReadQuestion::WorkerStarvation | SourceReadQuestion::RelationalInputContext | SourceReadQuestion::TransactionMetadata => return false,
+                    SourceReadQuestion::TemporarySpaceContributors | SourceReadQuestion::WorkerStarvation | SourceReadQuestion::RelationalInputContext | SourceReadQuestion::CurrentExecutionProfile | SourceReadQuestion::TransactionMetadata | SourceReadQuestion::OutputGrantRetention | SourceReadQuestion::ReadableSecondaryRecovery | SourceReadQuestion::MetadataLockContext => return false,
                 }))),
         }
     }
@@ -441,9 +600,14 @@ impl SourceReadFocus {
 /// The completed waiter/gateway answer stays immutable. This separately owed question transitions only through
 /// revision/event history, and retains one successful capture rather than a per-row compiler roster.
 impl SourceObservation {
+    pub fn is_source_read_result(&self) -> bool {
+        matches!(self, Self::SourceRead { .. } | Self::MetadataLockContext { .. })
+    }
     pub fn execution_context(&self) -> Option<&NativeReadContext> {
         match self {
-            Self::SourceRead { execution, .. } | Self::PagedSourceRead { execution, .. } => Some(execution),
+            Self::SourceRead { execution, .. }
+            | Self::PagedSourceRead { execution, .. }
+            | Self::MetadataLockContext { execution, .. } => Some(execution),
             _ => None,
         }
     }

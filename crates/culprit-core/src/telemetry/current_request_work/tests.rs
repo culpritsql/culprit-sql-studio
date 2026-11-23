@@ -1,5 +1,5 @@
 use super::*;
-mod mssql;
+pub(in crate::telemetry) mod mssql;
 
 fn snapshot() -> CurrentRequestWorkSnapshot {
     let mut context = super::super::native_read_context::tests::read_context();
@@ -77,7 +77,10 @@ fn source(input: &CurrentRequestWorkSnapshot) -> CollectionDescription {
     }
 }
 
-fn focus(input: &CurrentRequestWorkSnapshot, partition: SourcePartition) -> ActivityRequestFocus {
+pub(in crate::telemetry) fn focus(
+    input: &CurrentRequestWorkSnapshot,
+    partition: SourcePartition,
+) -> ActivityRequestFocus {
     let point = &input.observations[0];
     let mut original = super::super::activity::tests::request("42");
     original.key = point.actor.clone();

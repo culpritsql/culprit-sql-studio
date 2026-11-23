@@ -20,7 +20,11 @@ pub mod check;
 pub mod cleanup_report;
 pub mod cloud;
 pub mod collected_analysis;
+mod collected_window;
 pub use cdc_report::CdcReport;
+pub use collected_window::*;
+mod warehouse_window;
+pub use warehouse_window::*;
 mod change_capture_report;
 pub use change_capture_report::{ChangeCaptureEntry, ChangeCaptureEntryKind, ChangeCaptureField, ChangeCaptureReports};
 mod change_feed_report;
@@ -101,8 +105,8 @@ mod storage_report;
 pub use storage_report::{StorageEntry, StorageField, StorageFileSummary, StorageReport};
 mod session_census_report;
 pub use session_census_report::{
-    SessionCensusClientGroup, SessionCensusClientGroups, SessionCensusEntry, SessionCensusField, SessionCensusReport,
-    SessionClientDatabase, SessionClientGroupKey,
+    RecentClientPopulationCoverage, SessionCensusClientGroup, SessionCensusClientGroups, SessionCensusEntry,
+    SessionCensusField, SessionCensusRecentClients, SessionCensusReport, SessionClientDatabase, SessionClientGroupKey,
 };
 pub mod incident_history_report;
 pub mod page_server_read_report;
@@ -158,7 +162,9 @@ pub use actual::{
 };
 pub use advice::*;
 pub use blocking::{BlockNode, Blocking, BlockingChain, HeadKind, LockWait};
-pub use blocking_report::{BlockingReport, MetadataQueueExplanation, MetadataQueueReport};
+pub use blocking_report::{
+    BlockingReport, MetadataQueueExplanation, MetadataQueueReport, OutputBlockingExplanation, OutputBlockingReport,
+};
 pub use cache_entry_memory_report::{
     CacheEntryContextDifference, CacheEntryMemoryExplanation, CacheEntryMemoryReport, CacheEntryPopulationComparison,
     CacheEntryRetainedChange,
@@ -228,7 +234,8 @@ pub use memory_participants::{
 };
 pub use model::*;
 pub use native_log_analysis::{
-    NativeLogAnalysis, NativeLogArtifact, NativeLogFormat, NativeLogIssue, NativeLogLimits, NativeLogProblem,
+    ImportedEventDeadlock, ImportedNativeEvents, NativeLogAnalysis, NativeLogArtifact, NativeLogFormat, NativeLogIssue,
+    NativeLogLimits, NativeLogProblem,
 };
 pub use operations::{
     MemoryLimit, NodeResource, NodeResources, ProcessMemory, QueryTermination, TerminationHistory, TerminationReason,
@@ -325,3 +332,9 @@ pub use diagnostic_ancestry::*;
 
 mod warehouse_connection;
 pub use warehouse_connection::*;
+
+mod commit_pipeline;
+pub use commit_pipeline::*;
+
+mod warehouse_artifact;
+pub use warehouse_artifact::*;

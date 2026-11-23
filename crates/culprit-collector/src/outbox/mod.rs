@@ -17,6 +17,7 @@ pub use completed_synthesis::SynthesisCapture;
 mod artifacts;
 mod attempts;
 mod automatic_synthesis;
+mod connection_control;
 mod metadata;
 mod synthesized_output;
 pub use metadata::InspectedCaptureManifest;
@@ -204,11 +205,24 @@ impl Files {
                     }
                 }
             }
-            self.journal.fail(
+            let terminal = if connection_control::is_observed(&self.journal.conn, &capture.identity.observation_id)? {
+                attempts::read_manifest(&self.root, &self.journal, &capture)?
+                    .filter(|recorded| recorded.manifest.finished_at.is_some())
+            } else {
+                None
+            };
+            self.journal.fail_with_manifest(
                 &capture,
                 OutboxCaptureState::Interrupted,
                 None,
                 capture.charge_artifacts(measure(&directory)?)?,
+                terminal.as_ref().map(|recorded| {
+                    (
+                        &recorded.manifest,
+                        recorded.sha256.as_str(),
+                        connection_control::no_native_evidence(&directory, &recorded.manifest, capture.source_work),
+                    )
+                }),
             )?;
             report.interrupted += 1;
         }
@@ -296,6 +310,14 @@ impl Files {
     }
 
     pub fn reserve(&mut self, connection: &str, request: &CollectionRequest) -> Result<Reservation> {
+        self.reserve_with_connection(connection, request, None)
+    }
+    fn reserve_with_connection(
+        &mut self,
+        connection: &str,
+        request: &CollectionRequest,
+        control: Option<&connection_control::Registration>,
+    ) -> Result<Reservation> {
         if matches!(self.authority, RevisionAuthority::Recovery { .. })
             && (self.epoch.is_none() || !request.collection().is_local_output() && !self.native_epoch_enabled)
         {
@@ -325,7 +347,7 @@ impl Files {
         } else if let Some(focus) = request.focus() {
             self.verify_focus_parent(focus)?;
         }
-        let capture = self.journal.reserve(connection, request, &mut self.epoch)?;
+        let capture = self.journal.reserve(connection, request, &mut self.epoch, control)?;
         if !request.collection().is_local_output() {
             self.native_reservation_started = true;
         }
@@ -406,6 +428,16 @@ impl Files {
 
 impl Files {
     fn finish(&mut self, reservation: Reservation) -> Result<()> {
+        self.finish_with_connection(reservation, None)
+    }
+    fn finish_with_connection(
+        &mut self,
+        reservation: Reservation,
+        completion: Option<connection_control::Completion>,
+    ) -> Result<()> {
+        if let Some(completion) = completion {
+            connection_control::complete_attempt(&self.journal.conn, &reservation.entry, &completion)?;
+        }
         let Reservation { entry, directory, .. } = reservation;
         let capture = self.journal.capture(&entry.identity.observation_id)?;
         if capture.identity != entry.identity || capture.state != OutboxCaptureState::Capturing {
@@ -419,24 +451,26 @@ impl Files {
         {
             // ObservationFiles::finish consumes the writer and durably publishes its terminal manifest.
             // A seal attests these bytes only; failure/native cancellation debt never becomes Ready/quiescent.
-            let terminal_sha = recorded
-                .ok()
-                .flatten()
-                .filter(|recorded| recorded.manifest.finished_at.is_some())
-                .map(|recorded| recorded.sha256);
+            let terminal = recorded.ok().flatten().filter(|recorded| recorded.manifest.finished_at.is_some());
             return self.journal.fail_with_manifest(
                 &capture,
                 OutboxCaptureState::Incomplete,
                 None,
                 capture.charge_artifacts(measure(&directory)?)?,
-                terminal_sha.as_deref(),
+                terminal.as_ref().map(|recorded| {
+                    (
+                        &recorded.manifest,
+                        recorded.sha256.as_str(),
+                        connection_control::no_native_evidence(&directory, &recorded.manifest, capture.source_work),
+                    )
+                }),
             );
         }
         match artifacts::validate(&directory, &capture, None) {
             Ok(validated) => {
                 if matches!(
                     validated.manifest.description.as_ref().map(|source| &source.observation),
-                    Some(SourceObservation::SourceRead { .. })
+                    Some(SourceObservation::SourceRead { .. } | SourceObservation::MetadataLockContext { .. })
                 ) && let Some(intent) = validated.manifest.investigation_intent()?
                 {
                     // Authenticate both exact originals before the queue/pin/Ready transaction becomes visible.

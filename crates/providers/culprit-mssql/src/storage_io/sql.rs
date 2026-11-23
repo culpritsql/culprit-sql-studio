@@ -10,10 +10,13 @@ const CONTEXT: &str = "@engine_edition AS engine_edition, @database_edition AS d
 const SERIAL: &str = " OPTION(MAXDOP 1);";
 
 pub(super) fn statement(selection: Selection) -> String {
-    let current = dynamic_expression(&database());
+    let current = dynamic_expression(&match selection {
+        Selection::Pool => pool(),
+        _ => database(),
+    });
     let cache = dynamic_expression(&cache());
     let tempdb = match selection {
-        Selection::Database => String::new(),
+        Selection::Database | Selection::Pool => String::new(),
         Selection::DatabaseAndSharedTempdb => format!(
             "
 IF @engine_edition IN (2,3,4,8) AND DB_ID() <> 2
@@ -71,6 +74,19 @@ CASE WHEN @engine_edition IN (2,3,4,8) AND DB_ID() = 2 THEN 1 ELSE 0 END AS temp
 FROM sys.dm_io_virtual_file_stats(DB_ID(), NULL) vfs
 LEFT JOIN sys.database_files df ON df.file_id = vfs.file_id
 WHERE vfs.database_id = DB_ID()"
+    )
+}
+
+fn pool() -> String {
+    // Resource-governance and VFS IDs share the native pool-local namespace; the logical-server catalog does not.
+    // Metadata from sys.database_files is valid only for the current anchor. Other names/types/sizes stay unknown.
+    format!(
+        "/* culprit */ SELECT {COUNTERS}, g.database_name, df.name AS file_name,
+CAST(df.type AS varchar(16)) AS native_type, df.size AS logical_pages, df.max_size AS maximum_pages,
+CAST(0 AS int) AS shared, CAST(0 AS int) AS cache, CAST(0 AS int) AS temporary, {CONTEXT}
+FROM sys.dm_io_virtual_file_stats(NULL, NULL) vfs
+JOIN sys.dm_user_db_resource_governance g ON g.database_id=vfs.database_id
+LEFT JOIN sys.database_files df ON vfs.database_id=DB_ID() AND df.file_id=vfs.file_id"
     )
 }
 

@@ -82,6 +82,7 @@ pub(crate) fn blocking(report: &BlockingReport) -> String {
                 super::super::append_brief_details(text, chains.iter().map(String::as_str), OBSERVATION_DETAIL_CHARS);
             }
             metadata_queue(text, &report.metadata_queue);
+            output_retention(text, &report.output_retention);
             for limitation in &report.limitations {
                 line(text, limitation);
             }
@@ -156,3 +157,16 @@ pub(super) fn line(text: &mut String, value: &str) {
 
 #[cfg(test)]
 mod tests;
+
+fn output_retention(text: &mut String, report: &culprit_core::OutputBlockingReport) {
+    line(text, &report.summary);
+    for entry in report.explanations.iter().take(super::super::BRIEF_FINDING_LIMIT) {
+        line(text, &entry.victim_summary);
+        line(text, &entry.mechanism);
+        line(text, &entry.investigation);
+        line(text, &entry.verify);
+    }
+    for limit in &report.limitations {
+        line(text, limit);
+    }
+}

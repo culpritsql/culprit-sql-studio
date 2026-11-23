@@ -5,6 +5,7 @@ use culprit_auth::CredentialResolver;
 use culprit_collector::analytical::encoding::BatchEncoder;
 use culprit_collector::delivery::object_store::ObjectRecoveryStore;
 use culprit_collector::delivery::recovery::RecoveryStore;
+use culprit_core::PublishedResourcePosition;
 use culprit_evidence::analytical::catalog::PhysicalCatalog;
 use culprit_evidence::analytical::publication;
 use culprit_evidence::analytical::read_store::AnalyticalReadPage;
@@ -55,6 +56,9 @@ impl Objects {
     }
     pub(in crate::evidence::tests) fn remove_history(&self) {
         self.entries.lock().unwrap().clear();
+    }
+    pub(in crate::evidence::tests) fn remove_range_index(&self, range: &str) {
+        assert!(self.entries.lock().unwrap().remove(&format!("ranges/{range}.json")).is_some());
     }
     pub(in crate::evidence::tests) fn corrupt_manifest(&self) {
         let mut entries = self.entries.lock().unwrap();
@@ -152,6 +156,7 @@ pub(in crate::evidence::tests) struct Store {
         Mutex<Vec<culprit_evidence::analytical::evidence::IncidentDiscoveryRequest>>,
     pub(in crate::evidence::tests) publication: Mutex<Option<Vec<Value>>>,
     pub(in crate::evidence::tests) requests: AtomicUsize,
+    pub(in crate::evidence::tests) row_requests: Mutex<Vec<(TelemetryStream, usize, usize)>>,
     pub(in crate::evidence::tests) denied: AtomicBool,
 }
 #[async_trait]
@@ -176,6 +181,62 @@ impl AnalyticalReadStore for Store {
         let rows = self.candidate_pages.lock().unwrap().pop_front().expect("unexpected discovery query");
         Ok(AnalyticalReadPage { response_bytes: serde_json::to_vec(&rows).unwrap().len(), rows })
     }
+    async fn resource_candidates(
+        &self,
+        contract: &culprit_evidence::delivery::contract::Contract,
+        request: &culprit_evidence::analytical::evidence::PublishedResourceQuery,
+        _: usize,
+    ) -> Result<AnalyticalReadPage> {
+        use culprit_evidence::analytical::evidence::PublishedResourceClock;
+        self.requests.fetch_add(1, Ordering::SeqCst);
+        request.validate(contract)?;
+        let mut rows =
+            self.additional_publications.lock().unwrap().values().filter_map(Clone::clone).collect::<Vec<_>>();
+        rows.extend(self.publication.lock().unwrap().iter().cloned());
+        let schema = self.catalog.publication();
+        let values = |row: &Vec<Value>| schema.logical_values(row).unwrap();
+        let position = |row: &Vec<Value>| {
+            let fields = values(row);
+            PublishedResourcePosition {
+                resource_id: fields["ResourceId"].as_str().unwrap().into(),
+                source_id: fields["SourceId"].as_str().unwrap().into(),
+                range_id: fields["RangeId"].as_str().unwrap().into(),
+            }
+        };
+        rows.retain(|row| {
+            let fields = values(row);
+            let mut acquisition = request.selection.clone();
+            if request.clock == PublishedResourceClock::NativeWindowCandidates {
+                acquisition.window = None;
+            }
+            let selected = request.content.accepts_publication(&fields)
+                && fields["RecoveryStoreId"].as_str() == Some(request.recovery_store_id.as_str())
+                && request
+                    .database
+                    .as_ref()
+                    .is_none_or(|database| fields["DatabaseSelector"].as_str() == Some(database.key()))
+                && acquisition.accepts_acquisition(
+                    fields["CollectedFrom"].as_str().unwrap(),
+                    fields["CollectedUntil"].as_str().unwrap(),
+                )
+                && request.selection.after.as_ref().is_none_or(|cursor| position(row) > cursor.position);
+            if !selected || request.clock != PublishedResourceClock::NativeWindowCandidates {
+                return selected;
+            }
+            match (fields["IntervalFrom"].as_str(), fields["IntervalUntil"].as_str()) {
+                (Some(from), Some(until)) => {
+                    // Both native adapters deliberately retain rounded boundary candidates; the service rechecks them.
+                    let at = |value: &str| chrono::DateTime::parse_from_rfc3339(value).unwrap();
+                    let window = request.selection.window.as_ref().unwrap();
+                    at(from) <= at(&window.until) && at(until) >= at(&window.from)
+                }
+                _ => true,
+            }
+        });
+        rows.sort_by_key(position);
+        rows.truncate(request.selection.page_rows as usize + 1);
+        Ok(AnalyticalReadPage { response_bytes: serde_json::to_vec(&rows).unwrap().len(), rows })
+    }
     async fn audit_membership(&self, _: &CommittedRange, _: usize) -> Result<usize> {
         self.requests.fetch_add(1, Ordering::SeqCst);
         Ok(3)
@@ -190,6 +251,7 @@ impl AnalyticalReadStore for Store {
     ) -> Result<AnalyticalReadPage> {
         self.requests.fetch_add(1, Ordering::SeqCst);
         let stream = range.manifest().batches.iter().find(|candidate| candidate.batch_id == batch).unwrap().stream;
+        self.row_requests.lock().unwrap().push((stream, after, until));
         let column = self.catalog.get(stream)?.columns().iter().position(|column| column.name == "RowOrdinal").unwrap();
         let rows = self.rows.lock().unwrap()[batch]
             .iter()
@@ -307,6 +369,7 @@ impl Fixture {
             candidate_pages: Mutex::new(VecDeque::new()),
             candidate_requests: Mutex::new(vec![]),
             requests: AtomicUsize::new(0),
+            row_requests: Mutex::new(Vec::new()),
             denied: AtomicBool::new(false),
         });
         let profiles = Arc::new(super::super::profiles::Profiles::default());

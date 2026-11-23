@@ -5,6 +5,7 @@ use culprit_core::ErrorDetail;
 use culprit_read::cancellation::CollectionCancellation;
 use std::sync::atomic::Ordering;
 mod optional_evidence;
+mod primary_and_followup;
 mod task_holders;
 mod writers;
 

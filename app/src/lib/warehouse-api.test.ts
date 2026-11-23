@@ -38,3 +38,35 @@ test("archive metadata saves and removal carry typed scoped references rather th
   const api = desktopWarehouses(invoke); await api.warehouseConnections(); await api.removeWarehouseConnection(connection);
   expect(calls).toEqual([{ command: "warehouse_connections", args: undefined }, { command: "remove_warehouse_connection", args: { connection } }]);
 });
+
+test("window reads use the same registered cancellation owner and a late aborted page cannot replace a newer action", async () => {
+  const result = deferred<unknown>(); const calls: Array<{ command: string; args?: Record<string, unknown> }> = [];
+  const invoke: Invoke = async <T>(command: string, args?: Record<string, unknown>) => {
+    calls.push({ command, args }); if (command === "warehouse_window") return await result.promise as T; return undefined as T;
+  };
+  const api = desktopWarehouses(invoke), abort = new AbortController();
+  const query = { resource, window: { from: "2026-11-22T09:00:00Z", until: "2026-11-22T11:00:00Z" }, as_of: request.as_of,
+    view: "published-answers" as const, page_rows: 1, after: null };
+  const pending = api.warehouseWindow(connection, query, abort.signal).then(() => false, () => true);
+  await until(() => calls.some((call) => call.command === "warehouse_window")); abort.abort(); result.resolve({ request: query });
+  expect(await pending).toBe(true);
+  const read = calls.find((call) => call.command === "warehouse_window")!;
+  expect(read.args?.connection).toEqual(connection);expect(read.args?.request).toEqual(query);
+  expect(calls[0]!.command).toBe("begin_warehouse_read");expect(calls.some((call) => call.command === "cancel_warehouse_read")).toBe(true);
+  expect(calls.some((call) => ["scan", "test_connection", "run_query", "read_file"].includes(call.command))).toBe(false);
+});
+
+test("artifact reads register the same owned action, carry explicit full-body opt-in and reject a late cancelled result", async () => {
+  const result = deferred<unknown>(), calls: Array<{ command: string; args?: Record<string, unknown> }> = [];
+  const invoke: Invoke = async <T>(command: string, args?: Record<string, unknown>) => { calls.push({ command, args }); if (command === "warehouse_artifacts") return await result.promise as T; return undefined as T; };
+  const client = desktopWarehouses(invoke), abort = new AbortController();
+  const query = { resource, references: [], full_payloads: true, text: { kind: "complete" as const }, expected_sql_sha256: null };
+  // Presentation/lifetime transport test only; the backend independently refuses the empty original roster.
+  const pending = client.warehouseArtifacts(connection, query, abort.signal).then(() => false, () => true);
+  await until(() => calls.some((call) => call.command === "warehouse_artifacts"));
+  abort.abort(); result.resolve({ query, records: [] }); expect(await pending).toBe(true);
+  const read = calls.find((call) => call.command === "warehouse_artifacts")!;
+  expect(read.args?.connection).toEqual(connection); expect(read.args?.request).toEqual(query);
+  expect(calls[0]?.command).toBe("begin_warehouse_read"); expect(calls.some((call) => call.command === "cancel_warehouse_read")).toBe(true);
+  expect(calls.some((call) => ["run_query", "test_connection", "read_file", "scan"].includes(call.command))).toBe(false);
+});

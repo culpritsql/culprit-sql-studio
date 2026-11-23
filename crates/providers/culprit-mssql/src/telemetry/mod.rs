@@ -11,6 +11,7 @@ mod columns;
 mod columnstore_rowgroups;
 mod compilation;
 mod compiler_admission;
+mod current_execution_profile;
 mod current_request_work;
 mod full_text_populations;
 mod grants;
@@ -20,6 +21,7 @@ mod indexes;
 mod objects;
 mod page_waits;
 mod partitions;
+mod readable_secondary_recovery;
 mod recipes;
 mod replication;
 mod request_memory;
@@ -32,9 +34,9 @@ mod worker_starvation;
 use crate::query_store::{catalog_sql as sql, decode};
 pub(crate) mod activity;
 mod cursor;
+mod database_acquisition;
 mod definitions;
 mod description;
-mod history_acquisition;
 pub(crate) use description::query_history_identity;
 mod discovery;
 pub(crate) use discovery::discover;
@@ -355,7 +357,7 @@ impl<R: crate::read::NativeRead> TelemetrySource for Source<R> {
     async fn describe(&mut self) -> Result<CollectionDescription> {
         self.progress.describing()?;
         let acquisition =
-            history_acquisition::HistoryAcquisition::read(&mut self.session, &self.host, self.port).await?;
+            database_acquisition::DatabaseAcquisition::read(&mut self.session, &self.host, self.port).await?;
         acquisition.admit(&mut self.session).await?;
         let description = description::read(&mut self.session, &self.request, acquisition).await?;
         let value = description.value.clone();

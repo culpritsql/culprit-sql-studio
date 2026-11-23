@@ -22,6 +22,7 @@ pub struct BlockingReport {
     pub blocking: Option<Box<Blocking>>,
     pub maintenance: Option<Box<MaintenanceReport>>,
     pub metadata_queue: MetadataQueueReport,
+    pub output_retention: OutputBlockingReport,
     pub title: String,
     pub summary: String,
     pub limitations: Vec<String>,
@@ -41,6 +42,25 @@ pub struct MetadataQueueReport {
 #[derive(Serialize, Deserialize, TS, Clone, Debug)]
 #[ts(export)]
 pub struct MetadataQueueExplanation {
+    pub key: String,
+    pub victim_summary: String,
+    pub mechanism: String,
+    pub investigation: String,
+    pub verify: String,
+}
+
+/// Same-point native blocking/output explanation, separate from resource modes, acquiring SQL and current actions.
+#[derive(Serialize, Deserialize, TS, Clone, Debug)]
+#[ts(export)]
+pub struct OutputBlockingReport {
+    pub evidence: crate::blocking::OutputBlockingEvidence,
+    pub summary: String,
+    pub explanations: Vec<OutputBlockingExplanation>,
+    pub limitations: Vec<String>,
+}
+#[derive(Serialize, Deserialize, TS, Clone, Debug)]
+#[ts(export)]
+pub struct OutputBlockingExplanation {
     pub key: String,
     pub victim_summary: String,
     pub mechanism: String,

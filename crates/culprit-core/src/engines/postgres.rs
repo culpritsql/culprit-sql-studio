@@ -56,6 +56,26 @@ const USER_SETTINGS: &[&str] = &[
 ];
 
 impl EngineSpec for Postgres {
+    fn commit_counter_kind(
+        &self,
+        source: &str,
+        set: &crate::telemetry::NativeCounterSet,
+        counter: &crate::telemetry::NativeCounterSample,
+    ) -> Option<crate::CommitPipelineCounterKind> {
+        commit_pipeline::counter_kind(source, set, counter)
+    }
+    fn commit_wait_stage(&self, native_type: &str) -> Option<crate::CommitPipelineStage> {
+        commit_pipeline::wait_stage(native_type).or_else(|| match self.native_wait_mechanism(native_type) {
+            Some(crate::telemetry::WaitMechanism::LogRateGovernance(component)) => {
+                Some(crate::CommitPipelineStage::RateGovernance { component: Some(component) })
+            }
+            _ => None,
+        })
+    }
+
+    fn native_wait_mechanism(&self, native_type: &str) -> Option<crate::telemetry::WaitMechanism> {
+        (native_type == "Client: ClientWrite").then_some(crate::telemetry::WaitMechanism::ClientResultOutput)
+    }
     fn default_port(&self) -> Option<u16> {
         Some(5432)
     }
@@ -353,3 +373,5 @@ pub(super) fn connection_security() -> crate::ConnectionSecuritySpec {
         hostname_option: None,
     }
 }
+
+mod commit_pipeline;

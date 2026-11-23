@@ -7,8 +7,8 @@ CREATE TABLE synthesis_configuration(id INTEGER PRIMARY KEY CHECK(id=1),policy_k
 CREATE TABLE synthesis_jobs(primary_id TEXT PRIMARY KEY,policy_key TEXT NOT NULL,primary_json TEXT NOT NULL,plan_json TEXT,queued_at TEXT NOT NULL);
 CREATE TABLE synthesis_failure_watermark(id INTEGER PRIMARY KEY CHECK(id=1),total INTEGER NOT NULL CHECK(total>0),latest_json TEXT NOT NULL);
 CREATE TABLE synthesis_processed(primary_id TEXT PRIMARY KEY,policy_key TEXT NOT NULL,result_json TEXT NOT NULL);
-CREATE TABLE synthesis_catalog_heads(head_key TEXT PRIMARY KEY,scope_key TEXT NOT NULL,dataset_json TEXT NOT NULL,observation_id TEXT NOT NULL,capture_json TEXT NOT NULL,source_json TEXT NOT NULL,collected_from TEXT NOT NULL,collected_until TEXT NOT NULL,epoch INTEGER NOT NULL,sequence INTEGER NOT NULL);
-CREATE INDEX synthesis_head_scope ON synthesis_catalog_heads(scope_key,dataset_json,epoch DESC,sequence DESC);
+CREATE TABLE synthesis_context_heads(head_key TEXT PRIMARY KEY,scope_key TEXT NOT NULL,family_key TEXT NOT NULL,observation_id TEXT NOT NULL,capture_json TEXT NOT NULL,source_json TEXT NOT NULL,collected_from TEXT NOT NULL,collected_until TEXT NOT NULL,epoch INTEGER NOT NULL,sequence INTEGER NOT NULL);
+CREATE INDEX synthesis_head_scope ON synthesis_context_heads(scope_key,family_key,epoch DESC,sequence DESC);
 ";
 
 #[derive(Clone)]
@@ -65,7 +65,8 @@ pub(super) fn pending_count(conn: &Connection) -> Result<u32> {
 }
 
 pub(super) fn eligible(collection: TelemetryCollection) -> bool {
-    collection != TelemetryCollection::DerivedDiagnosis
+    collection != TelemetryCollection::CollectorConnections
+        && collection != TelemetryCollection::DerivedDiagnosis
         && collection.streams().iter().any(|stream| stream.delivery_required())
 }
 
@@ -77,7 +78,12 @@ pub(in crate::outbox) fn reserve_allowance(
     charge: u64,
     limits: &OutboxLimits,
 ) -> Result<()> {
-    if registration(conn)?.is_none() || request.collection() == TelemetryCollection::DerivedDiagnosis {
+    if registration(conn)?.is_none()
+        || matches!(
+            request.collection(),
+            TelemetryCollection::DerivedDiagnosis | TelemetryCollection::CollectorConnections
+        )
+    {
         return Ok(());
     }
     // Every admitted input leaves one real output reservation and its canonical artifact allowance free.
@@ -164,6 +170,13 @@ pub(in crate::outbox) fn committed(
     };
     enroll(tx, &registration.key()?, &original)?;
     catalog::retain(
+        tx,
+        &original,
+        source,
+        &validated.manifest.started_at,
+        validated.manifest.finished_at.as_deref().ok_or_else(integrity)?,
+    )?;
+    points::retain(
         tx,
         &original,
         source,
@@ -310,11 +323,11 @@ pub(in crate::outbox) fn before_remove(tx: &Transaction<'_>, id: &str) -> Result
     tx.execute("DELETE FROM synthesis_processed WHERE primary_id=?1", [id]).map_err(storage)?;
     // The primary can no longer be locally re-enrolled or replayed. Its finite output idempotence state may retire.
     tx.execute("DELETE FROM synthesized_outputs WHERE primary_observation_id=?1 AND NOT EXISTS(SELECT 1 FROM synthesis_jobs WHERE primary_id=?1) AND NOT EXISTS(SELECT 1 FROM captures c WHERE c.observation_id=synthesized_outputs.observation_id AND c.state=?2)",params![id,capture_journal::encode(&OutboxCaptureState::Capturing)?]).map_err(storage)?;
-    catalog::remove(tx, id)
+    heads::remove(tx, id)
 }
 
 pub(in crate::outbox) fn charged_bytes(conn: &Connection) -> Result<u64> {
-    let bytes: i64 = conn.query_row("SELECT (SELECT coalesce(sum(length(CAST(policy_key AS BLOB))+length(CAST(registration_json AS BLOB))+64),0) FROM synthesis_configuration)+(SELECT coalesce(sum(length(CAST(latest_json AS BLOB))+72),0) FROM synthesis_failure_watermark)+(SELECT coalesce(sum(length(CAST(primary_id AS BLOB))+length(CAST(policy_key AS BLOB))+length(CAST(primary_json AS BLOB))+length(CAST(coalesce(plan_json,'') AS BLOB))+128),0) FROM synthesis_jobs)+(SELECT coalesce(sum(length(CAST(primary_id AS BLOB))+length(CAST(policy_key AS BLOB))+length(CAST(result_json AS BLOB))+96),0) FROM synthesis_processed)+(SELECT coalesce(sum(length(CAST(head_key AS BLOB))+length(CAST(scope_key AS BLOB))+length(CAST(dataset_json AS BLOB))+length(CAST(observation_id AS BLOB))+length(CAST(capture_json AS BLOB))+length(CAST(source_json AS BLOB))+length(CAST(collected_from AS BLOB))+length(CAST(collected_until AS BLOB))+128),0) FROM synthesis_catalog_heads)",[],|row|row.get(0)).map_err(storage)?;
+    let bytes: i64 = conn.query_row("SELECT (SELECT coalesce(sum(length(CAST(policy_key AS BLOB))+length(CAST(registration_json AS BLOB))+64),0) FROM synthesis_configuration)+(SELECT coalesce(sum(length(CAST(latest_json AS BLOB))+72),0) FROM synthesis_failure_watermark)+(SELECT coalesce(sum(length(CAST(primary_id AS BLOB))+length(CAST(policy_key AS BLOB))+length(CAST(primary_json AS BLOB))+length(CAST(coalesce(plan_json,'') AS BLOB))+128),0) FROM synthesis_jobs)+(SELECT coalesce(sum(length(CAST(primary_id AS BLOB))+length(CAST(policy_key AS BLOB))+length(CAST(result_json AS BLOB))+96),0) FROM synthesis_processed)+(SELECT coalesce(sum(length(CAST(head_key AS BLOB))+length(CAST(scope_key AS BLOB))+length(CAST(family_key AS BLOB))+length(CAST(observation_id AS BLOB))+length(CAST(capture_json AS BLOB))+length(CAST(source_json AS BLOB))+length(CAST(collected_from AS BLOB))+length(CAST(collected_until AS BLOB))+128),0) FROM synthesis_context_heads)",[],|row|row.get(0)).map_err(storage)?;
     capture_journal::bytes_from_sql(bytes)
 }
 fn enforce_metadata_bound(conn: &Connection) -> Result<()> {
@@ -340,6 +353,7 @@ fn capture_identity(conn: &Connection, id: &str) -> Result<CaptureIdentity> {
 pub(super) fn retain_verified(conn: &mut Connection, capture: &SynthesisCapture) -> Result<()> {
     let tx = conn.transaction().map_err(storage)?;
     catalog::retain(&tx, capture.original(), capture.source(), capture.collected_from(), capture.collected_until())?;
+    points::retain(&tx, capture.original(), capture.source(), capture.collected_from(), capture.collected_until())?;
     enforce_metadata_bound(&tx)?;
     tx.commit().map_err(storage)
 }

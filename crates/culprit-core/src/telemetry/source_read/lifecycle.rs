@@ -8,7 +8,7 @@ impl DiagnosticEpisode {
         if !self.is_valid() {
             return Err(invalid());
         }
-        if let Some(stage) = self.source_reads.get(question) {
+        if let Some(stage) = self.source_reads.latest(question) {
             return Ok(Some(stage.focus.clone()));
         }
         self.nominate_source_read_focus(question)
@@ -92,10 +92,22 @@ impl DiagnosticEpisode {
             prerequisite,
         }))
     }
+    /// Primary interpretation and each child question own independent debt.
+    pub(in crate::telemetry) fn owes_primary_analysis(&self) -> bool {
+        self.signal.has_primary_question()
+            && self.analysis.needs_work()
+            && !(self.lifecycle == DiagnosticLifecycle::Resolved
+                && self.analysis == DiagnosticAnalysisStatus::Partial
+                && self.report.is_some())
+    }
     pub fn has_owed_question(&self) -> bool {
-        if self.source_reads.is_empty() {
+        if self.owes_primary_analysis() {
+            return true;
+        }
+        if self.source_reads.is_empty() && !self.signal.has_primary_question() {
             let question = match self.signal {
                 DiagnosticSignal::WorkerStarvation { .. } => Some(SourceReadQuestion::WorkerStarvation),
+                DiagnosticSignal::ClientResultOutput { .. } => Some(SourceReadQuestion::OutputGrantRetention),
                 _ => None,
             };
             return self.analysis.needs_work()
@@ -104,8 +116,9 @@ impl DiagnosticEpisode {
         }
         self.source_reads.iter().any(|stage| self.owes_source_read(stage))
     }
-    fn owes_source_read(&self, stage: &SourceReadStage) -> bool {
+    pub(super) fn owes_source_read(&self, stage: &SourceReadStage) -> bool {
         stage.needs_work()
+            && self.source_read_context_reuse(&stage.focus).is_none()
             && !(self.lifecycle == DiagnosticLifecycle::Resolved
                 && stage.needs_admission()
                 && stage.focus.question.requires_live_episode())
@@ -115,9 +128,9 @@ impl DiagnosticEpisode {
         self.matches_focus(focus)
             && match focus {
                 DiagnosticFocus::SourceRead { focus } => {
-                    self.source_reads.get(focus.question).is_some_and(|stage| self.owes_source_read(stage))
+                    self.source_reads.get_focus(focus).is_some_and(|stage| self.owes_source_read(stage))
                 }
-                _ => self.source_reads.is_empty() && self.analysis.needs_work(),
+                _ => self.owes_primary_analysis(),
             }
     }
     /// Reuse the exact caller-authenticated original receipt for this selected question.
@@ -130,7 +143,9 @@ impl DiagnosticEpisode {
         if !self.is_valid() {
             return Err(invalid());
         }
-        if self.source_reads.get(focus.question).is_some_and(|stage| !stage.needs_admission()) {
+        if self.source_reads.get_focus(focus).is_some_and(|stage| !stage.needs_admission())
+            || self.source_read_context_reuse(focus).is_some()
+        {
             return Ok(DiagnosticFocusPlan::NotRequired);
         }
         let context = focus.original_context(source)?;
@@ -150,7 +165,8 @@ impl DiagnosticEpisode {
         if !self.is_valid() || !focus.is_valid() {
             return Err(invalid());
         }
-        if self.source_reads.get(focus.question).is_some_and(|stage| !stage.needs_admission())
+        if self.source_reads.get_focus(focus).is_some_and(|stage| !stage.needs_admission())
+            || self.source_read_context_reuse(focus).is_some()
             || self.lifecycle == DiagnosticLifecycle::Resolved && focus.question.requires_live_episode()
         {
             return Ok(DiagnosticFocusPlan::NotRequired);
@@ -170,7 +186,7 @@ impl DiagnosticEpisode {
         }
         let stage = SourceReadStage { focus, state: SourceReadStageState::Pending };
         if !stage.matches_episode(self)
-            || self.source_reads.get(stage.focus.question).is_none()
+            || self.source_reads.get_focus(&stage.focus).is_none()
                 && (self.lifecycle == DiagnosticLifecycle::Resolved && stage.focus.question.requires_live_episode()
                     || stage.focus.question == SourceReadQuestion::TemporarySpaceContributors
                         && stage.focus.basis.as_ref() != &self.latest)
@@ -185,7 +201,9 @@ impl DiagnosticEpisode {
         Ok(next)
     }
     pub fn transition_source_read(&self, focus: &SourceReadFocus, state: SourceReadStageState) -> Result<Self> {
-        if !self.is_valid() {
+        if !self.is_valid()
+            || matches!(state, SourceReadStageState::Collecting) && self.source_read_context_reuse(focus).is_some()
+        {
             return Err(invalid());
         }
         let mut next = self.clone();
@@ -242,6 +260,18 @@ impl DiagnosticEpisode {
         if !self.source_reads.accepts_transition(&next.source_reads) {
             return false;
         }
+        // A primary-only update cannot consume, replace or advance a child stage.
+        if self.signal.has_primary_question() && self.source_reads == next.source_reads {
+            return true;
+        }
+        if self.signal.has_primary_question()
+            && matches!(self.analysis, DiagnosticAnalysisStatus::Pending | DiagnosticAnalysisStatus::Deferred)
+            && next.analysis == DiagnosticAnalysisStatus::Deferred
+            && self.report == next.report
+            && self.source_reads.accepts_admission_refresh(&next.source_reads)
+        {
+            return true;
+        }
         if self.source_reads.is_empty() {
             return next.source_reads.is_empty()
                 || self.report.as_ref().is_none_or(|report| {
@@ -261,6 +291,31 @@ impl DiagnosticEpisode {
 }
 impl SourceReadQuestion {
     pub fn requires_live_episode(self) -> bool {
-        matches!(self, Self::TemporarySpaceContributors | Self::WorkerStarvation)
+        matches!(
+            self,
+            Self::TemporarySpaceContributors
+                | Self::WorkerStarvation
+                | Self::CurrentExecutionProfile
+                | Self::OutputGrantRetention
+                | Self::MetadataLockContext
+                | Self::ReadableSecondaryRecovery
+                | Self::TransactionMetadata
+        )
+    }
+}
+
+impl DiagnosticSignal {
+    /// Native follow-ups for these original signals interpret the episode's primary report.
+    /// Other signals own only their explicit child questions, even while their aggregate status is pending.
+    fn has_primary_question(&self) -> bool {
+        matches!(
+            self,
+            Self::LockWait { .. }
+                | Self::PageWait { .. }
+                | Self::PageTaskWait { .. }
+                | Self::RequestMemory { .. }
+                | Self::CompilationAdmission { .. }
+                | Self::Activity { condition: ActivityCondition::LongRunning, .. }
+        )
     }
 }

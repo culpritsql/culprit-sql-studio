@@ -13,6 +13,8 @@ use culprit_core::{
 };
 use culprit_plans::mssql;
 use std::sync::Arc;
+pub(crate) mod operators;
+pub(crate) mod selected;
 mod sql;
 #[cfg(test)]
 mod tests;

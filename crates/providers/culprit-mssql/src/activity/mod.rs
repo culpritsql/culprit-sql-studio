@@ -1,7 +1,9 @@
-//! One selected-database activity reader. Consumers choose enrichment and presentation over the same facts.
+//! One held native Activity reader. A selected census population shares enrichment and presentation facts.
 pub(crate) mod blocking;
 pub(crate) mod capture;
+pub(crate) mod census_scope;
 pub(crate) mod compiler_admission;
+pub(crate) mod current_execution_profile;
 pub(crate) mod current_request_work;
 pub(crate) mod database_context;
 mod idle_connections;
@@ -9,6 +11,7 @@ pub(crate) mod memory;
 pub(crate) mod page_server_reads;
 pub(crate) mod page_targets;
 pub(crate) mod participants;
+pub(crate) mod readable_secondary_recovery;
 mod resources;
 mod rows;
 mod session_context;
@@ -235,6 +238,7 @@ pub(crate) struct ActivityReader<R = ReadSession> {
     port: u16,
     observed: bool,
     request_page_server_read_capability: page_server_reads::Availability,
+    census_scope: census_scope::CensusScope,
 }
 impl ActivityReader {
     pub(crate) fn open_collection(pool: Arc<Pool>, options: ReadOptions, host: String, port: u16) -> Result<Self> {
@@ -266,7 +270,12 @@ impl<R: NativeRead> ActivityReader<R> {
             port,
             observed: false,
             request_page_server_read_capability: page_server_reads::Availability::Unknown,
+            census_scope: census_scope::CensusScope::Database,
         }
+    }
+    pub(crate) fn with_census_scope(mut self, scope: census_scope::CensusScope) -> Self {
+        self.census_scope = scope;
+        self
     }
     pub(crate) fn read_metrics(&self) -> Option<culprit_core::telemetry::ReadWorkMetrics> {
         self.io.read_metrics()
@@ -284,12 +293,33 @@ impl<R: NativeRead> ActivityReader<R> {
         self.io.close().await
     }
     pub(crate) async fn observe_census_baseline(&mut self) -> Result<ActivityBaseline> {
-        let sql = sql::census_metadata(self.options.identity, self.request_page_server_read_capability);
-        self.observe_metadata(&sql).await
+        let sql =
+            sql::census_metadata(self.options.identity, self.request_page_server_read_capability, &self.census_scope);
+        self.read_baseline_frame(
+            &sql,
+            vec![
+                Parameter::Integer(i64::from(self.options.budget.max_snapshot_rows) + 1),
+                Parameter::Integer(self.census_scope.native_parameter()),
+            ],
+        )
+        .await
     }
     pub(crate) async fn observe_baseline(&mut self) -> Result<ActivityBaseline> {
         let sql = sql::metadata(self.options.identity, self.request_page_server_read_capability);
         self.observe_metadata(&sql).await
+    }
+    async fn observe_blocking_baseline(&mut self, focus: &ActivityRequestFocus) -> Result<ActivityBaseline> {
+        let (sql, cohort) =
+            blocking::output_context::query(focus, self.options.identity, self.request_page_server_read_capability)?;
+        self.read_baseline_frame(
+            &sql,
+            vec![
+                Parameter::Integer(i64::from(self.options.budget.max_snapshot_rows) + 1),
+                Parameter::Integer(CURRENT_DATABASE_SCOPE),
+                Parameter::Text(cohort),
+            ],
+        )
+        .await
     }
     async fn observe_metadata(&mut self, sql: &str) -> Result<ActivityBaseline> {
         self.read_baseline_frame(
@@ -346,6 +376,7 @@ impl<R: NativeRead> ActivityReader<R> {
                 records.push(record);
             }
         }
+        self.census_scope.validate_rows(&records)?;
         let frame = ActivityFrame { context, records };
         ActivityEvidence::validate(&frame.observations())?;
         let limited = native_rows > limit;

@@ -10,6 +10,7 @@ fn snapshot(source: &CollectionDescription, records: &[TelemetryRecord]) -> Snap
     let json = match resource.engine {
         culprit_core::Engine::Mysql => include_str!("../../../../fixtures/mysql-demo.report.json"),
         culprit_core::Engine::Postgres => include_str!("../../../../fixtures/pg-demo.report.json"),
+        culprit_core::Engine::Mssql => include_str!("../../../../fixtures/mssql-demo.report.json"),
         _ => panic!("native fixture engine"),
     };
     let mut snapshot = serde_json::from_str::<culprit_core::Report>(json).unwrap().snapshot;
@@ -25,6 +26,7 @@ fn snapshot(source: &CollectionDescription, records: &[TelemetryRecord]) -> Snap
                 match &observation.fact {
                     OperationalFact::MysqlErrorLog(row) => NativeFailureRecord::MysqlErrorLog(row.as_ref().clone()),
                     OperationalFact::PostgresLog(row) => NativeFailureRecord::PostgresLog(row.clone()),
+                    OperationalFact::MssqlExtendedEvent(row) => NativeFailureRecord::MssqlExtendedEvent(row.clone()),
                     _ => panic!("native fixture fact"),
                 }
             })

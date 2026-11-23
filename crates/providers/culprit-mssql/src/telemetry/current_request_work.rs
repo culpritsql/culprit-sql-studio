@@ -48,7 +48,7 @@ fn validated(request: &CollectionRequest) -> Result<CollectionRequest> {
     Ok(request)
 }
 impl<R: NativeRead> Source<R> {
-    fn with_io(io: R, request: &CollectionRequest, host: String, port: u16) -> Result<Self> {
+    pub(super) fn with_io(io: R, request: &CollectionRequest, host: String, port: u16) -> Result<Self> {
         let request = validated(request)?;
         let activity = ActivityReader::new(
             io,

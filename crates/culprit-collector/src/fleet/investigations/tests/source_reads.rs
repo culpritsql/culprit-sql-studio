@@ -14,9 +14,11 @@ use culprit_read::cancellation::CollectionCancellation;
 
 mod failures;
 pub(super) mod log_rates;
+mod output_grants;
 pub(super) mod query_history;
 pub(super) mod recovery;
 pub(super) mod temporary;
+mod transaction_metadata;
 pub(super) mod workers;
 
 pub(super) fn frame(focus: &SourceReadFocus, execution: &NativeSourceReadScope) -> Frame {

@@ -1154,6 +1154,9 @@ pub enum TimelineSource {
     Scans,
     /// Runs logged one by one (MySQL and MariaDB's slow query log table), bucketed by when they ran.
     SlowLog,
+    /// Authenticated source-declared native runtime intervals, retaining their original scope and population.
+    /// These are neither a Query Store claim nor differences of cumulative scans or individually logged runs.
+    NativeIntervals,
 }
 
 /// Database time and executions per bucket. Buckets are equal for Query Store and fall between scans otherwise.

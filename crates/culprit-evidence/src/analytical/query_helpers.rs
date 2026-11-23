@@ -5,6 +5,7 @@ use culprit_core::{
     telemetry::{DeliveryProblem, valid_digest},
 };
 use serde::{Deserialize, Serialize};
+pub mod operators;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -67,6 +68,7 @@ pub struct QueryHelperAssets {
     /// Executable text belongs to the selected store; callers only choose text versus JSON output.
     pub script: String,
     pub examples: Vec<QueryExample>,
+    pub operator: operators::OperatorDeploymentAssets,
 }
 #[derive(Serialize)]
 pub struct QueryExample {

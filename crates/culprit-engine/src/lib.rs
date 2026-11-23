@@ -53,7 +53,6 @@ pub use local_captures::{
     LocalSessionCensus, LocalSnapshotAnalysis, LocalSnapshotReport, LocalSourceOverhead, LocalWaitCounters,
 };
 pub mod marks;
-#[cfg(feature = "postgres")]
 pub mod native_logs;
 mod operation;
 mod private_fs;
@@ -994,4 +993,6 @@ pub mod recovery_config;
 mod warehouse_connections;
 
 mod warehouse_incidents;
-pub use warehouse_incidents::{WarehouseIncidentReader, WarehouseIncidentTask, WarehouseResourcesTask};
+pub use warehouse_incidents::{
+    WarehouseArtifactsTask, WarehouseIncidentReader, WarehouseIncidentTask, WarehouseResourcesTask, WarehouseWindowTask,
+};

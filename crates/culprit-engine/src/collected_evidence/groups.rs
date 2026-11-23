@@ -9,10 +9,10 @@ use std::collections::{BTreeMap, BTreeSet};
 pub(super) const MAX_EXACT_COUNT: u64 = 9_007_199_254_740_992;
 
 pub(super) struct CapturedTotals {
-    pub executions: u64,
+    pub executions: u128,
     pub time_ms: Option<f64>,
     pub cpu_ms: Option<f64>,
-    pub queries: usize,
+    pub queries: BTreeSet<String>,
 }
 
 /// Unresolved original references or missing runtime withhold the denominator. If original references closed but
@@ -29,14 +29,14 @@ pub(super) fn captured_totals(
         return Ok(None);
     }
     let interval = &capture.source().query_history().ok_or_else(invalid)?.interval;
-    let mut totals = CapturedTotals { executions: 0, time_ms: Some(0.0), cpu_ms: Some(0.0), queries: 0 };
+    let mut totals = CapturedTotals { executions: 0, time_ms: Some(0.0), cpu_ms: Some(0.0), queries: BTreeSet::new() };
     let mut queries = std::collections::BTreeSet::new();
     for &(_, row) in &rows.runtime {
         if inclusion(definitions.join(&row.key.references)?.query) == QueryInclusion::Excluded {
             continue;
         }
         let Some(n) = row.executions.parse::<u64>().ok() else { return Ok(None) };
-        let Some(count) = totals.executions.checked_add(n) else {
+        let Some(count) = totals.executions.checked_add(u128::from(n)) else {
             return Ok(None);
         };
         totals.executions = count;
@@ -51,13 +51,21 @@ pub(super) fn captured_totals(
         let Some(query_id) = row.key.references.query.as_ref().and_then(|query| query.definition_id.as_deref()) else {
             return Ok(None);
         };
-        queries.insert(query_id);
+        queries.insert(query_id.to_owned());
     }
-    totals.queries = queries.len();
+    totals.queries = queries;
     Ok(Some(totals))
 }
 
 impl CapturedTotals {
+    /// Call only after exact native-window compatibility and disjoint-interval admission.
+    pub(super) fn add(&mut self, other: Self) -> Result<()> {
+        self.executions = self.executions.checked_add(other.executions).ok_or_else(invalid)?;
+        self.time_ms = finite_sum(self.time_ms, other.time_ms);
+        self.cpu_ms = finite_sum(self.cpu_ms, other.cpu_ms);
+        self.queries.extend(other.queries);
+        Ok(())
+    }
     pub fn report(&self) -> culprit_core::collected_analysis::CollectedQueryRuntimeTotals {
         use culprit_core::collected_analysis::{CollectedQueryRuntimeTotals, CollectedRuntimeTimeTotal};
         let time = |value: Option<f64>| match value {
@@ -66,7 +74,7 @@ impl CapturedTotals {
         };
         CollectedQueryRuntimeTotals {
             executions: self.executions.to_string(),
-            query_identities: self.queries.to_string(),
+            query_identities: self.queries.len().to_string(),
             duration: time(self.time_ms),
             cpu: time(self.cpu_ms),
         }
@@ -503,7 +511,7 @@ fn extreme(current: Option<String>, next: Option<&str>, minimum: bool) -> Result
     })
 }
 
-fn plan(
+pub(super) fn plan(
     definition: Option<&PlanDefinition>,
     engine: culprit_core::Engine,
     limitations: &mut Vec<CollectedAnalysisLimitation>,
@@ -553,4 +561,8 @@ fn omit(
 ) {
     limitations.push(limit(row.record_id.clone(), reason));
     *partial = true;
+}
+
+fn finite_sum(a: Option<f64>, b: Option<f64>) -> Option<f64> {
+    a.zip(b).map(|(a, b)| a + b).filter(|value| value.is_finite())
 }

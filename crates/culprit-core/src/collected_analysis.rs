@@ -10,6 +10,8 @@ use ts_rs::TS;
 #[serde(rename_all = "kebab-case")]
 #[ts(export)]
 pub enum EvidenceGapReason {
+    /// A validated current recovery root cannot establish this exact range as committed. No native absence follows.
+    OriginalNotCommitted,
     NotPublished,
     FamilyNotCaptured,
     ProjectionProofUnavailable,

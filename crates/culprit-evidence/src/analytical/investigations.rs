@@ -104,12 +104,20 @@ struct PublicSourceReadStage<'a> {
     focus_key: String,
     state: &'static str,
     result: Option<&'a DiagnosticCaptureRef>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    context_reuse: Option<PublicSourceReadContextReuse<'a>>,
     /// Consistency only. Public keys cannot recreate original scope, cost authority or an answer.
     content_sha256: String,
 }
 
-pub(super) fn source_stage(stage: &SourceReadStage) -> Result<Value> {
-    if !stage.is_valid() {
+#[derive(Serialize)]
+struct PublicSourceReadContextReuse<'a> {
+    question: SourceReadQuestion,
+    reference: &'a DiagnosticEvidenceRef,
+}
+
+pub(super) fn source_stage(episode: &DiagnosticEpisode, stage: &SourceReadStage) -> Result<Value> {
+    if !episode.is_valid() || episode.source_reads.get_focus(&stage.focus) != Some(stage) {
         return Err(DeliveryProblem::Integrity.error());
     }
     let body = serde_json::to_vec(stage).map_err(|_| DeliveryProblem::Integrity.error())?;
@@ -126,6 +134,10 @@ pub(super) fn source_stage(stage: &SourceReadStage) -> Result<Value> {
             SourceReadStageState::Stopped { .. } => "stopped",
         },
         result: stage.result(),
+        context_reuse: episode.source_read_context_reuse(&stage.focus).map(|reference| PublicSourceReadContextReuse {
+            question: SourceReadQuestion::CurrentExecutionProfile,
+            reference,
+        }),
         content_sha256: digest(&body),
     })
     .map_err(|_| DeliveryProblem::Integrity.error())

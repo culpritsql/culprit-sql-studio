@@ -1,7 +1,9 @@
 //! Read existing committed captures without creating history, acquiring write ownership or opening a source database.
+mod artifacts;
+pub use artifacts::{WindowArtifactChoice, window_artifact_choices};
 mod config;
 mod incidents;
-pub use incidents::IncidentRequest;
+pub use incidents::{IncidentRequest, NamedWindowQuery};
 mod query_helpers;
 mod recovery;
 mod resources;
@@ -9,7 +11,7 @@ mod session;
 pub use recovery::EvidenceRecoveryProvider;
 pub(super) mod stores;
 pub use config::{EvidenceConfig, EvidenceStoreConfig};
-pub use session::EvidenceSession;
+pub use session::{EvidenceMetadataLookup, EvidenceReadPermit, EvidenceSession};
 pub use stores::EvidenceStoreProvider;
 
 use culprit_core::{

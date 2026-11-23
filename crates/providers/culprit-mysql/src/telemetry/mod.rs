@@ -1,5 +1,6 @@
 //! Thin native recipes over the shared snapshot lifecycle. No archive, scheduler or destination ownership.
 mod activity;
+mod blocking;
 mod events;
 pub(crate) mod native_failures;
 #[cfg(test)]
@@ -135,6 +136,20 @@ pub(crate) fn source(connector: Arc<Connector>, request: &CollectionRequest) -> 
     recipes::open(connector, request)
 }
 
+pub(crate) fn safety_source(
+    connector: Arc<Connector>,
+    request: &CollectionRequest,
+    profile: &SourceProfileAdmission,
+) -> Result<Box<dyn TelemetrySource>> {
+    match profile.selector() {
+        RecipeSelector::Collection(TelemetryCollection::Activity) => {
+            activity::profile_source(connector, request, profile)
+        }
+        RecipeSelector::FocusedBlocking => blocking::profile_source(connector, request, profile),
+        RecipeSelector::FocusedMetadataLocks => blocking::metadata_profile_source(connector, request, profile),
+        _ => Err(native::invalid()),
+    }
+}
 pub(crate) fn recipes() -> Vec<RecipeDescriptor> {
     recipes::declarations()
 }

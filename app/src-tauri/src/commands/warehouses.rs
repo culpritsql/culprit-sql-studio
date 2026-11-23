@@ -90,5 +90,63 @@ pub(crate) async fn warehouse_incident(
         })
         .await
 }
+#[tauri::command]
+pub(crate) async fn warehouse_window(
+    ws: Ws<'_>,
+    window: tauri::WebviewWindow,
+    requests: State<'_, WarehouseRequests>,
+    connection: WarehouseConnectionRef,
+    request: WarehouseWindowQuery,
+    request_id: String,
+) -> Result<WarehouseWindowReport> {
+    let cancellation = ReadCancellation::default();
+    let token = &cancellation.0;
+    requests
+        .0
+        .run_settled(window.label(), &request_id, token, |permit| async move {
+            match permit {
+                Some(permit) => {
+                    ws.warehouse_window_with_permit(
+                        &connection,
+                        &request,
+                        token,
+                        culprit_engine::evidence::EvidenceReadPermit::from(permit),
+                    )
+                    .await
+                }
+                None => ws.warehouse_window(&connection, &request, token).await,
+            }
+        })
+        .await
+}
+#[tauri::command]
+pub(crate) async fn warehouse_artifacts(
+    ws: Ws<'_>,
+    window: tauri::WebviewWindow,
+    requests: State<'_, WarehouseRequests>,
+    connection: WarehouseConnectionRef,
+    request: WarehouseArtifactQuery,
+    request_id: String,
+) -> Result<WarehouseArtifactReport> {
+    let cancellation = ReadCancellation::default();
+    let token = &cancellation.0;
+    requests
+        .0
+        .run_settled(window.label(), &request_id, token, |permit| async move {
+            match permit {
+                Some(permit) => {
+                    ws.warehouse_artifacts_with_permit(
+                        &connection,
+                        &request,
+                        token,
+                        culprit_engine::evidence::EvidenceReadPermit::from(permit),
+                    )
+                    .await
+                }
+                None => ws.warehouse_artifacts(&connection, &request, token).await,
+            }
+        })
+        .await
+}
 #[cfg(test)]
 mod tests;

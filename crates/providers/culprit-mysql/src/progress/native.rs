@@ -1,6 +1,6 @@
 //! Exact current event facts; stage names never establish temporary storage, statement identity or causality.
 use crate::{connect::Flavor, native, read::QueryRead, rows::Rec};
-use culprit_core::{Engine, Result, telemetry::*};
+use culprit_core::{Result, telemetry::*};
 use mysql_async::Value;
 
 pub(super) struct StatementPoint {
@@ -52,23 +52,7 @@ fn decode(row: &Rec, database: &str, instrumented: bool, sql_bytes: usize) -> Re
     };
     // An explicit foreign request schema cannot inherit the session default database. Missing native request
     // schema remains the weaker SessionDatabase context supplied by the shared Activity decoder.
-    let sql = row.native_text("sql_text")?;
-    let source_bytes = row.unsigned("sql_text_bytes")?;
-    if sql.as_ref().is_some_and(|text| text.len() > sql_bytes)
-        || sql.as_ref().zip(source_bytes).is_some_and(|(text, bytes)| text.len() as u64 != bytes)
-    {
-        return Err(native::invalid());
-    }
-    let statement = match &sql {
-        Some(sql) => DefinitionPayload::sql(sql, Engine::Mysql),
-        None => DefinitionPayload::Unavailable {
-            reason: if source_bytes.is_some_and(|bytes| bytes > sql_bytes as u64) {
-                PayloadUnavailable::Oversized
-            } else {
-                PayloadUnavailable::NotCollected
-            },
-        },
-    };
+    let (statement, sql) = native::activity::payload::decode(row, sql_bytes)?;
     let observation = CurrentRequestWorkObservation {
         observed_at: canonical_time(&native::text(row, "observed_at")?)?,
         actor: actor.key.clone(),

@@ -43,7 +43,7 @@ export function InstanceResources({ report }: { report: InstanceResourceReport }
       {cpu && <CpuDetails report={cpu} />}
       {report.process_cpu_originals?.slice(0, 32).map((original, index) => <CpuDetails key={original.capture?.capture.observation_id ?? index} report={original} />)}
       {report.process_cpu_interval && <ObservationList collapseEntries source={report.process_cpu_interval.title} scope={t("ui.beyond_time.scope.server")}
-        time={<>{[report.process_cpu_interval.first_context, report.process_cpu_interval.second_context].map((context, index) => context && <span key={index} style={{ display: "block" }}>{t("ui.memory_failures.read_between", { from: context.observed_from, until: context.observed_until })}</span>)}</>}
+        time={[report.process_cpu_interval.first_context, report.process_cpu_interval.second_context].map((context, index) => context && <span key={index} style={{ display: "block" }}>{t("ui.memory_failures.read_between", { from: context.observed_from, until: context.observed_until })}</span>)}
         report={{ title: report.process_cpu_interval.title, summary: report.process_cpu_interval.summary, source_state: report.process_cpu_interval.available ? "collected" : "unavailable", source_reason: null, limitations: report.process_cpu_interval.limitations,
           entries: report.process_cpu_interval.fields.length ? [{ key: "cpu-interval", title: report.process_cpu_interval.title, fields: report.process_cpu_interval.fields.slice(0, 8) }] : [] }} renderEntry={renderResourceGroup} />}
 

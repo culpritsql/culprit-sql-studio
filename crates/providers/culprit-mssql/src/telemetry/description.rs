@@ -14,7 +14,7 @@ use culprit_core::{
 
 pub(super) struct Description {
     pub value: CollectionDescription,
-    pub acquisition: super::history_acquisition::HistoryAcquisition,
+    pub acquisition: super::database_acquisition::DatabaseAcquisition,
     pub layout: crate::query_store::layout::NativeLayout,
     pub plan_upper_bound: i64,
     pub replica_group_ids: Vec<String>,
@@ -88,7 +88,7 @@ pub(super) async fn observed_profile<R: NativeRead>(
 pub(super) async fn read<R: NativeRead>(
     session: &mut R,
     request: &CollectionRequest,
-    acquisition: super::history_acquisition::HistoryAcquisition,
+    acquisition: super::database_acquisition::DatabaseAcquisition,
 ) -> Result<Description> {
     let settings = settings(session).await?;
     if settings.layout.edition != acquisition.edition() {

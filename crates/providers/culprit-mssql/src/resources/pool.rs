@@ -7,6 +7,7 @@ use crate::read::one;
 use culprit_core::{Engine, source_id};
 
 mod current;
+pub(crate) mod native;
 pub(crate) use current::CurrentContext;
 mod settings;
 pub(crate) use settings::{Context as SettingsContext, read as read_settings};
@@ -35,7 +36,7 @@ OPTION(MAXDOP 1)"#
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum Pricing {
+pub(super) enum Pricing {
     Vcore,
     Dtu,
     Unknown,
@@ -68,6 +69,11 @@ pub(crate) async fn identity<R: NativeRead>(io: &mut R) -> Result<(Membership, S
 
 fn decode_membership(row: &Rec) -> Result<(Membership, String)> {
     crate::read::require_primary(crate::read::database_writable(row)?)?;
+    decode_known_membership(row)
+}
+/// Independent read-only operational DMVs do not inherit the historical primary-only source policy.
+fn decode_known_membership(row: &Rec) -> Result<(Membership, String)> {
+    crate::read::database_writable(row)?.ok_or_else(|| CollectionStop::SourceUnavailable.error())?;
     let observed_at = canonical_time(&text(row, "observed_at")?)?;
     let route = NativeIdentity::new(text(row, "server_name")?)
         .qualified("logical_database_guid", text(row, "incarnation")?)
@@ -76,7 +82,9 @@ fn decode_membership(row: &Rec) -> Result<(Membership, String)> {
         return Err(invalid_data());
     }
     let pool_name = match row.columns().find(|(key, _)| *key == "pool_name").map(|(_, value)| value) {
-        Some(crate::value::Val::Null) => return Ok((Membership { pool: None, route }, observed_at)),
+        Some(crate::value::Val::Null) => {
+            return Ok((Membership { pool: None, route }, observed_at));
+        }
         Some(crate::value::Val::Text(name)) if !name.trim().is_empty() => name,
         _ => return Err(invalid_data()),
     };

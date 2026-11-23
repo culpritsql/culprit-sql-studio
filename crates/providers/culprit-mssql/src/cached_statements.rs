@@ -20,12 +20,23 @@ pub(crate) fn context_columns() -> String {
     context_columns_from("qs", "st", "pa.value")
 }
 pub(crate) fn context_columns_from(cache: &str, text: &str, database: &str) -> String {
-    context_columns_with_hash(cache, text, database, true)
+    context_columns_with_hash(cache, text, database, true, "CAST(NULL AS int)")
 }
 pub(crate) fn context_columns_without_hash_from(cache: &str, text: &str, database: &str) -> String {
-    context_columns_with_hash(cache, text, database, false)
+    context_columns_with_hash(cache, text, database, false, "CAST(NULL AS int)")
 }
-fn context_columns_with_hash(cache: &str, text: &str, database: &str, include_hash: bool) -> String {
+/// Both selected request routes observe the actual native edition in the same payload batch.
+/// No query-history row or historical SQL-handle join supplies this provenance.
+pub(crate) fn selected_request_context_columns(cache: &str, text: &str, database: &str) -> String {
+    context_columns_with_hash(cache, text, database, true, crate::statement_origin::BOXED_CACHE_CLOUD_INTERNAL)
+}
+fn context_columns_with_hash(
+    cache: &str,
+    text: &str,
+    database: &str,
+    include_hash: bool,
+    cloud_internal: &str,
+) -> String {
     let hash =
         if include_hash { format!("CONVERT(varchar(18),{cache}.query_hash,1) AS query_hash,") } else { String::new() };
     format!(
@@ -36,7 +47,7 @@ fn context_columns_with_hash(cache: &str, text: &str, database: &str, include_ha
  CASE WHEN {text}.text IS NULL THEN NULL WHEN DATALENGTH({text}.text)<={prefix_bytes} THEN 1 ELSE 0 END AS text_complete,
  SUBSTRING({text}.text,1,{prefix_chars}) AS text_prefix,
  CASE WHEN {text}.dbid=DB_ID() THEN CONVERT(int,OBJECTPROPERTYEX({text}.objectid,N'IsMSShipped')) ELSE NULL END AS engine_internal,
- CAST(NULL AS int) AS cloud_internal"#,
+ {cloud_internal} AS cloud_internal"#,
         prefix_chars = crate::statement_origin::PROVENANCE_PREFIX_CHARACTERS,
         prefix_bytes = crate::statement_origin::PROVENANCE_PREFIX_CHARACTERS * 2
     )

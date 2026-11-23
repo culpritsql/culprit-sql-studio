@@ -3,6 +3,8 @@
 use super::*;
 use std::collections::BTreeSet;
 
+mod mssql;
+pub use mssql::*;
 mod postgres;
 pub use postgres::*;
 
@@ -70,6 +72,7 @@ impl MysqlErrorLogObservation {
 pub enum NativeFailureRecord {
     MysqlErrorLog(MysqlErrorLogObservation),
     PostgresLog(Box<PostgresLogFailureObservation>),
+    MssqlExtendedEvent(Box<MssqlExtendedEventObservation>),
 }
 
 impl NativeFailureRecord {
@@ -77,6 +80,7 @@ impl NativeFailureRecord {
         match self {
             Self::MysqlErrorLog(row) => row.position,
             Self::PostgresLog(row) => row.position,
+            Self::MssqlExtendedEvent(row) => row.position,
         }
     }
 
@@ -84,6 +88,7 @@ impl NativeFailureRecord {
         match self {
             Self::MysqlErrorLog(_) => crate::Engine::Mysql,
             Self::PostgresLog(_) => crate::Engine::Postgres,
+            Self::MssqlExtendedEvent(_) => crate::Engine::Mssql,
         }
     }
 
@@ -91,6 +96,7 @@ impl NativeFailureRecord {
         match self {
             Self::MysqlErrorLog(row) => row.is_valid(),
             Self::PostgresLog(row) => row.is_valid(),
+            Self::MssqlExtendedEvent(row) => row.is_valid(),
         }
     }
 
@@ -98,6 +104,7 @@ impl NativeFailureRecord {
         match self {
             Self::MysqlErrorLog(row) => row.redact(),
             Self::PostgresLog(row) => row.redact(),
+            Self::MssqlExtendedEvent(row) => row.redact(),
         }
     }
 }
@@ -137,6 +144,15 @@ impl NativeFailureSnapshot {
                 .observations
                 .iter()
                 .all(|row| row.is_valid() && Some(row.engine()) == engine && positions.insert(row.position()))
+    }
+
+    pub fn redact_for_sharing(&mut self) {
+        self.redact();
+        for row in &mut self.observations {
+            if let NativeFailureRecord::MssqlExtendedEvent(row) = row {
+                row.client = None;
+            }
+        }
     }
 
     pub fn redact(&mut self) {

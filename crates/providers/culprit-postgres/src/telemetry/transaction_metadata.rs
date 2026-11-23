@@ -2,7 +2,7 @@
 use super::*;
 use crate::native::{
     activity as native_activity,
-    local_context::{self, Context},
+    local_context::{self, Context, SameConnection},
 };
 use crate::read::QueryRead;
 use culprit_read::{FrozenObservation, FrozenSource, ObservationReader};
@@ -39,27 +39,6 @@ pub(super) fn source(connector: Connector, request: &CollectionRequest) -> Resul
         generation: None,
     };
     Ok(Box::new(FrozenSource::new(reader, &request)?))
-}
-/// A borrowed transport witness owns no login, cancellation, close or retry policy.
-struct SameConnection<'a, R> {
-    reader: &'a mut R,
-    generation: u64,
-}
-#[async_trait::async_trait]
-impl<R: QueryRead> QueryRead for SameConnection<'_, R> {
-    fn connection_generation(&self) -> Option<u64> {
-        self.reader.connection_generation()
-    }
-    async fn query(&mut self, sql: &str, limit: usize) -> Result<Vec<Row>> {
-        if self.reader.connection_generation() != Some(self.generation) {
-            return Err(CollectionStop::SourceChanged.error());
-        }
-        let rows = self.reader.query(sql, limit).await?;
-        if self.reader.connection_generation() != Some(self.generation) {
-            return Err(CollectionStop::SourceChanged.error());
-        }
-        Ok(rows)
-    }
 }
 struct Reader<R = ReadSession> {
     io: R,
@@ -105,10 +84,7 @@ fn question(request: &CollectionRequest) -> Result<(&SourceReadFocus, &SourceRea
     Ok((focus, execution))
 }
 fn participant(focus: &SourceReadFocus) -> Result<(&ActivityKey, &NativeIdentity)> {
-    let SourceReadPrerequisite::ObservedTransactionMetadataWait { key, statement_identity, .. } = &focus.prerequisite
-    else {
-        return Err(native::invalid());
-    };
+    let (key, statement_identity, _) = focus.transaction_metadata_participant().ok_or_else(native::invalid)?;
     let pid = key.session.id.parse::<u32>().map_err(|_| native::invalid())?;
     if pid == 0 || pid > i32::MAX as u32 || pid.to_string() != key.session.id {
         return Err(native::invalid());
@@ -124,13 +100,15 @@ async fn actor<R: QueryRead>(
     pid: u32,
     budget: &CollectionBudget,
 ) -> Result<native_activity::ActivityFrame> {
-    native_activity::observe_rows(
+    let mut frame = native_activity::observe_rows(
         reader,
         &native_activity::target_query(true, pid, "'client backend'", ""),
         &meta.database_oid,
         budget,
     )
-    .await
+    .await?;
+    native_activity::transaction_metadata::classify(&mut frame);
+    Ok(frame)
 }
 fn current(frame: &native_activity::ActivityFrame) -> Result<Option<&ActivityObservation>> {
     if frame.records.len() > 1 {
@@ -163,7 +141,7 @@ async fn capture<R: NativeRead>(
     if opening_generation.is_some_and(|original| original != generation) {
         return Err(CollectionStop::SourceChanged.error());
     }
-    let mut held = SameConnection { reader, generation };
+    let mut held = SameConnection::new(reader, generation);
     let reader = &mut held;
     let owner = Box::new(
         Box::pin(Context::observe(reader, &before)).await?.ok_or_else(|| CollectionStop::SourceUnavailable.error())?,
@@ -173,10 +151,23 @@ async fn capture<R: NativeRead>(
         if !execution.matches_context(&initial) || !execution.matches_target(&focus.target) {
             return Err(CollectionStop::SourceChanged.error());
         }
+        if let SourceReadPrerequisite::ObservedTransactionMetadataContinuation { continuation } = &focus.prerequisite
+            && ObservationBounds::new(&continuation.request.original_observed_at, &initial.observed_from).is_none()
+        {
+            return Err(CollectionStop::SourceChanged.error());
+        }
     }
     let first = Box::pin(actor(reader, &before, pid, &request.budget)).await?;
     let mut point = None;
-    if current(&first)?.is_some_and(|actor| same_request(actor, key, statement)) {
+    if current(&first)?.is_some_and(|actor| {
+        same_request(actor, key, statement)
+            && match &focus.prerequisite {
+                SourceReadPrerequisite::ObservedTransactionMetadataContinuation { continuation } => {
+                    actor.wait.as_ref().and_then(|wait| wait.class) == Some(continuation.mechanism.class())
+                }
+                _ => true,
+            }
+    }) {
         point = Box::pin(observe_point(reader, &before, request, key, statement, pid)).await?;
     }
     let completion = Box::pin(local_context::complete(reader, host, port, &before, Some(&owner))).await?;

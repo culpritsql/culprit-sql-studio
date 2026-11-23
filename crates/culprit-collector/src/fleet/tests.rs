@@ -133,6 +133,9 @@ impl FleetBackend for Backend {
             };
             let target = self.target_override.lock().unwrap().clone().unwrap_or_else(|| match &request.subject {
                 CollectionSubject::Database => self.database.lock().unwrap().clone().into(),
+                CollectionSubject::ConfiguredConnection { .. } => {
+                    panic!("native fleet cannot schedule collector control")
+                }
                 CollectionSubject::Shared { resource } => CollectionTarget::Shared(resource.clone()),
             });
             Ok(CollectionManifest {

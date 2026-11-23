@@ -3,11 +3,11 @@ use super::*;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
-pub const SYNTHESIS_CONTEXT_POLICY_VERSION: u32 = 1;
+pub const SYNTHESIS_CONTEXT_POLICY_VERSION: u32 = 2;
 pub const MAX_SYNTHESIS_CONTEXT_CAPTURES: usize = 16;
 pub const MAX_PENDING_SYNTHESIS_JOBS: u32 = 128;
-pub const MAX_SYNTHESIS_CATALOG_HEADS: u32 = 64;
-pub const MAX_SYNTHESIS_CATALOG_VERSIONS: u32 = 2;
+pub const MAX_SYNTHESIS_RETAINED_HEADS: u32 = 64;
+pub const MAX_SYNTHESIS_RETAINED_VERSIONS: u32 = 2;
 pub const MAX_SYNTHESIS_PLAN_BYTES: usize = 64 * 1024;
 pub const MAX_SYNTHESIS_METADATA_BYTES: u64 = 4 * 1024 * 1024;
 pub const SYNTHESIS_BACKFILL_PAGE: u32 = 32;

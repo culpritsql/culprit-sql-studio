@@ -42,10 +42,12 @@ async fn the_provider_admits_only_its_supported_shared_route_without_opening_a_c
     assert_eq!(source.query_count(), 0);
     assert_eq!(source.close().await, SourceShutdown::Quiescent);
     wanted.selection = CollectionSelection::Snapshot { dataset: SnapshotDataset::Operational };
-    assert!(
-        provider.telemetry_source(&wanted).is_err(),
-        "instance/host statistics do not prove elastic-pool ownership"
-    );
+    let mut pool_state = provider.telemetry_source(&wanted).unwrap();
+    assert_eq!(pool_state.query_count(), 0, "construction grants no native pool authority");
+    assert_eq!(pool_state.close().await, SourceShutdown::Quiescent);
+    let recipes = crate::telemetry::recipes();
+    let recipe = recipes.iter().find(|recipe| recipe.id == "mssql.pool-operational").unwrap();
+    assert_eq!(recipe.admission, RecipeAdmission::Unqualified);
     let CollectionSubject::Shared { resource } = &mut wanted.subject else { unreachable!() };
     resource.kind = SharedResourceKind::Instance;
     let mut shared_state = provider.telemetry_source(&wanted).unwrap();
@@ -159,6 +161,7 @@ async fn discovery_is_bounded_metadata_and_does_not_turn_a_nonpooled_database_in
         resources[0].collections,
         vec![
             TelemetryCollection::ResourceHistory,
+            TelemetryCollection::Snapshot(SnapshotDataset::Operational),
             TelemetryCollection::Snapshot(SnapshotDataset::MemoryFailures),
             TelemetryCollection::Snapshot(SnapshotDataset::WaitCounters),
             TelemetryCollection::Snapshot(SnapshotDataset::Settings)

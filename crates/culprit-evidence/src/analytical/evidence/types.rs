@@ -1,3 +1,4 @@
+use super::EvidenceDefinitionLink;
 pub use culprit_core::collected_analysis::{EvidenceGap, EvidenceGapReason};
 use culprit_core::{Result, telemetry::*};
 use serde::{Deserialize, Serialize};
@@ -47,6 +48,7 @@ pub enum EvidenceFamily {
     DerivedIncidents,
     DerivedFindings,
     DerivedChanges,
+    CollectorConnections,
 }
 impl EvidenceFamily {
     pub const ALL: &[Self] = &[
@@ -65,6 +67,7 @@ impl EvidenceFamily {
         Self::DerivedIncidents,
         Self::DerivedFindings,
         Self::DerivedChanges,
+        Self::CollectorConnections,
     ];
 
     pub fn stream(self) -> TelemetryStream {
@@ -84,6 +87,7 @@ impl EvidenceFamily {
             Self::DerivedIncidents => TelemetryStream::DerivedIncidents,
             Self::DerivedFindings => TelemetryStream::DerivedFindings,
             Self::DerivedChanges => TelemetryStream::DerivedChanges,
+            Self::CollectorConnections => TelemetryStream::CollectorConnections,
         }
     }
 }
@@ -170,6 +174,14 @@ impl VerifiedEvidenceRecord {
     }
     pub fn row(&self) -> &ExportedRecord {
         &self.row
+    }
+    /// Structural binding of an already authenticated row. This never authenticates a caller-supplied header.
+    pub fn reference(&self, source: &CollectionDescription, manifest_sha256: &str) -> Result<DiagnosticEvidenceRef> {
+        let ordinal = self.row_ordinal.checked_sub(1).ok_or_else(|| DeliveryProblem::Integrity.error())?;
+        if self.row.batch_id != self.batch_id || self.row.payload_sha256()? != self.native_payload_sha256 {
+            return Err(DeliveryProblem::Integrity.error());
+        }
+        DiagnosticEvidenceRef::from_export(source, manifest_sha256, &self.row, ordinal)
     }
 }
 
@@ -313,6 +325,13 @@ impl EvidenceCapture {
             _ => None,
         })
     }
+    /// Exact collector attempt observations only; missing rows/ledgers never establish native health.
+    pub fn collector_connections(&self) -> impl Iterator<Item = &CollectorConnectionObservation> {
+        self.records.iter().filter_map(|row| match &row.row.record {
+            TelemetryRecord::CollectorConnection(row) => Some(row.as_ref()),
+            _ => None,
+        })
+    }
     pub fn derived_changes(&self) -> impl Iterator<Item = &culprit_core::DerivedChange> {
         self.records.iter().filter_map(|row| match &row.row.record {
             TelemetryRecord::DerivedChange(row) => Some(row.as_ref()),
@@ -323,5 +342,66 @@ impl EvidenceCapture {
     /// partial scope or be unavailable; inspect `source().observation` independently.
     pub fn is_read_complete(&self) -> bool {
         self.gaps.is_empty()
+    }
+}
+
+/// Exact requested records, NOT a complete native family/capture. No OriginalProjection implementation or
+/// verified_original conversion exists: callers cannot analyze unselected rows as a healthy complete population.
+#[derive(Debug)]
+pub struct SelectedEvidenceRecords {
+    pub(super) metadata: EvidenceCaptureMetadata,
+    pub(super) requested: std::collections::BTreeMap<(String, u32), DiagnosticEvidenceRef>,
+    pub(super) definition_links: Vec<EvidenceDefinitionLink>,
+    pub(super) records: Vec<VerifiedEvidenceRecord>,
+    pub(super) gaps: Vec<EvidenceGap>,
+    pub(super) metrics: EvidenceReadMetrics,
+}
+impl SelectedEvidenceRecords {
+    /// Manifest locators derived only from these authenticated native statement references.
+    /// Each linked body still requires read_records and validate_selected before it is an artifact.
+    pub fn definition_links(&self) -> &[EvidenceDefinitionLink] {
+        &self.definition_links
+    }
+    pub fn metadata(&self) -> &EvidenceCaptureMetadata {
+        &self.metadata
+    }
+    pub fn records(&self) -> &[VerifiedEvidenceRecord] {
+        &self.records
+    }
+    pub fn references(&self) -> impl Iterator<Item = &DiagnosticEvidenceRef> {
+        self.requested.values()
+    }
+    pub fn gaps(&self) -> &[EvidenceGap] {
+        &self.gaps
+    }
+    pub fn metrics(&self) -> &EvidenceReadMetrics {
+        &self.metrics
+    }
+    /// Completeness of the explicitly requested positions only, never the original family or native population.
+    pub fn is_selection_complete(&self) -> bool {
+        self.gaps.is_empty()
+    }
+    pub fn contains_reference(&self, reference: &DiagnosticEvidenceRef) -> Result<bool> {
+        match self.requested.get(&(reference.batch_id.clone(), reference.row_ordinal)) {
+            Some(known) if known != reference => Err(DeliveryProblem::Integrity.error()),
+            known => Ok(known.is_some()),
+        }
+    }
+    pub fn selected(&self, reference: &DiagnosticEvidenceRef) -> Result<Option<&VerifiedEvidenceRecord>> {
+        if !self.contains_reference(reference)? {
+            return Err(DeliveryProblem::InvalidContract.error());
+        }
+        let ordinal = reference.row_ordinal.checked_add(1).ok_or_else(|| DeliveryProblem::Integrity.error())?;
+        let index = self.records.binary_search_by(|row| {
+            row.batch_id().cmp(reference.batch_id.as_str()).then_with(|| row.row_ordinal().cmp(&ordinal))
+        });
+        let Ok(index) = index else { return Ok(None) };
+        let row = &self.records[index];
+        if row.row().capture != self.metadata.capture
+            || row.reference(&self.metadata.source, &self.metadata.capture_manifest_sha256)? != *reference
+        {
+            return Err(DeliveryProblem::Integrity.error());
+        }
+        Ok(Some(row))
     }
 }

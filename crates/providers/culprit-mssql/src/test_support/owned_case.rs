@@ -1,12 +1,14 @@
 //! A case deadline signals cancellation, then awaits the same body. Only a borrowed query future may be
 //! interrupted: its caller retains the native reader and must close it before returning.
-use culprit_core::{
-    Result,
-    telemetry::{CollectionStop, SourceShutdown},
-};
+#[cfg(test)]
+use culprit_core::telemetry::SourceShutdown;
+use culprit_core::{Result, telemetry::CollectionStop};
 use culprit_read::cancellation::CollectionCancellation;
+#[cfg(test)]
 use futures_util::{FutureExt, future::LocalBoxFuture};
-use std::{future::Future, panic::AssertUnwindSafe, time::Duration};
+#[cfg(test)]
+use std::panic::AssertUnwindSafe;
+use std::{future::Future, time::Duration};
 use tokio::time::Instant;
 
 /// Admission is checked before polling a command. Cancellation never drops a command which already started:
@@ -17,12 +19,14 @@ pub(crate) fn require_active(cancellation: &CollectionCancellation) -> Result<()
 
 /// A completed failed phase withdraws peer admission. It publishes no submission/readiness signal and never
 /// drops an already-started native future; its existing owner still has to settle and close before returning.
+#[cfg(test)]
 pub(crate) fn cancel_after_panic<T>(outcome: &std::thread::Result<T>, cancellation: &CollectionCancellation) {
     if outcome.is_err() {
         cancellation.cancel();
     }
 }
 
+#[cfg(test)]
 pub(crate) async fn admitted<T>(
     cancellation: &CollectionCancellation,
     work: impl Future<Output = Result<T>>,
@@ -30,6 +34,7 @@ pub(crate) async fn admitted<T>(
     require_active(cancellation)?;
     work.await
 }
+#[cfg(test)]
 pub(crate) async fn batch(
     cancellation: &CollectionCancellation,
     client: &mut crate::conn::MsClient,
@@ -43,15 +48,18 @@ pub(crate) async fn batch(
 }
 
 /// This borrow adds admission only. All actual native work, counters and shutdown stay with the same reader.
+#[cfg(test)]
 pub(crate) struct AdmittedRead<'a, R> {
     reader: &'a mut R,
     cancellation: &'a CollectionCancellation,
 }
+#[cfg(test)]
 impl<'a, R> AdmittedRead<'a, R> {
     pub fn new(reader: &'a mut R, cancellation: &'a CollectionCancellation) -> Self {
         Self { reader, cancellation }
     }
 }
+#[cfg(test)]
 #[async_trait::async_trait]
 impl<R: crate::read::NativeRead> crate::read::NativeRead for AdmittedRead<'_, R> {
     async fn query(
@@ -91,6 +99,7 @@ pub(crate) async fn retire(client: crate::conn::MsClient) -> Result<()> {
 
 /// One locally scheduled fixture body returns its original owner even when the body panics. Scheduling is
 /// separate from the deadline controller: the controller cancels and awaits this task, never aborts it.
+#[cfg(test)]
 pub(crate) async fn run_owned_body<O, T>(
     mut owner: O,
     body: impl for<'a> FnOnce(&'a mut O) -> LocalBoxFuture<'a, T>,
@@ -124,6 +133,7 @@ pub(crate) async fn finish_case<T>(
     }
 }
 
+#[cfg(test)]
 pub(crate) async fn until_cancelled<T>(
     cancellation: &CollectionCancellation,
     work: impl Future<Output = Result<T>>,

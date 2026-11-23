@@ -125,7 +125,9 @@ export function WorkloadTrend({ timeline, windowStart, flags, onSelect, selectio
             ? t("ui.trends.between_scans", { count: String(buckets.length + 1) })
             : timeline.source === "slow-log"
               ? t("ui.trends.slow_log_faster")
-              : undefined
+              : timeline.source === "native-intervals"
+                ? t("ui.trends.native_intervals")
+                : undefined
         }
         readout={(i) =>
           buckets[i]?.unknown ? (
@@ -313,7 +315,9 @@ export function QueryTrend({ query, timeline, onSince }: { query: QueryStat; tim
               ? t("ui.trends.runs_from_scans")
               : timeline.source === "slow-log"
                 ? t("ui.trends.runs_from_slow_log")
-                : t("ui.trends.runs_from_query_store")
+                : timeline.source === "native-intervals"
+                  ? t("ui.trends.runs_from_native_intervals")
+                  : t("ui.trends.runs_from_query_store")
           }
           readout={(i) => (
             <>

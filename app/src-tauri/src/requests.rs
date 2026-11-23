@@ -1,10 +1,11 @@
-//! Ordered request ownership per window. Retirement drops the work future before its replacement gets a slot.
+//! Ordered request ownership per window. Search retires by drop; archive work cooperatively settles its admitted owner.
 use std::collections::HashMap;
 use std::future::Future;
 use std::sync::{Arc, Mutex};
 
 use culprit_core::{Error, ErrorCode, Result};
-use tokio::sync::{Notify, Semaphore};
+use culprit_read::cancellation::CollectionCancellation;
+use tokio::sync::{Notify, OwnedSemaphorePermit, Semaphore};
 
 struct Request {
     id: String,
@@ -15,7 +16,7 @@ struct Request {
 #[derive(Default)]
 pub(crate) struct WindowRequests {
     active: Mutex<HashMap<String, Request>>,
-    gate: Option<Semaphore>,
+    gate: Option<Arc<Semaphore>>,
 }
 
 fn canceled() -> Error {
@@ -25,7 +26,7 @@ fn canceled() -> Error {
 impl WindowRequests {
     /// Serialize preview work while allowing a replacement to wait for the canceled future to release its permit.
     pub(crate) fn serialized() -> Self {
-        Self { gate: Some(Semaphore::new(1)), ..Self::default() }
+        Self { gate: Some(Arc::new(Semaphore::new(1))), ..Self::default() }
     }
 
     /// Registration precedes the async invocation, so a late old invocation cannot replace a newer request.
@@ -55,7 +56,7 @@ impl WindowRequests {
         }
     }
 
-    pub(crate) async fn run<T>(&self, window: &str, id: &str, work: impl Future<Output = Result<T>>) -> Result<T> {
+    fn owner<'a>(&'a self, window: &'a str, id: &str) -> Result<Owner<'a>> {
         let signal = {
             let mut requests = self.active.lock().unwrap_or_else(|e| e.into_inner());
             let request =
@@ -63,12 +64,19 @@ impl WindowRequests {
             request.started = true;
             request.canceled.clone()
         };
-        let _owner = Owner { requests: self, window, signal: signal.clone() };
+        Ok(Owner { requests: self, window, signal })
+    }
+    async fn slot(&self) -> Result<Option<OwnedSemaphorePermit>> {
+        match &self.gate {
+            Some(gate) => gate.clone().acquire_owned().await.map(Some).map_err(|_| canceled()),
+            None => Ok(None),
+        }
+    }
+    pub(crate) async fn run<T>(&self, window: &str, id: &str, work: impl Future<Output = Result<T>>) -> Result<T> {
+        let owner = self.owner(window, id)?;
+        let signal = owner.signal.clone();
         let work = async {
-            let _permit = match &self.gate {
-                Some(gate) => Some(gate.acquire().await.map_err(|_| canceled())?),
-                None => None,
-            };
+            let _permit = self.slot().await?;
             work.await
         };
         tokio::select! {
@@ -77,12 +85,68 @@ impl WindowRequests {
             result = work => result,
         }
     }
+    /// Warehouse analysis cooperatively settles admitted work. The callback can transfer the SAME owned slot
+    /// to its CPU worker, so dropping this caller cannot release it while that worker is still active.
+    pub(crate) async fn run_settled<T, F, Reading>(
+        &self,
+        window: &str,
+        id: &str,
+        cancellation: &CollectionCancellation,
+        work: F,
+    ) -> Result<T>
+    where
+        F: FnOnce(Option<OwnedSemaphorePermit>) -> Reading,
+        Reading: Future<Output = Result<T>>,
+    {
+        let owner = self.owner(window, id)?;
+        let signal = owner.signal.clone();
+        let permit = tokio::select! {
+            biased;
+            _ = signal.notified() => { cancellation.cancel(); return Err(canceled()); }
+            _ = cancellation.cancelled() => return Err(canceled()),
+            permit = self.slot() => permit?,
+        };
+        let work = async {
+            if cancellation.is_cancelled() {
+                return Err(canceled());
+            }
+            work(permit).await
+        };
+        tokio::pin!(work);
+        tokio::select! {
+            biased;
+            _ = signal.notified() => {
+                cancellation.cancel();
+                let _ = work.await;
+                Err(canceled())
+            }
+            result = &mut work => {
+                if !owner.is_current() || cancellation.is_cancelled() {
+                    cancellation.cancel();
+                    Err(canceled())
+                } else {
+                    result
+                }
+            }
+        }
+    }
 }
 
 struct Owner<'a> {
     requests: &'a WindowRequests,
     window: &'a str,
     signal: Arc<Notify>,
+}
+
+impl Owner<'_> {
+    fn is_current(&self) -> bool {
+        self.requests
+            .active
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(self.window)
+            .is_some_and(|request| Arc::ptr_eq(&request.canceled, &self.signal))
+    }
 }
 
 impl Drop for Owner<'_> {
@@ -250,4 +314,6 @@ mod tests {
         assert!(task.await.unwrap_err().is_cancelled());
         assert!(requests.active.lock().unwrap().is_empty());
     }
+
+    mod settlement;
 }

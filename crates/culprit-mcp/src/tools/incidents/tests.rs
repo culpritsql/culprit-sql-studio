@@ -34,14 +34,14 @@ impl culprit_engine::secrets::SecretStore for Secrets {
         Ok(())
     }
 }
-struct Host {
-    server: CulpritMcp,
+pub(in crate::tools) struct Host {
+    pub(in crate::tools) server: CulpritMcp,
     directory: PathBuf,
     native: Arc<AtomicUsize>,
     secrets: Arc<Secrets>,
 }
 impl Host {
-    fn new() -> Self {
+    pub(in crate::tools) fn new() -> Self {
         static NEXT: AtomicUsize = AtomicUsize::new(0);
         let directory = std::env::temp_dir().join(format!(
             "culprit-mcp-resource-{}-{}",
@@ -74,20 +74,23 @@ impl Host {
             secrets,
         }
     }
-    fn database(&self) -> culprit_core::DatabaseIdentity {
+    pub(in crate::tools) fn database(&self) -> culprit_core::DatabaseIdentity {
         culprit_core::DatabaseIdentity::server(Engine::Mssql, "ExactDB", "fixture.invalid", 14333, None)
     }
-    fn selector(&self) -> PublishedResourceSelector {
+    pub(in crate::tools) fn selector(&self) -> PublishedResourceSelector {
         PublishedResourceSelector {
             namespace_id: digest(b"controlled archive namespace"),
             database: IncidentDatabaseSelector::from_route(&self.database()).unwrap(),
         }
     }
-    fn install(&self, reader: Arc<dyn WarehouseIncidentReader>) -> (CulpritMcp, Arc<WarehouseDelegation>) {
+    pub(in crate::tools) fn install(
+        &self,
+        reader: Arc<dyn WarehouseIncidentReader>,
+    ) -> (CulpritMcp, Arc<WarehouseDelegation>) {
         let delegation = Arc::new(WarehouseDelegation::read_only(reader));
         (self.server.clone().with_warehouse(delegation.clone()), delegation)
     }
-    fn assert_source_free(&self) {
+    pub(in crate::tools) fn assert_source_free(&self) {
         assert_eq!(self.native.load(Ordering::SeqCst), 0);
         assert_eq!(self.secrets.0.load(Ordering::SeqCst), 0);
     }
@@ -103,10 +106,10 @@ fn arguments(host: &Host) -> serde_json::Map<String, Value> {
 fn resource_arguments() -> serde_json::Map<String, Value> {
     json!({"as_of":"2020-01-01T13:00:00Z"}).as_object().unwrap().clone()
 }
-fn body(value: &rmcp::model::CallToolResult) -> Value {
+pub(in crate::tools) fn body(value: &rmcp::model::CallToolResult) -> Value {
     serde_json::from_str(&value.content[0].as_text().unwrap().text).unwrap()
 }
-fn zero_work() -> CollectedEvidenceMetrics {
+pub(in crate::tools) fn zero_work() -> CollectedEvidenceMetrics {
     CollectedEvidenceMetrics {
         selected_rows: 0,
         queries: 0,
@@ -151,7 +154,7 @@ fn resources(host: &Host) -> PublishedResources {
         recovery_metadata_reads: 1,
     }
 }
-fn report(database: &culprit_core::DatabaseIdentity) -> IncidentReadReport {
+pub(in crate::tools) fn report(database: &culprit_core::DatabaseIdentity) -> IncidentReadReport {
     let sample: Value = serde_json::from_str(include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../../fixtures/incident-history.sample.json"
@@ -224,6 +227,14 @@ struct Reader {
     resources: Mutex<Option<PublishedResources>>,
 }
 impl WarehouseIncidentReader for Reader {
+    fn window<'a>(
+        &'a self,
+        _: &'a culprit_core::WarehouseWindowQuery,
+        _: &'a CollectionCancellation,
+    ) -> culprit_engine::WarehouseWindowTask<'a> {
+        Box::pin(async { Err(DeliveryProblem::UnsupportedSchema.error()) })
+    }
+
     fn resources<'a>(
         &'a self,
         request: &'a PublishedResourceRequest,
@@ -238,6 +249,13 @@ impl WarehouseIncidentReader for Reader {
             result.window = request.window.clone();
             Ok(result)
         })
+    }
+    fn artifacts<'a>(
+        &'a self,
+        _: &'a culprit_core::WarehouseArtifactQuery,
+        _: &'a CollectionCancellation,
+    ) -> culprit_engine::WarehouseArtifactsTask<'a> {
+        Box::pin(async { Err(DeliveryProblem::UnsupportedSchema.error()) })
     }
     fn incident<'a>(
         &'a self,
@@ -409,12 +427,27 @@ impl Awaited {
     }
 }
 impl WarehouseIncidentReader for Awaited {
+    fn window<'a>(
+        &'a self,
+        _: &'a culprit_core::WarehouseWindowQuery,
+        _: &'a CollectionCancellation,
+    ) -> culprit_engine::WarehouseWindowTask<'a> {
+        Box::pin(async { Err(DeliveryProblem::UnsupportedSchema.error()) })
+    }
+
     fn resources<'a>(
         &'a self,
         _: &'a PublishedResourceRequest,
         token: &'a CollectionCancellation,
     ) -> WarehouseResourcesTask<'a> {
         Box::pin(self.outcome(token))
+    }
+    fn artifacts<'a>(
+        &'a self,
+        _: &'a culprit_core::WarehouseArtifactQuery,
+        _: &'a CollectionCancellation,
+    ) -> culprit_engine::WarehouseArtifactsTask<'a> {
+        Box::pin(async { Err(DeliveryProblem::UnsupportedSchema.error()) })
     }
     fn incident<'a>(
         &'a self,
@@ -486,12 +519,27 @@ struct DelayedResult {
     report: Mutex<Option<IncidentReadReport>>,
 }
 impl WarehouseIncidentReader for DelayedResult {
+    fn window<'a>(
+        &'a self,
+        _: &'a culprit_core::WarehouseWindowQuery,
+        _: &'a CollectionCancellation,
+    ) -> culprit_engine::WarehouseWindowTask<'a> {
+        Box::pin(async { Err(DeliveryProblem::UnsupportedSchema.error()) })
+    }
+
     fn resources<'a>(
         &'a self,
         _: &'a PublishedResourceRequest,
         _: &'a CollectionCancellation,
     ) -> WarehouseResourcesTask<'a> {
         unsupported_resources()
+    }
+    fn artifacts<'a>(
+        &'a self,
+        _: &'a culprit_core::WarehouseArtifactQuery,
+        _: &'a CollectionCancellation,
+    ) -> culprit_engine::WarehouseArtifactsTask<'a> {
+        Box::pin(async { Err(DeliveryProblem::UnsupportedSchema.error()) })
     }
     fn incident<'a>(
         &'a self,
@@ -644,12 +692,27 @@ async fn dropping_outer_request_signals_its_existing_reader_cancellation() {
         token: Mutex<Option<CollectionCancellation>>,
     }
     impl WarehouseIncidentReader for ObserveDrop {
+        fn window<'a>(
+            &'a self,
+            _: &'a culprit_core::WarehouseWindowQuery,
+            _: &'a CollectionCancellation,
+        ) -> culprit_engine::WarehouseWindowTask<'a> {
+            Box::pin(async { Err(DeliveryProblem::UnsupportedSchema.error()) })
+        }
+
         fn resources<'a>(
             &'a self,
             _: &'a PublishedResourceRequest,
             _: &'a CollectionCancellation,
         ) -> WarehouseResourcesTask<'a> {
             unsupported_resources()
+        }
+        fn artifacts<'a>(
+            &'a self,
+            _: &'a culprit_core::WarehouseArtifactQuery,
+            _: &'a CollectionCancellation,
+        ) -> culprit_engine::WarehouseArtifactsTask<'a> {
+            Box::pin(async { Err(DeliveryProblem::UnsupportedSchema.error()) })
         }
         fn incident<'a>(
             &'a self,
@@ -721,6 +784,14 @@ struct DelayedResources {
     report: Mutex<Option<PublishedResources>>,
 }
 impl WarehouseIncidentReader for DelayedResources {
+    fn window<'a>(
+        &'a self,
+        _: &'a culprit_core::WarehouseWindowQuery,
+        _: &'a CollectionCancellation,
+    ) -> culprit_engine::WarehouseWindowTask<'a> {
+        Box::pin(async { Err(DeliveryProblem::UnsupportedSchema.error()) })
+    }
+
     fn resources<'a>(
         &'a self,
         _: &'a PublishedResourceRequest,
@@ -731,6 +802,13 @@ impl WarehouseIncidentReader for DelayedResources {
             self.release.notified().await;
             Ok(self.report.lock().unwrap().take().unwrap())
         })
+    }
+    fn artifacts<'a>(
+        &'a self,
+        _: &'a culprit_core::WarehouseArtifactQuery,
+        _: &'a CollectionCancellation,
+    ) -> culprit_engine::WarehouseArtifactsTask<'a> {
+        Box::pin(async { Err(DeliveryProblem::UnsupportedSchema.error()) })
     }
     fn incident<'a>(
         &'a self,

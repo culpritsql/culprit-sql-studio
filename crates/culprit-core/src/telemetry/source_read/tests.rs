@@ -2,6 +2,7 @@ use super::*;
 use crate::{DatabaseIdentity, Engine, MeasurementScope};
 mod log_rates;
 mod temporary;
+mod transaction_metadata;
 
 struct Original {
     source: CollectionDescription,
@@ -304,7 +305,9 @@ fn revision_keeps_basis_after_latest_changes_and_refuses_erasing_stage_or_replac
     removed.source_reads = SourceReadStages::new();
     assert!(DiagnosticRevision::between(Some(&enrolled), removed, "2020-01-01T12:00:03Z").is_err());
     let mut replaced = enrolled.clone();
-    replaced.analysis = DiagnosticAnalysisStatus::Analyzed;
+    let Some(DiagnosticReport::CompilationAdmission { report }) = &mut replaced.report else { panic!() };
+    report.observation.payload_sha256 = digest(b"foreign-gateway-original");
+    assert!(report.is_valid(), "a structurally valid foreign receipt still cannot replace the enrolled prerequisite");
     assert!(DiagnosticRevision::between(Some(&enrolled), replaced, "2020-01-01T12:00:03Z").is_err());
 }
 
@@ -572,8 +575,9 @@ fn a_fresh_activity_route_can_prove_the_same_execution_owner_but_not_a_logical_s
 }
 
 #[test]
-fn enrolling_separate_source_debt_cannot_reopen_a_partially_answered_gateway_question() {
-    let original = original();
+fn enrolling_separate_source_debt_cannot_reopen_an_analyzed_gateway_question() {
+    let mut original = original();
+    original.episode.analysis = DiagnosticAnalysisStatus::Analyzed;
     let enrolled = original.episode.enroll_source_read(original.focus.clone()).unwrap();
     let SourceObservation::Activity(frame) = &original.source.observation else { panic!() };
     let TelemetryRecord::Activity(actor) = &original.row.record else { panic!() };
@@ -591,7 +595,7 @@ fn enrolling_separate_source_debt_cannot_reopen_a_partially_answered_gateway_que
         }),
     };
     assert!(enrolled.matches_focus(&gateway));
-    assert_eq!(enrolled.analysis, DiagnosticAnalysisStatus::Partial);
+    assert_eq!(enrolled.analysis, DiagnosticAnalysisStatus::Analyzed);
     assert!(!enrolled.needs_question(&gateway));
     assert_eq!(
         enrolled.plan_focus(&original.source, actor, &original.focus.basis).unwrap(),
@@ -701,6 +705,19 @@ fn baseline_source_cost_is_independent_of_an_episode_but_cannot_authorize_an_inv
         budget: receipt.tested_budget.clone(),
     };
     assert!(profile.matches_request(&request));
+    let selected = CollectionRequest {
+        subject: request.subject.clone(),
+        selection: CollectionSelection::SourceRead {
+            focus: Box::new(original.focus.clone()),
+            execution: Box::new(original.execution.clone().into()),
+        },
+        budget: request.budget.clone(),
+    };
+    selected.validate().unwrap();
+    assert!(
+        !profile.matches_request(&selected),
+        "a baseline receipt cannot admit a focused investigation even on its exact native owner"
+    );
     assert!(profile.matches_native_context(&NativeReadContext::from_activity(&original.source).unwrap()));
     assert!(
         DiagnosticInvestigationIntent::new_source_read(

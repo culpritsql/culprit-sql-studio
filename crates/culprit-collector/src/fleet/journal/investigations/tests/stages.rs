@@ -217,17 +217,28 @@ async fn receipt_capacity_bounds_each_episode_distinct_episodes_and_total_stages
     let mut connection = fixture.connection();
     let transaction = connection.transaction().unwrap();
     let first = digest(b"first bounded episode");
-    insert_receipt(&transaction, &synthetic_receipt(&first, 0));
-    insert_receipt(&transaction, &synthetic_receipt(&first, 1));
+    assert_eq!(
+        MAX_FOCUSED_STAGES_PER_EPISODE,
+        crate::fleet::investigations::MAX_PRIMARY_STAGES_PER_EPISODE + MAX_SOURCE_READ_STAGES
+    );
+    assert_eq!(MAX_RECEIPTS, 8192, "more sibling questions must not expand the global metadata quota");
+    for stage in 0..MAX_FOCUSED_STAGES_PER_EPISODE {
+        assert!(require_receipt_capacity(&transaction, &first).is_ok());
+        insert_receipt(&transaction, &synthetic_receipt(&first, stage));
+    }
     assert!(require_receipt_capacity(&transaction, &first).is_err());
     for index in 1..MAX_DIAGNOSTIC_EPISODES {
         insert_receipt(&transaction, &synthetic_receipt(&digest(format!("episode:{index}").as_bytes()), 0));
     }
     assert!(require_receipt_capacity(&transaction, &digest(b"one episode beyond the cap")).is_err());
     let remaining = digest(b"episode:1");
-    assert!(require_receipt_capacity(&transaction, &remaining).is_ok(), "a known episode may use its second stage");
-    for index in 1..MAX_DIAGNOSTIC_EPISODES {
-        insert_receipt(&transaction, &synthetic_receipt(&digest(format!("episode:{index}").as_bytes()), 1));
+    assert!(require_receipt_capacity(&transaction, &remaining).is_ok(), "an existing episode retains sibling slots");
+    let remaining_slots = MAX_RECEIPTS - (MAX_DIAGNOSTIC_EPISODES - 1 + MAX_FOCUSED_STAGES_PER_EPISODE);
+    assert!(remaining_slots < MAX_DIAGNOSTIC_EPISODES);
+    for index in 1..=remaining_slots {
+        let episode = digest(format!("episode:{index}").as_bytes());
+        assert!(require_receipt_capacity(&transaction, &episode).is_ok());
+        insert_receipt(&transaction, &synthetic_receipt(&episode, 1));
     }
     assert_eq!(receipts(&transaction).unwrap().len(), MAX_RECEIPTS);
     assert!(require_receipt_capacity(&transaction, &digest(b"over the total cap")).is_err());
@@ -248,14 +259,20 @@ async fn cancelled_stage_replacement_reuses_its_slot_without_erasing_the_other_c
     scheduler
         .persisted(journal.cancel_focused(cancelled, DiagnosticAnalysisIssue::SourceChanged).await.unwrap())
         .unwrap();
-    let other = synthetic_receipt(&intent.episode_id, 1);
-    insert_receipt(&fixture.connection(), &other);
+    let others = (1..MAX_FOCUSED_STAGES_PER_EPISODE)
+        .map(|stage| synthetic_receipt(&intent.episode_id, stage))
+        .collect::<Vec<_>>();
+    for other in &others {
+        insert_receipt(&fixture.connection(), other);
+    }
     assert_eq!(receipts(&fixture.connection()).unwrap().len(), MAX_FOCUSED_STAGES_PER_EPISODE);
     let mut replacement = intent.clone();
     replacement.recipe_version += 1;
     replacement.qualification.measured_mut().unwrap().recipe_version = replacement.recipe_version;
     enqueue(&fixture, &journal, &mut scheduler, &replacement).await;
-    assert_eq!(journal.focused_receipt(&other.episode_stage_key).await.unwrap(), Some(other));
+    for other in others {
+        assert_eq!(journal.focused_receipt(&other.episode_stage_key).await.unwrap(), Some(other));
+    }
     assert!(matches!(
         journal.focused_stage(&intent.episode_stage_key().unwrap()).await.unwrap(),
         Some(FocusedStage::Outstanding)
@@ -321,4 +338,70 @@ async fn an_overflowing_episode_stage_inventory_fails_closed_without_partial_pru
         connection.query_row("SELECT count(*) FROM investigation_receipts", [], |row| row.get::<_, u32>(0)).unwrap(),
         u32::try_from(MAX_FOCUSED_STAGES_PER_EPISODE + 1).unwrap()
     );
+}
+
+#[tokio::test]
+async fn a_closed_source_question_keeps_its_stage_and_all_sibling_receipts_across_restart() {
+    use culprit_evidence::analytical::test_support::{ExecutionProfileCase, current_execution_profile_fixture};
+
+    // These are canonical controlled originals and structural journal admission, not native cost qualification.
+    let original = current_execution_profile_fixture(ExecutionProfileCase::Observed);
+    let episode = original.episode.enroll_source_read(original.focus.clone()).unwrap();
+    let execution = SourceReadExecutionScope::from_context(
+        original.focus.question,
+        &original.focus.original_context(&original.basis_source).unwrap(),
+    )
+    .unwrap();
+    let mut recipe = investigation_fixture().recipe;
+    recipe.id = "controlled.execution-profile-journal".into();
+    recipe.selector = original.focus.question.selector();
+    let RecipeAdmission::Measured(receipt) = &mut recipe.admission else { panic!() };
+    receipt.recipe_id = recipe.id.clone();
+    receipt.selector = recipe.selector;
+    receipt.scope = RecipeCostScope::NativeRead(execution.clone());
+    let component = receipt.component.clone();
+    let intent = DiagnosticInvestigationIntent::new_source_read(
+        &episode,
+        &recipe,
+        original.focus.clone(),
+        execution,
+        &component,
+        &CollectionBudget::default(),
+    )
+    .unwrap();
+    let stage = episode.source_reads.get(original.focus.question).unwrap().key(&episode.id).unwrap();
+    assert_eq!(intent.episode_stage_key().unwrap(), stage);
+    let mut newer = intent.clone();
+    newer.episode_revision = "2".into();
+    newer.recipe_version += 1;
+    newer.qualification.measured_mut().unwrap().recipe_version = newer.recipe_version;
+    assert!(newer.is_valid());
+    assert_ne!(newer.key().unwrap(), intent.key().unwrap());
+    assert_eq!(newer.episode_stage_key().unwrap(), stage, "newer immutable attempts cannot create a sibling slot");
+
+    let fixture = Fixture::new();
+    let (journal, _) = fixture.initialize().await;
+    let completed = FocusedReceipt {
+        key: intent.key().unwrap(),
+        episode_id: episode.id.clone(),
+        episode_stage_key: stage.clone(),
+        settlement: FocusedSettlement::Completed { result: original.capture },
+    };
+    insert_receipt(&fixture.connection(), &completed);
+    for sibling in 1..MAX_FOCUSED_STAGES_PER_EPISODE {
+        insert_receipt(&fixture.connection(), &synthetic_receipt(&episode.id, sibling));
+    }
+    let before = receipts(&fixture.connection()).unwrap();
+    assert_eq!(before.len(), MAX_FOCUSED_STAGES_PER_EPISODE);
+    drop(journal);
+    let (journal, mut scheduler) = fixture.reopen(0).await;
+    assert!(matches!(journal.focused_stage(&stage).await.unwrap(), Some(FocusedStage::Completed)));
+    let before_state = journal.scheduler().await.unwrap().unwrap();
+    let update = enrollment(&mut scheduler, fixture.focused_job(&newer), 0);
+    let error = journal.enqueue_focused(newer, update).await.unwrap_err();
+    assert_eq!(error.detail, Some(culprit_core::ErrorDetail::Delivery(DeliveryProblem::Conflict)));
+    assert_eq!(journal.scheduler().await.unwrap().unwrap().clock.revision, before_state.clock.revision);
+    assert!(journal.focused_intents().await.unwrap().is_empty());
+    assert_eq!(receipts(&fixture.connection()).unwrap(), before);
+    assert_eq!(journal.focused_receipt(&stage).await.unwrap(), Some(completed));
 }

@@ -419,7 +419,11 @@ fn selected_database_request_absence_does_not_authorize_idle_connection_with_a_f
     active = Rec::of(&columns);
     let row = rows::record(&active).unwrap().unwrap();
     assert!(connection(&row.facts).is_none());
-    let query = sql::census_metadata(IdentityDetail::AzureDatabase, page_server_reads::Availability::Unknown);
+    let query = sql::census_metadata(
+        IdentityDetail::AzureDatabase,
+        page_server_reads::Availability::Unknown,
+        &crate::activity::census_scope::CensusScope::Database,
+    );
     assert!(query.contains("IS_SRVROLEMEMBER('##MS_ServerStateReader##')"));
     assert!(query.contains("IN(2,3,4,8)"));
     assert!(
@@ -437,4 +441,24 @@ fn azure_and_unknown_request_population_scope_never_become_idle_connection_permi
         let changed = replace(&row, &[("idle_connection_visibility", Val::Bool(true))]);
         assert!(rows::record(&changed).is_err());
     }
+}
+
+#[tokio::test]
+async fn same_census_reader_retains_unrelated_idle_pool_sessions_and_native_completion_age_without_sql_enrichment() {
+    let idle = census_row(55, None, "Sleeping");
+    let mut reader = reader(vec![Ok(vec![idle])], IdentityDetail::Endpoint);
+    let baseline = reader.observe_census_baseline().await.unwrap();
+    assert_eq!(reader.query_count(), 1);
+    let [row] = baseline.frame.records.as_slice() else { panic!("one observed idle user session") };
+    assert!(row.facts.idle && row.facts.key.request.is_none());
+    assert_eq!(row.facts.open_transactions, Some(0));
+    assert!(row.facts.wait.is_none());
+    let context = row.facts.session_context.as_deref().unwrap();
+    assert_eq!(context.last_request_end_age_ms.as_deref(), Some("60000"));
+    assert_eq!(row.facts.session_counters.physical_reads.as_deref(), Some("100"));
+    assert_eq!(row.facts.session_counters.logical_reads.as_deref(), Some("9007199254740993"));
+    assert_eq!(reader.io.calls[0].limit, 501);
+    assert!(matches!(reader.io.calls[0].parameters.as_slice(), [Parameter::Integer(501), Parameter::Integer(1)]));
+    assert_eq!(reader.close().await, SourceShutdown::Quiescent);
+    assert_eq!(reader.query_count(), 1);
 }

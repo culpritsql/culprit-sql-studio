@@ -50,13 +50,7 @@ pub fn registration(engine: Engine) -> Result<ProviderRegistration> {
             culprit_yugabyte::telemetry_recipes(),
         ),
         #[cfg(feature = "mysql")]
-        Engine::Mysql => ProviderRegistration::new(
-            Arc::new(|spec, context| {
-                Ok(Box::new(culprit_mysql::MysqlProvider::new(spec)?.with_read_context(context)?))
-            }),
-            crate::ProviderConstructionPolicy::DeferredNativeWork,
-            culprit_mysql::telemetry_recipes(),
-        ),
+        Engine::Mysql => mysql_registration(),
         #[cfg(feature = "sqlite")]
         Engine::Sqlite => ProviderRegistration::new(
             Arc::new(|spec, context| {
@@ -68,6 +62,24 @@ pub fn registration(engine: Engine) -> Result<ProviderRegistration> {
         #[allow(unreachable_patterns)]
         other => Err(Error::new(ErrorCode::Unsupported, t!("engine.registry.unsupported", engine = other.label()))),
     }
+}
+
+#[cfg(feature = "mysql")]
+fn mysql_registration() -> Result<ProviderRegistration> {
+    let registration = ProviderRegistration::new(
+        Arc::new(|spec, context| Ok(Box::new(culprit_mysql::MysqlProvider::new(spec)?.with_read_context(context)?))),
+        crate::ProviderConstructionPolicy::DeferredNativeWork,
+        culprit_mysql::telemetry_recipes(),
+    )?
+    .with_builtin_safety(culprit_mysql::component_version(), Arc::new(culprit_mysql::verify_builtin_safety))?;
+    #[cfg(feature = "collector")]
+    let registration = registration.with_profile_source(
+        vec![culprit_core::telemetry::RecipeSelector::Collection(
+            culprit_core::telemetry::TelemetryCollection::Activity,
+        )],
+        Arc::new(|provider, request, profile| provider.telemetry_source_for_safety(request, profile)),
+    )?;
+    Ok(registration)
 }
 
 #[cfg(feature = "postgres")]
@@ -286,5 +298,62 @@ mod builtin_safety_tests {
                 .iter()
                 .all(|recipe| matches!(recipe.admission, RecipeAdmission::Unqualified))
         );
+    }
+}
+
+#[cfg(all(test, feature = "mysql", feature = "collector"))]
+mod mysql_safety_tests {
+    use super::*;
+    use culprit_core::telemetry::*;
+    #[test]
+    fn trusted_mysql_registration_admits_baseline_safety_without_factory_work_or_measured_cost() {
+        let registration = mysql_registration().unwrap();
+        let recipes = registration.telemetry_recipes();
+        let activity = recipes.iter().find(|recipe| recipe.id == "mysql.activity").unwrap();
+        let RecipeAdmission::BuiltinSafety(policy) = &activity.admission else { panic!() };
+        let request = CollectionRequest {
+            subject: CollectionSubject::Database,
+            selection: CollectionSelection::Activity,
+            budget: activity.budget.clone(),
+        };
+        let profile = SourceProfileAdmission::for_builtin(
+            digest(b"saved mysql native route"),
+            policy.as_ref().clone(),
+            None,
+            request.budget.clone(),
+            || true,
+        )
+        .unwrap();
+        assert!(profile.qualification().is_none());
+        registration.validate_profile(&request, &profile).unwrap();
+        let provider = culprit_mysql::MysqlProvider::new(&ConnectionSpec {
+            engine: Some(Engine::Mysql),
+            host: "fixture.invalid".into(),
+            database: Some("shop".into()),
+            user: Some("reader".into()),
+            ..Default::default()
+        })
+        .unwrap();
+        let source = registration.profile_source(&provider, &request, &profile).unwrap();
+        assert_eq!(source.query_count(), 0, "profile construction must not open native work");
+        for recipe in recipes.iter().filter(|recipe| matches!(recipe.admission, RecipeAdmission::BuiltinSafety(_))) {
+            let RecipeAdmission::BuiltinSafety(policy) = &recipe.admission else { panic!() };
+            assert!(registration.verify_builtin_safety(policy).unwrap());
+            let mut foreign = policy.as_ref().clone();
+            foreign.templates_sha256 = digest(b"foreign-reader");
+            assert!(!registration.verify_builtin_safety(&foreign).unwrap());
+        }
+        assert_eq!(
+            recipes.iter().filter(|recipe| matches!(recipe.admission, RecipeAdmission::BuiltinSafety(_))).count(),
+            2
+        );
+        let untrusted = ProviderRegistration::new(
+            Arc::new(|_, _| panic!("metadata listing never calls a factory")),
+            crate::ProviderConstructionPolicy::DeferredNativeWork,
+            recipes.to_vec(),
+        )
+        .unwrap();
+        assert!(!untrusted.verify_builtin_safety(policy).unwrap());
+        assert!(untrusted.validate_profile(&request, &profile).is_err());
     }
 }

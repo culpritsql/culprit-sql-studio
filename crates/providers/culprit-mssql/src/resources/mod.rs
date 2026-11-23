@@ -12,7 +12,7 @@ use crate::{
     read::{NativeRead, Parameter, ReadError, ReadResult, ReadSession, invalid_data, text},
     value::Rec,
 };
-pub(crate) use admission::admit_resources;
+pub(crate) use admission::{admit_pool_resources, admit_resources};
 use chrono::{DateTime, Utc};
 use culprit_core::{Result, telemetry::*};
 pub(crate) use instance_admission::{InstancePressurePoint, read_instance_pressure};
@@ -71,10 +71,39 @@ pub(crate) async fn windowed<R: NativeRead>(
     after: Option<&str>,
     limit: u32,
 ) -> ReadResult<Vec<Sample>> {
+    decode_window(io, window, after, limit, None).await
+}
+/// Same native SQL/decoder; the optional CURRENT reader projection never becomes a historical member ID.
+pub(crate) async fn windowed_on_reader<R: NativeRead>(
+    io: &mut R,
+    window: &Window,
+    after: Option<&str>,
+    limit: u32,
+    reader: &crate::local_source::Context,
+) -> ReadResult<Vec<Sample>> {
+    decode_window(io, window, after, limit, Some(reader)).await
+}
+async fn decode_window<R: NativeRead>(
+    io: &mut R,
+    window: &Window,
+    after: Option<&str>,
+    limit: u32,
+    reader: Option<&crate::local_source::Context>,
+) -> ReadResult<Vec<Sample>> {
     windowed_rows(io, window, after, limit, &sql::DATABASE.windowed())
         .await?
         .iter()
-        .map(Sample::decode)
+        .map(|row| {
+            if let Some(reader) = reader {
+                let deployment = crate::deployment::NativeDeployment::decode(row)?;
+                if crate::read::integer(row, "engine_edition")? != reader.activity.edition
+                    || deployment.replica_id() != reader.activity.replica_id.as_deref()
+                {
+                    return Err(CollectionStop::SourceChanged.error());
+                }
+            }
+            Sample::decode(row)
+        })
         .collect::<Result<Vec<_>>>()
         .map_err(ReadError::from)
 }

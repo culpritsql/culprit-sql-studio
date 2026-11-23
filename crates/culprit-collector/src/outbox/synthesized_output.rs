@@ -26,7 +26,7 @@ impl Files {
         json_size(&diagnosis, OUTPUT_BYTES as usize).map_err(output_size_error)?;
         input.validate_diagnosis(&diagnosis, analyzer)?;
         check()?;
-        if !self.synthesis_mutation_ready()? {
+        if !self.local_output_mutation_ready()? {
             return Err(problem(OutboxProblem::RecoveryRequired));
         }
         let analysis_id = diagnosis.description.analysis_id.clone();
@@ -66,6 +66,7 @@ impl Files {
         let request = CollectionRequest {
             subject: match &input.primary().source().target {
                 CollectionTarget::Database(_) => CollectionSubject::Database,
+                CollectionTarget::ConfiguredConnection(_) => return Err(DeliveryProblem::UnsupportedSchema.error()),
                 CollectionTarget::Shared(resource) => CollectionSubject::Shared { resource: resource.clone() },
             },
             selection: CollectionSelection::DerivedDiagnosis { analysis_id: analysis_id.clone() },
@@ -124,7 +125,7 @@ impl Files {
 
 impl Files {
     /// Native leases span async work beyond this file mutex. Only an abandoned local output can be recovered here.
-    pub(super) fn synthesis_mutation_ready(&mut self) -> Result<bool> {
+    pub(super) fn local_output_mutation_ready(&mut self) -> Result<bool> {
         let unfinished = self.journal.unfinished()?;
         if unfinished.iter().any(|capture| !capture.request.collection().is_local_output()) {
             return Ok(false);

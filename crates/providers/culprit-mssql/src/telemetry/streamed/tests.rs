@@ -1,5 +1,6 @@
 mod connected_cache;
 mod hyperscale_log_components;
+mod native_catalog;
 mod selected_retained;
 mod source_read;
 use super::*;
@@ -24,6 +25,9 @@ impl NativeRead for StreamingRead {
     }
     fn queries(&self) -> u32 {
         self.native.queries()
+    }
+    fn connection_generation(&self) -> Option<u64> {
+        self.native.connection_generation()
     }
     async fn close(&mut self) -> SourceShutdown {
         self.native.close().await
@@ -182,7 +186,7 @@ fn catalog_source_with_native<D: SnapshotRecipe>(
     } else {
         row
     };
-    let mut replies = if D::ACQUISITION.uses_local_authority() {
+    let mut replies = if D::ACQUISITION.uses_cache_authority() {
         vec![
             Ok(vec![crate::grants::tests::platform()]),
             Ok(vec![crate::grants::tests::authority("2020-01-01T06:02:00Z")]),
@@ -190,7 +194,7 @@ fn catalog_source_with_native<D: SnapshotRecipe>(
     } else {
         vec![Ok(vec![Rec::of(&[("edition", Val::Int(5))])]), Ok(vec![identity()])]
     };
-    if !D::ACQUISITION.uses_local_authority() || D::REQUIRES_FULL_METADATA {
+    if !D::ACQUISITION.uses_cache_authority() || D::REQUIRES_FULL_METADATA {
         replies.push(Ok(vec![replace(
             &clock("2020-01-01T06:02:00Z"),
             &[("metadata_visibility", Val::Int(i64::from(visible)))],
@@ -200,12 +204,12 @@ fn catalog_source_with_native<D: SnapshotRecipe>(
     replies.extend(layout);
     replies.push(Ok(vec![pressure()]));
     replies.extend(final_proof);
-    if D::ACQUISITION.uses_local_authority() {
+    if D::ACQUISITION.uses_cache_authority() {
         replies.push(Ok(vec![crate::grants::tests::authority("2020-01-01T06:02:01Z")]));
     } else {
         replies.push(Ok(vec![identity()]));
     }
-    if !D::ACQUISITION.uses_local_authority() || D::REQUIRES_FULL_METADATA {
+    if !D::ACQUISITION.uses_cache_authority() || D::REQUIRES_FULL_METADATA {
         replies.push(Ok(vec![replace(
             &clock("2020-01-01T06:02:01Z"),
             &[("metadata_visibility", Val::Int(i64::from(final_visible)))],

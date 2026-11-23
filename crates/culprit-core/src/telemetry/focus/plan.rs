@@ -29,7 +29,7 @@ impl DiagnosticEpisode {
         if !self.is_valid() {
             return Err(invalid());
         }
-        if !self.source_reads.is_empty() || !self.analysis.needs_work() {
+        if !self.owes_primary_analysis() {
             return Ok(DiagnosticFocusPlan::NotRequired);
         }
         if matches!(self.signal, DiagnosticSignal::LockWait { .. }) {
@@ -74,7 +74,7 @@ impl DiagnosticEpisode {
 
     /// One authenticated original row supplies the common request envelope; each native question adds its own
     /// supported identity/scope conditions. A current reader cannot fill a missing original generation or token.
-    pub(super) fn original_request_focus(
+    pub(in crate::telemetry) fn original_request_focus(
         &self,
         source: &CollectionDescription,
         original: &ActivityObservation,
@@ -129,7 +129,7 @@ impl DiagnosticEpisode {
         let DiagnosticSignal::PageWait { key, statement_identity, resource } = &self.signal else {
             return Ok(PageWaitFocusPlan::NotRequired);
         };
-        if !self.analysis.needs_work() {
+        if !self.owes_primary_analysis() {
             return Ok(PageWaitFocusPlan::NotRequired);
         }
         let native = source.observation.activity().filter(|snapshot| snapshot.is_valid()).ok_or_else(invalid)?;

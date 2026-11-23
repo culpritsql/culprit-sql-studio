@@ -289,7 +289,8 @@ async fn captured_fixture(
             from: source.query_history().unwrap().interval.from.clone(),
             until: source.query_history().unwrap().interval.until.clone(),
         },
-        _ => panic!("this fixture uses existing catalog/history readers only"),
+        TelemetryCollection::Activity => CollectionSelection::Activity,
+        _ => panic!("this fixture uses existing catalog/history/activity readers only"),
     };
     let request =
         CollectionRequest { subject: CollectionSubject::Database, selection, budget: CollectionBudget::default() };
@@ -654,3 +655,5 @@ async fn malformed_terminal_health_cannot_be_reported_as_an_empty_healthy_queue(
 
 mod failures;
 mod informational;
+
+mod points;

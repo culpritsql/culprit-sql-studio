@@ -39,11 +39,14 @@ fn cache() -> CachedStatementContext {
     }
 }
 fn fixture() -> Fixture {
+    fixture_with_updateability(true)
+}
+fn fixture_with_updateability(database_writable: bool) -> Fixture {
     let mut context = crate::telemetry::native_read_context::tests::read_context();
     context.target = DatabaseIdentity::server(Engine::Mssql, "sample", "owned.invalid", 1433, None).into();
     context.observed_from = "2020-01-01T12:00:00Z".into();
     context.observed_until = context.observed_from.clone();
-    context.database_writable = Some(true);
+    context.database_writable = Some(database_writable);
     let mut actor = crate::telemetry::activity::tests::request("42");
     actor.key = ActivityKey {
         session: NativeActivityIdentity { id: "42".into(), generation: "2020-01-01T10:00:00.0030000".into() },
@@ -67,7 +70,7 @@ fn fixture() -> Fixture {
             observed_from: context.observed_from.clone(),
             observed_until: context.observed_until.clone(),
             epoch: context.partition.native_epoch().map(str::to_owned),
-            database_writable: Some(true),
+            database_writable: Some(database_writable),
             scope: MeasurementScope::Database,
             population: ActivityPopulation::ActiveRequestsOpenTransactionsAndBlockers,
             native_rows: 1,
@@ -88,7 +91,7 @@ fn fixture() -> Fixture {
         target: basis_source.target.clone(),
         partition: basis_source.partition.clone(),
         source: basis_source.source.clone(),
-        database_writable: Some(true),
+        database_writable: Some(database_writable),
         epoch: basis_source.partition.native_epoch().unwrap().into(),
         original_observed_at: context.observed_until,
         statement_identity: actor.statement_identity.clone().unwrap(),
@@ -139,7 +142,7 @@ fn fixture() -> Fixture {
             },
             result: Box::new(FocusedRequestResult {
                 focus: Some(Box::new(request)),
-                database_writable: Some(true),
+                database_writable: Some(database_writable),
                 binding: FocusedRequestBinding::Matched,
                 membership: FocusedRequestMembership::Observed,
             }),
@@ -425,4 +428,246 @@ fn completed_absence_and_changed_incarnation_are_distinct_and_neither_substitute
         )
         .is_err()
     );
+}
+
+#[test]
+fn readonly_long_running_primary_completion_preserves_its_exact_independent_child() {
+    let f = fixture_with_updateability(false);
+    assert!(f.basis_source.target.database().unwrap().incarnation.is_none());
+    let mut before = f
+        .episode
+        .enroll_source_read(f.focus.clone())
+        .unwrap()
+        .transition_source_read(
+            &f.focus,
+            SourceReadStageState::Deferred { issue: DiagnosticAnalysisIssue::CostUnqualified },
+        )
+        .unwrap();
+    before.analysis = DiagnosticAnalysisStatus::Deferred;
+    before.issue = Some(DiagnosticAnalysisIssue::PolicyChanged);
+    let TelemetryRecord::Activity(actor) = &f.basis.record else { panic!() };
+    let DiagnosticFocusPlan::Ready(primary) = before.plan_focus(&f.basis_source, actor, &before.first).unwrap() else {
+        panic!("an unqualified child cannot hide an eligible readonly primary question")
+    };
+    assert!(before.needs_question(&primary));
+    assert_eq!(primary.activity_participant().unwrap().database_writable, Some(false));
+    let TelemetryRecord::Operational(work) = &f.work.record else { panic!() };
+    let checkpoint = DiagnosticCheckpoint {
+        controller_version: DIAGNOSTIC_CONTROLLER_VERSION,
+        target: f.basis_source.target.clone(),
+        input: before.first.capture_ref(),
+        episodes: vec![before.clone()],
+    };
+    let update = analyze_diagnostic_current_request_work(
+        &f.work_source,
+        &f.work_ref.capture_ref(),
+        &[DiagnosticCurrentRequestWorkRow { reference: &f.work_ref, observation: work }],
+        &checkpoint,
+        "2020-01-01T12:00:02Z",
+        None,
+    )
+    .unwrap();
+    let [revision] = update.revisions.as_slice() else { panic!("one genuine primary completion") };
+    let after = &revision.episode;
+    assert_eq!(after.analysis, DiagnosticAnalysisStatus::Analyzed);
+    assert!(after.issue.is_none());
+    assert_eq!(after.source_reads, before.source_reads);
+    assert_eq!(after.first, before.first);
+    assert_eq!(after.report, before.report);
+    assert_eq!(after.lifecycle, before.lifecycle);
+    assert!(!after.needs_question(&primary));
+    assert!(after.has_owed_question(), "only the explicitly deferred child remains owed");
+}
+
+#[test]
+fn readonly_original_can_nominate_recovery_context_before_any_primary_result_without_borrowing_role_or_member() {
+    let f = fixture_with_updateability(false);
+    let original = DiagnosticEpisode::start(
+        DiagnosticScope::from_source(&f.basis_source).unwrap(),
+        f.episode.signal.clone(),
+        f.episode.first_seen_at.clone(),
+        f.episode.first.clone(),
+    )
+    .unwrap();
+    assert!(original.report.is_none());
+    let question = SourceReadQuestion::ReadableSecondaryRecovery;
+    let focus = SourceReadFocus::from_followup_input(question, &original, &f.basis_source, &original.first, &f.basis)
+        .unwrap()
+        .unwrap();
+    assert!(
+        focus.prerequisite.observation().is_none(),
+        "the original Activity basis is not an independent operational prerequisite"
+    );
+    assert!(focus.references().any(|reference| reference == &original.first));
+    let context = focus.original_context(&f.basis_source).unwrap();
+    let execution = SourceReadExecutionScope::from_context(question, &context).unwrap();
+    assert!(matches!(execution, SourceReadExecutionScope::Local(_)));
+    assert!(execution.target().database().unwrap().incarnation.is_none());
+    assert!(focus.matches_basis(&f.basis_source, &f.basis, &execution));
+    let enrolled = original
+        .enroll_source_read(focus.clone())
+        .unwrap()
+        .transition_source_read(
+            &focus,
+            SourceReadStageState::Deferred { issue: DiagnosticAnalysisIssue::CostUnqualified },
+        )
+        .unwrap();
+    let TelemetryRecord::Activity(actor) = &f.basis.record else { panic!() };
+    let DiagnosticFocusPlan::Ready(primary) = enrolled.plan_focus(&f.basis_source, actor, &original.first).unwrap()
+    else {
+        panic!("a source question cannot hide the unperformed native primary")
+    };
+    assert!(enrolled.needs_question(&primary));
+    let TelemetryRecord::Operational(work) = &f.work.record else { panic!() };
+    let checkpoint = DiagnosticCheckpoint {
+        controller_version: DIAGNOSTIC_CONTROLLER_VERSION,
+        target: f.basis_source.target.clone(),
+        input: original.first.capture_ref(),
+        episodes: vec![enrolled.clone()],
+    };
+    let update = analyze_diagnostic_current_request_work(
+        &f.work_source,
+        &f.work_ref.capture_ref(),
+        &[DiagnosticCurrentRequestWorkRow { reference: &f.work_ref, observation: work }],
+        &checkpoint,
+        "2020-01-01T12:00:02Z",
+        None,
+    )
+    .unwrap();
+    assert_eq!(update.revisions.len(), 1);
+    assert_eq!(update.revisions[0].episode.source_reads, enrolled.source_reads);
+    assert!(matches!(update.revisions[0].episode.report, Some(DiagnosticReport::CurrentRequestWork { .. })));
+    for missing in ["writable", "role", "member", "epoch"] {
+        let mut source = f.basis_source.clone();
+        match missing {
+            "writable" | "role" => {
+                let SourceObservation::Activity(frame) = &mut source.observation else { panic!() };
+                frame.database_writable = if missing == "writable" { Some(true) } else { None };
+            }
+            "member" => {
+                let SourcePartition::InstanceLocal { member, .. } = &mut source.partition else { panic!() };
+                *member = None;
+            }
+            _ => {
+                let SourcePartition::InstanceLocal { epoch, .. } = &mut source.partition else { panic!() };
+                *epoch = None;
+                let SourceObservation::Activity(frame) = &mut source.observation else { panic!() };
+                frame.epoch = None;
+            }
+        }
+        if matches!(missing, "member" | "epoch") {
+            let SourceObservation::Activity(frame) = &mut source.observation else { panic!() };
+            frame.coverage = StateSourceCoverage::observed(source.source.clone(), frame.observations, false);
+        }
+        let row = ExportedRecord::new(&source, &f.basis.capture, f.basis.record.clone()).unwrap();
+        let reference = DiagnosticEvidenceRef::from_export(
+            &source,
+            &digest(format!("missing-native-{missing}").as_bytes()),
+            &row,
+            0,
+        )
+        .unwrap();
+        let episode = DiagnosticEpisode::start(
+            DiagnosticScope::from_source(&source).unwrap(),
+            original.signal.clone(),
+            original.first_seen_at.clone(),
+            reference.clone(),
+        )
+        .unwrap();
+        assert!(
+            SourceReadFocus::from_followup_input(question, &episode, &source, &reference, &row).unwrap().is_none(),
+            "{missing}"
+        );
+    }
+    for defect in ["member", "epoch", "role"] {
+        let mut other = context.clone();
+        match defect {
+            "member" => {
+                let SourcePartition::InstanceLocal { member: Some(member), .. } = &mut other.partition else {
+                    panic!()
+                };
+                member.native.id = "foreign".into();
+            }
+            "epoch" => {
+                let SourcePartition::InstanceLocal { epoch, .. } = &mut other.partition else { panic!() };
+                *epoch = Some("different-process-or-recovery".into());
+            }
+            _ => other.database_writable = Some(true),
+        }
+        if let Ok(foreign) = SourceReadExecutionScope::from_context(question, &other) {
+            assert!(!focus.matches_basis(&f.basis_source, &f.basis, &foreign), "{defect}");
+        }
+    }
+}
+
+#[test]
+fn catalog_refusal_refresh_preserves_exact_readonly_primary_and_child_owners_without_starting_work() {
+    let f = fixture_with_updateability(false);
+    let original = DiagnosticEpisode::start(
+        DiagnosticScope::from_source(&f.basis_source).unwrap(),
+        f.episode.signal.clone(),
+        f.episode.first_seen_at.clone(),
+        f.episode.first.clone(),
+    )
+    .unwrap();
+    let question = SourceReadQuestion::ReadableSecondaryRecovery;
+    let focus = SourceReadFocus::from_followup_input(question, &original, &f.basis_source, &original.first, &f.basis)
+        .unwrap()
+        .unwrap();
+    let before = original
+        .enroll_source_read(focus.clone())
+        .unwrap()
+        .transition_source_read(
+            &focus,
+            SourceReadStageState::Deferred {
+                issue: DiagnosticAnalysisIssue::SourceUnavailable { code: None, stopped: None },
+            },
+        )
+        .unwrap();
+    let mut next = before
+        .transition_source_read(
+            &focus,
+            SourceReadStageState::Deferred { issue: DiagnosticAnalysisIssue::CostUnqualified },
+        )
+        .unwrap();
+    next.analysis = DiagnosticAnalysisStatus::Deferred;
+    next.issue = Some(DiagnosticAnalysisIssue::CostUnqualified);
+    let revision = DiagnosticRevision::between(Some(&before), next.clone(), "2020-01-01T12:00:01Z").unwrap().unwrap();
+    assert_eq!(revision.episode.first, before.first);
+    assert_eq!(revision.episode.signal, before.signal);
+    assert_eq!(revision.episode.report, before.report);
+    assert_eq!(revision.episode.source_reads.get(question).unwrap().focus, focus);
+    assert!(revision.episode.has_owed_question());
+    let mut collecting = before.transition_source_read(&focus, SourceReadStageState::Collecting).unwrap();
+    collecting.analysis = next.analysis;
+    collecting.issue = next.issue.clone();
+    assert!(DiagnosticRevision::between(Some(&before), collecting, "2020-01-01T12:00:01Z").is_err());
+    let mut completed = next;
+    completed.analysis = DiagnosticAnalysisStatus::Analyzed;
+    completed.issue = None;
+    completed.report = Some(DiagnosticReport::CurrentRequestWork { observation: f.work_ref });
+    assert!(DiagnosticRevision::between(Some(&before), completed, "2020-01-01T12:00:02Z").is_err());
+}
+
+#[test]
+fn catalog_refresh_cannot_rewrite_completed_partial_primary_or_an_actual_answer_transition() {
+    let f = fixture();
+    let mut before = f
+        .episode
+        .enroll_source_read(f.focus.clone())
+        .unwrap()
+        .transition_source_read(&f.focus, SourceReadStageState::Collecting)
+        .unwrap();
+    before.analysis = DiagnosticAnalysisStatus::Partial;
+    assert!(before.is_valid());
+    let answer = answer(&f, None);
+    let mut next = before
+        .transition_source_read(
+            &f.focus,
+            SourceReadStageState::Answered { answer: Box::new(SourceReadAnswer::RelationalInputs(Box::new(answer))) },
+        )
+        .unwrap();
+    next.analysis = DiagnosticAnalysisStatus::Deferred;
+    next.issue = Some(DiagnosticAnalysisIssue::CostUnqualified);
+    assert!(DiagnosticRevision::between(Some(&before), next, "2020-01-01T12:00:04Z").is_err());
 }

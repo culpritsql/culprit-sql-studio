@@ -74,7 +74,7 @@ pub(super) fn record(row: &Rec) -> Result<Option<ActivityRecord>> {
         request: request.clone(),
     };
     let session_context = super::session_context::decode(row, &key, idle, no_current_request)?;
-    let observation = ActivityObservation {
+    let mut observation = ActivityObservation {
         session_context,
         waiting_on_lock,
         blocking_status: culprit_core::telemetry::ActivityBlockingStatus::Known,
@@ -86,6 +86,7 @@ pub(super) fn record(row: &Rec) -> Result<Option<ActivityRecord>> {
             3 => ActivityScopeBasis::SessionDatabase,
             4 => ActivityScopeBasis::BlockingReference,
             5 => ActivityScopeBasis::OtherDatabase,
+            6 => ActivityScopeBasis::InstanceMember,
             _ => return Err(invalid_data()),
         },
         state: text(row, "state")?,
@@ -109,6 +110,7 @@ pub(super) fn record(row: &Rec) -> Result<Option<ActivityRecord>> {
         }),
         statement: DefinitionPayload::Unavailable { reason: PayloadUnavailable::NotCollected },
     };
+    super::blocking::output_context::attach(row, &mut observation)?;
     if !observation.is_valid() {
         return Err(invalid_data());
     }
@@ -131,11 +133,14 @@ fn request_counters(row: &Rec) -> Result<ActivityCounters> {
     Ok(counters)
 }
 fn request_locator(row: &Rec) -> Result<Option<RequestLocator>> {
-    let Some(handle) = optional_text(row, "sql_handle")? else {
+    request_locator_with_prefix(row, "")
+}
+pub(super) fn request_locator_with_prefix(row: &Rec, prefix: &str) -> Result<Option<RequestLocator>> {
+    let Some(handle) = optional_text(row, &format!("{prefix}sql_handle"))? else {
         return Ok(None);
     };
     // Native work without an active statement has no SQL locator, even when its request and counters are visible.
-    let start = match value(row, "statement_start")? {
+    let start = match value(row, &format!("{prefix}statement_start"))? {
         Val::Null | Val::Int(-1) => return Ok(None),
         Val::Int(value) if *value >= 0 => *value,
         _ => return Err(invalid_data()),
@@ -148,7 +153,7 @@ fn request_locator(row: &Rec) -> Result<Option<RequestLocator>> {
     {
         return Err(invalid_data());
     }
-    let end = match value(row, "statement_end")? {
+    let end = match value(row, &format!("{prefix}statement_end"))? {
         Val::Null => return Ok(None),
         Val::Int(value) if *value == -1 || *value >= start => *value,
         _ => return Err(invalid_data()),
@@ -157,7 +162,7 @@ fn request_locator(row: &Rec) -> Result<Option<RequestLocator>> {
         handle,
         i32::try_from(start).map_err(|_| invalid_data())?,
         i32::try_from(end).map_err(|_| invalid_data())?,
-        integer(row, "request_database_id")?.try_into().map_err(|_| invalid_data())?,
+        integer(row, &format!("{prefix}request_database_id"))?.try_into().map_err(|_| invalid_data())?,
     ))
 }
 fn previous_locator(row: &Rec) -> Result<Option<PreviousBatchLocator>> {

@@ -8,9 +8,12 @@ use std::collections::{BTreeMap, BTreeSet};
 
 const MAX_INTENT_BYTES: usize = 256 * 1024;
 const MAX_INTENTS_BYTES: usize = 16 * 1024 * 1024;
-// The implemented page-wait progression has one original database target and its one exact native member.
-const MAX_FOCUSED_STAGES_PER_EPISODE: usize = 2;
-const MAX_RECEIPTS: usize = MAX_DIAGNOSTIC_EPISODES * MAX_FOCUSED_STAGES_PER_EPISODE;
+// Fixed primary stages and the closed source-observation roster (including its single metadata continuation) may settle.
+// Their receipts outlive outstanding jobs so a newer parent, recipe or restart cannot revive completed work.
+const MAX_FOCUSED_STAGES_PER_EPISODE: usize =
+    crate::fleet::investigations::MAX_PRIMARY_STAGES_PER_EPISODE + MAX_SOURCE_READ_STAGES;
+// Preserve the existing aggregate metadata quota independently of the number of implemented questions.
+const MAX_RECEIPTS: usize = 8192;
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]

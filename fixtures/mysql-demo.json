@@ -60,7 +60,7 @@
       "reason": null
     }
   ],
-  "format": 56,
+  "format": 57,
   "id": "20261011T120900.394Z",
   "connection": "mysql-demo",
   "environment": "local",

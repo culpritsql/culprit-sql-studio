@@ -2,7 +2,7 @@
 use culprit_core::{Result, telemetry::*};
 use serde_json::{Value, json};
 
-pub const PREPARATION_VERSION: u32 = 62;
+pub const PREPARATION_VERSION: u32 = 63;
 const MAX_PREVIEW_BYTES: usize = 1024;
 const MAX_INLINE_DETAIL_BYTES: usize = 128 * 1024;
 
@@ -17,6 +17,17 @@ pub fn prepare(input: &mut Value, record: &TelemetryRecord, target: &CollectionT
         input["_projection"]["payloads"].as_array_mut().ok_or_else(invalid)?.push(reference);
     }
     match record {
+        TelemetryRecord::CollectorConnection(row) => {
+            let (status, stop) = match &row.original_status {
+                Some(CollectionStatus::Complete) => (json!("complete"), Value::Null),
+                Some(CollectionStatus::Incomplete(stop)) => (json!("incomplete"), json!(stop)),
+                None => (Value::Null, Value::Null),
+            };
+            input["_projection"]["original_status"] = status;
+            input["_projection"]["original_stop"] = stop;
+            input["_projection"]["connection_outcome"] = json!(row.connection_outcome());
+            input["_projection"]["ordered_collector_clocks"] = json!(row.ordered_collector_clocks());
+        }
         TelemetryRecord::DerivedIncident(_)
         | TelemetryRecord::DerivedFinding(_)
         | TelemetryRecord::DerivedChange(_) => {
@@ -80,6 +91,12 @@ fn fact(input: &mut Value, key: &str) -> Result<()> {
     detail(input, details)
 }
 fn operational(input: &mut Value, row: &OperationalObservation) -> Result<()> {
+    if let OperationalFact::ReadableSecondaryRecovery(point) = &row.fact {
+        super::worker_contexts::project_recovery(input, point)?;
+    }
+    if let OperationalFact::MssqlCurrentExecutionProfile(point) = &row.fact {
+        super::worker_contexts::project_execution_profile(input, point)?;
+    }
     if let OperationalFact::MssqlWorkerStarvation(point) = &row.fact {
         super::worker_contexts::project(input.pointer_mut("/record/data/fact/data").ok_or_else(invalid)?, point)?;
     }
@@ -105,7 +122,7 @@ fn operational(input: &mut Value, row: &OperationalObservation) -> Result<()> {
             .episode
             .source_reads
             .iter()
-            .map(super::investigations::source_stage)
+            .map(|stage| super::investigations::source_stage(&revision.episode, stage))
             .collect::<Result<Vec<_>>>()?;
         *input.pointer_mut("/record/data/fact/data/episode/source_reads").ok_or_else(invalid)? = Value::Array(stages);
         if let Some(investigation) = &revision.investigation {

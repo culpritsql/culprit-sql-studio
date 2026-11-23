@@ -16,34 +16,35 @@ pub(super) async fn restore(
     range: &CommittedRange,
     recovery: &dyn RecoveryRead,
     budget: RecoveryPayloadBudget,
-    capture: &mut EvidenceCapture,
+    records: &mut Vec<VerifiedEvidenceRecord>,
+    gaps: &mut Vec<EvidenceGap>,
+    metrics: &mut EvidenceReadMetrics,
 ) -> Result<()> {
     budget.validate()?;
     if recovery.id() != range.store_id() {
         return Err(DeliveryProblem::DestinationChanged.error());
     }
-    let selected = selected_batches(range, &capture.gaps)?;
+    let selected = selected_batches(range, gaps)?;
     preflight(&selected, budget)?;
     let mut recovered = Vec::new();
     let mut repaired = BTreeSet::new();
     for selected in selected {
-        capture.metrics.recovery_objects = capture.metrics.recovery_objects.checked_add(1).ok_or_else(capacity)?;
+        metrics.recovery_objects = metrics.recovery_objects.checked_add(1).ok_or_else(capacity)?;
         let rows = read_batch(range, recovery, &selected).await?;
         // Only a verified EOF permits any row from this object to leave read_batch. Keep all objects staged until
         // the complete request succeeds, so a corrupt later object cannot install a partial repair either.
-        capture.metrics.recovery_bytes =
-            capture.metrics.recovery_bytes.checked_add(selected.batch.bytes).ok_or_else(capacity)?;
+        metrics.recovery_bytes = metrics.recovery_bytes.checked_add(selected.batch.bytes).ok_or_else(capacity)?;
         for row in rows {
             repaired.insert((row.batch_id.clone(), row.row_ordinal));
             recovered.push(row);
         }
     }
-    if capture.records.iter().any(|row| repaired.contains(&(row.batch_id.clone(), row.row_ordinal))) {
+    if records.iter().any(|row| repaired.contains(&(row.batch_id.clone(), row.row_ordinal))) {
         return Err(invalid());
     }
     tokio::task::yield_now().await;
-    capture.records.extend(recovered);
-    capture.gaps.retain(|gap| {
+    records.extend(recovered);
+    gaps.retain(|gap| {
         !eligible(gap.reason)
             || !gap
                 .batch_id

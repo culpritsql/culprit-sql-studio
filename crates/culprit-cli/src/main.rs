@@ -28,6 +28,7 @@ mod test_support;
 mod timeline_cmd;
 mod update_cmd;
 mod waits_cmd;
+mod window_cmd;
 
 use std::io::IsTerminal;
 use std::path::PathBuf;
@@ -148,6 +149,8 @@ enum Command {
     Doctor { connection: String },
     #[command(about = culprit_core::t!("incident.cli.about"))]
     Incident(incident_cmd::IncidentArgs),
+    #[command(about=culprit_core::t!("window.cli.about"))]
+    Window(window_cmd::WindowArgs),
     #[command(about = culprit_core::t!("resources.cli.about"))]
     Resources(resources_cmd::ResourcesArgs),
     /// Take a snapshot, run every check, save the report and print the findings.
@@ -542,6 +545,9 @@ async fn run(command: Command, out: &Out) -> culprit_core::Result<u8> {
     if let Command::Incident(args) = command {
         return command_task(|| incident_cmd::run(args, out)).await;
     }
+    if let Command::Window(args) = command {
+        return command_task(|| window_cmd::run(args, out)).await;
+    }
     let mut ws = Workspace::open()?;
     // A device-code sign-in needs a person to read the code; scripts and agents get an error with a hint instead.
     if std::io::stderr().is_terminal() && !matches!(&command, Command::Collect(_)) {
@@ -577,6 +583,9 @@ fn dispatch<'a>(command: Command, ws: Workspace, out: &'a Out) -> CommandTask<'a
         }),
         Command::Dashboard(args) => Box::pin(async move { dashboard_cmd::run(&ws, args, out).await }),
         Command::Doctor { connection } => Box::pin(async move { commands::doctor(&ws, &connection, out).await }),
+        Command::Window(_) => {
+            Box::pin(async move { unreachable!("archive window dispatch precedes workspace creation") })
+        }
         Command::Incident(_) => {
             Box::pin(async move { unreachable!("archive incident dispatch precedes workspace creation") })
         }

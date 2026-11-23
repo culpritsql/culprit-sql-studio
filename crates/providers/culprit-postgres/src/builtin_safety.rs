@@ -10,6 +10,10 @@ pub(crate) fn policy(
     let purpose = match (recipe_id, selector) {
         ("postgres.activity", RecipeSelector::Collection(TelemetryCollection::Activity)) => RecipePurpose::Baseline,
         ("postgres.blocking", RecipeSelector::FocusedBlocking) => RecipePurpose::Investigation,
+        (
+            "postgres.readable-secondary-recovery",
+            RecipeSelector::Collection(TelemetryCollection::Snapshot(SnapshotDataset::ReadableSecondaryRecovery)),
+        ) => RecipePurpose::Investigation,
         _ => return None,
     };
     Some(BuiltinRecipeSafety {
@@ -29,12 +33,14 @@ fn template_fingerprint() -> String {
         include_str!("../Cargo.toml"),
         include_str!("../../../../Cargo.lock"),
         include_str!("builtin_safety.rs"),
+        include_str!("native/mod.rs"),
         include_str!("native/activity.rs"),
         include_str!("native/activity/transaction_metadata.rs"),
         include_str!("native/activity/blocking.rs"),
         include_str!("native/activity/blocking/relation_locks.rs"),
         include_str!("native/activity/blocking/relation_locks/sql.rs"),
         include_str!("../../../culprit-core/src/blocking/native_lock.rs"),
+        include_str!("../../../culprit-core/src/blocking/native_output.rs"),
         include_str!("native/local_context.rs"),
         include_str!("native/metadata.rs"),
         include_str!("read.rs"),
@@ -44,6 +50,14 @@ fn template_fingerprint() -> String {
         include_str!("rows.rs"),
         include_str!("telemetry/activity.rs"),
         include_str!("telemetry/blocking.rs"),
+        include_str!("telemetry/readable_secondary_recovery.rs"),
+        include_str!("native/readable_secondary_recovery.rs"),
+        include_str!("native/readable_secondary_recovery/sql.rs"),
+        include_str!("native/replication/sql.rs"),
+        include_str!("native/operational.rs"),
+        include_str!("../../../culprit-core/src/telemetry/readable_secondary_recovery.rs"),
+        include_str!("../../../culprit-core/src/telemetry/readable_secondary_recovery/postgres.rs"),
+        include_str!("../../../culprit-core/src/telemetry/identity.rs"),
     ];
     // Length separators distinguish concatenations. This is the compiled source/reader policy identity;
     // native major-version availability is checked independently before every population query.
@@ -72,7 +86,7 @@ pub(crate) fn verify_native(policy: &BuiltinRecipeSafety, version: u32) -> Resul
 mod tests {
     use super::*;
     #[test]
-    fn only_the_two_exact_reader_policies_are_source_validated_and_neither_is_measured() {
+    fn only_the_exact_reader_policies_are_source_validated_and_neither_is_measured() {
         let recipes = crate::telemetry::declarations();
         let policies = recipes
             .iter()
@@ -81,11 +95,14 @@ mod tests {
                 _ => None,
             })
             .collect::<Vec<_>>();
-        assert_eq!(policies.len(), 2);
+        assert_eq!(policies.len(), 3);
         for (recipe, policy) in policies {
             assert!(recipe.is_valid());
             assert!(verify(policy).unwrap());
-            assert!(matches!(recipe.id.as_str(), "postgres.activity" | "postgres.blocking"));
+            assert!(matches!(
+                recipe.id.as_str(),
+                "postgres.activity" | "postgres.blocking" | "postgres.readable-secondary-recovery"
+            ));
             assert!(verify_native(policy, 180006).is_ok());
             for version in [170009, 190000] {
                 assert!(verify_native(policy, version).is_err());
@@ -107,7 +124,10 @@ mod tests {
         assert!(
             recipes
                 .iter()
-                .filter(|recipe| !matches!(recipe.id.as_str(), "postgres.activity" | "postgres.blocking"))
+                .filter(|recipe| !matches!(
+                    recipe.id.as_str(),
+                    "postgres.activity" | "postgres.blocking" | "postgres.readable-secondary-recovery"
+                ))
                 .all(|recipe| matches!(recipe.admission, RecipeAdmission::Unqualified))
         );
     }
