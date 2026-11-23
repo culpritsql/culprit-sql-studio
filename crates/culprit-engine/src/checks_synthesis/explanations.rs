@@ -351,11 +351,16 @@ pub(super) fn blocking(original: &dyn OriginalProjection) -> Result<Explanation>
 }
 pub(super) fn original_observation(original: &dyn OriginalProjection, position: usize) -> Result<Explanation> {
     let Some(header) = original.source().observation.snapshot() else { return Ok(Explanation::default()) };
-    if header.dataset != SnapshotDataset::TaskSpace {
-        return Ok(Explanation::default());
+    match header.dataset {
+        SnapshotDataset::TaskSpace => task_space_observation(original, position),
+        SnapshotDataset::Cleanup => cleanup_observation(original, position),
+        _ => Ok(Explanation::default()),
     }
+}
+
+fn task_space_observation(original: &dyn OriginalProjection, position: usize) -> Result<Explanation> {
     let report = task_space_report(original)?;
-    let point = match &original.records()[position].row().record {
+    let point = match &original.records().get(position).ok_or_else(invalid)?.row().record {
         TelemetryRecord::Operational(point) => point,
         _ => return Err(invalid()),
     };
@@ -367,6 +372,48 @@ pub(super) fn original_observation(original: &dyn OriginalProjection, position: 
     if let Some(request) = task_space_request(original, position, entry)? {
         explanation.candidates.push(request);
     }
+    Ok(explanation)
+}
+
+fn cleanup_observation(original: &dyn OriginalProjection, position: usize) -> Result<Explanation> {
+    let point = match &original.records().get(position).ok_or_else(invalid)?.row().record {
+        TelemetryRecord::Operational(point) if matches!(point.fact, OperationalFact::MssqlCleanupHorizon(_)) => point,
+        _ => return Err(invalid()),
+    };
+    let report = crate::collected_resources::cleanup::from_original(original)?;
+    let Some(entry) = report
+        .entries
+        .iter()
+        .find(|entry| entry.reference.source == point.source && entry.reference.observation_key == point.key)
+    else {
+        return Ok(Explanation::default());
+    };
+    let mut explanation = Explanation::words(&entry.explanation, &entry.investigation, &entry.verify);
+    for sibling in report.entries.iter().filter(|sibling| sibling.reference != entry.reference) {
+        let sibling_position = original
+            .records()
+            .iter()
+            .position(|row| {
+                matches!(
+                    &row.row().record,
+                    TelemetryRecord::Operational(candidate)
+                        if candidate.source == sibling.reference.source
+                            && candidate.key == sibling.reference.observation_key
+                )
+            })
+            .ok_or_else(invalid)?;
+        let reference = original.reference(sibling_position)?;
+        explanation.merge_followup(Explanation::words(&sibling.explanation, &sibling.investigation, &sibling.verify));
+        if !explanation.context_evidence.iter().any(|evidence| evidence.reference.as_ref() == Some(&reference)) {
+            explanation.context_evidence.push(IncidentHistoryEvidence {
+                label: sibling.title.clone(),
+                capture: reference.capture_ref(),
+                reference: Some(reference),
+                availability: t!("view.incident_history.evidence.referenced"),
+            });
+        }
+    }
+    explanation.limitations = report.limitations;
     Ok(explanation)
 }
 

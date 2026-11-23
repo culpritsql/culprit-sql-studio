@@ -31,7 +31,7 @@ pub use full_text_populations::full_text_populations;
 mod table_memory;
 pub use columnstore_rowgroups::columnstore_rowgroups;
 pub use table_memory::table_memory;
-mod cleanup;
+pub(crate) mod cleanup;
 pub use cdc::cdc;
 pub use cleanup::cleanup;
 mod tuning;

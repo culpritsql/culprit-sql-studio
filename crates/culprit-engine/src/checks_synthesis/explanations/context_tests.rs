@@ -1,3 +1,4 @@
+mod cleanup;
 mod commit_log;
 mod readable_secondary_recovery;
 mod transaction_metadata;
