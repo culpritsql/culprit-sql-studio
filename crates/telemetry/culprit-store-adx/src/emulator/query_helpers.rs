@@ -1,3 +1,4 @@
+mod census;
 mod deployment;
 mod eligibility;
 mod heads;
@@ -130,6 +131,8 @@ pub(super) async fn run(emulator: &Arc<Emulator>, catalog: &SchemaCatalog) {
     // Nonempty data is the failing boundary. Collect every stage and equivalent wrapper before the
     // production assertion; empty-only planning success cannot establish that the published path works.
     matrix::published(emulator, &commands, matrix::Window { resource: &label, from: &from, until: &until }).await;
+    census::assert_raw_cohorts(emulator, &output.description.analyzer, &output.description.rules_version).await;
+    census::assert_published_counts(emulator, &after).await;
     heads::assert_selection(emulator, &commands).await;
     assert_eq!(
         count(emulator, &format!("FriendlySmokeIncidentWindow(datetime({from}),datetime({until}),datetime({after}))"))
@@ -280,6 +283,7 @@ pub(super) async fn run(emulator: &Arc<Emulator>, catalog: &SchemaCatalog) {
         "the conflicting later clock cannot create a fresh alert"
     );
     assert_first_unavailable(emulator, &label, &after).await;
+    census::assert_published_counts(emulator, &after).await;
     let (resolved_source, resolved) = test_support::unresolved_derived_diagnosis_output();
     assert_eq!(resolved.incidents[0].entry.lifecycle, DiagnosticLifecycle::Resolved);
     assert_eq!(resolved.incidents[0].entry.episode_id, output.incidents[0].entry.episode_id);
@@ -335,6 +339,7 @@ pub(super) async fn run(emulator: &Arc<Emulator>, catalog: &SchemaCatalog) {
         emulator.ingest("CulpritIncidentsV1", &serde_json::to_vec(&row).unwrap());
     }
     assert_eq!(count(emulator, &new_call).await, 0);
+    census::assert_published_counts(emulator, &after).await;
     assert_eq!(
         count(emulator, &format!("FriendlySmokeHeadBasis(datetime({after}))")).await,
         0,
@@ -395,6 +400,7 @@ pub(super) async fn run(emulator: &Arc<Emulator>, catalog: &SchemaCatalog) {
         "conflicting first receipts cannot be collapsed into a known onset"
     );
     assert_first_unavailable(emulator, &reference_label, &after).await;
+    census::assert_published_counts(emulator, &after).await;
     let (ambiguous_source, ambiguous_output) = test_support::derived_diagnosis_output(true, false);
     assert_eq!(ambiguous_output.description.display.connection_alias, output.description.display.connection_alias);
     let ambiguous = Scenario::new(

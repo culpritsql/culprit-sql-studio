@@ -169,7 +169,10 @@ fn first_observation_consistency_precedes_its_window_and_is_shared_by_heads_aler
         .iter()
         .find(|command| command.contains("VIEW PilotStatusRows ") || command.contains("function PilotStatusRows("))
         .unwrap();
-    assert!(status.contains("PilotConsistentOriginals("));
+    assert!(status.contains("PilotEpisodeCensus(Rows)"));
+    let census = definitions.iter().find(|command| command.contains("function PilotEpisodeCensus(")).unwrap();
+    assert!(census.contains("PilotOriginalRevisionCensus(Rows)"));
+    assert!(original.contains("PilotOriginalRevisionCensus(Rows)"));
     assert!(status.contains("first-observation-unavailable") && status.contains("UnavailableFirstObservations"));
 }
 
@@ -453,11 +456,13 @@ fn latest_interpretation_census_precedes_latest_timestamp_and_conflict_refusal_w
         "arg_max must not return a row from an entirely unknown clock population"
     );
     assert_eq!(heads.matches("PilotHeadBasis(asof)").count(), 1);
-    assert!(heads.contains("RecordedAt,AnalysisId,DetailSha256,InterpretationHeader"));
-    assert!(heads.contains("| project-away Variants,InterpretationHeader"));
+    assert!(heads.contains("RecordedAt,InterpretationSignature"));
+    assert!(heads.contains("PilotInterpretationSignature(AnalysisId,DetailSha256,"));
+    assert!(heads.contains("PilotConfiguredInterpretation(Analyzer,RulesVersion)"));
+    assert!(heads.contains("| project-away Variants,InterpretationSignature"));
     assert_eq!(heads.matches("take_any(*)").count(), 2, "each census chooses one complete row");
     for command in &assets.commands {
-        if command != heads {
+        if command != heads && !command.starts_with(".create-or-alter function PilotEpisodeCensus(") {
             assert!(
                 !command.contains("arg_max("),
                 "native revision, publication and time guards retain their original owner"
@@ -486,22 +491,23 @@ fn head_basis_applies_one_whole_resource_veto_after_original_consistency_and_raw
 }
 
 #[test]
-fn status_counts_selected_heads_and_missing_first_keys_in_one_census_without_collapsing_latest_header_ties() {
+fn status_uses_one_compact_episode_census_without_collapsing_latest_header_ties() {
     let assets = configured(binding()).unwrap();
     let status = assets
         .commands
         .iter()
         .find(|command| command.starts_with(".create-or-alter function PilotStatusRows("))
         .unwrap();
-    assert_eq!(status.matches("PilotHeads(asof)").count(), 1);
-    assert!(!status.contains("FirstCounts") && !status.contains("let Selected="));
-    assert!(status.contains("distinct ResourceId,TargetId,OriginalScopeId,OriginalSource,EpisodeId,ControllerVersion | extend HasFirstOriginal=true"));
-    assert!(status.contains("PilotHeads(asof) | join kind=leftouter First on ResourceId,TargetId,OriginalScopeId,OriginalSource,EpisodeId,ControllerVersion"));
+    assert_eq!(status.matches("PilotEpisodeCensus(Rows)").count(), 1);
+    assert_eq!(status.matches("PilotIncidentRows(asof)").count(), 1);
+    assert_eq!(status.matches("PilotIncidentCompletenessFromRows(Rows,asof)").count(), 1);
     assert!(
-        status.contains(
-            "SelectedHeadCount=count(),UnavailableFirstCount=countif(isnull(HasFirstOriginal)) by ResourceId"
-        )
+        !status.contains("PilotHeads(")
+            && !status.contains("PilotConsistentOriginals(")
+            && !status.contains("FirstCounts")
     );
+    assert!(status.contains("SelectedInterpretation and coalesce(Missing == 0,false)"));
+    assert!(status.contains("OriginalHeadCount=count(),SelectedHeadCount=countif(SelectedHead),UnavailableFirstCount=countif(SelectedHead and not(HasFirstOriginal)) by ResourceId"));
     assert!(status.contains("let Headers=materialize(PilotCompleteness(asof));"));
     assert!(status.contains(
         "let Times=Headers | summarize CollectedUntil=max(CollectedUntil) by ResourceId,SourceId,LogicalSourceId;"
@@ -510,4 +516,39 @@ fn status_counts_selected_heads_and_missing_first_keys_in_one_census_without_col
         "let Latest=Headers | join kind=leftsemi Times on ResourceId,SourceId,LogicalSourceId,CollectedUntil;"
     ));
     assert!(!status.contains("arg_max"));
+}
+
+#[test]
+fn bounded_signature_sets_keep_unknown_classes_and_raw_revision_selection_in_the_shared_census() {
+    let assets = configured(binding()).unwrap();
+    let definition = |name: &str| {
+        assets
+            .commands
+            .iter()
+            .find(|command| command.starts_with(&format!(".create-or-alter function Pilot{name}(")))
+            .unwrap()
+    };
+    let signature = definition("OriginalSignature");
+    assert!(signature.contains("tostring(pack_array(RevisionId,OriginalRecordedAt,Lifecycle,OriginalReference))"));
+    let original = definition("OriginalRevisionCensus");
+    assert!(original.contains("make_set(OriginalSignature,2)"));
+    assert!(original.contains("UnknownSignatures=countif(isempty(OriginalSignature))"));
+    assert!(original.contains(
+        "OriginalValid=array_length(OriginalSignatures) == 1 and UnknownOriginals == 0 and UnknownSignatures == 0"
+    ));
+    let census = definition("EpisodeCensus");
+    assert!(
+        !census.contains("| where"),
+        "unknown or unconfigured newer raw revisions cannot be filtered before head selection"
+    );
+    assert!(census.contains("make_set_if(InterpretationSignature,isnotnull(ConfiguredAt),2)"));
+    assert!(census.contains("UnknownSignatures=countif(isnotnull(ConfiguredAt) and isempty(InterpretationSignature))"));
+    assert!(census.contains("arg_max(ConfiguredAt,InterpretationValid) by ResourceId,TargetId,OriginalScopeId,OriginalSource,EpisodeId,ControllerVersion,Revision"));
+    assert!(census.contains("join kind=leftouter Interpretations on ResourceId,TargetId,OriginalScopeId,OriginalSource,EpisodeId,ControllerVersion,Revision"));
+    assert!(census.contains("OriginalValid and isnotnull(Revision) and coalesce(InterpretationValid,false)"));
+    assert!(census.contains("FirstOriginalCount=countif(Revision == todecimal(1) and OriginalValid),arg_max(Revision,SelectedInterpretation)"));
+    assert!(
+        census.contains("PilotInterpretationSignature(AnalysisId,DetailSha256,")
+            && census.contains("PilotConfiguredInterpretation(Analyzer,RulesVersion)")
+    );
 }

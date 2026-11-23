@@ -58,14 +58,40 @@ $NIncidentCompleteness(asof)
 | extend OutputRowsComplete=IncidentRowsComplete and coalesce(FindingRows,0) == tolong(Header.counts.findings) and coalesce(ChangeRows,0) == tolong(Header.counts.changes)
 }
 
+.create-or-alter function $NOriginalSignature(RevisionId:string,OriginalRecordedAt:datetime,Lifecycle:string,OriginalReference:string) {
+tostring(pack_array(RevisionId,OriginalRecordedAt,Lifecycle,OriginalReference))
+}
+
+.create-or-alter function $NConfiguredInterpretation(Analyzer:dynamic,RulesVersion:string) {
+($ANALYZER_MATCH) and RulesVersion == $RULES
+}
+
+.create-or-alter function $NInterpretationSignature(AnalysisId:string,DetailSha256:string,InputReadComplete:bool,OutputCoverage:dynamic,OutputLimitations:dynamic,FindingEvaluations:dynamic,ChangeEvaluations:dynamic,ContextIssues:dynamic,OriginalObservedFrom:datetime,OriginalObservedUntil:datetime,InputReferences:dynamic,AnalysisOrigin:string,Language:string) {
+tostring(pack_array(AnalysisId,DetailSha256,InputReadComplete,OutputCoverage,OutputLimitations,FindingEvaluations,ChangeEvaluations,ContextIssues,OriginalObservedFrom,OriginalObservedUntil,InputReferences,AnalysisOrigin,Language))
+}
+
+.create-or-alter function $NOriginalRevisionCensus(Rows:(ResourceId:string,TargetId:string,OriginalScopeId:string,OriginalSource:string,EpisodeId:string,ControllerVersion:long,Revision:decimal,RevisionId:string,OriginalRecordedAt:datetime,Lifecycle:string,OriginalReference:dynamic)) {
+Rows | extend OriginalReference=tostring(OriginalReference)
+| extend OriginalSignature=$NOriginalSignature(RevisionId,OriginalRecordedAt,Lifecycle,OriginalReference),OriginalKnown=isnotempty(RevisionId) and isnotnull(OriginalRecordedAt) and Lifecycle in ("active","resolved","uncertain") and isnotnull(OriginalReference) and isnotempty(OriginalReference) and OriginalReference !in ("null","{}")
+| summarize OriginalSignatures=make_set(OriginalSignature,2),UnknownOriginals=countif(not(OriginalKnown)),UnknownSignatures=countif(isempty(OriginalSignature)) by ResourceId,TargetId,OriginalScopeId,OriginalSource,EpisodeId,ControllerVersion,Revision
+| project ResourceId,TargetId,OriginalScopeId,OriginalSource,EpisodeId,ControllerVersion,Revision,OriginalValid=array_length(OriginalSignatures) == 1 and UnknownOriginals == 0 and UnknownSignatures == 0
+}
+
 .create-or-alter function $NConsistentOriginalKeys(Rows:(ResourceId:string,TargetId:string,OriginalScopeId:string,OriginalSource:string,EpisodeId:string,ControllerVersion:long,Revision:decimal,RevisionId:string,OriginalRecordedAt:datetime,Lifecycle:string,OriginalReference:dynamic)) {
-let Originals=materialize(Rows | project ResourceId,TargetId,OriginalScopeId,OriginalSource,EpisodeId,ControllerVersion,Revision,RevisionId,OriginalRecordedAt,Lifecycle,OriginalReference=tostring(OriginalReference));
-let Stable=Originals
-    | distinct ResourceId,TargetId,OriginalScopeId,OriginalSource,EpisodeId,ControllerVersion,Revision,RevisionId,OriginalRecordedAt,Lifecycle,OriginalReference
-    | summarize Variants=count() by ResourceId,TargetId,OriginalScopeId,OriginalSource,EpisodeId,ControllerVersion,Revision | where Variants == 1;
-Originals | join kind=leftsemi Stable on ResourceId,TargetId,OriginalScopeId,OriginalSource,EpisodeId,ControllerVersion,Revision
-| where isnotempty(RevisionId) and isnotnull(OriginalRecordedAt) and Lifecycle in ("active","resolved","uncertain") and isnotnull(OriginalReference) and isnotempty(tostring(OriginalReference)) and tostring(OriginalReference) !in ("null","{}")
-| distinct ResourceId,TargetId,OriginalScopeId,OriginalSource,EpisodeId,ControllerVersion,Revision
+$NOriginalRevisionCensus(Rows) | where OriginalValid | project ResourceId,TargetId,OriginalScopeId,OriginalSource,EpisodeId,ControllerVersion,Revision
+}
+
+.create-or-alter function $NEpisodeCensus(Rows:(ResourceId:string,TargetId:string,OriginalScopeId:string,OriginalSource:string,EpisodeId:string,ControllerVersion:long,Revision:decimal,RevisionId:string,OriginalRecordedAt:datetime,Lifecycle:string,OriginalReference:dynamic,RecordedAt:datetime,Analyzer:dynamic,RulesVersion:string,AnalysisId:string,DetailSha256:string,InputReadComplete:bool,OutputCoverage:dynamic,OutputLimitations:dynamic,FindingEvaluations:dynamic,ChangeEvaluations:dynamic,ContextIssues:dynamic,OriginalObservedFrom:datetime,OriginalObservedUntil:datetime,InputReferences:dynamic,AnalysisOrigin:string,Language:string)) {
+let Interpretations=Rows
+    | extend ConfiguredAt=iff($NConfiguredInterpretation(Analyzer,RulesVersion) and isnotnull(RecordedAt),RecordedAt,datetime(null)),InterpretationSignature=$NInterpretationSignature(AnalysisId,DetailSha256,InputReadComplete,OutputCoverage,OutputLimitations,FindingEvaluations,ChangeEvaluations,ContextIssues,OriginalObservedFrom,OriginalObservedUntil,InputReferences,AnalysisOrigin,Language)
+    | summarize Signatures=make_set_if(InterpretationSignature,isnotnull(ConfiguredAt),2),UnknownSignatures=countif(isnotnull(ConfiguredAt) and isempty(InterpretationSignature)) by ResourceId,TargetId,OriginalScopeId,OriginalSource,EpisodeId,ControllerVersion,Revision,ConfiguredAt
+    | extend InterpretationValid=isnotnull(ConfiguredAt) and array_length(Signatures) == 1 and UnknownSignatures == 0
+    | summarize arg_max(ConfiguredAt,InterpretationValid) by ResourceId,TargetId,OriginalScopeId,OriginalSource,EpisodeId,ControllerVersion,Revision;
+$NOriginalRevisionCensus(Rows)
+| join kind=leftouter Interpretations on ResourceId,TargetId,OriginalScopeId,OriginalSource,EpisodeId,ControllerVersion,Revision
+| extend SelectedInterpretation=OriginalValid and isnotnull(Revision) and coalesce(InterpretationValid,false)
+| summarize FirstOriginalCount=countif(Revision == todecimal(1) and OriginalValid),arg_max(Revision,SelectedInterpretation) by ResourceId,TargetId,OriginalScopeId,OriginalSource,EpisodeId,ControllerVersion
+| project ResourceId,TargetId,OriginalScopeId,OriginalSource,EpisodeId,ControllerVersion,SelectedInterpretation,HasFirstOriginal=FirstOriginalCount > 0
 }
 
 .create-or-alter function $NConsistentOriginals(asof:datetime) {
@@ -84,13 +110,13 @@ Rows | join kind=leftsemi ($NConsistentOriginalKeys(Rows)) on ResourceId,TargetI
 }
 
 .create-or-alter function $NHeads(asof:datetime) {
-$NHeadBasis(asof) | where ($ANALYZER_MATCH) and RulesVersion == $RULES and isnotnull(RecordedAt)
-| extend InterpretationHeader=tostring(pack_array(InputReadComplete,OutputCoverage,OutputLimitations,FindingEvaluations,ChangeEvaluations,ContextIssues,OriginalObservedFrom,OriginalObservedUntil,InputReferences,AnalysisOrigin,Language))
-| summarize take_any(*) by ResourceId,TargetId,OriginalScopeId,OriginalSource,EpisodeId,ControllerVersion,RecordedAt,AnalysisId,DetailSha256,InterpretationHeader
+$NHeadBasis(asof) | where $NConfiguredInterpretation(Analyzer,RulesVersion) and isnotnull(RecordedAt)
+| extend InterpretationSignature=$NInterpretationSignature(AnalysisId,DetailSha256,InputReadComplete,OutputCoverage,OutputLimitations,FindingEvaluations,ChangeEvaluations,ContextIssues,OriginalObservedFrom,OriginalObservedUntil,InputReferences,AnalysisOrigin,Language)
+| summarize take_any(*) by ResourceId,TargetId,OriginalScopeId,OriginalSource,EpisodeId,ControllerVersion,RecordedAt,InterpretationSignature
 | summarize Variants=count(),take_any(*) by ResourceId,TargetId,OriginalScopeId,OriginalSource,EpisodeId,ControllerVersion,RecordedAt
 | summarize arg_max(RecordedAt,*) by ResourceId,TargetId,OriginalScopeId,OriginalSource,EpisodeId,ControllerVersion
 | where Variants == 1
-| project-away Variants,InterpretationHeader
+| project-away Variants,InterpretationSignature
 }
 
 .create-or-alter function $NIncidentWindow(window_from:datetime,window_until:datetime,asof:datetime) {
@@ -167,13 +193,13 @@ $NNewIncidentWindow(window_from,window_until,asof) | join kind=leftsemi Matches 
 let Headers=materialize($NCompleteness(asof));
 let Times=Headers | summarize CollectedUntil=max(CollectedUntil) by ResourceId,SourceId,LogicalSourceId;
 let Latest=Headers | join kind=leftsemi Times on ResourceId,SourceId,LogicalSourceId,CollectedUntil;
-let OriginalCounts=$NIncidentRows(asof) | distinct ResourceId,TargetId,OriginalScopeId,OriginalSource,EpisodeId,ControllerVersion | summarize OriginalHeadCount=count() by ResourceId;
-let First=$NConsistentOriginals(asof) | where Revision == todecimal(1) | distinct ResourceId,TargetId,OriginalScopeId,OriginalSource,EpisodeId,ControllerVersion | extend HasFirstOriginal=true;
-let SelectedCounts=$NHeads(asof) | join kind=leftouter First on ResourceId,TargetId,OriginalScopeId,OriginalSource,EpisodeId,ControllerVersion
-    | summarize SelectedHeadCount=count(),UnavailableFirstCount=countif(isnull(HasFirstOriginal)) by ResourceId;
+let Rows=materialize($NIncidentRows(asof));
+let ResourceCompleteness=$NIncidentCompletenessFromRows(Rows,asof) | summarize Missing=countif(not(IncidentRowsComplete)) by ResourceId;
+let Counts=$NEpisodeCensus(Rows) | join kind=leftouter ResourceCompleteness on ResourceId
+    | extend SelectedHead=SelectedInterpretation and coalesce(Missing == 0,false)
+    | summarize OriginalHeadCount=count(),SelectedHeadCount=countif(SelectedHead),UnavailableFirstCount=countif(SelectedHead and not(HasFirstOriginal)) by ResourceId;
 Latest
-| join kind=leftouter OriginalCounts on ResourceId
-| join kind=leftouter SelectedCounts on ResourceId
+| join kind=leftouter Counts on ResourceId
 | extend UnselectedHeads=coalesce(OriginalHeadCount,0)-coalesce(SelectedHeadCount,0),UnavailableFirst=coalesce(UnavailableFirstCount,0)
 | project ResourceId,SourceId,LogicalSourceId,Alias,DatabaseName,DatabaseNameKnown=isnotnull(Header.display.database_name),CollectedFrom,CollectedUntil,OriginalObservedFrom=todatetime(Header.observed_from),OriginalObservedUntil=todatetime(Header.observed_until),
     State=case(max_age <= 0s,"invalid-max-age",isnull(todatetime(Header.observed_until)),"unknown-clock",todatetime(Header.observed_until) > asof,"clock-boundary",todatetime(Header.observed_until) < asof-max_age,"stale",not($HEADER_ANALYZER_MATCH) or tostring(Header.rules_version) != $RULES,"rules-unavailable",not(OutputRowsComplete),"incomplete-output",not(tobool(Header.input_read_complete)) or array_length(Header.context_issues)>0 or tostring(Header.output_coverage.incidents.state) != "evaluated" or tostring(Header.output_coverage.findings.state) != "evaluated" or tostring(Header.output_coverage.changes.state) != "evaluated","partial",UnselectedHeads > 0,"head-interpretation-unavailable",UnavailableFirst > 0,"first-observation-unavailable","observed"),
