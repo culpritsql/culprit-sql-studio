@@ -84,11 +84,23 @@ async fn empty_capture(
     published: bool,
     families: &[EvidenceFamily],
 ) -> EvidenceCapture {
-    let (mut source, _) = test_support::memory_failure_evidence();
-    let SourceObservation::Snapshot(snapshot) = &mut source.observation else { panic!() };
-    snapshot.dataset = dataset;
+    let (mut source, _) = match dataset {
+        SnapshotDataset::MemoryFailures => test_support::memory_failure_evidence(),
+        SnapshotDataset::Cleanup => test_support::cleanup_evidence(test_support::CleanupCase::LocalSnapshotProtector),
+        SnapshotDataset::Operational => {
+            test_support::memory_clerk_evidence(test_support::MemoryClerkCase::SharedInstance)
+        }
+        _ => panic!("this control requires an existing native-shaped operational fixture"),
+    };
+    let snapshot = match &mut source.observation {
+        SourceObservation::Snapshot(snapshot) | SourceObservation::LocalResource { snapshot, .. } => snapshot,
+        _ => panic!("the original fixture retains a completed native snapshot"),
+    };
+    assert_eq!(snapshot.dataset, dataset);
     snapshot.records = 0;
     snapshot.sources = vec![coverage];
+    assert!(source.partition_is_consistent(), "the zero-row original keeps its actual native owner");
+    assert!(source.observation.covers_request());
     let catalog = Arc::new(PhysicalCatalog::<LogicalProjection>::new().unwrap());
     let recovery = test_support::Recovery::capture("fixture:test", catalog.digest(), source.clone(), vec![], 150_000);
     let range = reopen(&recovery, &recovery.manifest.range_id).await.unwrap();
@@ -153,4 +165,17 @@ async fn an_unpublished_empty_snapshot_remains_unpublished_evidence() {
     assert_eq!(result.gaps().len(), 1);
     assert_eq!(result.gaps()[0].reason, EvidenceGapReason::NotPublished);
     assert_eq!(result.metrics().queries, 1);
+}
+
+#[test]
+fn a_bare_shared_pool_cannot_impersonate_a_complete_empty_operational_original() {
+    let (mut source, _) = test_support::memory_failure_evidence();
+    let SourceObservation::Snapshot(snapshot) = &mut source.observation else { panic!() };
+    snapshot.dataset = SnapshotDataset::Operational;
+    snapshot.records = 0;
+    snapshot.sources = vec![StateSourceCoverage::collected("native-buffer".into(), 0)];
+    assert!(source.observation.covers_request());
+    assert!(!source.partition_is_consistent(), "a pool route does not supply current pool authority");
+    let catalog = PhysicalCatalog::<LogicalProjection>::new().unwrap();
+    assert!(test_support::Recovery::try_capture("fixture:test", catalog.digest(), source, vec![], 150_001).is_err());
 }

@@ -4,7 +4,7 @@ use culprit_core::{
 };
 use culprit_engine::collected_resources;
 use culprit_evidence::analytical::evidence::EvidenceFamily;
-use culprit_evidence::analytical::test_support::memory_failure_evidence;
+use culprit_evidence::analytical::test_support::{self, memory_failure_evidence};
 
 fn native(source: &mut CollectionDescription) -> &mut StateSnapshotDescription {
     let SourceObservation::Snapshot(snapshot) = &mut source.observation else { panic!("snapshot fixture") };
@@ -193,7 +193,7 @@ async fn other_subjects_and_datasets_cannot_acquire_native_memory_failure_semant
                 let CollectionTarget::Shared(resource) = &mut source.target else { panic!() };
                 resource.engine = Engine::Postgres;
             }
-            "other-dataset" => native(&mut source).dataset = SnapshotDataset::Operational,
+            "other-dataset" => native(&mut source).dataset = SnapshotDataset::Settings,
             _ => unreachable!(),
         }
         let fixture = Fixture::new(source, records).await;
@@ -205,6 +205,23 @@ async fn other_subjects_and_datasets_cannot_acquire_native_memory_failure_semant
             "{shape}"
         );
     }
+}
+
+#[test]
+fn relabeling_pool_failures_as_operational_cannot_mint_the_required_native_pool_authority() {
+    let (mut source, records) = memory_failure_evidence();
+    native(&mut source).dataset = SnapshotDataset::Operational;
+    assert!(!source.partition_is_consistent());
+    let error = test_support::Recovery::try_capture(
+        "fixture:offline-analysis",
+        &digest(b"memory-failure-scope-refusal"),
+        source,
+        records,
+        100_000,
+    )
+    .err()
+    .expect("contradictory native authority must be refused before a canonical capture exists");
+    assert_eq!(error.detail, Some(culprit_core::ErrorDetail::CollectionStopped(CollectionStop::InvalidPage)));
 }
 
 #[tokio::test]

@@ -10,27 +10,25 @@ use culprit_evidence::analytical::test_support::MemoryClerkCase;
 #[tokio::test]
 async fn authentic_clerk_captures_use_one_pure_report_and_preserve_source_counts_nodes_and_allocation_unknowns() {
     for case in MemoryClerkCase::ALL {
-        let (source, records) = test_support::memory_clerk_evidence(case);
+        let (source, records) = test_support::instance_memory_clerk_evidence(case);
         let fixture = Fixture::new(source.clone(), records.clone()).await;
         let opened = fixture.recovery_object_reads();
         let capture = fixture.read_families(&[EvidenceFamily::OperationalSamples]).await;
         test_support::assert_operational_capture(&capture, &source, &records);
         let analysis = collected_resources::memory_clerks(&capture).unwrap();
         assert_eq!(analysis.context.source, source);
-        if case == MemoryClerkCase::SharedInstance {
-            let CollectionTarget::Shared(instance) = &source.target else { panic!("native shared clerk source") };
-            assert_eq!(instance.kind, SharedResourceKind::Instance);
-            assert_eq!(source.target.database(), None);
-            let Some(ObservationReadContext::Native { context }) = &analysis.report.context else {
-                panic!("original native context")
-            };
-            assert_eq!(context.target, source.target);
-            assert_eq!(context.partition, source.partition);
-            assert_eq!(
-                (context.observed_from.as_str(), context.observed_until.as_str()),
-                ("2020-01-01T12:00:00.000000001Z", "2020-01-01T12:00:00.000000009Z")
-            );
-        }
+        let CollectionTarget::Shared(instance) = &source.target else { panic!("native shared clerk source") };
+        assert_eq!(instance.kind, SharedResourceKind::Instance);
+        assert_eq!(source.target.database(), None);
+        let Some(ObservationReadContext::Native { context }) = &analysis.report.context else {
+            panic!("original native context")
+        };
+        assert_eq!(context.target, source.target);
+        assert_eq!(context.partition, source.partition);
+        assert_eq!(
+            (context.observed_from.as_str(), context.observed_until.as_str()),
+            ("2020-01-01T12:00:00.000000001Z", "2020-01-01T12:00:00.000000009Z")
+        );
         assert_eq!(analysis.context.records.len(), records.len());
         let coverage = &source.observation.snapshot().unwrap().sources[0];
         let context = NativeReadContext::from_snapshot(&source).unwrap();
@@ -105,7 +103,7 @@ async fn authentic_clerk_captures_use_one_pure_report_and_preserve_source_counts
 
 #[tokio::test]
 async fn missing_all_clerk_bodies_remains_a_gap_with_original_native_count_and_unrelated_rows() {
-    let (source, records) = test_support::memory_clerk_evidence(MemoryClerkCase::Exact);
+    let (source, records) = test_support::instance_memory_clerk_evidence(MemoryClerkCase::Exact);
     let fixture = Fixture::new(source.clone(), records).await;
     fixture.remove_first_row(TelemetryStream::OperationalSamples);
     fixture.remove_first_row(TelemetryStream::OperationalSamples);
@@ -127,7 +125,7 @@ async fn missing_all_clerk_bodies_remains_a_gap_with_original_native_count_and_u
 #[tokio::test]
 async fn authenticated_but_malformed_native_clerk_semantics_fail_before_a_report_is_rendered() {
     for invalid_field in ["scope", "representation", "native-object", "reset"] {
-        let (source, mut records) = test_support::memory_clerk_evidence(MemoryClerkCase::Exact);
+        let (source, mut records) = test_support::instance_memory_clerk_evidence(MemoryClerkCase::Exact);
         let TelemetryRecord::Operational(OperationalObservation { fact: OperationalFact::CounterSet(set), .. }) =
             &mut records[0]
         else {
@@ -155,7 +153,7 @@ async fn authenticated_but_malformed_native_clerk_semantics_fail_before_a_report
 
 #[tokio::test]
 async fn an_operational_capture_without_clerk_coverage_is_not_a_successful_empty_clerk_report() {
-    let (mut source, mut records) = test_support::memory_clerk_evidence(MemoryClerkCase::Exact);
+    let (mut source, mut records) = test_support::instance_memory_clerk_evidence(MemoryClerkCase::Exact);
     records.retain(|record| matches!(record, TelemetryRecord::Operational(row) if row.source != culprit_core::source_id::MEMORY_CLERKS));
     let SourceObservation::Snapshot(snapshot) = &mut source.observation else { panic!() };
     snapshot.records = records.len() as u32;
@@ -169,13 +167,28 @@ async fn an_operational_capture_without_clerk_coverage_is_not_a_successful_empty
 }
 
 #[tokio::test]
+async fn controlled_database_clerk_captures_cannot_be_promoted_to_shared_instance_reports() {
+    for case in [MemoryClerkCase::Exact, MemoryClerkCase::UnqualifiedMember] {
+        let (source, records) = test_support::memory_clerk_evidence(case);
+        assert!(source.target.database().is_some());
+        let fixture = Fixture::new(source, records).await;
+        let opened = fixture.recovery_object_reads();
+        let capture = fixture.read_families(&[EvidenceFamily::OperationalSamples]).await;
+        assert!(capture.is_read_complete());
+        let error = collected_resources::memory_clerks(&capture).unwrap_err();
+        assert_eq!(error.detail, Some(culprit_core::ErrorDetail::Delivery(DeliveryProblem::Integrity)));
+        assert_eq!(fixture.recovery_object_reads(), opened);
+    }
+}
+
+#[tokio::test]
 async fn client_serialization_preserves_the_shared_clerk_report_and_omits_an_absent_report() {
     let snapshot = serde_json::from_str(include_str!("../../../../fixtures/mssql-demo.json")).unwrap();
     let mut report = culprit_checks::analyze(snapshot);
     assert!(report.memory_clerks.is_none());
     assert!(serde_json::to_value(culprit_engine::reports::display(&report)).unwrap().get("memory_clerks").is_none());
 
-    let (source, records) = test_support::memory_clerk_evidence(MemoryClerkCase::SharedInstance);
+    let (source, records) = test_support::instance_memory_clerk_evidence(MemoryClerkCase::SharedInstance);
     let fixture = Fixture::new(source, records).await;
     let capture = fixture.read_families(&[EvidenceFamily::OperationalSamples]).await;
     let analysis = collected_resources::memory_clerks(&capture).unwrap();

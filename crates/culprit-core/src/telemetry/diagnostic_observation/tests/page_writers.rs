@@ -556,33 +556,105 @@ fn oversized_context_roles_are_rejected_even_when_the_distinct_total_fits_the_in
 #[test]
 fn an_earlier_native_recovery_stays_intact_when_historical_writer_analysis_finishes() {
     let scenario = scenario(2);
+    let (intent, before, _, _) = super::investigations::page_writers::writer_intent();
+    assert_eq!(before, scenario.mapped.checkpoint.episodes[0]);
+    let (source, input, reference, row) = writer_read(&scenario, PageWriterTargetState::CurrentMapped, true);
+    assert!(intent.matches_result_source(&source));
+
+    // The actual Fleet path records admission and exact capture ownership before recovery; no status is
+    // invented merely to put a retired Partial episode back into a working checkpoint.
+    let admitted_event = DiagnosticInvestigationEvent {
+        intent: Box::new(intent.clone()),
+        attempt: None,
+        source_work: SourceWorkState::NotStarted,
+        outcome: DiagnosticInvestigationOutcome::Admitted,
+    };
+    let mut collecting = before.clone();
+    collecting.analysis = DiagnosticAnalysisStatus::Collecting;
+    collecting.issue = None;
+    let admitted = DiagnosticRevision::with_investigation(&before, collecting, admitted_event, "2020-01-01T00:02:30Z")
+        .unwrap()
+        .unwrap();
+    assert!(admitted.is_valid());
+    let captured_event = DiagnosticInvestigationEvent {
+        intent: Box::new(intent.clone()),
+        attempt: Some(DiagnosticAttemptReceipt {
+            capture: input.capture.clone(),
+            manifest_sha256: Some(input.manifest_sha256.clone()),
+        }),
+        source_work: SourceWorkState::Quiescent,
+        outcome: DiagnosticInvestigationOutcome::Captured { capture: input.clone() },
+    };
+    let captured = DiagnosticRevision::with_investigation(
+        &admitted.episode,
+        admitted.episode.clone(),
+        captured_event.clone(),
+        "2020-01-01T00:03:02Z",
+    )
+    .unwrap()
+    .unwrap();
+    assert!(captured.is_valid());
+    assert_eq!(captured.episode.analysis, DiagnosticAnalysisStatus::Collecting);
+    assert_eq!(captured.episode.investigation_event.as_deref(), Some(captured_event.key().unwrap().as_str()));
+    let mut pending = scenario.mapped.checkpoint.clone();
+    pending.episodes = vec![captured.episode.clone()];
+    assert!(pending.is_valid());
+
     let mut empty = frame(4, vec![], true);
     empty.0.partition = scenario.baseline.0.partition.clone();
     let SourceObservation::Activity(native) = &mut empty.0.observation else { panic!() };
     native.database_writable = Some(true);
     rebind(&mut empty);
-    let recovered = observe(&empty, Some(&scenario.mapped.checkpoint));
-    let original = recovered.checkpoint.episodes[0].clone();
+    let recovered = observe(&empty, Some(&pending));
+    assert!(recovered.focuses.is_empty(), "recovery does not nominate any new native question");
+    let [original] = recovered.checkpoint.episodes.as_slice() else {
+        panic!("only admitted captured analysis is owed")
+    };
+    let [recovery] = recovered.revisions.as_slice() else { panic!("one immutable native recovery revision") };
+    assert!(recovery.is_valid());
+    assert_eq!(&recovery.episode, original);
     assert_eq!(original.lifecycle, DiagnosticLifecycle::Resolved);
-    assert!(original.analysis.needs_work());
-    let (source, input, reference, row) = writer_read(&scenario, PageWriterTargetState::CurrentMapped, true);
+    assert_eq!(original.analysis, DiagnosticAnalysisStatus::Collecting);
+    assert!(original.has_owed_question(), "the already captured answer still needs pure interpretation");
+    assert_eq!(original.investigation_event, captured.episode.investigation_event);
+    assert_eq!(original.recovery, Some(DiagnosticRecoveryProof::CompleteScope { capture: empty.1.clone() }));
+
     let update = analyze_diagnostic_page_writers(
         &source,
         &input,
         &[DiagnosticPageWriterRow { reference: &reference, observation: &row }],
         &recovered.checkpoint,
-        "2020-01-01T00:05:00Z",
-        None,
+        "2020-01-01T01:05:00Z",
+        Some(&intent),
     )
     .unwrap();
     assert!(update.checkpoint.episodes.is_empty(), "completed history stays in the immutable revision");
-    let finished = &update.revisions[0].episode;
+    let [revision] = update.revisions.as_slice() else { panic!("one immutable historical analysis revision") };
+    assert!(revision.is_valid());
+    let reopened: DiagnosticRevision = serde_json::from_slice(&serde_json::to_vec(revision).unwrap()).unwrap();
+    assert_eq!(&reopened, revision, "saved historical analysis retains its exact immutable recovery and receipts");
+    let finished = &revision.episode;
     assert_eq!(finished.analysis, DiagnosticAnalysisStatus::Analyzed);
     assert_eq!(finished.lifecycle, DiagnosticLifecycle::Resolved);
     assert_eq!(finished.recovery, original.recovery);
     assert_eq!(finished.first, original.first);
+    assert_eq!(finished.latest, original.latest);
+    assert_eq!(finished.peak, original.peak);
     assert_eq!(finished.last_seen_at, original.last_seen_at);
-    assert!(
-        finished.report.as_ref().unwrap().references().all(|reference| update.revisions[0].inputs.contains(reference))
+    assert_eq!(finished.investigation_event, original.investigation_event);
+    assert_eq!(&recovery.episode, original, "later enrichment cannot mutate the original native recovery");
+    assert!(!finished.has_owed_question());
+    assert_eq!(
+        finished
+            .plan_page_wait_writers(
+                &scenario.page_source,
+                &scenario.page,
+                &scenario.page_ref,
+                &scenario.original,
+                &frame_evidence(&scenario.baseline, true),
+            )
+            .unwrap(),
+        DiagnosticFocusPlan::NotRequired,
     );
+    assert!(finished.report.as_ref().unwrap().references().all(|reference| revision.inputs.contains(reference)));
 }

@@ -1,7 +1,8 @@
 //! These structural cost fixtures do not qualify real native work or replace a registration's cost verifier.
 use super::*;
 
-fn writer_intent() -> (DiagnosticInvestigationIntent, DiagnosticEpisode, RecipeDescriptor, ComponentVersion) {
+pub(in super::super) fn writer_intent()
+-> (DiagnosticInvestigationIntent, DiagnosticEpisode, RecipeDescriptor, ComponentVersion) {
     let mut original = scenario();
     let (episode, focus) = super::super::page_writers::investigation_case();
     original.recipe.selector = RecipeSelector::FocusedPageWaitWriters;

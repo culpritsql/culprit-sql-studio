@@ -2,7 +2,7 @@ use super::*;
 use crate::ComponentVersion;
 
 mod page_tasks;
-mod page_writers;
+pub(super) mod page_writers;
 mod request_memory;
 
 struct Scenario {

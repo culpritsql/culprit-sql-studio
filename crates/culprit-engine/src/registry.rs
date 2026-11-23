@@ -187,6 +187,8 @@ mod tests {
                 Engine::Mssql => true,
                 #[cfg(feature = "postgres")]
                 Engine::Postgres => true,
+                #[cfg(feature = "mysql")]
+                Engine::Mysql => true,
                 _ => false,
             };
             assert_eq!(

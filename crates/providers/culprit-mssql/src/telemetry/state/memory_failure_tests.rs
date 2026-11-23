@@ -63,7 +63,7 @@ async fn nine_total_queries_keep_setup_and_both_clocks_without_widening_a_strict
 }
 
 #[tokio::test]
-async fn constructing_a_shared_oom_profile_is_read_free_and_does_not_change_other_state_profiles() {
+async fn constructing_shared_oom_and_pool_operational_profiles_is_read_free_with_independent_caps() {
     let pool =
         Arc::new(crate::conn::Pool::new(crate::test_support::config(1, "never-opened", "unused", "culprit"), None));
     let mut source = StateSource::new(pool, &request(), "unused.invalid".into(), 1).unwrap();
@@ -71,7 +71,35 @@ async fn constructing_a_shared_oom_profile_is_read_free_and_does_not_change_othe
     assert_eq!(source.close().await, SourceShutdown::Quiescent);
     let mut other = request();
     other.selection = CollectionSelection::Snapshot { dataset: SnapshotDataset::Operational };
-    assert_eq!(native_budget(&other), other.budget);
+    assert!(pool_operational::selected(&other));
+    let limits = native_budget(&other);
+    assert_eq!(limits.max_queries, 20);
+    assert_eq!(limits.max_snapshot_rows, other.budget.max_snapshot_rows);
+    assert_eq!(limits.page_bytes, 512 * 1024);
+    assert_eq!(limits.total_bytes, 8 * 1024 * 1024);
+    assert_eq!(limits.statement_timeout_ms, 1000);
+    assert_eq!(limits.total_timeout_ms, 8000);
+    assert_eq!(native_budget(&request()).max_queries, 9, "the OOM ledger remains independent");
+    let mut source = StateSource::with_io(FakeRead::new(vec![]), &other, "route".into(), 1433).unwrap();
+    assert_eq!(source.request.budget, limits);
+    assert!(source.io.calls.is_empty(), "constructing a pool profile never acquires its native owner");
+    assert_eq!(source.close().await, SourceShutdown::Quiescent);
+    other.budget = CollectionBudget {
+        max_queries: 7,
+        max_snapshot_rows: 4,
+        page_rows: 1,
+        page_bytes: 1024,
+        total_bytes: 2048,
+        max_pages: 3,
+        max_sql_bytes: 1024,
+        max_plan_bytes: 1024,
+        statement_timeout_ms: 20,
+        total_timeout_ms: 40,
+        ..other.budget
+    };
+    other.budget.validate().unwrap();
+    let bounded = native_budget(&other);
+    assert_eq!(bounded, other.budget, "every stricter caller dimension stays selected");
 }
 
 #[tokio::test]
@@ -140,11 +168,40 @@ async fn terminal_native_reads_stop_before_final_clock_and_identity_sql() {
 }
 
 #[test]
-fn memory_failures_cannot_be_requested_as_database_owned_or_as_general_pool_operations() {
-    let mut invalid = request();
-    invalid.subject = CollectionSubject::Database;
-    assert!(StateSource::with_io(FakeRead::new(vec![]), &invalid, "route".into(), 1433).is_err());
-    let mut invalid = request();
-    invalid.selection = CollectionSelection::Snapshot { dataset: SnapshotDataset::Operational };
-    assert!(StateSource::with_io(FakeRead::new(vec![]), &invalid, "route".into(), 1433).is_err());
+fn memory_failure_subject_refusals_and_the_independent_pool_operational_route_stay_explicit() {
+    for fault in ["database", "node", "foreign-engine"] {
+        let mut invalid = request();
+        match fault {
+            "database" => invalid.subject = CollectionSubject::Database,
+            "node" => {
+                let CollectionSubject::Shared { resource } = &mut invalid.subject else { panic!() };
+                resource.kind = SharedResourceKind::Node;
+            }
+            "foreign-engine" => {
+                let CollectionSubject::Shared { resource } = &mut invalid.subject else { panic!() };
+                resource.engine = Engine::Postgres;
+            }
+            _ => unreachable!(),
+        }
+        assert!(StateSource::with_io(FakeRead::new(vec![]), &invalid, "route".into(), 1433).is_err(), "{fault}");
+    }
+    let families = point::shared_families(SnapshotDataset::MemoryFailures).unwrap();
+    assert_eq!(families.len(), 1);
+    assert!(matches!(families[0], point::Family::MemoryFailures));
+    assert!(
+        !point::shared_families(SnapshotDataset::Operational)
+            .unwrap()
+            .iter()
+            .any(|family| matches!(family, point::Family::MemoryFailures))
+    );
+    let mut operational = request();
+    operational.selection = CollectionSelection::Snapshot { dataset: SnapshotDataset::Operational };
+    assert!(pool_operational::selected(&operational));
+    let source = StateSource::with_io(FakeRead::new(vec![]), &operational, "route".into(), 1433).unwrap();
+    assert_eq!(source.request.selection, operational.selection);
+    assert_eq!(source.request.budget.max_queries, 20);
+    assert!(source.io.calls.is_empty());
+    let mut refused = operational;
+    refused.selection = CollectionSelection::Snapshot { dataset: SnapshotDataset::Tuning };
+    assert!(StateSource::with_io(FakeRead::new(vec![]), &refused, "route".into(), 1433).is_err());
 }

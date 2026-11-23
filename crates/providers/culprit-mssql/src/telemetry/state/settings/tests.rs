@@ -335,13 +335,35 @@ async fn final_database_process_socket_role_and_clock_change_withdraw_completion
     assert_eq!(source.close().await, SourceShutdown::Quiescent);
 }
 #[tokio::test]
-async fn ordinary_operational_dataset_remains_azure_only() {
-    let mut request = request();
-    request.selection = CollectionSelection::Snapshot { dataset: SnapshotDataset::Operational };
-    let mut source = settings_source(vec![Ok(vec![Rec::of(&[("edition", Val::Int(3))])])], &request);
-    assert_eq!(source.describe().await.unwrap_err().code, ErrorCode::Unsupported);
-    assert_eq!(source.query_count(), 1);
-    assert_eq!(source.close().await, SourceShutdown::Quiescent);
+async fn operational_uses_its_own_local_file_owner_while_unrelated_plan_cache_remains_azure_only() {
+    for dataset in [SnapshotDataset::Operational, SnapshotDataset::PlanCacheSummary] {
+        let mut request = request();
+        request.selection = CollectionSelection::Snapshot { dataset };
+        let authority = subject::DatabaseAuthority::for_source(dataset, &request.subject).unwrap();
+        let mut replies = vec![Ok(vec![Rec::of(&[("edition", Val::Int(3))])])];
+        let (expected, queries) = if dataset == SnapshotDataset::Operational {
+            assert!(matches!(authority, subject::DatabaseAuthority::LocalFiles));
+            replies
+                .push(Err(ReadError::Source(Error::new(ErrorCode::PermissionDenied, "fixture native owner denied"))));
+            (ErrorCode::PermissionDenied, 2)
+        } else {
+            assert!(matches!(authority, subject::DatabaseAuthority::AzureOnly));
+            (ErrorCode::Unsupported, 1)
+        };
+        let mut source = StateSource::with_io(
+            FakeRead::new(replies).with_generation(1).with_query_limit(native_budget(&request).max_queries),
+            &request,
+            "fixture.invalid".into(),
+            1433,
+        )
+        .unwrap();
+        assert_eq!(source.describe().await.unwrap_err().code, expected);
+        assert_eq!(source.query_count(), queries);
+        assert!(source.finish().await.is_err(), "no failed owner can verify a Settings or file census");
+        assert_eq!(source.query_count(), queries, "failed ownership adds no population or final dispatch");
+        assert!(source.io.calls.iter().all(|call| !call.sql.contains("culprit_settings_frame")));
+        assert_eq!(source.close().await, SourceShutdown::Quiescent);
+    }
 }
 #[test]
 fn settings_limits_intersect_every_independent_caller_bound() {

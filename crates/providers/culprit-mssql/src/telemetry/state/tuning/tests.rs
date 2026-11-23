@@ -239,9 +239,13 @@ async fn missing_or_readonly_local_authority_never_dispatches_tuning_inventory()
 }
 
 #[tokio::test]
-async fn only_the_selected_tuning_profile_can_admit_a_boxed_database_and_shared_tuning_stays_refused() {
+async fn selected_boxed_tuning_does_not_admit_azure_only_plan_cache_or_shared_tuning() {
     let mut wrong = request();
-    wrong.selection = CollectionSelection::Snapshot { dataset: SnapshotDataset::Operational };
+    wrong.selection = CollectionSelection::Snapshot { dataset: SnapshotDataset::PlanCacheSummary };
+    assert!(matches!(
+        subject::DatabaseAuthority::for_source(SnapshotDataset::PlanCacheSummary, &wrong.subject).unwrap(),
+        subject::DatabaseAuthority::AzureOnly
+    ));
     let mut source = source_with_replies(vec![Ok(vec![Rec::of(&[("edition", Val::Int(3))])])], &wrong);
     assert_eq!(source.describe().await.unwrap_err().code, ErrorCode::Unsupported);
     assert_eq!(source.query_count(), 1);

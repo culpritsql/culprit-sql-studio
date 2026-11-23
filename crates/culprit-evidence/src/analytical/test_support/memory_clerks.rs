@@ -27,6 +27,20 @@ impl MemoryClerkCase {
 /// SharedInstance matches the current native acquisition route. Database-target cases are controlled model
 /// conformance inputs; they do not claim an ordinary database scan or acquisition supports clerk collection.
 pub fn memory_clerk_evidence(case: MemoryClerkCase) -> (CollectionDescription, Vec<TelemetryRecord>) {
+    let target = if case == MemoryClerkCase::SharedInstance { ClerkTarget::Instance } else { ClerkTarget::Database };
+    clerk_evidence(case, target)
+}
+
+/// Allocation and visibility cases retain the same explicit shared native instance acquisition scope.
+pub fn instance_memory_clerk_evidence(case: MemoryClerkCase) -> (CollectionDescription, Vec<TelemetryRecord>) {
+    clerk_evidence(case, ClerkTarget::Instance)
+}
+
+enum ClerkTarget {
+    Database,
+    Instance,
+}
+fn clerk_evidence(case: MemoryClerkCase, target: ClerkTarget) -> (CollectionDescription, Vec<TelemetryRecord>) {
     let sets = if case == MemoryClerkCase::Denied {
         vec![]
     } else {
@@ -79,7 +93,8 @@ pub fn memory_clerk_evidence(case: MemoryClerkCase) -> (CollectionDescription, V
         namespace: NativeIdentity::new("native-instance-namespace"),
         native: NativeIdentity::new("native-instance-a"),
     };
-    let target = if case == MemoryClerkCase::SharedInstance {
+    let instance = matches!(target, ClerkTarget::Instance);
+    let target = if instance {
         CollectionTarget::Shared(member.clone())
     } else {
         culprit_core::DatabaseIdentity::server(
@@ -93,12 +108,7 @@ pub fn memory_clerk_evidence(case: MemoryClerkCase) -> (CollectionDescription, V
     };
     let source = CollectionDescription {
         target,
-        source: if case == MemoryClerkCase::SharedInstance {
-            "shared-operational-state"
-        } else {
-            "controlled-database-clerk-capture"
-        }
-        .into(),
+        source: if instance { "shared-operational-state" } else { "controlled-database-clerk-capture" }.into(),
         partition: SourcePartition::InstanceLocal {
             member: identified.then_some(member),
             epoch: identified.then(|| "native-process-a".into()),
