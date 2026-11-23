@@ -15,7 +15,7 @@ import time
 from dataclasses import dataclass, replace
 
 from replication_fixtures import MySqlReplication, PostgresReplication, PostgresReadableRecovery
-from mssql_replication_fixture import SqlServerReplication
+from mssql_replication_fixture import AG_WORKLOAD_TEST, SqlServerReplication
 from mysql_replication_fixture import MySqlMovingReplication
 from mysql_group_replication_fixture import MySqlGroupReplication
 from mariadb_galera_fixture import MariaDbGalera
@@ -70,6 +70,14 @@ REPLICATION_FIXTURES = (
             options=("--performance-schema=OFF",)),
 )
 POSTGRES_REPLICATION_IMAGES = {"postgres-replication": "postgres:18.6", "postgres-16-replication": "postgres:16"}
+MSSQL_EMPTY_CATALOG_TEST = ("indexes::native_tests::configuration_scale::"
+                            "owned_index_and_heap_partition_projection_records_small_and_medium_catalog_work")
+MSSQL_FULL_TEXT_TESTS = (
+    "tables::native_tests::owned_full_text_enabled_and_disabled_rows_match_scan_and_stream_without_starting_a_population",
+    "tables::native_tests::owned_full_text_runtime_population_retains_original_after_stop_with_supervisor_owned_background",
+)
+MSSQL_SQL2016_TEST = ("tables::native_tests::temporal::"
+                     "owned_sql2016_temporal_retention_columns_remain_unsupported_without_erasing_native_roles")
 OPTIONAL_NATIVE_MODULES = {
     "culprit-postgres": (
         "telemetry::native_tests::replication::", "jobs::", "maintenance_waits::", "metadata_queue::",
@@ -89,6 +97,7 @@ OPTIONAL_NATIVE_MODULES = {
         "local_native_writer_plans_keep_targeted_writes_separate_from_readers_and_other_resources",
         "exact_original_scalar_metadata_is_observed_without_memory_collection",
         "exact_original_scalar_metadata_is_observed_between_memory_source_phases",
+        AG_WORKLOAD_TEST, MSSQL_EMPTY_CATALOG_TEST, *MSSQL_FULL_TEXT_TESTS, MSSQL_SQL2016_TEST,
     ),
 }
 NATIVE_TEST_FEATURES = {
@@ -410,18 +419,22 @@ class Database:
                 args += ["-r1"]
         return self.commands.run(args, input=sql, env=env, check=check, timeout=timeout, separate_stderr=True)
 
-    def seed(self):
+    def prepare_database(self):
         fixture = self.fixture
         if fixture.engine in ("yugabyte", "mssql"):
             self.sql(f"CREATE DATABASE {fixture.database};", database=self.admin_database())
+        if fixture.engine == "mssql":
+            self.sql(f"ALTER DATABASE {fixture.database} SET QUERY_STORE=ON (OPERATION_MODE=READ_WRITE, QUERY_CAPTURE_MODE=ALL);")
+
+    def seed(self):
+        self.prepare_database()
+        fixture = self.fixture
         if fixture.name in ("timescale", "yugabyte"):
             self.sql((ROOT / "dev" / fixture.name / "seed.sql").read_text())
             self.sql((ROOT / "dev" / fixture.name / "workload.sql").read_text())
         elif fixture.engine == "postgres":
             self.sql("CREATE EXTENSION pg_stat_statements;")
             self.prepare_hypopg()
-        if fixture.engine == "mssql":
-            self.sql(f"ALTER DATABASE {fixture.database} SET QUERY_STORE=ON (OPERATION_MODE=READ_WRITE, QUERY_CAPTURE_MODE=ALL);")
         schema = "dbo" if fixture.engine == "mssql" else (fixture.database if fixture.engine == "mysql" else "public")
         table = f"{schema}.smoke_rows"
         if fixture.engine == "mysql" and "--performance-schema=OFF" not in self.options:
@@ -611,6 +624,52 @@ class MySqlAcceptanceDatabase(Database):
         environment = self.receipt_environment()
         for crate, selection in tests:
             self.test(crate, selection, library=True, test_features=self.policy.test_features, environment=environment)
+
+
+FULL_TEXT_INSTALL_BUDGET = 300
+FULL_TEXT_INSTALL = r"""set -eu
+server_version=$(dpkg-query -W -f='${Version}' mssql-server)
+apt-get update
+DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends --no-remove --no-upgrade "mssql-server-fts=$server_version"
+test "$(dpkg-query -W -f='${Version}' mssql-server)" = "$server_version"
+test "$(dpkg-query -W -f='${Version}' mssql-server-fts)" = "$server_version"
+"""
+
+
+class EmptyCatalogDatabase(Database):
+    def seed(self):
+        # Exact native ownership and Query Store preparation are shared; no smoke table/workload exists here.
+        self.prepare_database()
+
+
+class FullTextDatabase(Database):
+    def start(self):
+        super().start()
+        if not self.owns_container():
+            raise RuntimeError("the exact owned SQL fixture disappeared before its optional FTS installation")
+        # This is an explicit disposable fixture prerequisite, never a provider operation. Match the installed
+        # server package so native FTS support cannot silently replace the tested engine build.
+        self.commands.run(["docker", "exec", "--user", "0", "-i", self.name, "sh", "-ec", FULL_TEXT_INSTALL],
+                          timeout=FULL_TEXT_INSTALL_BUDGET)
+        self.restart()
+        self.sql("/* culprit fixture */ IF FULLTEXTSERVICEPROPERTY('IsFullTextInstalled') IS NULL "
+                 "OR FULLTEXTSERVICEPROPERTY('IsFullTextInstalled')<>1 "
+                 "THROW 51000,N'Owned FTS installation did not establish its native prerequisite.',1; SELECT 1;",
+                 database="master", timeout=5)
+
+
+def selected_mssql_cases(selected_tests, selectors):
+    expected = [("culprit-mssql", selection) for selection in selectors]
+    tests = [tuple(test) for test in selected_tests] if selected_tests else expected
+    if not tests or len(set(tests)) != len(tests) or any(test not in expected for test in tests):
+        raise ValueError("this dedicated owned fixture accepts only its exact native library cases")
+    return tests
+
+
+MSSQL_DEDICATED_CASES = {
+    "mssql-empty-catalog": (EmptyCatalogDatabase, (MSSQL_EMPTY_CATALOG_TEST,)),
+    "mssql-fulltext": (FullTextDatabase, MSSQL_FULL_TEXT_TESTS),
+}
 
 
 class AgentDatabase(Database):
@@ -829,7 +888,7 @@ def interrupted(*_):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("fixtures", nargs="+", choices=[f.name for f in FIXTURES + REPLICATION_FIXTURES]
-                        + list(POSTGRES_REPLICATION_IMAGES) + list(MYSQL_ACCEPTANCE_CASES)
+                        + list(POSTGRES_REPLICATION_IMAGES) + list(MYSQL_ACCEPTANCE_CASES) + list(MSSQL_DEDICATED_CASES)
                         + ["postgres-readable-secondary", "mariadb-galera", "mssql-agent", "mssql-hadr", "mssql-replication", "mysql-moving-replication", "mysql-group-replication", "yugabyte-cluster", "ssh", "all"])
     parser.add_argument("--test", nargs=2, action="append", metavar=("CRATE", "FILTER"),
                         help="run only this live test selection; repeat for multiple commands in the same fixture")
@@ -841,6 +900,14 @@ def main():
             database.seed()
             database.verify(args.test)
     count = len(selected)
+    for name, (fixture_type, selectors) in MSSQL_DEDICATED_CASES.items():
+        if name in args.fixtures:
+            tests = selected_mssql_cases(args.test, selectors)
+            fixture = replace(next(fixture for fixture in FIXTURES if fixture.name == "mssql"), name=name)
+            with fixture_type(fixture) as database:
+                database.seed()
+                database.verify(tests)
+            count += 1
     for name, (source, policy) in MYSQL_ACCEPTANCE_CASES.items():
         if name in args.fixtures:
             fixture = next(fixture for fixture in FIXTURES if fixture.name == source)

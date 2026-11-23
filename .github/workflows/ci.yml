@@ -191,11 +191,23 @@ jobs:
             mkdir -m 700 "$CULPRIT_NATIVE_COST_RECEIPT_DIR"
           fi
           python3 -B dev/smoke-providers.py ${{ matrix.fixture }}
-          if [ "${{ matrix.fixture }}" = mssql ]; then
-            # This explicit refusal case uses one additional nonce-owned fixture on the existing Linux runner.
-            python3 -B dev/smoke-providers.py mssql --test culprit-mssql \
-              conn::native_tests::refused_connection::owned_refused_loopback_preserves_real_admission_and_retires_only_the_sealed_empty_original
-          fi
+      - name: Exercise refused acquisition on its own SQL Server fixture
+        if: ${{ !cancelled() && matrix.fixture == 'mssql' }}
+        env:
+          CULPRIT_NATIVE_COST_RECEIPT_DIR: ${{ runner.temp }}/native-provider-cost-receipts
+        run: |
+          python3 -B dev/smoke-providers.py mssql --test culprit-mssql \
+            conn::native_tests::refused_connection::owned_refused_loopback_preserves_real_admission_and_retires_only_the_sealed_empty_original
+      - name: Exercise index catalog scale in a genuinely empty owned database
+        if: ${{ !cancelled() && matrix.fixture == 'mssql' }}
+        env:
+          CULPRIT_NATIVE_COST_RECEIPT_DIR: ${{ runner.temp }}/native-provider-cost-receipts
+        run: python3 -B dev/smoke-providers.py mssql-empty-catalog
+      - name: Exercise native full-text metadata and population on its explicit owned installation
+        if: ${{ !cancelled() && matrix.fixture == 'mssql' }}
+        env:
+          CULPRIT_NATIVE_COST_RECEIPT_DIR: ${{ runner.temp }}/native-provider-cost-receipts
+        run: python3 -B dev/smoke-providers.py mssql-fulltext
       - name: Keep SQL Server native source and cancellation receipts
         if: always() && matrix.fixture == 'mssql'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -244,7 +256,7 @@ jobs:
             crate: ""
             filter: ""
           - suite: SQL Server
-            fixtures: '["mssql", "mssql-hadr", "mssql-replication"]'
+            fixtures: '["mssql", "mssql-hadr"]'
             crate: culprit-mssql
             filter: "telemetry::replication::native_tests::"
     steps:
@@ -275,6 +287,11 @@ jobs:
               command += ["--test", os.environ["REPLICATION_CRATE"], os.environ["REPLICATION_FILTER"]]
           subprocess.run(command, check=True)
           PY
+      - name: Exercise replication and retained cache populations on the same owned SQL Server AG pair
+        if: ${{ !cancelled() && matrix.crate == 'culprit-mssql' }}
+        env:
+          CULPRIT_NATIVE_COST_RECEIPT_DIR: ${{ runner.temp }}/native-replication-cost-receipts
+        run: python3 -B dev/smoke-providers.py mssql-replication
       - name: Keep SQL Server native work and cancellation observations
         if: always() && matrix.crate == 'culprit-mssql'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

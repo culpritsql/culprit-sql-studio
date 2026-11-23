@@ -436,7 +436,7 @@ class MssqlFixtureIdentity(unittest.TestCase):
     def test_common_and_agent_use_a_supported_machine_with_full_native_database_and_docker_nonces(self):
         original = self.ordinary_fixture()
         owner = "a" * 24
-        for fixture_type in (smoke.Database, smoke.AgentDatabase):
+        for fixture_type in (smoke.Database, smoke.AgentDatabase, smoke.EmptyCatalogDatabase, smoke.FullTextDatabase):
             with self.subTest(fixture_type=fixture_type.__name__):
                 with patch.object(smoke.secrets, "token_hex", side_effect=[owner, "b" * 32, "c" * 32]):
                     database = fixture_type(original)
@@ -737,6 +737,113 @@ class MssqlFailureDiagnostics(unittest.TestCase):
         self.assertNotIn("culprit_fixture_ag_join:", output.getvalue())
 
 
+class MssqlNativePrerequisites(unittest.TestCase):
+    def fixture(self, fixture_type, name):
+        recipe = next(fixture for fixture in smoke.FIXTURES if fixture.name == "mssql")
+        return fixture_type(smoke.replace(recipe, name=name))
+
+    def test_empty_catalog_reuses_database_preparation_without_a_seed_table_reader_or_workload(self):
+        empty = self.fixture(smoke.EmptyCatalogDatabase, "mssql-empty-catalog")
+        empty.sql = Mock()
+        empty.create_reader = Mock()
+        empty.seed()
+        self.assertEqual(empty.sql.call_count, 2)
+        self.assertEqual(empty.sql.call_args_list[0].args[0], f"CREATE DATABASE {empty.fixture.database};")
+        self.assertEqual(empty.sql.call_args_list[0].kwargs["database"], "master")
+        self.assertEqual(empty.sql.call_args_list[1].args[0],
+                         f"ALTER DATABASE {empty.fixture.database} SET QUERY_STORE=ON (OPERATION_MODE=READ_WRITE, QUERY_CAPTURE_MODE=ALL);")
+        empty.create_reader.assert_not_called()
+        ordinary = self.fixture(smoke.Database, "mssql")
+        ordinary.sql = Mock()
+        ordinary.seed()
+        self.assertTrue(any("CREATE TABLE dbo.smoke_rows" in call.args[0] for call in ordinary.sql.call_args_list))
+
+    def test_full_text_install_is_owned_version_matched_and_verified_after_the_existing_restart(self):
+        database = self.fixture(smoke.FullTextDatabase, "mssql-fulltext")
+        database.owns_container = Mock(return_value=True)
+        database.commands = Mock()
+        database.restart = Mock()
+        database.sql = Mock()
+        with patch.object(smoke.Database, "start") as start:
+            database.start()
+        start.assert_called_once_with()
+        command = database.commands.run.call_args.args[0]
+        self.assertEqual(command[:8], ["docker", "exec", "--user", "0", "-i", database.name, "sh", "-ec"])
+        self.assertIn('"mssql-server-fts=$server_version"', command[-1])
+        self.assertEqual(command[-1].count('dpkg-query -W'), 3)
+        self.assertEqual(database.commands.run.call_args.kwargs["timeout"], smoke.FULL_TEXT_INSTALL_BUDGET)
+        database.restart.assert_called_once_with()
+        database.sql.assert_called_once()
+        self.assertIn("IsFullTextInstalled", database.sql.call_args.args[0])
+        self.assertEqual(database.sql.call_args.kwargs, {"database": "master", "timeout": 5})
+
+    def test_foreign_full_text_fixture_refuses_package_install_restart_and_native_queries(self):
+        database = self.fixture(smoke.FullTextDatabase, "mssql-fulltext")
+        database.owns_container = Mock(return_value=False)
+        database.commands = Mock()
+        database.restart = Mock()
+        database.sql = Mock()
+        with patch.object(smoke.Database, "start"), self.assertRaisesRegex(RuntimeError, "exact owned"):
+            database.start()
+        database.commands.run.assert_not_called()
+        database.restart.assert_not_called()
+        database.sql.assert_not_called()
+
+    def test_dedicated_filters_preserve_every_case_and_refuse_wrong_broad_or_duplicate_requests(self):
+        for _, selectors in smoke.MSSQL_DEDICATED_CASES.values():
+            expected = [("culprit-mssql", selection) for selection in selectors]
+            self.assertEqual(smoke.selected_mssql_cases(None, selectors), expected)
+            for selected in expected:
+                self.assertEqual(smoke.selected_mssql_cases([selected], selectors), [selected])
+            for wrong in [[("culprit-mssql", "native_tests::")], [("culprit-postgres", selectors[0])],
+                          [expected[0], expected[0]]]:
+                with self.assertRaisesRegex(ValueError, "exact native library cases"):
+                    smoke.selected_mssql_cases(wrong, selectors)
+
+    def test_wrong_dedicated_filter_refuses_before_any_container_is_started(self):
+        with patch.object(sys, "argv", ["smoke-providers.py", "mssql-empty-catalog", "--test", "culprit-mssql", "native_tests::"]), \
+             patch.object(smoke.signal, "signal"), patch.object(smoke.Database, "start") as start:
+            with self.assertRaisesRegex(ValueError, "exact native library cases"):
+                smoke.main()
+        start.assert_not_called()
+
+    def test_ordinary_selection_excludes_only_prerequisite_cases_and_keeps_real_sql2022_controls(self):
+        database = self.fixture(smoke.Database, "mssql")
+        database.test_environment = Mock(return_value={})
+        with patch.object(smoke, "run_tests") as tests:
+            database.test("culprit-mssql", "native_tests::")
+        skips = tests.call_args.kwargs["skip"]
+        for name in [smoke.AG_WORKLOAD_TEST, smoke.MSSQL_EMPTY_CATALOG_TEST,
+                     *smoke.MSSQL_FULL_TEXT_TESTS, smoke.MSSQL_SQL2016_TEST]:
+            self.assertTrue(any(skip in name for skip in skips))
+        for name in [
+            "tables::native_tests::owned_full_text_catalog_keeps_no_index_and_denied_null_fields_without_losing_ordinary_tables",
+            "tables::native_tests::temporal::owned_system_versioned_table_retains_native_history_finite_and_infinite_configuration_without_cleanup_claims",
+            "activity::tempdb::native_tests::native_task_allocations_keep_checked_current_context_without_allocator_or_session_total_inference",
+        ]:
+            self.assertFalse(any(skip in name for skip in skips))
+
+    def test_ag_default_workload_runs_both_cases_on_existing_roles_and_explicit_selection_stays_exact(self):
+        primary = self.fixture(smoke.Database, "mssql-ag-primary")
+        secondary = self.fixture(smoke.Database, "mssql-ag-secondary")
+        topology = smoke.SqlServerReplication(primary, secondary, smoke.OWNER_LABEL)
+        topology.wait_until_ready = Mock()
+        topology.receipt_directories = Mock(return_value={"primary": Path("/private/primary"), "secondary": Path("/private/secondary")})
+        for _, database, _ in topology.members:
+            database.test = Mock()
+        topology.verify()
+        for role, database, rows in topology.members:
+            self.assertEqual(database.test.call_count, 2)
+            self.assertTrue(database.test.call_args_list[0].args[1].startswith("telemetry::replication::native_tests::"))
+            self.assertEqual(database.test.call_args_list[1].args, ("culprit-mssql", smoke.AG_WORKLOAD_TEST))
+            environment = database.test.call_args_list[1].kwargs["environment"]
+            self.assertEqual(environment["CULPRIT_MSSQL_REPLICATION_EXPECT_ROLE"], role)
+            self.assertEqual(environment["CULPRIT_MSSQL_REPLICATION_EXPECT_ROWS"], str(rows))
+            self.assertEqual(environment["CULPRIT_MSSQL_REPLICATION_EXPECT_GROUP"], topology.name)
+        topology.verify([("culprit-mssql", smoke.AG_WORKLOAD_TEST)])
+        self.assertTrue(all(database.test.call_count == 3 for _, database, _ in topology.members))
+
+
 class NativeSelection(unittest.TestCase):
     def test_agent_launch_is_explicit_and_its_tests_are_excluded_from_plain_mssql(self):
         fixture = next(fixture for fixture in smoke.FIXTURES if fixture.name == "mssql")
@@ -754,13 +861,15 @@ class NativeSelection(unittest.TestCase):
         instance_control = "activity::native_tests::census::instance::"
         schema_queue_control = "activity::page_targets::native_tests::schema_queue::"
         refused_connection_control = "conn::native_tests::refused_connection::"
+        dedicated = [smoke.AG_WORKLOAD_TEST, smoke.MSSQL_EMPTY_CATALOG_TEST,
+                     *smoke.MSSQL_FULL_TEXT_TESTS, smoke.MSSQL_SQL2016_TEST]
         for selection, expected in [
             ("native_tests::", [refused_connection_control, mars_control, instance_control, schema_queue_control, "telemetry::replication::native_tests::", "jobs::", strict_holder, strict_writer, cache_control, phase_control]),
             ("jobs::native_tests::", [refused_connection_control, mars_control, instance_control, schema_queue_control, "telemetry::replication::native_tests::", strict_holder, strict_writer, cache_control, phase_control]),
         ]:
             with self.subTest(selection=selection), patch.object(smoke, "run_tests") as run_tests:
                 plain.test("culprit-mssql", selection)
-                self.assertEqual(run_tests.call_args.kwargs["skip"], expected)
+                self.assertEqual(run_tests.call_args.kwargs["skip"], expected + dedicated)
 
     def test_refused_connection_control_requires_its_explicit_owned_selection(self):
         database = smoke.Database(next(fixture for fixture in smoke.FIXTURES if fixture.name == "mssql"))

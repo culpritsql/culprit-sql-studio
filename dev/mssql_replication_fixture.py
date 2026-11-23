@@ -38,6 +38,8 @@ PEER_PROBE_BUDGET = 3
 VALUE_PREFIX = "culprit_fixture_value:"
 CERTIFICATE_PREFIX = "culprit_fixture_certificate:"
 JOIN_PHASE_PREFIX = "culprit_fixture_ag_join:"
+AG_WORKLOAD_TEST = ("cached_runtime::native_tests::replica_workload::"
+                    "owned_readable_ag_workload_uses_real_factory_and_isolates_original_member_cache_populations")
 CERTIFICATE_LINE_WIDTH = len(CERTIFICATE_PREFIX) + CERTIFICATE_CHUNK_HEX
 
 
@@ -412,8 +414,11 @@ THEN N'ready' ELSE N'pending' END"""
     def verify(self, selected_tests=None):
         self.wait_until_ready()
         directories = self.receipt_directories()
-        tests = selected_tests or [("culprit-mssql", "telemetry::replication::native_tests::"
-                                   "owned_replication_profile_measures_the_actual_reader_scope_limits_and_settlement")]
+        tests = selected_tests or [
+            ("culprit-mssql", "telemetry::replication::native_tests::"
+             "owned_replication_profile_measures_the_actual_reader_scope_limits_and_settlement"),
+            ("culprit-mssql", AG_WORKLOAD_TEST),
+        ]
         for role, database, rows in self.members:
             environment = {"CULPRIT_MSSQL_REPLICATION_EXPECT_EXPANDED_AG": "1",
                            "CULPRIT_MSSQL_REPLICATION_EXPECT_ROLE": role,
