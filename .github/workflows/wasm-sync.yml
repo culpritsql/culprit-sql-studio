@@ -1,8 +1,8 @@
 name: Plans Package Sync
 
 # Builds, browser-tests, and syncs @culpritsql/plans to https://github.com/culpritsql/culprit-plans.
-# Skips sync commits when shipped artifacts (.wasm, .js, models/*.d.ts, README, package.json) did not change.
-# Publishes a v<version> tag ONLY when packages/culprit-wasm/package.json has an unreleased version AND pkg/ changed since the previous tag.
+# Automatically computes a monotonic semver (using Cargo.toml major.minor as floor and auto-incrementing patch)
+# and tags + publishes to npm ONLY when shipped pkg/ artifacts (.wasm, .js, models/*.d.ts) changed since the last tag.
 on:
   push:
     branches: [main]
@@ -19,19 +19,7 @@ on:
       - "dev/smoke-wasm.mjs"
       - "dev/licenses.py"
       - "dev/check-boundaries.py"
-    tags: ["v*"]
   workflow_dispatch:
-    inputs:
-      publish_release:
-        description: "Tag v<package.json version> on culpritsql/culprit-plans to publish to npm"
-        required: false
-        type: boolean
-        default: false
-      force_initial_tag:
-        description: "Allow tagging even if pkg/ matches main (use only for initial v0.5.6 release)"
-        required: false
-        type: boolean
-        default: false
 
 permissions:
   contents: read
@@ -44,82 +32,13 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  changes:
-    name: Select sync source
-    runs-on: ubuntu-latest
-    outputs:
-      should_run: ${{ steps.select.outputs.should_run }}
-      sha: ${{ steps.select.outputs.sha }}
-      pkg_version: ${{ steps.select.outputs.pkg_version }}
-      want_tag: ${{ steps.select.outputs.want_tag }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - id: select
-        name: Check package version and existing release tags
-        env:
-          EVENT_NAME: ${{ github.event_name }}
-          EVENT_REF: ${{ github.ref }}
-          PUBLISH_INPUT: ${{ inputs.publish_release }}
-        run: |
-          python3 - <<'PY'
-          import json
-          import os
-          from pathlib import Path
-          import subprocess
-
-          event = os.environ["EVENT_NAME"]
-          ref = os.environ["EVENT_REF"]
-          publish_input = os.environ.get("PUBLISH_INPUT", "").lower() == "true"
-          is_tag_push = event == "push" and ref.startswith("refs/tags/v")
-
-          pkg_version = json.loads(Path("packages/culprit-wasm/package.json").read_text())["version"]
-          target_tag = f"v{pkg_version}"
-
-          tag_exists = (
-              subprocess.run(
-                  [
-                      "git",
-                      "ls-remote",
-                      "--exit-code",
-                      "--tags",
-                      "https://github.com/culpritsql/culprit-plans.git",
-                      f"refs/tags/{target_tag}",
-                  ],
-                  capture_output=True,
-              ).returncode
-              == 0
-          )
-
-          want_tag = is_tag_push or publish_input
-          should_run = True
-          if is_tag_push and tag_exists:
-              print(f"{target_tag} is already released on culpritsql/culprit-plans; skipping desktop-only tag push.")
-              should_run = False
-              want_tag = False
-
-          sha = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
-          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as handle:
-              handle.write(
-                  f"should_run={'true' if should_run else 'false'}\n"
-                  f"sha={sha}\n"
-                  f"pkg_version={pkg_version}\n"
-                  f"want_tag={'true' if want_tag else 'false'}\n"
-              )
-          print(f"should_run={should_run} pkg_version={pkg_version} want_tag={want_tag} tag_exists={tag_exists}")
-          PY
-
   sync:
     name: Build, verify, and sync @culpritsql/plans
-    if: needs.changes.outputs.should_run == 'true'
-    needs: [changes]
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ needs.changes.outputs.sha }}
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249 # stable
         with:
@@ -129,6 +48,9 @@ jobs:
         with:
           key: standalone-wasm-english
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: "24"
       - name: Install the exact verified wasm-bindgen CLI
         shell: bash
         run: |
@@ -174,13 +96,10 @@ jobs:
           include-hidden-files: true
           if-no-files-found: error
           retention-days: 7
-      - name: Sync changed artifacts and release tag when pkg/ changed
+      - name: Sync changed artifacts, auto-tag release, and notify downstream consumers
         env:
           SYNC_TOKEN: ${{ secrets.CULPRIT_PLANS_SYNC_TOKEN }}
-          SOURCE_SHA: ${{ needs.changes.outputs.sha }}
-          PKG_VERSION: ${{ needs.changes.outputs.pkg_version }}
-          WANT_TAG: ${{ needs.changes.outputs.want_tag }}
-          FORCE_INITIAL: ${{ inputs.force_initial_tag }}
+          SOURCE_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
           if [ -z "$SYNC_TOKEN" ]; then
@@ -195,6 +114,11 @@ jobs:
           git clone --branch main https://github.com/culpritsql/culprit-plans.git "$RUNNER_TEMP/target-repo"
           git -C "$RUNNER_TEMP/target-repo" fetch --tags origin
 
+          RELEASE_JSON="$(python3 -B "$GITHUB_WORKSPACE/.github/scripts/stage_wasm_repo.py" "$RUNNER_TEMP/staged-plans-repo" --resolve-release "$RUNNER_TEMP/target-repo")"
+          echo "Resolved release metadata: $RELEASE_JSON"
+          VERSION="$(node -p 'JSON.parse(process.argv[1]).version' "$RELEASE_JSON")"
+          SHOULD_TAG="$(node -p 'String(JSON.parse(process.argv[1]).should_tag)' "$RELEASE_JSON")"
+
           SYNC_DIFF="$(python3 -B "$GITHUB_WORKSPACE/.github/scripts/stage_wasm_repo.py" "$RUNNER_TEMP/staged-plans-repo" --compare-sync "$RUNNER_TEMP/target-repo")"
           SHORT_SHA="${SOURCE_SHA:0:8}"
 
@@ -205,30 +129,43 @@ jobs:
           if [ "$SYNC_DIFF" = "true" ]; then
             rsync -a --delete --exclude '.git/' --exclude '.github/' "$RUNNER_TEMP/staged-plans-repo/" "$RUNNER_TEMP/target-repo/"
             git add -A
-            git commit -m "Sync @culpritsql/plans from culprit-sql-studio@${SHORT_SHA}"
-            git push origin HEAD:main || echo "main has advanced beyond ${SHORT_SHA}; keeping synced commit for tag check"
+            git commit -m "Sync @culpritsql/plans ${VERSION} from culprit-sql-studio@${SHORT_SHA}"
+            git push origin HEAD:main
           else
             echo "No shipped artifacts or sources changed in @culpritsql/plans; skipping sync commit."
           fi
 
-          if [ "$WANT_TAG" = "true" ]; then
-            TARGET_TAG="v${PKG_VERSION}"
-            if git rev-parse -q --verify "refs/tags/${TARGET_TAG}" >/dev/null 2>&1; then
-              echo "Tag ${TARGET_TAG} already exists on culpritsql/culprit-plans; skipping."
-              exit 0
-            fi
-
-            PREV_TAG="$(git tag -l 'v*' --sort=-version:refname | head -n1 || true)"
-            if [ -n "$PREV_TAG" ] && [ "${FORCE_INITIAL:-false}" != "true" ]; then
-              git worktree add --detach "$RUNNER_TEMP/prev-release" "$PREV_TAG"
-              PKG_DIFF="$(python3 -B "$GITHUB_WORKSPACE/.github/scripts/stage_wasm_repo.py" "$RUNNER_TEMP/staged-plans-repo" --compare-pkg "$RUNNER_TEMP/prev-release")"
-              git worktree remove --force "$RUNNER_TEMP/prev-release"
-              if [ "$PKG_DIFF" != "true" ]; then
-                echo "::notice::No pkg/ runtime or model changes since ${PREV_TAG}; skipping npm publish of ${TARGET_TAG}."
-                exit 0
-              fi
-            fi
-
-            git tag -a "$TARGET_TAG" -m "Release @culpritsql/plans ${PKG_VERSION} (culprit-sql-studio@${SHORT_SHA})"
+          if [ "$SHOULD_TAG" = "true" ]; then
+            TARGET_TAG="v${VERSION}"
+            git tag -a "$TARGET_TAG" -m "Release @culpritsql/plans ${VERSION} (culprit-sql-studio@${SHORT_SHA})"
             git push origin "refs/tags/${TARGET_TAG}"
+
+            echo "Waiting for @culpritsql/plans@${VERSION} to finish publishing to npm..."
+            PUBLISHED="false"
+            for _ in $(seq 1 42); do
+              if [ "$(npm view "@culpritsql/plans@${VERSION}" version 2>/dev/null || true)" = "$VERSION" ]; then
+                PUBLISHED="true"
+                break
+              fi
+              sleep 5
+            done
+
+            if [ "$PUBLISHED" = "true" ]; then
+              echo "@culpritsql/plans@${VERSION} is live on npm; dispatching downstream consumer updates..."
+              for REPO in culprit-vscode culprit-devtools culprit-test culprit-ci culprit-explain culprit-blog; do
+                HTTP_CODE="$(curl -s -o /dev/null -w '%{http_code}' -X POST \
+                  -H "Accept: application/vnd.github+json" \
+                  -H "Authorization: Bearer ${SYNC_TOKEN}" \
+                  "https://api.github.com/repos/culpritsql/${REPO}/dispatches" \
+                  -d "{\"event_type\":\"upstream-pkg-published\",\"client_payload\":{\"package\":\"@culpritsql/plans\",\"version\":\"${VERSION}\"}}" || echo "000")"
+                echo "Dispatched culpritsql/${REPO} -> HTTP ${HTTP_CODE}"
+              done
+              curl -s -o /dev/null -X POST \
+                -H "Accept: application/vnd.github+json" \
+                -H "Authorization: Bearer ${SYNC_TOKEN}" \
+                "https://api.github.com/repos/culpritsql/culprit-sql-studio/dispatches" \
+                -d '{"event_type":"blog-updated"}' || true
+            else
+              echo "::warning::Timed out waiting for @culpritsql/plans@${VERSION} on npm; scheduled downstream checks will pick it up."
+            fi
           fi
