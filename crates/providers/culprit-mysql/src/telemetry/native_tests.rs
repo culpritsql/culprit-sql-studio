@@ -761,7 +761,31 @@ async fn retained_error_log_metadata_is_shared_bounded_and_message_free() {
             assert_eq!(reader.close().await, SourceShutdown::Quiescent);
             assert_eq!(error.code, ErrorCode::Unsupported);
             let request = ResourceDiscoveryRequest { kind: SharedResourceKind::Instance, budget: Default::default() };
-            assert_eq!(provider.telemetry_resources(&request).await.err().unwrap().code, ErrorCode::Unsupported);
+            match provider.telemetry_resources(&request).await {
+                Ok(resources) => {
+                    request.validate_result(&resources).unwrap();
+                    assert_eq!(resources.len(), 1, "one actual hosting instance");
+                    let recipes = crate::telemetry_recipes();
+                    for resource in resources {
+                        assert!(
+                            !resource
+                                .collections
+                                .contains(&TelemetryCollection::Snapshot(SnapshotDataset::NativeFailures))
+                        );
+                        let subject = CollectionSubject::Shared { resource: resource.identity };
+                        assert!(
+                            resource.collections.iter().all(|collection| recipes.iter().any(|recipe| {
+                                recipe.is_valid()
+                                    && recipe.selector == RecipeSelector::Collection(*collection)
+                                    && recipe.subjects.iter().any(|declared| declared.accepts(&subject))
+                            })),
+                            "independent profiles retain their actual declared shared routes"
+                        );
+                    }
+                }
+                Err(error) => assert_eq!(error.code, ErrorCode::Unsupported),
+            }
+            assert_eq!(provider.source_shutdown(), SourceShutdown::Quiescent);
             return;
         }
     };
