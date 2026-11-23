@@ -15,7 +15,7 @@ export const JOBS_SOURCES = ["timescale-jobs", "timescale-job-runs", ...AGENT_JO
 export function Jobs({ evidence, report }: { evidence: JobsSnapshot; report: JobsReport }) {
   const native = evidence.snapshot;
   const sources = observationRowsBySource(native.observations, (row) => row.key);
-  const sameRead = JSON.stringify(native.context) === JSON.stringify(report.context);
+  const sameRead = sameJobRead(evidence, report);
   return <ObservationList collapseEntries source={evidence.kind === "mysql-events" ? MYSQL_EVENTS_SOURCE : evidence.kind === "mssql-agent" ? AGENT_JOB_SOURCES[0] : JOBS_SOURCES[0]} report={report}
     scope={evidence.kind === "mysql-events" ? t("view.mysql_events.ui.scope") : evidence.kind === "mssql-agent" ? t("view.mssql_agent_jobs.ui.scope") : t("ui.jobs.scope")} entriesLabel={t("ui.jobs.inspect")}
     time={<>{t("ui.memory_failures.read_between", { from: native.context.observed_from, until: native.context.observed_until })} {evidence.kind === "timescale" && t("ui.jobs.window", { from: evidence.snapshot.metadata.run_window.from, until: evidence.snapshot.metadata.run_window.until })}</>}
@@ -56,4 +56,27 @@ function ExecutionFields({ entry }: { entry: JobExecution }) {
       <NativeValue label={t("view.mysql_events.field.time_zone")} value={time.event_time_zone ?? t("view.mysql_events.unknown")} />
     </>}</dl>
   </details>;
+}
+
+/** Context retained beside a UTC comparison, without assigning native-local rows to either period. */
+export function JobComparisonContext({ evidence, report }: { evidence?: JobsSnapshot | null; report?: JobsReport | null }) {
+  if (!report) return null;
+  const assessment = report.executions.assessment;
+  const unplaced = assessment.unplaced_records > 0;
+  const incomplete = !assessment.read_complete || assessment.omitted_entries > 0 || assessment.sources.some((source) => !source.complete_scope || (source.state !== "collected" && source.state !== "empty"));
+  if (!unplaced && !incomplete) return null;
+  const matched = evidence != null && sameJobRead(evidence, report);
+  return <details className="wc-group" aria-label={t("ui.what_changed.jobs_context.title")}>
+    <summary>{t("ui.what_changed.jobs_context.title")}</summary>
+    {unplaced && <p className="muted">{t("ui.what_changed.jobs_context.clock")}</p>}
+    {incomplete && <p className="muted">{t("ui.what_changed.jobs_context.coverage")}</p>}
+    {matched ? <>
+      <p className="muted">{t("ui.what_changed.jobs_context.scope", { scope: report.context.target.scope })}</p>
+      <Jobs evidence={evidence} report={report} />
+    </> : <p>{t("ui.memory_failures.missing_row")}</p>}
+  </details>;
+}
+
+function sameJobRead(evidence: JobsSnapshot, report: JobsReport): boolean {
+  return JSON.stringify(evidence.snapshot.context) === JSON.stringify(report.context);
 }

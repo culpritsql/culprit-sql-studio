@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
-import { Jobs } from "../components/Jobs";
+import { JobComparisonContext, Jobs } from "../components/Jobs";
+import { chartEvents } from "../components/ChangeTimeline";
 import { HealthTab } from "../components/Health";
 import type { OperationalObservation } from "../gen/OperationalObservation";
 import { partial } from "../test/fixtures";
@@ -167,4 +168,77 @@ test("an execution child from another read cannot supply typed execution details
   const html=renderToStaticMarkup(<Jobs evidence={evidence} report={report}/>);
   expect(html).toContain("2147483647");
   expect(html).not.toContain(t("ui.jobs.execution.inspect"));
+});
+
+
+test("What Changed keeps unplaced Agent evidence folded with original scope/acquisition and no UTC window or causal marker", () => {
+  const evidence = agentJobEvidence(); const report = agentJobsReport(evidence);
+  const before = JSON.stringify({ evidence, report });
+  const html = renderToStaticMarkup(<JobComparisonContext evidence={evidence} report={report} />);
+  expect(html).toContain(t("ui.what_changed.jobs_context.clock"));
+  expect(html).toContain(t("ui.what_changed.jobs_context.scope", { scope: "shared" }));
+  expect(html).toContain(evidence.snapshot.context.observed_from);
+  expect(html).toContain(evidence.snapshot.context.observed_until);
+  expect(html).toContain(t("ui.jobs.execution.status", { status: "failed" }));
+  expect(html).toContain("20261115"); expect(html).toContain("250101");
+  expect(html).toContain("stored &lt;script&gt;agent-canary&lt;/script&gt;"); expect(html).not.toContain("<script>");
+  expect(html).not.toMatch(/<details[^>]*\bopen(?:=|\s|>)/);
+  expect(html).not.toContain("private-agent-machine"); expect(html).not.toContain("private-agent-instance");
+  expect(chartEvents(report.executions.events)).toEqual([]);
+  expect(JSON.stringify({ evidence, report })).toBe(before);
+});
+
+test("unplaced in-progress history retains the write-clock role without turning a DST local time into a start or UTC end", () => {
+  const evidence = agentJobEvidence(); const report = agentJobsReport(evidence);
+  const raw = evidence.snapshot.observations[0]!;
+  if (raw.fact.kind !== "mssql-agent-history") throw new Error("Agent history fixture");
+  raw.fact.data.run_status = 4; raw.fact.data.run_date = "20261025"; raw.fact.data.run_time = "33000";
+  const entry = report.executions.entries[0]!;
+  if (entry.time.kind !== "mssql-local" || entry.reference.native.kind !== "mssql-agent-history" || entry.diagnostics.kind !== "mssql") throw new Error("Agent execution fixture");
+  entry.status = "in-progress"; entry.diagnostics.native_status = 4;
+  entry.time.run_date = raw.fact.data.run_date; entry.reference.native.run_date = raw.fact.data.run_date;
+  entry.time.run_time = raw.fact.data.run_time; entry.reference.native.run_time = raw.fact.data.run_time;
+  entry.time.started_without_offset = "2026-10-25T03:30:00"; entry.time.history_written_time = true;
+  report.entries[0]!.explanation = "This retained history write reports work in progress.";
+  const html = renderToStaticMarkup(<JobComparisonContext evidence={evidence} report={report} />);
+  expect(html).toContain(t("ui.jobs.execution.local_time_role", { role: "written" }));
+  expect(html).toContain(t("ui.jobs.execution.status", { status: "progress" }));
+  expect(html).toContain("20261025"); expect(html).toContain("33000");
+  expect(html).not.toContain("2026-10-25T03:30:00Z");
+  expect(chartEvents(report.executions.events)).toEqual([]);
+});
+
+test("a missing or different original read cannot supply native details beside a comparison", () => {
+  for (const missing of [false, true]) {
+    const evidence = agentJobEvidence(); const report = agentJobsReport(evidence);
+    if (!missing) report.context = { ...report.context, observed_until: "2026-11-15T12:00:02.123456Z" };
+    const html = renderToStaticMarkup(<JobComparisonContext evidence={missing ? null : evidence} report={report} />);
+    expect(html).toContain(t("ui.memory_failures.missing_row"));
+    expect(html).not.toContain("2147483647"); expect(html).not.toContain("250101");
+    expect(html).not.toContain("agent-canary"); expect(html).not.toContain(t("ui.jobs.execution.inspect"));
+  }
+});
+
+test("denied or partial retained coverage stays explicit without claiming that no job ran", () => {
+  const evidence = agentJobEvidence(); evidence.snapshot.observations = [];
+  evidence.read_complete = false; evidence.snapshot.sources[0]!.records = 0; evidence.snapshot.sources[0]!.state = "unavailable";
+  const report = agentJobsReport(); report.entries = []; report.executions.entries = [];
+  report.native_rows = 0; report.observed_rows = 0; report.summary = "Native history is unavailable.";
+  report.executions.assessment.sources[0]!.native_rows = 0; report.executions.assessment.sources[0]!.observed_rows = 0;
+  report.executions.assessment.unplaced_records = 0; report.executions.assessment.step_records = 0;
+  report.executions.assessment.read_complete = false; report.executions.assessment.sources[0]!.state = "unavailable";
+  report.read_complete = false; report.sources[0]!.state = "unavailable"; report.sources[0]!.reason = { text: "Original msdb visibility denied." };
+  const html = renderToStaticMarkup(<JobComparisonContext evidence={evidence} report={report} />);
+  expect(html).toContain(t("ui.what_changed.jobs_context.coverage"));
+  expect(html).toContain("Original msdb visibility denied.");
+  expect(html).not.toContain(t("ui.health.empty")); expect(html).not.toContain(t("ui.what_changed.jobs_context.clock"));
+});
+
+test("complete zero-unplaced records do not duplicate UTC job markers or create an unplaced section", () => {
+  const evidence = jobsEvidence([]); const report = jobsReport([]);
+  evidence.snapshot.sources.forEach((source) => { source.complete_scope = true; source.state = "empty"; });
+  report.sources.forEach((source) => { source.state = "empty"; source.reason = null; });
+  report.executions.assessment.sources.forEach((source) => { source.complete_scope = true; source.state = "empty"; });
+  expect(renderToStaticMarkup(<JobComparisonContext evidence={evidence} report={report} />)).toBe("");
+  expect(renderToStaticMarkup(<JobComparisonContext evidence={evidence} report={null} />)).toBe("");
 });

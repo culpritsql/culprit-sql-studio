@@ -18,6 +18,7 @@ import { changeRequest, setState } from "../lib/store";
 import { AroundThen, PeriodStrip } from "./ChangeTimeline";
 import { EventIcon, eventTone } from "./EventIcon";
 import { MarkButton } from "./MarkButton";
+import { JobComparisonContext } from "./Jobs";
 import { rangeLabel, when } from "./TimeChart";
 
 type State = { status: "loading" } | { status: "ready"; changes: Changes } | { status: "error"; error: ApiError };
@@ -281,6 +282,7 @@ export default function WhatChanged({ report, request, onClose }: { report: Repo
               }
             }}
           />
+          <JobComparisonContext evidence={report.snapshot.operations.jobs} report={report.jobs} />
           {GROUPS.map((g) => {
             const group = rows.filter((q) => q.status === g.status);
             if (!group.length) return null;

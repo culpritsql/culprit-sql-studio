@@ -10,6 +10,12 @@ function isTyping(target: EventTarget | null): boolean {
   return target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "SELECT";
 }
 
+function activatesFocusedControl(event: KeyboardEvent): boolean {
+  return (event.key === "Enter" || event.key === " ")
+    && event.target instanceof Element
+    && event.target.closest("button, a[href], summary, [role='button'], [role='link']") !== null;
+}
+
 export function comboOf(event: KeyboardEvent): string {
   const parts: string[] = [];
   if (event.metaKey || event.ctrlKey) parts.push("mod");
@@ -31,7 +37,7 @@ export function useHotkeys(bindings: Bindings, enabled = true): void {
       const combo = comboOf(event);
       const handler = ref.current[combo];
       if (!handler) return;
-      if (!combo.startsWith("mod+") && combo !== "Escape" && isTyping(event.target)) return;
+      if (!combo.startsWith("mod+") && combo !== "Escape" && (isTyping(event.target) || activatesFocusedControl(event))) return;
       event.preventDefault();
       handler(event);
     };

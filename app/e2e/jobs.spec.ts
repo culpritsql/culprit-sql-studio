@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import english from "../../locales/en.json" with { type: "json" };
+import type { ChangeRequest } from "../src/gen/ChangeRequest";
 import type { State } from "../src/lib/store";
 import { JOBS_SOURCE, jobPoint, jobsEvidence, jobsReport, agentJobEvidence, agentJobsReport } from "../src/test/jobs";
 import { openConnection, waitForReport } from "./demo";
@@ -67,4 +68,44 @@ test("Agent retained history opens as exact native text with independent local-t
   await card.getByText(english["ui.memory_failures.investigation"],{exact:true}).click();await expect(card).toContainText("without executing jobs");
   await region.getByText(english["ui.memory_failures.limitations"],{exact:true}).click();await expect(region).toContainText("Job local times have no recorded offset.");await expect(region).toContainText("An old failure does not establish a current failing job.");
   await expect(region.getByRole("button",{name:/execute|run job|kill|terminate/i})).toHaveCount(0);
+});
+
+test("What Changed keeps unplaced job context folded and opens the original history with the keyboard", async ({ page }) => {
+  await openConnection(page, "mssql-demo");
+  await waitForReport(page);
+  const evidence = agentJobEvidence();
+  const report = agentJobsReport(evidence);
+  await page.evaluate(async ({ evidence, report, path }) => {
+    const store = await import(path) as {
+      getState: () => State;
+      setState: (patch: Partial<State>) => void;
+      changeRequest: () => ChangeRequest;
+    };
+    const state = store.getState();
+    if (state.report.status !== "ready") throw new Error("Ready fixture report required");
+    const next = structuredClone(state.report.report);
+    next.snapshot.operations.jobs = evidence;
+    next.jobs = report;
+    store.setState({ view: "overview", report: { ...state.report, report: next }, changes: store.changeRequest() });
+  }, { evidence, report, path: "/src/lib/store.ts" });
+
+  const context = page.locator("details.wc-group").filter({ hasText: english["ui.what_changed.jobs_context.title"] });
+  await expect(context).toBeVisible();
+  await expect(context).not.toHaveAttribute("open", "");
+  const summary = context.locator(":scope > summary");
+  await summary.focus();
+  await summary.press("Enter");
+  await expect(context).toHaveAttribute("open", "");
+  await expect(context).toContainText(english["ui.what_changed.jobs_context.clock"]);
+  await expect(context).toContainText(english["ui.what_changed.jobs_context.coverage"]);
+  const history = context.getByRole("region", { name: report.title, exact: true });
+  const card = history.locator(".observation-grid > .operational-card").first();
+  await expect(card).not.toBeVisible();
+  await history.getByText(english["ui.jobs.inspect"], { exact: true }).click();
+  await expect(card).toContainText("2147483647");
+  await expect(card.locator("script")).toHaveCount(0);
+  await expect(history.getByRole("button", { name: /execute|run job|kill|terminate/i })).toHaveCount(0);
+  await summary.focus();
+  await summary.press("Enter");
+  await expect(card).not.toBeVisible();
 });
