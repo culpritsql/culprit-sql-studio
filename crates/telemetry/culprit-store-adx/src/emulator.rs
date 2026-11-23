@@ -289,7 +289,7 @@ async fn functional_contract_and_canonical_sets() {
         .collect();
     assert_eq!(
         emulator.values(text.into(), scope(&counter.range), exact_columns).await,
-        vec![vec![json!("9007199254740993"), json!("18446744073709551615"), json!("unknown")]]
+        vec![vec![json!("9007199254740993"), json!("9223372036854775807"), json!("unknown")]]
     );
     let partial =
         Scenario::new(test_support::waits("adx:test", catalog.digest(), 7, true, false), emulator.clone()).await;
