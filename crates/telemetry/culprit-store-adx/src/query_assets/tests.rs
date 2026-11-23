@@ -38,15 +38,9 @@ fn friendly_helpers_keep_publication_membership_and_closed_namespace_binding_for
     ] {
         assert!(text.contains(guard), "{guard}");
     }
-    for forbidden in [
-        "skipvalidation",
-        "ingestion_time()",
-        "COUNT(DISTINCT Query",
-        "arg_max(",
-        "argMax(",
-        "CREATE TABLE",
-        ".create table",
-    ] {
+    for forbidden in
+        ["skipvalidation", "ingestion_time()", "COUNT(DISTINCT Query", "argMax(", "CREATE TABLE", ".create table"]
+    {
         assert!(!text.contains(forbidden), "{forbidden}");
     }
     assert!(!text.contains('$'));
@@ -440,4 +434,34 @@ fn optional_queued_batching_is_adx_owned_and_never_part_of_helper_or_dashboard_i
     }
     assert!(example.contains("MaximumBatchingTimeSpan") && example.contains("00:00:30"));
     assert!(!example.contains("streaming") && !example.contains("MaximumRawDataSizeMB"));
+}
+
+#[test]
+fn latest_interpretation_census_precedes_latest_timestamp_and_conflict_refusal_without_older_fallback() {
+    let assets = configured(binding()).unwrap();
+    let heads =
+        assets.commands.iter().find(|command| command.starts_with(".create-or-alter function PilotHeads(")).unwrap();
+    let census = heads.find("Variants=count()").unwrap();
+    let latest = heads.find("arg_max(RecordedAt,*").unwrap();
+    let accepted = heads.find("| where Variants == 1").unwrap();
+    assert!(
+        census < latest && latest < accepted,
+        "a conflicting latest timestamp must not revive an older unique interpretation"
+    );
+    assert!(
+        heads.contains("isnotnull(RecordedAt)"),
+        "arg_max must not return a row from an entirely unknown clock population"
+    );
+    assert_eq!(heads.matches("PilotHeadBasis(asof)").count(), 1);
+    assert!(heads.contains("RecordedAt,AnalysisId,DetailSha256,InterpretationHeader"));
+    assert!(heads.contains("| project-away Variants,InterpretationHeader"));
+    assert_eq!(heads.matches("take_any(*)").count(), 2, "each census chooses one complete row");
+    for command in &assets.commands {
+        if command != heads {
+            assert!(
+                !command.contains("arg_max("),
+                "native revision, publication and time guards retain their original owner"
+            );
+        }
+    }
 }

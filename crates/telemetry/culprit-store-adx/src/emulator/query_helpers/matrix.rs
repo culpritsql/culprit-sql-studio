@@ -96,7 +96,7 @@ fn alias(name: &str, target: &str, operator: &str) -> String {
 }}"
     )
 }
-fn copied(commands: &[String], original: &str, replacement: &str) -> String {
+pub(super) fn copied(commands: &[String], original: &str, replacement: &str) -> String {
     let prefix = format!(".create-or-alter function {original}(");
     let command =
         commands.iter().find(|command| command.starts_with(&prefix)).expect("already verified generated function");

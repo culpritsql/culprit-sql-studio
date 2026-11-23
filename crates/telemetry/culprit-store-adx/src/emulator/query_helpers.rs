@@ -1,5 +1,6 @@
 mod deployment;
 mod eligibility;
+mod heads;
 mod matrix;
 use super::*;
 use culprit_evidence::analytical::query_helpers::{QueryHelperBinding, QueryHelperPolicy};
@@ -128,6 +129,7 @@ pub(super) async fn run(emulator: &Arc<Emulator>, catalog: &SchemaCatalog) {
     // Nonempty data is the failing boundary. Collect every stage and equivalent wrapper before the
     // production assertion; empty-only planning success cannot establish that the published path works.
     matrix::published(emulator, &commands, matrix::Window { resource: &label, from: &from, until: &until }).await;
+    heads::assert_selection(emulator, &commands).await;
     assert_eq!(
         count(emulator, &format!("FriendlySmokeIncidentWindow(datetime({from}),datetime({until}),datetime({after}))"))
             .await,

@@ -83,14 +83,13 @@ Rows | join kind=leftsemi ($NConsistentOriginalKeys(Rows)) on ResourceId,TargetI
 }
 
 .create-or-alter function $NHeads(asof:datetime) {
-let Pinned=materialize($NHeadBasis(asof) | where ($ANALYZER_MATCH) and RulesVersion == $RULES);
-let Times=Pinned | summarize RecordedAt=max(RecordedAt) by ResourceId,TargetId,OriginalScopeId,OriginalSource,EpisodeId,ControllerVersion;
-let Latest=materialize(Pinned | join kind=leftsemi Times on ResourceId,TargetId,OriginalScopeId,OriginalSource,EpisodeId,ControllerVersion,RecordedAt);
-let Unique=Latest | extend InterpretationHeader=tostring(pack_array(InputReadComplete,OutputCoverage,OutputLimitations,FindingEvaluations,ChangeEvaluations,ContextIssues,OriginalObservedFrom,OriginalObservedUntil,InputReferences,AnalysisOrigin,Language))
-    | distinct ResourceId,TargetId,OriginalScopeId,OriginalSource,EpisodeId,ControllerVersion,AnalysisId,DetailSha256,InterpretationHeader
-    | summarize Variants=count() by ResourceId,TargetId,OriginalScopeId,OriginalSource,EpisodeId,ControllerVersion | where Variants == 1;
-Latest | join kind=leftsemi Unique on ResourceId,TargetId,OriginalScopeId,OriginalSource,EpisodeId,ControllerVersion
-| summarize take_any(*) by ResourceId,TargetId,OriginalScopeId,OriginalSource,EpisodeId,ControllerVersion
+$NHeadBasis(asof) | where ($ANALYZER_MATCH) and RulesVersion == $RULES and isnotnull(RecordedAt)
+| extend InterpretationHeader=tostring(pack_array(InputReadComplete,OutputCoverage,OutputLimitations,FindingEvaluations,ChangeEvaluations,ContextIssues,OriginalObservedFrom,OriginalObservedUntil,InputReferences,AnalysisOrigin,Language))
+| summarize take_any(*) by ResourceId,TargetId,OriginalScopeId,OriginalSource,EpisodeId,ControllerVersion,RecordedAt,AnalysisId,DetailSha256,InterpretationHeader
+| summarize Variants=count(),take_any(*) by ResourceId,TargetId,OriginalScopeId,OriginalSource,EpisodeId,ControllerVersion,RecordedAt
+| summarize arg_max(RecordedAt,*) by ResourceId,TargetId,OriginalScopeId,OriginalSource,EpisodeId,ControllerVersion
+| where Variants == 1
+| project-away Variants,InterpretationHeader
 }
 
 .create-or-alter function $NIncidentWindow(window_from:datetime,window_until:datetime,asof:datetime) {
