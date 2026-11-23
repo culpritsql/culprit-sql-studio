@@ -173,6 +173,46 @@ class DisposableOwnership(unittest.TestCase):
 
 
 class ReplicationOwnership(unittest.TestCase):
+    def test_network_defaults_keep_docker_automatic_allocation_and_nonce_cleanup(self):
+        commands = Mock()
+        owner = "a" * 24
+        commands.run.side_effect = [(0, ""), (0, owner + "\n"), (0, "")]
+        with OwnedNetwork(commands, owner, smoke.OWNER_LABEL) as network:
+            self.assertIsNone(network.subnet)
+        self.assertEqual(commands.run.call_args_list[0].args[0], [
+            "docker", "network", "create", "--label", f"{smoke.OWNER_LABEL}={owner}", network.name,
+        ])
+        self.assertEqual(commands.run.call_args_list[-1].args[0], ["docker", "network", "rm", network.name])
+
+    def test_explicit_private_subnet_preserves_nonce_and_owned_cleanup(self):
+        for subnet in ("10.249.0.0/28", "172.31.240.0/28", "192.168.240.0/28"):
+            with self.subTest(subnet=subnet):
+                commands = Mock()
+                owner = "b" * 24
+                commands.run.side_effect = [(0, ""), (0, owner + "\n"), (0, "")]
+                with OwnedNetwork(commands, owner, smoke.OWNER_LABEL, subnet=subnet) as network:
+                    self.assertEqual(network.subnet, subnet)
+                self.assertEqual(commands.run.call_args_list[0].args[0], [
+                    "docker", "network", "create", "--label", f"{smoke.OWNER_LABEL}={owner}",
+                    "--subnet", subnet, network.name,
+                ])
+                self.assertEqual(commands.run.call_args_list[-1].args[0], ["docker", "network", "rm", network.name])
+                commands.run.return_value = (0, "foreign-owner\n")
+                commands.run.side_effect = None
+                with self.assertRaisesRegex(RuntimeError, "ownership label"):
+                    network.close()
+                self.assertEqual(commands.run.call_args_list[-1].args[0][:3], ["docker", "network", "inspect"])
+
+    def test_invalid_explicit_subnet_is_rejected_before_docker_work(self):
+        for subnet in ("", "192.168.240.0", "192.168.240.1/28", "0.0.0.0/0", "8.8.8.0/28",
+                       "127.0.0.0/28", "169.254.0.0/28", "100.64.0.0/28", "198.18.0.0/28",
+                       "192.167.240.0/28", "172.32.240.0/28", "fc00::/64", 123):
+            with self.subTest(subnet=subnet):
+                commands = Mock()
+                with self.assertRaisesRegex(ValueError, "aligned RFC1918 IPv4 CIDR"):
+                    OwnedNetwork(commands, "c" * 24, smoke.OWNER_LABEL, subnet=subnet)
+                commands.run.assert_not_called()
+
     def test_cancelled_ag_failure_diagnostics_still_release_members_and_network(self):
         fixture = next(fixture for fixture in smoke.FIXTURES if fixture.engine == "mssql")
         primary = smoke.Database(smoke.replace(fixture, name="mssql-ag-primary"))
@@ -467,6 +507,28 @@ class MssqlFixtureIdentity(unittest.TestCase):
         self.assertEqual(topology.name, "culprit_ag_" + primary.owner)
 
 
+    def test_opt_in_sqlcmd_message_routing_preserves_the_same_owner_query_and_deadlines(self):
+        database = smoke.Database(self.ordinary_fixture())
+        database.commands = Mock()
+        database.commands.run.return_value = (0, "one native row")
+        for routed in (False, True):
+            with self.subTest(routed=routed):
+                database.sql("SELECT 1;", database="master", timeout=7, messages_to_stderr=routed)
+                call = database.commands.run.call_args
+                args = call.args[0]
+                self.assertEqual("-r1" in args, routed)
+                self.assertTrue(call.kwargs["separate_stderr"])
+                self.assertEqual(call.kwargs["timeout"], 7)
+                self.assertEqual(call.kwargs["input"], "SELECT 1;")
+                self.assertEqual(call.kwargs["env"], {"SQLCMDPASSWORD": database.password})
+                self.assertNotIn(database.password, args)
+        unrelated = smoke.Database(next(fixture for fixture in smoke.FIXTURES if fixture.name == "postgres"))
+        unrelated.commands = Mock()
+        with self.assertRaisesRegex(ValueError, "owned SQL Server"):
+            unrelated.sql("SELECT 1;", messages_to_stderr=True)
+        unrelated.commands.run.assert_not_called()
+
+
 class MssqlFailureDiagnostics(unittest.TestCase):
     def topology(self):
         fixture = next(fixture for fixture in smoke.FIXTURES if fixture.name == "mssql")
@@ -477,6 +539,13 @@ class MssqlFailureDiagnostics(unittest.TestCase):
             database.commands.run.return_value = (0, database.owner)
             database.sql = Mock(return_value=(0, "public endpoint metadata\n"))
         return smoke.SqlServerReplication(*members, smoke.OWNER_LABEL)
+
+    def test_ag_sql_routes_existing_nowait_markers_without_new_queries_or_timeout_changes(self):
+        topology = self.topology()
+        statement = "RAISERROR('owned join entered',0,1) WITH NOWAIT;"
+        topology.sql(topology.secondary, statement, timeout=7)
+        topology.secondary.sql.assert_called_once_with(
+            statement, database="master", timeout=7, messages_to_stderr=True)
 
     def test_failure_reads_only_bounded_public_metadata_for_the_exact_owned_endpoint_and_group(self):
         topology = self.topology()

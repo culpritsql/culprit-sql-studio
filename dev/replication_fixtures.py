@@ -1,13 +1,33 @@
 """Owned native replication topologies; production readers never perform this setup."""
 
 from contextlib import ExitStack
+from ipaddress import IPv4Network
 import re
 import secrets
 import time
 
 
+RFC1918_NETWORKS = tuple(IPv4Network(cidr) for cidr in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"))
+
+
+def explicit_private_subnet(subnet):
+    if subnet is None:
+        return None
+    message = "an explicit smoke subnet must be an aligned RFC1918 IPv4 CIDR"
+    if not isinstance(subnet, str) or "/" not in subnet:
+        raise ValueError(message)
+    try:
+        network = IPv4Network(subnet, strict=True)
+    except ValueError as error:
+        raise ValueError(message) from error
+    if not any(network.subnet_of(private) for private in RFC1918_NETWORKS):
+        raise ValueError(message)
+    return str(network)
+
+
 class OwnedNetwork:
-    def __init__(self, commands, owner, label):
+    def __init__(self, commands, owner, label, *, subnet=None):
+        self.subnet = explicit_private_subnet(subnet)
         self.commands = commands
         self.owner = owner
         self.label = label
@@ -15,7 +35,10 @@ class OwnedNetwork:
 
     def __enter__(self):
         try:
-            self.commands.run(["docker", "network", "create", "--label", f"{self.label}={self.owner}", self.name])
+            command = ["docker", "network", "create", "--label", f"{self.label}={self.owner}"]
+            if self.subnet is not None:
+                command += ["--subnet", self.subnet]
+            self.commands.run([*command, self.name])
             return self
         except BaseException:
             self.close()

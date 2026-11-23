@@ -377,8 +377,11 @@ class Database:
     def admin_database(self):
         return {"postgres": "postgres", "yugabyte": "yugabyte", "mysql": "mysql", "mssql": "master"}[self.fixture.engine]
 
-    def sql(self, sql, *, database=None, check=True, timeout=COMMAND_BUDGET, tuples=False):
+    def sql(self, sql, *, database=None, check=True, timeout=COMMAND_BUDGET, tuples=False,
+            messages_to_stderr=False):
         fixture = self.fixture
+        if messages_to_stderr and fixture.engine != "mssql":
+            raise ValueError("SQL message routing requires the owned SQL Server fixture")
         database = database or fixture.database
         env = {}
         args = ["docker", "exec", "-i"]
@@ -403,6 +406,8 @@ class Database:
             env = {"SQLCMDPASSWORD": self.password}
             args += ["-e", "SQLCMDPASSWORD", self.name, "/opt/mssql-tools18/bin/sqlcmd",
                      "-C", "-S", "localhost", "-U", fixture.user, "-d", database, "-b", "-l", str(CONNECT_BUDGET)]
+            if messages_to_stderr:
+                args += ["-r1"]
         return self.commands.run(args, input=sql, env=env, check=check, timeout=timeout, separate_stderr=True)
 
     def seed(self):

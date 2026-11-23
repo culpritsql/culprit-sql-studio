@@ -159,6 +159,19 @@ pub(crate) fn query(
         .send(body)
         .map_err(|_| DeliveryProblem::Transport.error())?;
     if response.status().as_u16() != 200 {
+        #[cfg(test)]
+        if origin.starts_with("http://127.0.0.1:") {
+            // Synthetic owned-emulator replies only; production/cloud errors remain credential-free.
+            const DIAGNOSTIC_CHARS: usize = 4096;
+            let status = response.status();
+            match response.body_mut().with_config().limit(METADATA_BYTES).read_to_vec() {
+                Ok(bytes) => eprintln!(
+                    "Owned emulator query HTTP {status}: {}",
+                    String::from_utf8_lossy(&bytes).chars().take(DIAGNOSTIC_CHARS).collect::<String>()
+                ),
+                Err(_) => eprintln!("Owned emulator query HTTP {status}: bounded diagnostic reply unavailable"),
+            }
+        }
         return Err(DeliveryProblem::Transport.error());
     }
     let bytes = response

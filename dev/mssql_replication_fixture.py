@@ -240,7 +240,8 @@ WHERE g.name={sql_string(self.name)} ORDER BY r.replica_server_name;
     def sql(database, statement, *, selected_database="master", timeout=30):
         if not database.owns_container():
             raise RuntimeError("the exact owned AG member disappeared before native setup or verification")
-        return database.sql(statement, database=selected_database, timeout=timeout)
+        # Keep NOWAIT setup-phase messages on unbuffered stderr, already captured and redacted on timeout.
+        return database.sql(statement, database=selected_database, timeout=timeout, messages_to_stderr=True)
 
     def value(self, database, expression, *, timeout=30):
         _, output = self.sql(database, f"SET NOCOUNT ON; SELECT {sql_string(VALUE_PREFIX)} + "

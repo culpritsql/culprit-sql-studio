@@ -86,7 +86,17 @@ impl QueryTransport for Emulator {
         "adx:test"
     }
     async fn query(&self, request: QueryRequest) -> Result<QueryTable> {
-        client::emulator_query(self.port, request)
+        let text = request.text.clone();
+        let result = client::emulator_query(self.port, request);
+        if result.is_err() {
+            // Every request here is this fixture's synthetic SQL/KQL, never a source or cloud credential.
+            const DIAGNOSTIC_CHARS: usize = 4096;
+            eprintln!(
+                "Owned emulator failed synthetic query: {}",
+                text.chars().take(DIAGNOSTIC_CHARS).collect::<String>()
+            );
+        }
+        result
     }
 }
 fn scope(range: &CommittedRange) -> BTreeMap<String, Value> {
