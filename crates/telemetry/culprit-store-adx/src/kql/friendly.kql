@@ -33,11 +33,15 @@ CulpritFindingsV1NamespaceRows($CONTRACT,$STORE,$FROM,asof)
 CulpritChangesV1NamespaceRows($CONTRACT,$STORE,$FROM,asof)
 }
 
-.create-or-alter function $NIncidentCompleteness(asof:datetime) {
-let Incidents=$NIncidentRows(asof) | summarize IncidentRows=count() by RangeId;
+.create-or-alter function $NIncidentCompletenessFromRows(Rows:(RangeId:string),asof:datetime) {
+let Incidents=Rows | summarize IncidentRows=count() by RangeId;
 $NHeaders(asof)
 | join kind=leftouter Incidents on RangeId
 | extend IncidentRowsComplete=coalesce(IncidentRows,0) == tolong(Header.counts.incidents)
+}
+
+.create-or-alter function $NIncidentCompleteness(asof:datetime) {
+$NIncidentCompletenessFromRows($NIncidentRows(asof),asof)
 }
 
 .create-or-alter function $NCompleteness(asof:datetime) {
@@ -64,8 +68,9 @@ Rows | join kind=leftsemi ($NConsistentOriginalKeys(Rows)) on ResourceId,TargetI
 }
 
 .create-or-alter function $NHeadBasis(asof:datetime) {
-let CompleteResources=$NIncidentCompleteness(asof) | summarize Missing=countif(not(IncidentRowsComplete)) by ResourceId | where Missing == 0;
-let Rows=materialize($NIncidentRows(asof) | join kind=leftsemi CompleteResources on ResourceId);
+let OriginalRows=materialize($NIncidentRows(asof));
+let CompleteResources=$NIncidentCompletenessFromRows(OriginalRows,asof) | summarize Missing=countif(not(IncidentRowsComplete)) by ResourceId | where Missing == 0;
+let Rows=materialize(OriginalRows | join kind=leftsemi CompleteResources on ResourceId);
 let Versions=Rows | summarize Revision=max(Revision) by ResourceId,TargetId,OriginalScopeId,OriginalSource,EpisodeId,ControllerVersion;
 Rows | join kind=leftsemi ($NConsistentOriginalKeys(Rows)) on ResourceId,TargetId,OriginalScopeId,OriginalSource,EpisodeId,ControllerVersion,Revision
 | join kind=leftsemi Versions on ResourceId,TargetId,OriginalScopeId,OriginalSource,EpisodeId,ControllerVersion,Revision

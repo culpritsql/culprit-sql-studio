@@ -161,7 +161,8 @@ fn first_observation_consistency_precedes_its_window_and_is_shared_by_heads_aler
         .find(|command| command.contains("VIEW PilotHeadBasis ") || command.contains("function PilotHeadBasis("))
         .unwrap();
     assert!(head.contains("max(Revision)") && head.contains("PilotConsistentOriginalKeys(Rows)"));
-    assert!(head.contains("PilotIncidentCompleteness(asof)"));
+    assert!(head.contains("PilotIncidentCompletenessFromRows(OriginalRows,asof)"));
+    assert_eq!(head.matches("PilotIncidentRows(asof)").count(), 1);
     assert!(!head.contains("PilotCompleteness(asof)"));
     let alert = definitions
         .iter()

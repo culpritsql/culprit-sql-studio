@@ -67,6 +67,25 @@ pub(super) async fn run(emulator: &Arc<Emulator>, catalog: &SchemaCatalog) {
         emulator.management(true, &command);
     }
     first.dispatch(emulator).await;
+    let contract = serde_json::to_string(&first.range.manifest().contract.id().unwrap()).unwrap();
+    let store = serde_json::to_string(first.range.store_id()).unwrap();
+    assert_eq!(
+        count(emulator, &format!("CulpritPublishedNamespaceV1({contract},{store},datetime(2019),now())")).await,
+        0,
+        "unpublished source headers cannot supply resource names or batch membership"
+    );
+    assert_eq!(
+        count(emulator, &format!("CulpritIncidentsV1NamespaceRows({contract},{store},datetime(2019),now())")).await,
+        0,
+        "landed incident rows remain unavailable before their publication"
+    );
+    for stage in ["IncidentCompleteness", "HeadBasis", "Heads"] {
+        assert_eq!(
+            count(emulator, &format!("FriendlySmoke{stage}(now())")).await,
+            0,
+            "{stage} cannot promote an unpublished incident"
+        );
+    }
     assert_eq!(
         count(emulator, &format!("FriendlySmokeIncidentsDuring({label},datetime({from}),datetime({until}))")).await,
         0,
