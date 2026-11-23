@@ -92,12 +92,14 @@ export function PlanSurface({
   query,
   focus,
   look,
+  onLookChange,
   badge,
 }: {
   plan: Plan;
   query?: QueryStat | null;
   focus?: number | null;
   look: PlanLook;
+  onLookChange?: (look: PlanLook) => void;
   badge?: string;
 }) {
   const [selected, setSelected] = useState<number | null>(null);
@@ -112,6 +114,11 @@ export function PlanSurface({
       <PlanInsights plan={plan} selectedNode={selected} onSelectNode={setSelected} />
       <DocdbWork metrics={plan.facts.docdb} basis="execution" />
       <PlanTypeSchema plan={plan} />
+      {onLookChange && (
+        <div className="pv-canvas-bar">
+          <LookToggle look={look} onChange={onLookChange} hasRaw={Boolean(plan.raw)} />
+        </div>
+      )}
       {look === "diagram" && <PlanDiagram plan={plan} query={query} focus={focus} selectedId={selected} onSelect={setSelected} badge={badge} />}
       {look === "tree" && <PlanView plan={plan} query={query} focus={focus} selectedId={selected} onSelect={setSelected} />}
       {look === "operations" && <OperationsPanel plan={plan} query={query} focus={focus} selected={selected ?? focus ?? null} onSelect={setSelected} />}

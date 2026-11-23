@@ -1,5 +1,5 @@
 import { ChevronDown, ChevronRight, ChevronUp, Flame, Search, TriangleAlert, X } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import { ActualSummary } from "./ActualSummary.js";
 import {
   canPlanEstimates,
@@ -261,7 +261,7 @@ export function PlanView({
               }}
             >
               <span className="label">
-                <span className="indent" style={{ width: Math.min(depth, 12) * 12 }} />
+                <span className="indent" style={{ "--depth": Math.min(depth, 12) } as CSSProperties} />
                 <span
                   className="twisty"
                   aria-hidden
@@ -278,14 +278,16 @@ export function PlanView({
                       <OpIcon node={node} size={13} />
                     </span>
                     {node.id === hottest?.id && (share ?? 0) >= 0.05 && <Flame size={13} color="var(--heat-4)" className="flame" />}
-                    <span className="opname">{node.op}</span>
+                    <span className="opname" title={node.op}>
+                      {node.op}
+                    </span>
                     {flagged.get(node.id)?.[0] && (
                       <span className={`tree-flag ${flagged.get(node.id)![0]!.severity}`} title={flagged.get(node.id)!.map((i) => i.title).join("\n")}>
                         {flagged.get(node.id)!.length}
                       </span>
                     )}
                     {node.object && (
-                      <span className="obj">
+                      <span className="obj" title={node.index ? `${node.object} · ${node.index}` : node.object}>
                         {node.object}
                         {node.index ? ` · ${node.index}` : ""}
                       </span>
@@ -308,7 +310,9 @@ export function PlanView({
               <span className="rows">
                 {node.act_rows != null ? (
                   <>
-                    {rowsText(estRowsForRuns(plan, node))} <span className="arrow">→</span> {rowsText(node.act_rows)}
+                    <span className="rows-pair">
+                      {rowsText(estRowsForRuns(plan, node))} <span className="arrow">→</span> {rowsText(node.act_rows)}
+                    </span>
                     {mis != null && (
                       <span className="mis">
                         {mis < 0 ? t("ui.plan_view.over", { times: count(Math.abs(mis)) }) : t("ui.plan_view.under", { times: count(Math.abs(mis)) })}

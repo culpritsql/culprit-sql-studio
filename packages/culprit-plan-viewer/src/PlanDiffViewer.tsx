@@ -240,36 +240,23 @@ export function PlanDiffViewer({
 
   return (
     <div className={`culprit-pv pv-diff cmp ${className ?? ""}`} data-theme={theme && theme !== "system" ? theme : undefined}>
-      <div className="compare-pickers">
-        {toolbarStart ?? (
-          <div className="pv-meta">
-            <span className="side-badge">A</span> <b>{names[0]}</b>
-            <span className="muted">vs</span>
-            <span className="side-badge">B</span> <b>{names[1]}</b>
-          </div>
-        )}
-        <span className="spacer" />
-        <span className="seg" role="group" aria-label={t("ui.plan_compare.plan_view")}>
-          <button type="button" className={look === "diagram" ? "on" : ""} onClick={() => setLook("diagram")}>
-            {t("ui.plan_compare.diagram")}
-          </button>
-          <button type="button" className={look === "tree" ? "on" : ""} onClick={() => setLook("tree")}>
-            {t("ui.plan_compare.tree")}
-          </button>
-        </span>
-        {look === "diagram" && (
-          <button
-            type="button"
-            className={`btn ghost cmp-sync ${sync ? "on" : ""}`}
-            aria-pressed={sync}
-            title={sync ? t("ui.plan_compare.sync_on") : t("ui.plan_compare.sync_off")}
-            onClick={() => setSync(!sync)}
-          >
-            {sync ? <Link2 size={13} /> : <Unlink2 size={13} />} {t("ui.plan_compare.sync")}
-          </button>
-        )}
-        {toolbarActions}
-      </div>
+      {(toolbarStart || toolbarActions || names[0] || names[1]) && (
+        <div className="compare-pickers">
+          {toolbarStart ?? (
+            <div className="pv-meta">
+              <span className="side-badge">A</span> <b>{names[0]}</b>
+              <span className="muted">vs</span>
+              <span className="side-badge">B</span> <b>{names[1]}</b>
+            </div>
+          )}
+          {toolbarActions && (
+            <>
+              <span className="spacer" />
+              {toolbarActions}
+            </>
+          )}
+        </div>
+      )}
 
       <section className="cmp-verdict" aria-live="polite">
         <p className="cmp-lead">
@@ -370,16 +357,41 @@ export function PlanDiffViewer({
         </div>
       </section>
 
-      <div className="cmp-legend" aria-hidden>
-        <span className="cmp-key">
-          <i className="tint" /> {t("ui.plan_compare.legend.same")}
-        </span>
-        <span className="cmp-key">
-          <i className="changed" /> {t("ui.plan_compare.legend.changed")}
-        </span>
-        <span className="cmp-key">
-          <i className="only" /> {t("ui.plan_compare.legend.only")}
-        </span>
+      <div className="cmp-canvas-bar">
+        <div className="cmp-canvas-controls">
+          <span className="seg" role="group" aria-label={t("ui.plan_compare.plan_view")}>
+            <button type="button" className={look === "diagram" ? "on" : ""} onClick={() => setLook("diagram")}>
+              {t("ui.plan_compare.diagram")}
+            </button>
+            <button type="button" className={look === "tree" ? "on" : ""} onClick={() => setLook("tree")}>
+              {t("ui.plan_compare.tree")}
+            </button>
+          </span>
+          {look === "diagram" && (
+            <button
+              type="button"
+              className={`btn ghost cmp-sync ${sync ? "on" : ""}`}
+              aria-pressed={sync}
+              title={sync ? t("ui.plan_compare.sync_on") : t("ui.plan_compare.sync_off")}
+              onClick={() => setSync(!sync)}
+            >
+              {sync ? <Link2 size={13} /> : <Unlink2 size={13} />} {t("ui.plan_compare.sync")}
+            </button>
+          )}
+        </div>
+        {look === "diagram" && (
+          <div className="cmp-legend" aria-hidden>
+            <span className="cmp-key">
+              <i className="tint" /> {t("ui.plan_compare.legend.same")}
+            </span>
+            <span className="cmp-key">
+              <i className="changed" /> {t("ui.plan_compare.legend.changed")}
+            </span>
+            <span className="cmp-key">
+              <i className="only" /> {t("ui.plan_compare.legend.only")}
+            </span>
+          </div>
+        )}
       </div>
 
       <div className="compare-sides">
@@ -403,7 +415,16 @@ export function PlanDiffViewer({
               }}
             />
           ) : (
-            <PlanView plan={a} query={queryA} selectedId={pickA} />
+            <PlanView
+              plan={a}
+              query={queryA}
+              selectedId={pickA}
+              onSelect={(id) => {
+                setActive(null);
+                setPickA(id);
+                setPickB(view.aToB.get(id) ?? null);
+              }}
+            />
           )}
         </Side>
         <Side label="B" name={names[1]} plan={b} innerRef={sideB}>
@@ -426,7 +447,16 @@ export function PlanDiffViewer({
               }}
             />
           ) : (
-            <PlanView plan={b} query={queryB} selectedId={pickB} />
+            <PlanView
+              plan={b}
+              query={queryB}
+              selectedId={pickB}
+              onSelect={(id) => {
+                setActive(null);
+                setPickB(id);
+                setPickA(view.bToA.get(id) ?? null);
+              }}
+            />
           )}
         </Side>
       </div>

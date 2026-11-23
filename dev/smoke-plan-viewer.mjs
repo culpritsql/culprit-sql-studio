@@ -473,6 +473,43 @@ try {
       );
       ensure(mount.querySelector(".cmp-verdict"), "PlanDiffViewer verdict missing");
       ensure(mount.querySelectorAll(".compare-side").length === 2, "PlanDiffViewer must render 2 compare sides");
+      const canvasBar = mount.querySelector(".cmp-canvas-bar");
+      const compareSides = mount.querySelector(".compare-sides");
+      ensure(canvasBar && compareSides, "PlanDiffViewer .cmp-canvas-bar or .compare-sides missing");
+      ensure(
+        canvasBar.getBoundingClientRect().bottom <= compareSides.getBoundingClientRect().top + 2,
+        "Diagram/Tree toggle bar (.cmp-canvas-bar) must sit directly above .compare-sides",
+      );
+
+      // Switch to Tree view and verify zero text box overlap across wide (1100px), medium (740px), and mobile (360px) widths
+      const treeBtn = [...canvasBar.querySelectorAll(".seg button")][1];
+      ensure(treeBtn, "Tree toggle button missing in .cmp-canvas-bar");
+      treeBtn.click();
+      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+
+      for (const testWidth of [1100, 740, 360]) {
+        mount.style.width = `${testWidth}px`;
+        await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+        const pnodes = [...mount.querySelectorAll(".pnode")];
+        ensure(pnodes.length >= 2, `Expected .pnode rows at ${testWidth}px`);
+        for (const row of pnodes) {
+          const labelRect = row.querySelector(".label")?.getBoundingClientRect();
+          const rowsEl = row.querySelector(".rows");
+          const costRect = row.querySelector(".cost")?.getBoundingClientRect();
+          ensure(labelRect && costRect, "Missing .label or .cost rect");
+          ensure(labelRect.right <= costRect.left + 1, `.pnode .label overlapped .cost at ${testWidth}px`);
+          if (rowsEl && getComputedStyle(rowsEl).display !== "none" && rowsEl.textContent.trim().length > 0) {
+            const rowsRect = rowsEl.getBoundingClientRect();
+            const sameLine = Math.abs(rowsRect.top - labelRect.top) < 8;
+            if (sameLine) {
+              ensure(labelRect.right <= rowsRect.left + 1, `.pnode .label overlapped .rows at ${testWidth}px`);
+              ensure(rowsRect.right <= costRect.left + 1, `.pnode .rows overlapped .cost at ${testWidth}px`);
+            }
+          }
+        }
+      }
+      mount.style.width = "";
+
       const propTab = [...mount.querySelectorAll(".cmp-tabs [role='tab']")][2];
       propTab.click();
       await new Promise((r) => requestAnimationFrame(r));

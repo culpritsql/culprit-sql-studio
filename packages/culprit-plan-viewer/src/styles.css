@@ -347,9 +347,35 @@
 
 .culprit-pv.pv-root,
 .culprit-pv.pv-diff {
+  container: pv-shell / inline-size;
   display: flex;
   flex-direction: column;
   gap: 12px;
+  padding: var(--pv-pad, 14px 16px 18px);
+}
+
+@container pv-shell (max-width: 520px) {
+  .culprit-pv.pv-root,
+  .culprit-pv.pv-diff {
+    padding: var(--pv-pad, 10px 12px 14px);
+    gap: 10px;
+  }
+}
+
+@media (max-width: 560px) {
+  .culprit-pv.pv-root,
+  .culprit-pv.pv-diff {
+    padding: var(--pv-pad, 10px 12px 14px);
+    gap: 10px;
+  }
+}
+
+.culprit-pv .pv-canvas-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 14px;
 }
 
 .culprit-pv .pv-toolbar {
@@ -571,6 +597,9 @@
 
 .culprit-pv .seg {
   display: inline-flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  max-width: 100%;
   padding: 2px;
   border-radius: 7px;
   background: var(--sunken);
@@ -1226,10 +1255,13 @@
 
 .culprit-pv.plan,
 .culprit-pv .plan {
+  container: plan-box / inline-size;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   overflow: hidden;
   background: var(--surface);
+  --plan-cols: minmax(0, 1fr) 164px 86px;
+  --indent-step: 12px;
 }
 
 .culprit-pv .plan-head {
@@ -1257,7 +1289,7 @@
 .culprit-pv .plan-cols,
 .culprit-pv .pnode {
   display: grid;
-  grid-template-columns: 1fr 120px 92px;
+  grid-template-columns: var(--plan-cols);
   align-items: center;
   gap: 10px;
   padding: 0 12px;
@@ -1271,6 +1303,13 @@
   font-weight: 600;
 }
 
+.culprit-pv .plan-cols span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .culprit-pv .plan-cols span:not(:first-child) {
   text-align: end;
 }
@@ -1278,8 +1317,8 @@
 .culprit-pv .pnode {
   align-items: start;
   min-height: 30px;
-  padding-top: 4px;
-  padding-bottom: 4px;
+  padding-top: 5px;
+  padding-bottom: 5px;
   width: 100%;
   text-align: start;
   border-inline-start: 2px solid transparent;
@@ -1301,6 +1340,7 @@
   display: flex;
   align-items: flex-start;
   min-width: 0;
+  overflow: hidden;
 }
 
 .culprit-pv .pnode .lines {
@@ -1322,6 +1362,7 @@
 .culprit-pv .pnode .op-icon {
   display: inline-grid;
   place-items: center;
+  flex-shrink: 0;
   color: var(--text-3);
   margin-inline-end: 2px;
 }
@@ -1343,6 +1384,7 @@
 .culprit-pv .pnode .indent {
   display: inline-block;
   flex-shrink: 0;
+  width: calc(var(--depth, 0) * var(--indent-step, 12px));
 }
 
 .culprit-pv .pnode .twisty {
@@ -1358,11 +1400,15 @@
 .culprit-pv .pnode .opname {
   font-weight: 600;
   white-space: nowrap;
-  flex-shrink: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  flex-shrink: 1;
 }
 
 .culprit-pv .pnode .obj {
-  min-width: 48px;
+  min-width: 0;
+  flex-shrink: 4;
   color: var(--text-2);
   white-space: nowrap;
   overflow: hidden;
@@ -1373,9 +1419,23 @@
 
 .culprit-pv .pnode .rows,
 .culprit-pv .pnode .cost {
+  min-width: 0;
+  overflow: hidden;
   text-align: end;
   font-variant-numeric: tabular-nums;
   font-size: var(--fs-meta);
+  white-space: nowrap;
+}
+
+.culprit-pv .pnode .rows {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 2px 4px;
+}
+
+.culprit-pv .pnode .rows-pair {
   white-space: nowrap;
 }
 
@@ -1391,6 +1451,7 @@
 }
 
 .culprit-pv .tree-flag {
+  flex-shrink: 0;
   display: inline-grid;
   place-items: center;
   min-width: 16px;
@@ -1414,6 +1475,7 @@
 .culprit-pv .heat {
   width: 38px;
   height: 6px;
+  flex-shrink: 0;
   border-radius: 3px;
   background: var(--sunken);
   overflow: hidden;
@@ -1441,6 +1503,7 @@
 }
 
 .culprit-pv .mis {
+  flex-shrink: 0;
   display: inline-flex;
   align-items: center;
   height: 17px;
@@ -1450,7 +1513,67 @@
   font-weight: 600;
   background: var(--high-bg);
   color: var(--high-text);
-  margin-inline-start: 4px;
+}
+
+@container plan-box (max-width: 560px) {
+  .culprit-pv.plan,
+  .culprit-pv .plan {
+    --plan-cols: minmax(0, 1fr) 132px 72px;
+    --indent-step: 9px;
+  }
+
+  .culprit-pv .plan-cols,
+  .culprit-pv .pnode {
+    gap: 8px;
+    padding-inline: 10px;
+  }
+
+  .culprit-pv .heat {
+    width: 24px;
+  }
+
+  .culprit-pv .plan-head .plan-search {
+    flex: 1 1 168px;
+    max-width: none;
+    min-width: 140px;
+  }
+}
+
+@container plan-box (max-width: 440px) {
+  .culprit-pv .plan-cols {
+    display: none;
+  }
+
+  .culprit-pv .pnode {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      "label cost"
+      "rows  rows";
+    row-gap: 3px;
+    padding: 6px 10px;
+  }
+
+  .culprit-pv .pnode .label {
+    grid-area: label;
+  }
+
+  .culprit-pv .pnode .cost {
+    grid-area: cost;
+    align-self: start;
+  }
+
+  .culprit-pv .pnode .rows {
+    grid-area: rows;
+    justify-content: flex-start;
+    text-align: start;
+    padding-inline-start: calc(var(--depth, 0) * var(--indent-step, 9px) + 18px);
+    font-size: var(--fs-ui-sm);
+    color: var(--text-2);
+  }
+
+  .culprit-pv .pnode .rows:empty {
+    display: none;
+  }
 }
 
 .culprit-pv .cost-strip {
@@ -2338,6 +2461,11 @@
   gap: 8px;
 }
 
+.culprit-pv .compare-pickers .pv-meta {
+  flex-wrap: wrap;
+  row-gap: 4px;
+}
+
 .culprit-pv .cmp-sync.on {
   color: var(--link);
 }
@@ -2720,6 +2848,22 @@
   margin: 4px 16px;
 }
 
+.culprit-pv .cmp-canvas-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  padding-top: 2px;
+}
+
+.culprit-pv .cmp-canvas-controls {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .culprit-pv .cmp-legend {
   display: flex;
   flex-wrap: wrap;
@@ -2748,9 +2892,40 @@
 
 .culprit-pv .compare-sides {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 430px), 1fr));
   gap: 12px;
   align-items: start;
+}
+
+@container pv-shell (max-width: 560px) {
+  .culprit-pv .cmp-verdict {
+    padding: 12px 14px;
+  }
+
+  .culprit-pv .cmp-change {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 4px;
+    padding: 8px 12px;
+  }
+
+  .culprit-pv .cmp-prop {
+    grid-template-columns: minmax(0, 1fr) 20px minmax(0, 1fr);
+    row-gap: 2px;
+    padding: 6px 12px;
+  }
+
+  .culprit-pv .cmp-prop-label {
+    grid-column: 1 / -1;
+    font-size: var(--fs-micro);
+  }
+
+  .culprit-pv .cmp-prop.head > span:first-child {
+    display: none;
+  }
+
+  .culprit-pv .ins-body {
+    padding: 0 12px 12px 14px;
+  }
 }
 
 .culprit-pv .compare-side {
@@ -2777,11 +2952,24 @@
 /* ───────── deadlocks (DeadlockViewer & DeadlockGraph) ───────── */
 
 .culprit-pv.dl-detail {
+  container: pv-deadlock / inline-size;
   min-width: 0;
-  padding: 18px 22px 26px;
+  padding: var(--pv-pad, 18px 22px 26px);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--bg);
+}
+
+@container pv-deadlock (max-width: 520px) {
+  .culprit-pv.dl-detail {
+    padding: var(--pv-pad, 14px 14px 18px);
+  }
+}
+
+@media (max-width: 560px) {
+  .culprit-pv.dl-detail {
+    padding: var(--pv-pad, 14px 14px 18px);
+  }
 }
 
 .culprit-pv .dl-detail-meta {
@@ -2819,6 +3007,7 @@
   padding: 12px 14px 8px;
   border: 1px solid var(--border);
   border-radius: 10px;
+  overflow-x: auto;
   background-color: var(--sunken);
   background-image: radial-gradient(color-mix(in srgb, var(--text-3) 22%, transparent) 1px, transparent 1px);
   background-size: 16px 16px;
@@ -2828,6 +3017,7 @@
 .culprit-pv .dl-graph svg {
   display: block;
   width: 100%;
+  min-width: 480px;
   max-width: 720px;
   height: auto;
   max-height: 380px;
@@ -3048,7 +3238,7 @@
 
 .culprit-pv .dl-procs {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
   gap: 10px;
 }
 

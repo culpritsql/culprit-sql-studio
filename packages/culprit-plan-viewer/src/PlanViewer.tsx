@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from "react";
 import { planEngineName, planKindLabel } from "./host.js";
-import { LookToggle, PlanSurface, type PlanLook } from "./PlanSurface.js";
+import { PlanSurface, type PlanLook } from "./PlanSurface.js";
 import { Sql } from "./Sql.js";
 import type { Plan, QueryStat } from "./types.js";
 
@@ -64,9 +64,12 @@ export function PlanViewer({
             <span className="tag">{planEngineName(plan)}</span>
             <span className="muted">{planKindLabel(plan)}</span>
           </div>
-          <span className="spacer" />
-          <LookToggle look={look} onChange={handleLookChange} hasRaw={Boolean(plan.raw)} />
-          {toolbarActions}
+          {toolbarActions && (
+            <>
+              <span className="spacer" />
+              {toolbarActions}
+            </>
+          )}
         </div>
       )}
       {showStatement && plan.statement && (
@@ -78,7 +81,7 @@ export function PlanViewer({
           <Sql text={plan.statement} />
         </div>
       )}
-      <PlanSurface plan={plan} query={query} focus={focus} look={look} />
+      <PlanSurface plan={plan} query={query} focus={focus} look={look} onLookChange={showToolbar ? handleLookChange : undefined} />
     </div>
   );
 }

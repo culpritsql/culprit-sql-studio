@@ -440,6 +440,22 @@
   margin: 4px 16px;
 }
 
+.cmp-canvas-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  padding-top: 2px;
+}
+
+.cmp-canvas-controls {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .cmp-legend {
   display: flex;
   flex-wrap: wrap;

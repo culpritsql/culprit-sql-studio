@@ -285,19 +285,6 @@ export function PlanCompare() {
         </button>
         <SidePicker side="B" value={b.id} onChange={(id) => setSide("b", id)} />
         <span className="spacer" />
-        <span className="seg" role="group" aria-label={t("ui.plan_compare.plan_view")}>
-          <button type="button" className={look === "diagram" ? "on" : ""} onClick={() => setLook("diagram")}>
-            {t("ui.plan_compare.diagram")}
-          </button>
-          <button type="button" className={look === "tree" ? "on" : ""} onClick={() => setLook("tree")}>
-            {t("ui.plan_compare.tree")}
-          </button>
-        </span>
-        {look === "diagram" && (
-          <button type="button" className={`btn ghost cmp-sync ${sync ? "on" : ""}`} aria-pressed={sync} title={sync ? t("ui.plan_compare.sync_on") : t("ui.plan_compare.sync_off")} onClick={() => setSync(!sync)}>
-            {sync ? <Link2 size={13} /> : <Unlink2 size={13} />} {t("ui.plan_compare.sync")}
-          </button>
-        )}
         <ShareMenu
           actions={[
             {
@@ -459,16 +446,41 @@ export function PlanCompare() {
         </section>
       )}
 
-      <div className="cmp-legend" aria-hidden>
-        <span className="cmp-key">
-          <i className="tint" /> {t("ui.plan_compare.legend.same")}
-        </span>
-        <span className="cmp-key">
-          <i className="changed" /> {t("ui.plan_compare.legend.changed")}
-        </span>
-        <span className="cmp-key">
-          <i className="only" /> {t("ui.plan_compare.legend.only")}
-        </span>
+      <div className="cmp-canvas-bar">
+        <div className="cmp-canvas-controls">
+          <span className="seg" role="group" aria-label={t("ui.plan_compare.plan_view")}>
+            <button type="button" className={look === "diagram" ? "on" : ""} onClick={() => setLook("diagram")}>
+              {t("ui.plan_compare.diagram")}
+            </button>
+            <button type="button" className={look === "tree" ? "on" : ""} onClick={() => setLook("tree")}>
+              {t("ui.plan_compare.tree")}
+            </button>
+          </span>
+          {look === "diagram" && (
+            <button
+              type="button"
+              className={`btn ghost cmp-sync ${sync ? "on" : ""}`}
+              aria-pressed={sync}
+              title={sync ? t("ui.plan_compare.sync_on") : t("ui.plan_compare.sync_off")}
+              onClick={() => setSync(!sync)}
+            >
+              {sync ? <Link2 size={13} /> : <Unlink2 size={13} />} {t("ui.plan_compare.sync")}
+            </button>
+          )}
+        </div>
+        {look === "diagram" && (
+          <div className="cmp-legend" aria-hidden>
+            <span className="cmp-key">
+              <i className="tint" /> {t("ui.plan_compare.legend.same")}
+            </span>
+            <span className="cmp-key">
+              <i className="changed" /> {t("ui.plan_compare.legend.changed")}
+            </span>
+            <span className="cmp-key">
+              <i className="only" /> {t("ui.plan_compare.legend.only")}
+            </span>
+          </div>
+        )}
       </div>
       <div className="compare-sides">
         <Side label="A" item={a} innerRef={sideA}>
@@ -492,7 +504,17 @@ export function PlanCompare() {
               }}
             />
           ) : (
-            <PlanView key={`a-${a.id}`} plan={a.plan} query={a.query} selectedId={pickA} />
+            <PlanView
+              key={`a-${a.id}`}
+              plan={a.plan}
+              query={a.query}
+              selectedId={pickA}
+              onSelect={(id) => {
+                setActive(null);
+                setPickA(id);
+                setPickB(view.aToB.get(id) ?? null);
+              }}
+            />
           )}
         </Side>
         <Side label="B" item={b} innerRef={sideB}>
@@ -516,7 +538,17 @@ export function PlanCompare() {
               }}
             />
           ) : (
-            <PlanView key={`b-${b.id}`} plan={b.plan} query={b.query} selectedId={pickB} />
+            <PlanView
+              key={`b-${b.id}`}
+              plan={b.plan}
+              query={b.query}
+              selectedId={pickB}
+              onSelect={(id) => {
+                setActive(null);
+                setPickB(id);
+                setPickA(view.bToA.get(id) ?? null);
+              }}
+            />
           )}
         </Side>
       </div>

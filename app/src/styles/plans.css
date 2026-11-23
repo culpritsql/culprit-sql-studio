@@ -32,16 +32,21 @@
 /* ───────── plan ───────── */
 
 .plan {
+  container: plan-box / inline-size;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   overflow: hidden;
   background: var(--surface);
+  --plan-cols: minmax(0, 1fr) 164px 86px;
+  --indent-step: 12px;
 }
 
 .plan-head {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 10px;
+  row-gap: 6px;
   padding: 8px 12px;
   border-bottom: 1px solid var(--border);
   font-size: var(--fs-meta);
@@ -55,7 +60,7 @@
 .plan-cols,
 .pnode {
   display: grid;
-  grid-template-columns: 1fr 120px 92px;
+  grid-template-columns: var(--plan-cols);
   align-items: center;
   gap: 10px;
   padding: 0 12px;
@@ -69,6 +74,13 @@
   font-weight: 600;
 }
 
+.plan-cols span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .plan-cols span:not(:first-child) {
   text-align: end;
 }
@@ -76,8 +88,8 @@
 .pnode {
   align-items: start;
   min-height: 30px;
-  padding-top: 4px;
-  padding-bottom: 4px;
+  padding-top: 5px;
+  padding-bottom: 5px;
   width: 100%;
   text-align: start;
   border-inline-start: 2px solid transparent;
@@ -99,6 +111,7 @@
   display: flex;
   align-items: flex-start;
   min-width: 0;
+  overflow: hidden;
 }
 
 .pnode .lines {
@@ -134,6 +147,7 @@
 .pnode .indent {
   display: inline-block;
   flex-shrink: 0;
+  width: calc(var(--depth, 0) * var(--indent-step, 12px));
 }
 
 .pnode .twisty {
@@ -149,11 +163,15 @@
 .pnode .opname {
   font-weight: 600;
   white-space: nowrap;
-  flex-shrink: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  flex-shrink: 1;
 }
 
 .pnode .obj {
-  min-width: 48px;
+  min-width: 0;
+  flex-shrink: 4;
   color: var(--text-2);
   white-space: nowrap;
   overflow: hidden;
@@ -164,9 +182,23 @@
 
 .pnode .rows,
 .pnode .cost {
+  min-width: 0;
+  overflow: hidden;
   text-align: end;
   font-variant-numeric: tabular-nums;
   font-size: var(--fs-meta);
+  white-space: nowrap;
+}
+
+.pnode .rows {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 2px 4px;
+}
+
+.pnode .rows-pair {
   white-space: nowrap;
 }
 
@@ -184,6 +216,7 @@
 .heat {
   width: 38px;
   height: 6px;
+  flex-shrink: 0;
   border-radius: 3px;
   background: var(--sunken);
   overflow: hidden;
@@ -211,6 +244,7 @@
 }
 
 .mis {
+  flex-shrink: 0;
   display: inline-flex;
   align-items: center;
   height: 17px;
@@ -220,7 +254,66 @@
   font-weight: 600;
   background: var(--high-bg);
   color: var(--high-text);
-  margin-inline-start: 4px;
+}
+
+@container plan-box (max-width: 560px) {
+  .plan {
+    --plan-cols: minmax(0, 1fr) 132px 72px;
+    --indent-step: 9px;
+  }
+
+  .plan-cols,
+  .pnode {
+    gap: 8px;
+    padding-inline: 10px;
+  }
+
+  .heat {
+    width: 24px;
+  }
+
+  .plan-head .plan-search {
+    flex: 1 1 168px;
+    max-width: none;
+    min-width: 140px;
+  }
+}
+
+@container plan-box (max-width: 440px) {
+  .plan-cols {
+    display: none;
+  }
+
+  .pnode {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      "label cost"
+      "rows  rows";
+    row-gap: 3px;
+    padding: 6px 10px;
+  }
+
+  .pnode .label {
+    grid-area: label;
+  }
+
+  .pnode .cost {
+    grid-area: cost;
+    align-self: start;
+  }
+
+  .pnode .rows {
+    grid-area: rows;
+    justify-content: flex-start;
+    text-align: start;
+    padding-inline-start: calc(var(--depth, 0) * var(--indent-step, 9px) + 18px);
+    font-size: var(--fs-ui-sm);
+    color: var(--text-2);
+  }
+
+  .pnode .rows:empty {
+    display: none;
+  }
 }
 
 .node-props {
