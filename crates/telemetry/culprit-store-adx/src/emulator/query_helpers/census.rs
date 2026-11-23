@@ -3,11 +3,41 @@ mod oracle;
 use super::*;
 use culprit_core::ComponentVersion;
 
+const MAX_COHORTS_PER_QUERY: usize = 32;
+
+pub(crate) struct RawBatch {
+    pub request: QueryRequest,
+    pub expected: Vec<Vec<Value>>,
+    pub cases: std::ops::Range<usize>,
+    pub row_count: usize,
+}
 pub(super) async fn assert_raw_cohorts(emulator: &Emulator, analyzer: &ComponentVersion, rules: &str) {
-    let cohorts = oracle::cohorts();
+    let mut cases = 0;
+    let mut rows = 0;
+    for batch in raw_batches(analyzer, rules) {
+        cases += batch.cases.len();
+        rows += batch.row_count;
+        let actual = emulator.query(batch.request).await.expect("bounded raw census request").rows;
+        assert_eq!(
+            actual, batch.expected,
+            "compact KQL must match the independent old-order oracle in every complete cohort batch"
+        );
+    }
+    eprintln!("Owned emulator compact census matched {cases} raw cohorts ({rows} rows)");
+    assert_nonnull_signatures(emulator).await;
+}
+pub(crate) fn raw_batches(analyzer: &ComponentVersion, rules: &str) -> Vec<RawBatch> {
+    oracle::cohorts()
+        .chunks(MAX_COHORTS_PER_QUERY)
+        .enumerate()
+        .map(|(batch, cohorts)| raw_batch(batch * MAX_COHORTS_PER_QUERY, cohorts, analyzer, rules))
+        .collect()
+}
+fn raw_batch(first_case: usize, cohorts: &[Vec<oracle::Row>], analyzer: &ComponentVersion, rules: &str) -> RawBatch {
     let mut records = Vec::new();
     let mut expected = Vec::new();
-    for (case, rows) in cohorts.iter().enumerate() {
+    for (offset, rows) in cohorts.iter().enumerate() {
+        let case = first_case + offset;
         records.extend(rows.iter().map(|row| literals(case, row)));
         for (key, flags) in oracle::legacy(rows) {
             let mut values = key_values(case, key);
@@ -40,14 +70,20 @@ FriendlySmokeEpisodeCensus(Rows) | project ResourceId,TargetId,OriginalScopeId,O
         Column { column_name: "SelectedInterpretation".into(), column_type: "bool".into() },
         Column { column_name: "HasFirstOriginal".into(), column_type: "bool".into() },
     ]);
-    let actual = emulator.values(query, BTreeMap::new(), columns).await;
-    assert_eq!(
-        actual, expected,
-        "compact KQL must match old raw-max/original/interpretation ordering for every bounded cohort"
-    );
-    eprintln!("Owned emulator compact census matched {} raw cohorts ({} rows)", cohorts.len(), records.len());
-    assert_nonnull_signatures(emulator).await;
+    RawBatch {
+        request: QueryRequest {
+            text: query,
+            parameters: BTreeMap::new(),
+            columns,
+            row_limit: 10_000,
+            byte_limit: crate::response::MAX_RESPONSE_BYTES,
+        },
+        expected,
+        cases: first_case..first_case + cohorts.len(),
+        row_count: records.len(),
+    }
 }
+
 fn key_values(case: usize, key: oracle::Key) -> Vec<Value> {
     vec![
         json!(format!("oracle-case-{case:03}-resource-{}", key[0])),

@@ -1,4 +1,4 @@
-mod census;
+pub(crate) mod census;
 mod deployment;
 mod eligibility;
 mod heads;

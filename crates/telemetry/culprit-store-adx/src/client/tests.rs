@@ -152,3 +152,47 @@ fn query_http_checks_native_completion_and_never_exposes_service_error_bodies() 
         assert!(sent.contains("x-ms-readonly: true"));
     }
 }
+
+#[test]
+fn raw_census_batches_fit_actual_query_contract_and_keep_every_cohort_row_and_expected_class() {
+    let batches = crate::emulator::query_helpers::census::raw_batches(
+        &culprit_core::ComponentVersion::package("controlled-gold-analyzer", "1", None),
+        "controlled-rules-1",
+    );
+    assert!(batches.len() > 1, "the complete corpus cannot fit in one bounded query");
+    let mut case_ids = Vec::new();
+    let mut rows = 0;
+    let mut expected_classes = 0;
+    for batch in batches {
+        assert!(
+            !batch
+                .request
+                .encode("CulpritFixture", "Culprit.Delivery;raw-census-contract")
+                .expect("every actual emulator batch must satisfy the production request owner")
+                .is_empty()
+        );
+        let prefix = format!("oracle-case-{:03}-", batch.cases.start);
+        assert!(batch.request.text.contains(&prefix) || batch.cases.start == 0);
+        for expected in &batch.expected {
+            let resource = expected[0].as_str().unwrap();
+            let (case, _) = resource.strip_prefix("oracle-case-").unwrap().split_once('-').unwrap();
+            assert!(
+                batch.cases.contains(&case.parse::<usize>().unwrap()),
+                "expected classes keep their original global cohort IDs"
+            );
+        }
+        assert!(
+            batch.expected.windows(2).all(|pair| {
+                let key = |row: &[Value]| row[..6].iter().map(Value::to_string).collect::<Vec<_>>();
+                key(&pair[0]) <= key(&pair[1])
+            }),
+            "each batch keeps the native key sort order used by its independent oracle"
+        );
+        case_ids.extend(batch.cases);
+        rows += batch.row_count;
+        expected_classes += batch.expected.len();
+    }
+    assert_eq!(case_ids, (0..164).collect::<Vec<_>>(), "each global cohort appears once without splitting its episode");
+    assert_eq!(rows, 311);
+    assert_eq!(expected_classes, 169);
+}

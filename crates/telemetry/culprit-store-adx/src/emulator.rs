@@ -1,5 +1,5 @@
 //! Functional query/mapping correctness only. The Kusto emulator is never used for capacity or performance tests.
-mod query_helpers;
+pub(crate) mod query_helpers;
 use super::catalog::SchemaCatalog;
 use super::client;
 use super::client::QueryRequest;
