@@ -64,23 +64,21 @@ impl CulpritMcp {
         for record in &report.records {
             for artifact in &record.artifacts {
                 let valid = artifact.plan.is_none()
-                    && match (&request.text, &artifact.payload) {
+                    && matches!(
+                        (&request.text, &artifact.payload),
                         (
                             WarehouseArtifactTextRead::Inventory { .. },
                             culprit_core::WarehouseArtifactText::Metadata { .. },
-                        ) => true,
-                        (
+                        ) | (
                             WarehouseArtifactTextRead::Inventory { .. },
                             culprit_core::WarehouseArtifactText::Complete {
                                 payload: culprit_core::telemetry::DefinitionPayload::Unavailable { .. },
                             },
-                        ) => true,
-                        (
+                        ) | (
                             WarehouseArtifactTextRead::Chunk { .. },
                             culprit_core::WarehouseArtifactText::Chunk { .. },
-                        ) => true,
-                        _ => false,
-                    };
+                        )
+                    );
                 if !valid {
                     return Err(DeliveryProblem::Integrity.error());
                 }

@@ -68,22 +68,25 @@ async fn default_published_answers_keep_large_raw_rosters_unselected_and_explici
     let queries = fixture.store.requests.load(Ordering::SeqCst) - query_start;
     assert_eq!(report.archive_work.queries as usize, queries, "one allowance includes discovery/publication/lineage");
     assert!(queries < 32, "one answer does not authenticate every unrelated raw runtime capture: {queries}");
-    let reads = fixture.store.row_requests.lock().unwrap();
-    let native = reads[row_start..]
-        .iter()
-        .filter(|(stream, _, _)| {
-            !matches!(
-                stream,
-                TelemetryStream::DerivedIncidents | TelemetryStream::DerivedFindings | TelemetryStream::DerivedChanges
-            )
-        })
-        .collect::<Vec<_>>();
-    assert!(!native.is_empty(), "actual emitted query/cause refs are still independently authenticated");
-    assert!(native.iter().all(|(_, after, until)| until - after <= 3), "no entire1000-query family: {native:?}");
-    assert!(report.archive_work.selected_rows < 32);
-    assert_eq!(report.archive_work.recovery_objects, 0);
-    assert_eq!(fixture.objects.snapshot(), before);
-    drop(reads);
+    {
+        let reads = fixture.store.row_requests.lock().unwrap();
+        let native = reads[row_start..]
+            .iter()
+            .filter(|(stream, _, _)| {
+                !matches!(
+                    stream,
+                    TelemetryStream::DerivedIncidents
+                        | TelemetryStream::DerivedFindings
+                        | TelemetryStream::DerivedChanges
+                )
+            })
+            .collect::<Vec<_>>();
+        assert!(!native.is_empty(), "actual emitted query/cause refs are still independently authenticated");
+        assert!(native.iter().all(|(_, after, until)| until - after <= 3), "no entire1000-query family: {native:?}");
+        assert!(report.archive_work.selected_rows < 32);
+        assert_eq!(report.archive_work.recovery_objects, 0);
+        assert_eq!(fixture.objects.snapshot(), before);
+    }
     request.view = WarehouseWindowView::CompatibleWorkload;
     let error = fixture
         .service
