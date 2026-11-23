@@ -1,4 +1,4 @@
-//! One controlled stored-function matrix over the same unpublished fixture and unchanged public proof graph.
+//! Compare the actual published/nonempty boundary through the unchanged public proof graph.
 use super::*;
 
 struct Case {
@@ -6,9 +6,37 @@ struct Case {
     call: String,
     definitions: Vec<String>,
 }
-pub(super) async fn unpublished(emulator: &Emulator, commands: &[String], arguments: &str) {
+pub(super) struct Window<'a> {
+    pub resource: &'a str,
+    pub from: &'a str,
+    pub until: &'a str,
+}
+impl Window<'_> {
+    fn arguments(&self) -> String {
+        format!("{},datetime({}),datetime({})", self.resource, self.from, self.until)
+    }
+}
+pub(super) async fn published(emulator: &Emulator, commands: &[String], window: Window<'_>) {
+    let mut outcomes = collect(emulator, ladder(&window)).await;
+    outcomes.extend(collect(emulator, cases(commands, &window.arguments())).await);
+    // Keep the actual public production failure after the entire published/nonempty matrix. Neither
+    // partial HTTP200 nor an unavailable result can stand in for the one genuinely published incident.
+    let production = outcomes.iter().find(|(label, _)| *label == "production-materialize-extend").unwrap();
+    assert_eq!(
+        *production.1.as_ref().expect("the actual public IncidentsDuring must complete without a partial failure"),
+        1
+    );
+    for (label, outcome) in outcomes {
+        assert_eq!(
+            outcome.expect("every published stage and controlled equivalent must return its real count"),
+            1,
+            "{label}"
+        );
+    }
+}
+async fn collect(emulator: &Emulator, cases: Vec<Case>) -> Vec<(&'static str, Result<u64>)> {
     let mut outcomes = Vec::new();
-    for case in cases(commands, arguments) {
+    for case in cases {
         eprintln!("Owned emulator matrix begin: {}", case.label);
         let started = std::time::Instant::now();
         let installed =
@@ -21,22 +49,30 @@ pub(super) async fn unpublished(emulator: &Emulator, commands: &[String], argume
         eprintln!(
             "Owned emulator matrix outcome: {}",
             json!({
-                "case":case.label,"setup_ok":setup_ok,"count":outcome.as_ref().ok(),
+                "case":case.label,"fixture_state":"published","setup_ok":setup_ok,"count":outcome.as_ref().ok(),
                 "error":outcome.as_ref().err().map(|error|error.code),"client_elapsed_ms":started.elapsed().as_secs_f64()*1000.0,
             })
         );
         outcomes.push((case.label, outcome));
     }
-    // Keep the actual public production failure after the complete diagnostic matrix. Neither partial
-    // HTTP200 nor an unavailable result can stand in for a proved zero unpublished incidents.
-    let production = outcomes.iter().find(|(label, _)| *label == "production-materialize-extend").unwrap();
-    assert_eq!(
-        *production.1.as_ref().expect("the actual public IncidentsDuring must complete without a partial failure"),
-        0
-    );
-    for (label, outcome) in outcomes {
-        assert_eq!(outcome.expect("every controlled equivalent must return its real count"), 0, "{label}");
-    }
+    outcomes
+}
+fn ladder(window: &Window<'_>) -> Vec<Case> {
+    [
+        ("stage-published", "FriendlySmokePublished(now())".into()),
+        ("stage-incident-rows", "FriendlySmokeIncidentRows(now())".into()),
+        ("stage-incident-completeness", "FriendlySmokeIncidentCompleteness(now())".into()),
+        ("stage-head-basis", "FriendlySmokeHeadBasis(now())".into()),
+        ("stage-heads", "FriendlySmokeHeads(now())".into()),
+        ("stage-resource-selection", format!("FriendlySmokeResourceSelection({},now())", window.resource)),
+        (
+            "stage-incident-window",
+            format!("FriendlySmokeIncidentWindow(datetime({}),datetime({}),now())", window.from, window.until),
+        ),
+    ]
+    .into_iter()
+    .map(|(label, call)| Case { label, call, definitions: vec![] })
+    .collect()
 }
 async fn query_count(emulator: &Emulator, call: &str) -> Result<u64> {
     let table = emulator

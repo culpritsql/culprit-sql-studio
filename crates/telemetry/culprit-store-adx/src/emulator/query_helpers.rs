@@ -108,9 +108,16 @@ pub(super) async fn run(emulator: &Arc<Emulator>, catalog: &SchemaCatalog) {
         0,
         "window projection cannot expose an unpublished head"
     );
-    // Collect every equivalent wrapper outcome before asserting the exact production path. A planner
-    // failure must not stop the controlled comparison or turn an unpublished row into a successful zero.
-    matrix::unpublished(emulator, &commands, &format!("{label},datetime({from}),datetime({until})")).await;
+    assert_eq!(
+        count(emulator, &format!("FriendlySmokeIncidents({label},{unpublished_window})")).await,
+        0,
+        "resource selection composed with window projection cannot expose unpublished rows"
+    );
+    assert_eq!(
+        count(emulator, &format!("FriendlySmokeIncidentsDuring({label},datetime({from}),datetime({until}))")).await,
+        0,
+        "a convenience wrapper cannot expose an unpublished Gold row or resource label"
+    );
     assert_eq!(
         count(emulator, &format!("FriendlySmokeResources(datetime({after}))")).await,
         0,
@@ -118,7 +125,9 @@ pub(super) async fn run(emulator: &Arc<Emulator>, catalog: &SchemaCatalog) {
     );
     first.publish(emulator).await;
     let window = format!("{label},datetime({from}),datetime({until})");
-    assert_eq!(count(emulator, &format!("FriendlySmokeIncidentsDuring({window})")).await, 1);
+    // Nonempty data is the failing boundary. Collect every stage and equivalent wrapper before the
+    // production assertion; empty-only planning success cannot establish that the published path works.
+    matrix::published(emulator, &commands, matrix::Window { resource: &label, from: &from, until: &until }).await;
     assert_eq!(
         count(emulator, &format!("FriendlySmokeIncidentWindow(datetime({from}),datetime({until}),datetime({after}))"))
             .await,
