@@ -1,5 +1,6 @@
 mod deployment;
 mod eligibility;
+mod matrix;
 use super::*;
 use culprit_evidence::analytical::query_helpers::{QueryHelperBinding, QueryHelperPolicy};
 use culprit_evidence::analytical::test_support;
@@ -107,16 +108,9 @@ pub(super) async fn run(emulator: &Arc<Emulator>, catalog: &SchemaCatalog) {
         0,
         "window projection cannot expose an unpublished head"
     );
-    assert_eq!(
-        count(emulator, &format!("FriendlySmokeIncidents({label},{unpublished_window})")).await,
-        0,
-        "resource selection composed with window projection cannot expose unpublished rows"
-    );
-    assert_eq!(
-        count(emulator, &format!("FriendlySmokeIncidentsDuring({label},datetime({from}),datetime({until}))")).await,
-        0,
-        "a convenience wrapper cannot expose an unpublished Gold row or resource label"
-    );
+    // Collect every equivalent wrapper outcome before asserting the exact production path. A planner
+    // failure must not stop the controlled comparison or turn an unpublished row into a successful zero.
+    matrix::unpublished(emulator, &commands, &format!("{label},datetime({from}),datetime({until})")).await;
     assert_eq!(
         count(emulator, &format!("FriendlySmokeResources(datetime({after}))")).await,
         0,

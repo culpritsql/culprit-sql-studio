@@ -13,6 +13,9 @@ use std::{sync::OnceLock, time::Duration};
 use tokio::sync::{OnceCell, Semaphore};
 use zeroize::Zeroizing;
 
+#[cfg(test)]
+mod emulator_diagnostics;
+
 const METADATA_BYTES: u64 = 64 * 1024;
 const HTTP_TIMEOUT: Duration = Duration::from_secs(45);
 const MAX_PARALLEL_REQUESTS: usize = 2;
@@ -181,6 +184,10 @@ pub(crate) fn query(
         .read_to_vec()
         .map_err(|_| DeliveryProblem::Transport.error())?;
     let result = response::parse(&bytes, columns, row_limit, byte_limit);
+    #[cfg(test)]
+    if origin.starts_with("http://127.0.0.1:") && token == "owned-emulator-only" {
+        emulator_diagnostics::report(request_id, &bytes, result.is_ok());
+    }
     #[cfg(test)]
     if result.is_err() && origin.starts_with("http://127.0.0.1:") {
         // Only this test-only loopback transport can receive owned synthetic fixture data.

@@ -27,6 +27,9 @@ struct Emulator {
 }
 impl Emulator {
     fn management(&self, database: bool, text: &str) -> Value {
+        self.management_result(database, text).expect("owned emulator management response")
+    }
+    fn management_result(&self, database: bool, text: &str) -> Result<Value> {
         let mut body = json!({"csl":text});
         if database {
             body["db"] = json!("CulpritFixture");
@@ -43,18 +46,24 @@ impl Emulator {
             .post(format!("http://127.0.0.1:{}/v1/rest/mgmt", self.port))
             .header("Content-Type", "application/json")
             .send(body.to_string())
-            .expect("owned emulator management request");
+            .map_err(|_| DeliveryProblem::Transport.error())?;
         let status = response.status();
         let bytes = response
             .body_mut()
             .with_config()
             .limit(16 * 1024 * 1024)
             .read_to_vec()
-            .expect("complete emulator management reply");
-        assert!(status.is_success(), "owned emulator management HTTP {status}: {}", String::from_utf8_lossy(&bytes));
-        let reply: Value = serde_json::from_slice(&bytes).expect("emulator management JSON");
-        assert!(reply.get("error").is_none() && reply.get("Exceptions").is_none(), "{reply}");
-        reply
+            .map_err(|_| DeliveryProblem::Transport.error())?;
+        let reply: Value = serde_json::from_slice(&bytes).map_err(|_| DeliveryProblem::Integrity.error())?;
+        if !status.is_success() || reply.get("error").is_some() || reply.get("Exceptions").is_some() {
+            const DIAGNOSTIC_CHARS: usize = 4096;
+            eprintln!(
+                "Owned emulator management HTTP {status}: {}",
+                String::from_utf8_lossy(&bytes).chars().take(DIAGNOSTIC_CHARS).collect::<String>()
+            );
+            return Err(DeliveryProblem::Transport.error());
+        }
+        Ok(reply)
     }
     fn ingest(&self, table: &str, bytes: &[u8]) {
         let text = std::str::from_utf8(bytes).unwrap();
