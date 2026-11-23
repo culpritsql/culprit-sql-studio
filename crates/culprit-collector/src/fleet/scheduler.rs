@@ -1,6 +1,7 @@
 //! Fair, serial source admission. A completed read schedules future work from completion, never from missed ticks.
 use culprit_core::{Result, telemetry::*};
 use std::{collections::BTreeMap, time::Duration};
+mod catalog;
 mod checkpoint;
 mod focus;
 mod restore;
@@ -45,6 +46,7 @@ pub(super) enum HistoryLane {
 struct ScheduledJob {
     job: Job,
     due: Duration,
+    protected_deadline: Duration,
     attempts: u32,
     failures: u32,
     turn: u64,
@@ -160,7 +162,8 @@ impl Scheduler {
                         };
                         let due = jitter(&job, 0);
                         let turn = jobs.len() as u64;
-                        jobs.push(ScheduledJob { job, due, attempts: 0, failures: 0, turn });
+                        let protected_deadline = catalog::deadline(&job.schedule, due)?;
+                        jobs.push(ScheduledJob { job, due, protected_deadline, attempts: 0, failures: 0, turn });
                     }
                 }
             }
@@ -192,41 +195,34 @@ impl Scheduler {
         {
             return Err(state_failed());
         }
-        let selected = self
-            .jobs
+        let deadlines = self.periodic_deadlines();
+        let selected_focus = self
+            .focused
             .iter()
-            .enumerate()
-            .filter(|(_, pending)| {
-                pending.due <= now
-                    && self.resources.get(&pending.job.resource).is_none_or(|state| state.due <= now)
-                    && self.families.get(&pending.job.family).is_none_or(|due| *due <= now)
+            .filter(|(_, pending)| self.focus_admission_at(pending, now, &allowed, &deadlines) == Some(now))
+            .min_by(|(left_key, left), (right_key, right)| {
+                left.turn.cmp(&right.turn).then_with(|| left_key.cmp(right_key))
             })
-            .max_by(|(_, left), (_, right)| urgency(left, right, now))
-            .map(|(index, _)| index);
+            .map(|(key, _)| key.clone());
         let next_sequence = self.sequence.checked_add(1).ok_or_else(state_failed)?;
-        let work = if let Some(index) = selected {
-            self.jobs[index].turn = self.sequence;
-            Work::Scheduled(self.jobs[index].job.clone())
-        } else {
-            let deadlines = self.periodic_deadlines();
-            let selected = self
-                .focused
-                .iter()
-                .filter(|(_, pending)| {
-                    pending.status == FocusStatus::Pending
-                        && allowed(&pending.job)
-                        && self.focus_ready_at(pending) <= now
-                        && deadlines.permits(&pending.job, now)
-                })
-                .min_by(|(left_key, left), (right_key, right)| {
-                    left.turn.cmp(&right.turn).then_with(|| left_key.cmp(right_key))
-                })
-                .map(|(key, _)| key.clone());
-            let Some(key) = selected else { return Ok(None) };
+        let work = if let Some(key) = selected_focus {
             let pending = self.focused.get_mut(&key).ok_or_else(state_failed)?;
             pending.turn = self.sequence;
             pending.status = FocusStatus::Admitted;
             Work::Focused(pending.job.clone())
+        } else {
+            let selected = self
+                .jobs
+                .iter()
+                .enumerate()
+                .filter(|(_, pending)| self.periodic_ready_at(pending) <= now)
+                .max_by(|(_, left), (_, right)| urgency(left, right, now))
+                .map(|(index, _)| index);
+            let Some(index) = selected else {
+                return Ok(None);
+            };
+            self.jobs[index].turn = self.sequence;
+            Work::Scheduled(self.jobs[index].job.clone())
         };
         self.sequence = next_sequence;
         self.active = Some(work.key());
@@ -267,6 +263,7 @@ impl Scheduler {
             failure_delay(pending.job.schedule.every_seconds, pending.failures) + jitter(&pending.job, pending.attempts)
         };
         pending.due = now.saturating_add(delay);
+        pending.protected_deadline = catalog::deadline(&pending.job.schedule, pending.due)?;
         let resource = self.resource_completion(
             &pending.job.resource,
             now,
@@ -290,13 +287,22 @@ impl Scheduler {
         let deadlines = self.periodic_deadlines();
         self.focused
             .values()
-            .filter(|pending| pending.status == FocusStatus::Pending && allowed(&pending.job))
-            .filter_map(|pending| {
-                let at = self.focus_ready_at(pending).max(now);
-                deadlines.permits(&pending.job, at).then_some(at)
-            })
+            .filter_map(|pending| self.focus_admission_at(pending, now, &allowed, &deadlines))
             .fold(periodic, Duration::min)
             .saturating_sub(now)
+    }
+    fn focus_admission_at(
+        &self,
+        pending: &FocusedAdmission,
+        now: Duration,
+        allowed: &impl Fn(&FocusedJob) -> bool,
+        deadlines: &PeriodicDeadlines,
+    ) -> Option<Duration> {
+        if pending.status != FocusStatus::Pending || !allowed(&pending.job) {
+            return None;
+        }
+        let at = self.focus_ready_at(pending).max(now);
+        deadlines.permits(&pending.job, at).then_some(at)
     }
     fn static_index(&self, key: &str) -> Result<usize> {
         self.jobs.iter().position(|pending| pending.job.key == key).ok_or_else(state_failed)
@@ -344,7 +350,7 @@ impl Scheduler {
     fn periodic_deadlines(&self) -> PeriodicDeadlines {
         let mut deadlines = PeriodicDeadlines::default();
         for pending in &self.jobs {
-            let due = self.periodic_ready_at(pending);
+            let due = self.periodic_ready_at(pending).max(pending.protected_deadline);
             deadlines.global = Some(deadlines.global.map_or(due, |previous| previous.min(due)));
             deadlines
                 .resources

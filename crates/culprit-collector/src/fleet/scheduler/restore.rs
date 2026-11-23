@@ -48,13 +48,8 @@ impl Scheduler {
             if saved.failures > saved.attempts {
                 return Err(state_failed());
             }
-            pending.due = saved.delay.restore(
-                &state.clock,
-                now,
-                wall,
-                maximum_job_delay(&pending.job),
-                matches!(&interrupted, Some(Work::Scheduled(job)) if job.key == pending.job.key),
-            )?;
+            let pending_native = matches!(&interrupted, Some(Work::Scheduled(job)) if job.key == pending.job.key);
+            saved.restore_deadlines(pending, &state.clock, now, wall, pending_native)?;
             pending.attempts = saved.attempts;
             pending.failures = saved.failures;
             pending.turn = saved.turn;

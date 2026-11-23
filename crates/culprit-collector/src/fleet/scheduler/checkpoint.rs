@@ -55,6 +55,7 @@ impl Delay {
 #[serde(deny_unknown_fields)]
 pub(in crate::fleet) struct JobState {
     pub(super) delay: Delay,
+    pub(super) protected_deadline: Delay,
     pub(super) attempts: u32,
     pub(super) failures: u32,
     pub(super) turn: u64,
@@ -63,10 +64,36 @@ impl JobState {
     fn new(job: &ScheduledJob, now: Duration, wall: DateTime<Utc>) -> Result<Self> {
         Ok(Self {
             delay: Delay::new(job.due, now, wall)?,
+            protected_deadline: Delay::new(job.protected_deadline, now, wall)?,
             attempts: job.attempts,
             failures: job.failures,
             turn: job.turn,
         })
+    }
+    pub(super) fn restore_deadlines(
+        &self,
+        job: &mut ScheduledJob,
+        clock: &ScheduleClock,
+        now: Duration,
+        wall: DateTime<Utc>,
+        pending: bool,
+    ) -> Result<()> {
+        let grace = catalog::grace(&job.job.schedule);
+        let due_remaining = Duration::from_millis(self.delay.remaining_ms);
+        let protected_remaining = Duration::from_millis(self.protected_deadline.remaining_ms);
+        if self.protected_deadline.observed_at != self.delay.observed_at
+            || protected_remaining < due_remaining
+            || protected_remaining - due_remaining > grace
+        {
+            return Err(state_failed());
+        }
+        let maximum = maximum_job_delay(&job.job);
+        job.due = self.delay.restore(clock, now, wall, maximum, pending)?;
+        let protected = self.protected_deadline.restore(clock, now, wall, maximum + grace, pending)?;
+        // Uncertain wall-clock ordering cannot replenish a catalog's right to yield. Native/resource
+        // reservations keep their existing conservative rollback behavior independently.
+        job.protected_deadline = if wall < clock.wall { job.due } else { protected };
+        Ok(())
     }
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]

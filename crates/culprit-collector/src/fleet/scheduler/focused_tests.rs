@@ -618,3 +618,5 @@ fn restore_rejects_unknown_route_duplicate_episode_and_unmatched_admitted_marker
         assert!(resumed.restore(saved, Duration::ZERO, wall(0)).is_err());
     }
 }
+
+mod catalogs;

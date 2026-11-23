@@ -1147,8 +1147,14 @@ activity analysis threshold is 30 seconds for blocking and 60 seconds for runnin
 These thresholds do not filter the native baseline before it is saved.
 Transient activity between polls is not a complete event history.
 
+An admitted investigation can run before a due settings or structural-catalog refresh when its full execution,
+shutdown and resource-cooldown reservation fits before the protected deadlines of all scheduled work. Those catalogs
+may yield for at most half their configured period, capped at five minutes. Activity, history and other live
+observations retain their original deadlines. A restart cannot renew a catalog's grace period.
+
 The existing schedule journal persists due times, retry and pressure counters, fairness and resource/family
-cooldowns. A reservation commits before a backend call can start; slow journal I/O cannot authorize a late start.
+cooldowns, including each catalog's protected deadline. A reservation commits before a backend call can start;
+slow journal I/O cannot authorize a late start.
 After an interrupted turn, its conservative reservation is restored without crediting downtime and rebased
 durably before another admission. Completed schedules can credit valid elapsed wall time; a backward clock never
 shortens their saved delays. Missing/corrupt scheduler rows and stale writers stop admission. This protects
