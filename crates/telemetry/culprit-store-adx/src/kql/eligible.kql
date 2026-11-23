@@ -5,29 +5,26 @@ let Membership=materialize(CulpritPublished$SCOPEV1(contract,store,$RESOURCE_VAL
     | project RangeId,$RESOURCE_MEMBERSHIP BatchId=tostring(Batch.batch_id), ExpectedRows=tolong(Batch.rows),
         PublishedKind=ResourceKind, PublishedManifest=ManifestSha256, PublishedSchema=SchemaDigest, PublishedOutbox=OutboxId,
         PublishedEpoch=OwnerEpoch, PublishedSequence=CaptureSequence, PublishedReferencesComplete=ReferencesComplete);
-let Rows=materialize(
+let Candidates=materialize(
     $TABLE
     | where ContractId == contract and $RESOURCE_FILTER
     | where CollectedUntil >= captured_from and CollectedUntil <= asof
     | project $PROJECTION
     | distinct $COLUMNS
-);
-let Candidates=materialize(Rows | join kind=inner Membership on RangeId, BatchId);
-let Invalid=Rows
     | join kind=leftouter Membership on RangeId, BatchId
-    | where isnull(ExpectedRows) or isnull(RowOrdinal) or RowOrdinal <= 0 or RowOrdinal > ExpectedRows
+);
+let Batches=materialize(Candidates
+    | summarize Variants=count(),InvalidRows=countif(
+        isnull(ExpectedRows) or isnull(RowOrdinal) or RowOrdinal <= 0 or RowOrdinal > ExpectedRows
         or ResourceKind != PublishedKind or ManifestSha256 != PublishedManifest or SchemaDigest != PublishedSchema
         or OutboxId != PublishedOutbox or OwnerEpoch != PublishedEpoch or CaptureSequence != PublishedSequence
-        or ReferencesComplete != PublishedReferencesComplete$RESOURCE_MISMATCH
-    | project RangeId;
-let Conflicts=Candidates
-    | summarize Variants=count() by RangeId, BatchId, RowOrdinal
-    | where Variants != 1
-    | project RangeId;
-let Complete=Candidates
-    | join kind=leftanti Invalid on RangeId
-    | join kind=leftanti Conflicts on RangeId
-    | summarize PresentRows=count(), ExpectedRows=take_any(ExpectedRows) by RangeId, BatchId
+        or ReferencesComplete != PublishedReferencesComplete$RESOURCE_MISMATCH),
+        ExpectedRows=take_any(ExpectedRows) by RangeId, BatchId, RowOrdinal
+    | summarize PresentRows=count(),InvalidOrdinals=countif(Variants != 1 or InvalidRows > 0),
+        ExpectedRows=take_any(ExpectedRows) by RangeId, BatchId);
+let InvalidRanges=Batches | where InvalidOrdinals > 0 | project RangeId;
+let Complete=Batches
+    | join kind=leftanti InvalidRanges on RangeId
     | where PresentRows == ExpectedRows
     | project RangeId, BatchId;
 Candidates

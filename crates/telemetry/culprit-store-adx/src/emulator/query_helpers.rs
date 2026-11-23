@@ -1,4 +1,5 @@
 mod deployment;
+mod eligibility;
 use super::*;
 use culprit_evidence::analytical::query_helpers::{QueryHelperBinding, QueryHelperPolicy};
 use culprit_evidence::analytical::test_support;
@@ -197,6 +198,7 @@ pub(super) async fn run(emulator: &Arc<Emulator>, catalog: &SchemaCatalog) {
         0,
         "a valid published range/batch cannot lend its authority to a different row resource"
     );
+    eligibility::assert_checked_cohort(emulator, &first.range, &after).await;
     let new_call = format!("FriendlySmokeNewIncidents({label},datetime({from}),datetime({until}),datetime({after}))");
     assert_eq!(count(emulator, &new_call).await, 1);
     assert_eq!(
