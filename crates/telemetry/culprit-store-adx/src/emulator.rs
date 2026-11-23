@@ -33,6 +33,7 @@ impl Emulator {
         }
         let agent: ureq::Agent = ureq::Agent::config_builder()
             .https_only(false)
+            .http_status_as_error(false)
             .max_redirects(0)
             .proxy(None)
             .timeout_global(Some(Duration::from_secs(45)))
@@ -43,12 +44,14 @@ impl Emulator {
             .header("Content-Type", "application/json")
             .send(body.to_string())
             .expect("owned emulator management request");
+        let status = response.status();
         let bytes = response
             .body_mut()
             .with_config()
             .limit(16 * 1024 * 1024)
             .read_to_vec()
             .expect("complete emulator management reply");
+        assert!(status.is_success(), "owned emulator management HTTP {status}: {}", String::from_utf8_lossy(&bytes));
         let reply: Value = serde_json::from_slice(&bytes).expect("emulator management JSON");
         assert!(reply.get("error").is_none() && reply.get("Exceptions").is_none(), "{reply}");
         reply

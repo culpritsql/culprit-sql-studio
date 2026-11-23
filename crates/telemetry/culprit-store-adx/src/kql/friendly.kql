@@ -192,7 +192,8 @@ $NResourceSelection(resource,asof)
 
 
 .create-or-alter function $NIncidentsDuring(resource:string,window_from:datetime,window_until:datetime) {
-materialize($NIncidents(resource,window_from,window_until,now()))
+let Selected=materialize($NIncidents(resource,window_from,window_until,now()));
+Selected
 | extend PublicationTimeKnown=false
 }
 
