@@ -176,8 +176,8 @@
     },
     {
       "check": "config",
-      "reason": null,
-      "status": "assessed",
+      "reason": "Primary maintenance was not assessed: this settings read did not confirm the database, server member and primary or standby role.",
+      "status": "insufficient-evidence",
       "title": "Configuration"
     },
     {
@@ -2374,7 +2374,7 @@
         "table": "order_items"
       }
     ],
-    "format": 57,
+    "format": 58,
     "histograms": null,
     "id": "20261011T115421.485Z",
     "identity": {

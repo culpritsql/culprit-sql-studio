@@ -5,9 +5,11 @@ use crate::{
     native_test_support::case,
     read::{ApplicationReadScope, NativeRead, QueryRead, ReadSession},
 };
-use culprit_core::{Provider, SnapshotOptions, telemetry::*};
+use culprit_core::telemetry::*;
 use culprit_read::cancellation::CollectionCancellation;
 use std::time::Duration;
+
+mod snapshot;
 
 async fn specification(cancel: &CollectionCancellation) -> culprit_core::ConnectionSpec {
     case::require_active(cancel).unwrap();
@@ -16,28 +18,9 @@ async fn specification(cancel: &CollectionCancellation) -> culprit_core::Connect
 #[tokio::test]
 #[ignore = "requires the existing nonce-owned PostgreSQL supervisor fixture"]
 async fn owned_normal_factory_probe_and_snapshot_settle_their_original_native_readers() {
-    let cancel = CollectionCancellation::default();
-    let specification = specification(&cancel).await;
-    let provider = crate::PostgresProvider::new(&specification).unwrap();
-    let completed = case::finish(Duration::from_secs(90), &cancel, async {
-        let server = case::admitted(&cancel, provider.probe()).await?;
-        let options = SnapshotOptions { plans: 1, top_queries: 32, ..Default::default() };
-        let snapshot = case::admitted(&cancel, provider.snapshot("owned-normal-readers", &options)).await?;
-        Ok::<_, culprit_core::Error>((server, snapshot))
-    })
-    .await;
-    assert_eq!(provider.source_shutdown(), SourceShutdown::Quiescent);
-    assert!(!completed.deadline_reached);
-    let (server, snapshot) = completed.value.unwrap();
-    assert_eq!(server.database, specification.database.unwrap());
-    assert_eq!(snapshot.server.database, server.database);
-    assert!(snapshot.identity.is_some());
-    assert!(!snapshot.tables.is_empty(), "the real catalog must retain the owned fixture tables");
-    assert!(
-        snapshot.workload.as_ref().is_some_and(|workload| workload.queries.iter().any(|query| query.plan.is_some())),
-        "the seeded native workload must traverse the original planning and parameterized table-metadata route"
-    );
+    Box::pin(snapshot::run()).await;
 }
+
 #[tokio::test]
 #[ignore = "requires the existing nonce-owned PostgreSQL supervisor fixture"]
 async fn owned_normal_native_parameters_sqlstate_and_trust_cleanup_keep_one_original_session() {

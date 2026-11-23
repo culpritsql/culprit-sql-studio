@@ -1,4 +1,4 @@
-//! The original selected-database census reuses the native file batch, including real local-only ownership.
+//! Local file-census refusals retain their native premises while independent Operational readers report unavailable.
 use super::super::*;
 use crate::{
     instance::test_support::{epoch, metadata},
@@ -13,6 +13,14 @@ use std::future::Future;
 const FROM: &str = "2020-01-01T06:02:00Z";
 const UNTIL: &str = "2020-01-01T06:02:01Z";
 const FINAL: &str = "2020-01-01T06:03:00Z";
+const FILE_ADMISSION: usize = 7;
+const FILE_READ: usize = 8;
+const CLOSING_CLOCK: usize = 15;
+const FINAL_PLATFORM: usize = 16;
+const FINAL_EPOCH: usize = 17;
+const FINAL_AUTHORITY: usize = 18;
+const READER_QUERIES: u32 = 19;
+mod families;
 
 fn request() -> CollectionRequest {
     CollectionRequest {
@@ -59,16 +67,27 @@ fn replies(edition: i64, writable: bool) -> Vec<ReadResult<Vec<Rec>>> {
         Ok(vec![authority(edition, "2020-01-01T06:00:00Z", writable)]),
         Ok(vec![super::super::tests::clock(true, FROM)]),
         Ok(vec![replace(&instance_pressure_row(), &[("observed_at", Val::Text(FROM.into()))])]),
+        unsupported_family(),
+        Ok(vec![replace(&instance_pressure_row(), &[("observed_at", Val::Text(FROM.into()))])]),
         Ok(file_rows()),
+        Ok(vec![replace(&instance_pressure_row(), &[("observed_at", Val::Text(FROM.into()))])]),
+        unsupported_family(),
+        Ok(vec![replace(&instance_pressure_row(), &[("observed_at", Val::Text(FROM.into()))])]),
+        unsupported_family(),
+        Ok(vec![replace(&instance_pressure_row(), &[("observed_at", Val::Text(FROM.into()))])]),
+        unsupported_family(),
         Ok(vec![super::super::tests::clock(true, UNTIL)]),
         Ok(vec![platform(edition)]),
         Ok(vec![epoch(100)]),
         Ok(vec![authority(edition, FINAL, writable)]),
     ]
 }
+fn unsupported_family() -> ReadResult<Vec<Rec>> {
+    Err(ReadError::Source(Error::new(ErrorCode::Unsupported, "controlled independent family unavailable")))
+}
 fn file_source(rows: Vec<ReadResult<Vec<Rec>>>, request: &CollectionRequest) -> StateSource<FakeRead> {
     StateSource::with_io(
-        FakeRead::new(rows).with_generation(1).with_query_limit(request.budget.max_queries),
+        FakeRead::new(rows).with_generation(1).with_query_limit(request.budget.max_queries.saturating_sub(1)),
         request,
         "fixture.invalid".into(),
         1433,
@@ -163,16 +182,28 @@ async fn boxed_and_managed_instance_files_keep_local_only_owner_and_one_existing
         assert_eq!(summary.log_catalog_allocated_bytes.as_deref(), Some("262144"));
         assert_eq!(report.source_state, SourceState::Partial, "the independent DMV log source remains unavailable");
         assert_eq!(source.finish().await.unwrap(), SourceCompletion::Verified);
-        assert_eq!(source.query_count(), 11);
+        assert_eq!(source.query_count(), READER_QUERIES);
         assert_eq!(source.close().await, SourceShutdown::Quiescent);
         assert_eq!(source.io.closed, 1);
-        assert_eq!(source.io.calls[6].sql, baseline.calls[0].sql);
-        assert_eq!(source.io.calls[6].limit, 501);
-        assert!(source.io.calls.iter().all(|call| call.sql.contains("/* culprit */")));
+        assert_eq!(source.io.calls[FILE_READ].sql, baseline.calls[0].sql);
+        assert_eq!(source.io.calls[FILE_READ].limit, 501);
+        // This fake records templates before dispatch. The shared ReadQuery owner marks every buffered and
+        // streaming monitoring batch; its fixture_dispatch_tests pin the actual wire provenance.
         assert!(source.io.calls.iter().all(|call| !call.sql.contains("sys.master_files")
-            && !call.sql.contains("sys.dm_db_log_space_usage")
-            && !call.sql.contains("sys.dm_io_virtual_file_stats")
             && !call.sql.contains("FROM sys.dm_user_db_resource_governance")));
+        assert_eq!(
+            source.io.calls.iter().filter(|call| call.sql.contains("FROM sys.dm_db_log_space_usage")).count(),
+            1
+        );
+        assert_eq!(
+            source
+                .io
+                .calls
+                .iter()
+                .filter(|call| call.sql.contains("sys.dm_io_virtual_file_stats(DB_ID(), NULL)"))
+                .count(),
+            1
+        );
     }
 }
 
@@ -213,12 +244,12 @@ async fn foreign_database_file_or_group_never_survives_the_original_source_guard
         let mut native = file_rows();
         native[index] = replace(&native[index], &[change]);
         let mut rows = replies(3, true);
-        rows[6] = Ok(native);
+        rows[FILE_READ] = Ok(native);
         let mut source = file_source(rows, &request());
         let result = source.describe().await;
         if expected == CollectionStop::SourceChanged {
             assert_eq!(CollectionStop::from_error(&result.err().unwrap()), expected);
-            assert_eq!(source.query_count(), 7);
+            assert_eq!(source.query_count(), FILE_READ as u32 + 1);
         } else {
             let description = result.unwrap();
             assert_eq!(coverage(&description).state, SourceState::Unavailable);
@@ -232,16 +263,16 @@ async fn foreign_database_file_or_group_never_survives_the_original_source_guard
 #[tokio::test]
 async fn changed_database_recovery_member_process_role_or_final_clock_refuses_completion() {
     for (ordinal, change) in [
-        (10, ("database_guid", Val::Text("recreated".into()))),
-        (10, ("recovery_fork_guid", Val::Text("recovered".into()))),
-        (10, ("database_file_guid", Val::Text("replaced".into()))),
-        (10, ("selected_database_id", Val::Int(8))),
-        (10, ("updateability", Val::Text("READ_ONLY".into()))),
-        (10, ("updateability", Val::Null)),
-        (10, ("observed_at", Val::Text("2020-01-01T06:01:00Z".into()))),
-        (8, ("server_name", Val::Text("foreign\\NATIVE".into()))),
-        (8, ("process_id", Val::Int(43))),
-        (9, ("started_at_ticks", Val::Int(101))),
+        (FINAL_AUTHORITY, ("database_guid", Val::Text("recreated".into()))),
+        (FINAL_AUTHORITY, ("recovery_fork_guid", Val::Text("recovered".into()))),
+        (FINAL_AUTHORITY, ("database_file_guid", Val::Text("replaced".into()))),
+        (FINAL_AUTHORITY, ("selected_database_id", Val::Int(8))),
+        (FINAL_AUTHORITY, ("updateability", Val::Text("READ_ONLY".into()))),
+        (FINAL_AUTHORITY, ("updateability", Val::Null)),
+        (FINAL_AUTHORITY, ("observed_at", Val::Text("2020-01-01T06:01:00Z".into()))),
+        (FINAL_PLATFORM, ("server_name", Val::Text("foreign\\NATIVE".into()))),
+        (FINAL_PLATFORM, ("process_id", Val::Int(43))),
+        (FINAL_EPOCH, ("started_at_ticks", Val::Int(101))),
     ] {
         let mut rows = replies(3, true);
         let current = rows[ordinal].as_ref().unwrap()[0].clone();
@@ -265,7 +296,7 @@ async fn changed_database_recovery_member_process_role_or_final_clock_refuses_co
 #[tokio::test]
 async fn native_permission_gap_and_null_quantities_do_not_become_complete_zero_capacity() {
     let mut rows = replies(3, true);
-    rows[6] = Err(ReadError::Source(Error::new(ErrorCode::PermissionDenied, "fixture file permission denied")));
+    rows[FILE_READ] = Err(ReadError::Source(Error::new(ErrorCode::PermissionDenied, "fixture file permission denied")));
     let mut source = file_source(rows, &request());
     let description = source.describe().await.unwrap();
     assert_eq!(
@@ -282,7 +313,7 @@ async fn native_permission_gap_and_null_quantities_do_not_become_complete_zero_c
     let mut rows = replies(3, true);
     let mut files = file_rows();
     files[1] = replace(&files[1], &[("used_pages", Val::Null), ("database_is_snapshot", Val::Null)]);
-    rows[6] = Ok(files);
+    rows[FILE_READ] = Ok(files);
     let mut source = file_source(rows, &request());
     let description = source.describe().await.unwrap();
     let rows = drain(&mut source).await;
@@ -305,7 +336,7 @@ async fn caller_row_byte_and_query_limits_preserve_no_complete_census_claim() {
     assert_eq!(coverage(&description).state, SourceState::Unavailable);
     assert_eq!(coverage(&description).stopped, Some(CollectionStop::RowLimit));
     assert!(drain(&mut source).await.is_empty());
-    assert_eq!(source.io.calls[6].limit, 3);
+    assert_eq!(source.io.calls[FILE_READ].limit, 3);
     assert_eq!(source.finish().await.unwrap(), SourceCompletion::Verified);
     assert_eq!(source.close().await, SourceShutdown::Quiescent);
 
@@ -321,23 +352,23 @@ async fn caller_row_byte_and_query_limits_preserve_no_complete_census_claim() {
     assert_eq!(source.close().await, SourceShutdown::Quiescent);
 
     let mut request = self::request();
-    request.budget.max_queries = 10;
+    request.budget.max_queries = READER_QUERIES;
     let mut source = file_source(replies(3, true), &request);
     source.describe().await.unwrap();
     assert_eq!(drain(&mut source).await.len(), 3);
     assert_eq!(CollectionStop::from_error(&source.finish().await.err().unwrap()), CollectionStop::QueryLimit);
-    assert_eq!(source.query_count(), 10);
+    assert_eq!(source.query_count(), READER_QUERIES - 1);
     assert_eq!(source.close().await, SourceShutdown::Quiescent);
 }
 
 #[tokio::test]
 async fn native_failure_and_transport_change_stop_before_any_later_dispatch() {
     for (ordinal, stop, changed) in [
-        (5, CollectionStop::Cancelled, false),
-        (6, CollectionStop::CancellationUnconfirmed, false),
-        (6, CollectionStop::TimedOut, false),
-        (6, CollectionStop::QueryLimit, false),
-        (6, CollectionStop::SourceUnavailable, true),
+        (FILE_ADMISSION, CollectionStop::Cancelled, false),
+        (FILE_READ, CollectionStop::CancellationUnconfirmed, false),
+        (FILE_READ, CollectionStop::TimedOut, false),
+        (FILE_READ, CollectionStop::QueryLimit, false),
+        (FILE_READ, CollectionStop::SourceUnavailable, true),
     ] {
         let mut rows = replies(3, true);
         let original =
@@ -365,16 +396,16 @@ async fn native_failure_and_transport_change_stop_before_any_later_dispatch() {
         assert_eq!(source.io.closed, 1);
     }
     let mut source = file_source(replies(3, true), &request());
-    source.io = source.io.change_generation_at(7);
+    source.io = source.io.change_generation_at(FILE_READ as u32 + 1);
     assert_eq!(CollectionStop::from_error(&source.describe().await.err().unwrap()), CollectionStop::SourceChanged);
-    assert_eq!(source.query_count(), 7);
+    assert_eq!(source.query_count(), FILE_READ as u32 + 1);
     assert_eq!(source.close().await, SourceShutdown::Quiescent);
 }
 
 #[tokio::test]
 async fn cancellation_during_file_read_keeps_original_close_ownership() {
     let mut source = file_source(replies(3, true), &request());
-    source.io = source.io.pause_on_query(7);
+    source.io = source.io.pause_on_query(FILE_READ + 1);
     let mut description = Box::pin(source.describe());
     std::future::poll_fn(|context| match description.as_mut().poll(context) {
         std::task::Poll::Pending => std::task::Poll::Ready(()),
@@ -382,7 +413,7 @@ async fn cancellation_during_file_read_keeps_original_close_ownership() {
     })
     .await;
     drop(description);
-    assert_eq!(source.query_count(), 7);
+    assert_eq!(source.query_count(), FILE_READ as u32 + 1);
     assert!(source.finish().await.is_err());
     assert_eq!(source.close().await, SourceShutdown::Quiescent);
     assert_eq!(source.io.closed, 1);
@@ -392,7 +423,7 @@ async fn cancellation_during_file_read_keeps_original_close_ownership() {
 async fn public_file_metadata_does_not_borrow_view_definition_or_foreign_engine_authority() {
     let mut rows = replies(3, true);
     rows[4] = Ok(vec![super::super::tests::clock(false, FROM)]);
-    rows[7] = Ok(vec![super::super::tests::clock(false, UNTIL)]);
+    rows[CLOSING_CLOCK] = Ok(vec![super::super::tests::clock(false, UNTIL)]);
     let mut source = file_source(rows, &request());
     let description = source.describe().await.unwrap();
     assert_eq!((coverage(&description).state, coverage(&description).complete_scope), (SourceState::Collected, true));

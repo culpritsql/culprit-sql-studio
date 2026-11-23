@@ -13,8 +13,10 @@ use culprit_evidence::original_projection::OriginalProjection;
 pub(crate) mod catalogs;
 mod groups;
 mod populations;
+mod settings;
 mod validation;
 mod waits;
+pub(crate) use settings::{RetainedSettingsAnalysis, analyze_settings_original, settings_read};
 mod window;
 pub use window::analyze_window;
 pub(crate) use window::analyze_window_with;
@@ -209,11 +211,7 @@ fn finish_population(
     if policy.catalogs.settings_complete() {
         limitations.retain(|limitation| limitation.reason != CollectedAnalysisLimit::MissingSettings);
     }
-    let mut report = policy.pipeline.run(snapshot);
-    if let Some(provenance) = &mut report.provenance {
-        provenance.origin = policy.origin;
-    }
-    apply_executable_fix_policy(&mut report.findings, report.snapshot.workload.as_mut(), &mut limitations);
+    let report = run_retained_snapshot(snapshot, policy.pipeline, policy.origin, &mut limitations);
     Ok(CollectedQueryAnalysisResult {
         runtime_totals,
         population,
@@ -383,6 +381,20 @@ fn snapshot(
 
 pub(super) fn limit(record_id: Option<String>, reason: CollectedAnalysisLimit) -> CollectedAnalysisLimitation {
     CollectedAnalysisLimitation { record_id, reason }
+}
+
+fn run_retained_snapshot(
+    snapshot: Snapshot,
+    pipeline: &culprit_checks::Pipeline,
+    origin: culprit_core::AnalysisOrigin,
+    limitations: &mut Vec<CollectedAnalysisLimitation>,
+) -> culprit_core::Report {
+    let mut report = pipeline.run(snapshot);
+    if let Some(provenance) = &mut report.provenance {
+        provenance.origin = origin;
+    }
+    apply_executable_fix_policy(&mut report.findings, report.snapshot.workload.as_mut(), limitations);
+    report
 }
 
 fn apply_executable_fix_policy(

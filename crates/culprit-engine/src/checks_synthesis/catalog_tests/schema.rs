@@ -86,16 +86,16 @@ async fn sealed_schema_relations_and_options_reach_existing_checks_without_modul
     );
     let output = policy().analyze_originals(&originals, "2020-01-01T12:02:00Z", &display(), vec![]).unwrap();
     assert_eq!(output.findings.iter().filter(|row| row.finding.id.starts_with("untrusted-constraint:")).count(), 1);
-    assert_eq!(output.description.finding_evaluations.population_count as usize, analyses.len());
-    assert_eq!(output.description.finding_evaluations.populations.len(), analyses.len());
+    assert_eq!(output.description.finding_evaluations.assessment_count as usize, analyses.len());
+    assert_eq!(output.description.finding_evaluations.assessments.len(), analyses.len());
     assert!(output.findings.iter().all(|row| row.finding.fix.as_ref().is_none_or(|fix| fix.sql.is_none())));
     assert!(
         output
             .description
             .finding_evaluations
-            .populations
+            .assessments
             .iter()
-            .all(|population| population.catalog_inputs.len() == 7)
+            .all(|assessment| assessment.catalog_inputs.len() == 7)
     );
     assert!(
         output.changes.is_empty() && output.description.change_evaluations.is_empty(),

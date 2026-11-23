@@ -363,6 +363,7 @@ impl<D: SnapshotRecipe, R: NativeStreamRead> culprit_read::SnapshotReader for Na
             if matches!(D::ACQUISITION, SnapshotAcquisition::KnownReadableDatabaseCache) && !before.same_source(&after)
             {
                 return Ok(culprit_read::SnapshotRecheck {
+                    settings_context: None,
                     execution: None,
                     unchanged: false,
                     observed_until: String::new(),
@@ -373,6 +374,7 @@ impl<D: SnapshotRecipe, R: NativeStreamRead> culprit_read::SnapshotReader for Na
                 Ok(context) => context,
                 Err(error) if CollectionStop::from_error(&error) == CollectionStop::SourceChanged => {
                     return Ok(culprit_read::SnapshotRecheck {
+                        settings_context: None,
                         execution: None,
                         unchanged: false,
                         observed_until: String::new(),
@@ -415,6 +417,7 @@ impl<D: SnapshotRecipe, R: NativeStreamRead> culprit_read::SnapshotReader for Na
             };
             self.io.finish_measurement().await.map_err(ReadError::into_error)?;
             return Ok(culprit_read::SnapshotRecheck {
+                settings_context: None,
                 unchanged: true,
                 observed_until: context.observed_until.clone(),
                 execution: self.source_read.as_ref().map(|_| Box::new(context)),
@@ -427,6 +430,7 @@ impl<D: SnapshotRecipe, R: NativeStreamRead> culprit_read::SnapshotReader for Na
         let (database, physical) = description::identity(&mut self.io, &self.host, self.port).await?;
         if initial.target.database() != Some(&database) || physical_incarnation != &physical {
             return Ok(culprit_read::SnapshotRecheck {
+                settings_context: None,
                 execution: None,
                 unchanged: false,
                 observed_until: String::new(),
@@ -444,7 +448,13 @@ impl<D: SnapshotRecipe, R: NativeStreamRead> culprit_read::SnapshotReader for Na
                 error_code: (!complete).then_some(culprit_core::ErrorCode::PermissionDenied),
             }
         };
-        Ok(culprit_read::SnapshotRecheck { unchanged: true, observed_until, execution: None, scopes: vec![scope] })
+        Ok(culprit_read::SnapshotRecheck {
+            settings_context: None,
+            unchanged: true,
+            observed_until,
+            execution: None,
+            scopes: vec![scope],
+        })
     }
     fn query_count(&self) -> u32 {
         self.io.queries()

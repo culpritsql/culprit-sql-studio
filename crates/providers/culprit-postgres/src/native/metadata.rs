@@ -7,6 +7,8 @@ pub(crate) struct StatementCatalog {
     pub schema: String,
     pub columns: BTreeSet<String>,
     pub info: bool,
+    pub extension_version: Option<String>,
+    pub max_entries: Option<u32>,
 }
 
 #[derive(Clone, Debug)]
@@ -64,7 +66,9 @@ pub(crate) async fn activity<R: QueryRead>(reader: &mut R, host: &str, port: u16
 }
 async fn read_context<R: QueryRead>(reader: &mut R, host: &str, port: u16, statements: bool) -> Result<Metadata> {
     let statement_catalog = if statements {
-        r#"(SELECT n.nspname FROM pg_catalog.pg_extension e JOIN pg_catalog.pg_namespace n ON n.oid=e.extnamespace WHERE e.extname='pg_stat_statements') AS pgss_schema,
+        r#"pg_catalog.current_setting('pg_stat_statements.max', true) AS pgss_max_entries,
+      (SELECT e.extversion FROM pg_catalog.pg_extension e WHERE e.extname='pg_stat_statements') AS pgss_version,
+      (SELECT n.nspname FROM pg_catalog.pg_extension e JOIN pg_catalog.pg_namespace n ON n.oid=e.extnamespace WHERE e.extname='pg_stat_statements') AS pgss_schema,
       (SELECT pg_catalog.array_to_json(pg_catalog.array_agg(a.attname ORDER BY a.attnum))::text
          FROM pg_catalog.pg_extension e JOIN pg_catalog.pg_namespace n ON n.oid=e.extnamespace
          JOIN pg_catalog.pg_class c ON c.relnamespace=n.oid AND c.relname='pg_stat_statements'
@@ -74,7 +78,7 @@ async fn read_context<R: QueryRead>(reader: &mut R, host: &str, port: u16, state
         JOIN pg_catalog.pg_depend d ON d.classid='pg_catalog.pg_class'::regclass AND d.objid=c.oid AND d.refclassid='pg_catalog.pg_extension'::regclass AND d.refobjid=e.oid AND d.deptype='e'
         WHERE e.extname='pg_stat_statements' AND c.relname='pg_stat_statements_info') AS pgss_info"#
     } else {
-        "NULL::text AS pgss_schema,NULL::text AS pgss_columns,false AS pgss_info"
+        "NULL::text AS pgss_schema,NULL::text AS pgss_columns,false AS pgss_info,NULL::text AS pgss_version,NULL::text AS pgss_max_entries"
     };
     let sql = format!("SELECT pg_catalog.version() AS build, d.oid::text AS database_oid, d.datname AS database,
       pg_catalog.current_setting('server_version_num') AS version,
@@ -91,6 +95,8 @@ async fn read_context<R: QueryRead>(reader: &mut R, host: &str, port: u16, state
             schema,
             columns: serde_json::from_str(&columns).map_err(|_| invalid())?,
             info: flag(&row, "pgss_info")?,
+            extension_version: row.text("pgss_version"),
+            max_entries: row.text("pgss_max_entries").map(|value| value.parse().map_err(|_| invalid())).transpose()?,
         }),
         (None, None) => None,
         _ => return Err(invalid()),

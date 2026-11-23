@@ -94,6 +94,9 @@ impl CollectionDescription {
         if !self.partition.is_valid_for(&self.target) {
             return false;
         }
+        if let Some(valid) = super::snapshot_acquisition::source_is_consistent(self) {
+            return valid;
+        }
         if self.observation.activity().is_some_and(|frame| frame.scope == crate::MeasurementScope::Server) {
             return self.has_qualified_instance_activity();
         }

@@ -16,7 +16,7 @@ impl SourceFactory for Factory {
     }
 }
 
-pub(in crate::telemetry::native_tests) struct Capture {
+pub(in crate::telemetry) struct Capture {
     pub manifest: CollectionManifest,
     pub records: Vec<ExportedRecord>,
 }
@@ -53,7 +53,7 @@ pub(in crate::telemetry::native_tests) async fn original(
     Box::new(read_capture(sealed, &request.budget, &output))
 }
 
-pub(in crate::telemetry::native_tests) fn read_capture(
+pub(in crate::telemetry) fn read_capture(
     manifest: CollectionManifest,
     budget: &CollectionBudget,
     output: &Path,

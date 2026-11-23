@@ -454,3 +454,6 @@ mod output_grant;
 mod native_serial_tvp;
 
 mod mysql_metadata_context;
+
+#[cfg(feature = "postgres-native-tests")]
+mod native_output_blocking;

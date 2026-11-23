@@ -1,3 +1,4 @@
+mod managed_instance;
 use super::super::*;
 use crate::{
     instance::test_support::{epoch, metadata},
@@ -285,7 +286,7 @@ async fn missing_or_nonprimary_owner_and_unsupported_platform_never_read_setting
         assert_eq!(source.query_count(), 4);
         assert_eq!(source.close().await, SourceShutdown::Quiescent);
     }
-    for (edition, major) in [(3, 12), (8, 16)] {
+    for (edition, major) in [(2, 12), (3, 12), (4, 12)] {
         let mut rows = replies();
         rows[0] = Ok(vec![Rec::of(&[("edition", Val::Int(edition))])]);
         rows[1] =

@@ -132,7 +132,12 @@ async fn run(case: Case) {
     assert_eq!(metrics.untracked_tasks, 0);
     match case {
         Case::Absolute => {
-            assert_eq!(captured.queries, SHARED_QUERIES);
+            // Reader dispatches and the separately reserved connection SET slot have different owners.
+            assert_eq!(captured.queries, SHARED_READER_QUERIES);
+            assert_eq!(
+                shared_budget(&CollectionBudget::default()).max_queries,
+                SHARED_READER_QUERIES + ReadSession::SESSION_SETUP_QUERIES
+            );
             assert_eq!(captured.emitter_control, Some("stop-start-stop-acknowledged"));
             let (description, records, completion) = captured.observed.expect("native absolute configured file");
             assert_eq!(completion, SourceCompletion::Verified);

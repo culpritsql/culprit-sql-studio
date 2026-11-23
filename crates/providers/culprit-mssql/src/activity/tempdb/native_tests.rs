@@ -216,11 +216,15 @@ async fn prove_factory(pool: Arc<Pool>, session: &str, port: u16, original: &Tas
         endpoint_port: port,
         environment: Environment::Development,
     };
+    // The selected collection recipe includes the reserved SET slot; the shared direct reader's
+    // smaller allowance deliberately excludes it. Keep the default caller intersection intact.
+    let recipe = crate::telemetry::recipes().into_iter().find(|recipe| recipe.id == "mssql.task-space").unwrap();
     let request = CollectionRequest {
         subject: CollectionSubject::Database,
         selection: CollectionSelection::Snapshot { dataset: SnapshotDataset::TaskSpace },
-        budget: crate::task_space::bounded_budget(&CollectionBudget::default()),
+        budget: recipe.budget.intersection(&CollectionBudget::default()),
     };
+    assert_eq!(request.budget.max_queries, crate::task_space::MAX_QUERIES + ReadSession::SESSION_SETUP_QUERIES);
     let mut source = provider.telemetry_source(&request).unwrap();
     let created_queries = source.query_count();
     let captured = async {

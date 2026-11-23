@@ -38,7 +38,7 @@ check!(
     decide = config_cases,
     render = config_finding,
     case<'s> = ConfigCase<'s>,
-    evidence = &[Evidence::Settings],
+    evidence = &[Evidence::Settings, Evidence::ConfigurationApplicability],
 );
 
 /// What a setting establishes, by the engine whose setting it is.

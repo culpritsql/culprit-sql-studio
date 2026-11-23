@@ -140,9 +140,9 @@ fn analysis_context(report: &culprit_core::IncidentReadReport) -> culprit_core::
             missing: vec![],
             assessed_queries: 0,
         }],
-        populations: vec![],
-        population_count: 1,
-        omitted_populations: 1,
+        assessments: vec![],
+        assessment_count: 1,
+        omitted_assessments: 1,
     };
     description.analysis_id = description.expected_analysis_id().unwrap();
     assert!(description.is_valid());

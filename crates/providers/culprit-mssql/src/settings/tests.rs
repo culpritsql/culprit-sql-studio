@@ -1,3 +1,4 @@
+pub(crate) mod query_store;
 use super::*;
 use crate::resources::test_support::{FakeRead, replace};
 use culprit_core::{Coverage, SourceState, telemetry::SourceShutdown};
@@ -24,13 +25,7 @@ fn server() -> Rec {
     ])
 }
 pub(crate) fn options() -> Rec {
-    Rec::of(&[
-        ("desired_state", Val::Int(2)),
-        ("actual_state", Val::Int(1)),
-        ("current_storage_size_mb", Val::Int(10)),
-        ("future_usage_counter", Val::Int(4)),
-        ("optional", Val::Null),
-    ])
+    crate::query_store::options::tests::row(true, true)
 }
 #[tokio::test]
 async fn configured_effective_secondary_and_native_defaults_keep_their_own_meaning() {
@@ -52,14 +47,16 @@ async fn configured_effective_secondary_and_native_defaults_keep_their_own_meani
 }
 #[test]
 fn query_store_configuration_is_not_confused_with_changing_state_or_storage() {
-    let values = query_store_options(&options()).unwrap();
+    let values = query_store_options(&replace(&options(), &[("capture_policy_execution_count", Val::Null)])).unwrap();
     let get = |name| values.iter().find(|value| value.name == name).unwrap();
     assert_eq!(get("desired_state").nature, SettingNature::Configuration);
     assert_eq!(get("actual_state").nature, SettingNature::State);
     assert_eq!(get("current_storage_size_mb").nature, SettingNature::Measurement);
-    assert_eq!(get("future_usage_counter").nature, SettingNature::Unknown);
-    assert_eq!(get("optional").value, None);
-    assert!(application(get("optional")).is_none());
+    assert_eq!(values.len(), 21);
+    assert!(values.iter().all(|value| value.nature != SettingNature::Unknown));
+    assert!(values.iter().all(|value| !matches!(value.name.as_str(), "engine_edition" | "metadata_visibility")));
+    assert_eq!(get("capture_policy_execution_count").value, None);
+    assert!(application(get("capture_policy_execution_count")).is_none());
     assert!(values.iter().all(SettingObservation::is_valid));
 }
 #[tokio::test]

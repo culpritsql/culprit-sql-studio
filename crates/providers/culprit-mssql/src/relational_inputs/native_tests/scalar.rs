@@ -7,6 +7,7 @@ use culprit_core::{Severity, plan_facts::PlanParameterComparison};
 mod probe;
 mod psp;
 pub(crate) mod retained;
+pub(crate) use probe::SettledScalarActor;
 use probe::{CacheExpectation, IndexCoverage, Probe, RecordedRun};
 
 #[derive(Clone, Copy)]

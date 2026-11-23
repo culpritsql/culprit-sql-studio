@@ -74,9 +74,7 @@ fn mysql_registration() -> Result<ProviderRegistration> {
     .with_builtin_safety(culprit_mysql::component_version(), Arc::new(culprit_mysql::verify_builtin_safety))?;
     #[cfg(feature = "collector")]
     let registration = registration.with_profile_source(
-        vec![culprit_core::telemetry::RecipeSelector::Collection(
-            culprit_core::telemetry::TelemetryCollection::Activity,
-        )],
+        culprit_mysql::telemetry_profile_selectors(),
         Arc::new(|provider, request, profile| provider.telemetry_source_for_safety(request, profile)),
     )?;
     Ok(registration)
@@ -95,10 +93,15 @@ fn postgres_registration() -> Result<ProviderRegistration> {
         culprit_postgres::component_version(),
         Arc::new(culprit_postgres::verify_builtin_safety),
     )?;
-    profile_intake(registration)
+    #[cfg(feature = "collector")]
+    let registration = registration.with_profile_source(
+        culprit_postgres::telemetry_profile_selectors(),
+        Arc::new(|provider, request, profile| provider.telemetry_source_for_profile(request, profile)),
+    )?;
+    Ok(registration)
 }
 
-#[cfg(any(feature = "mssql", feature = "postgres"))]
+#[cfg(feature = "mssql")]
 fn profile_intake(registration: ProviderRegistration) -> Result<ProviderRegistration> {
     #[cfg(feature = "collector")]
     let registration = registration.with_profile_source(
@@ -176,30 +179,24 @@ mod tests {
 
     #[cfg(feature = "collector")]
     #[test]
-    fn baseline_profile_intake_is_explicit_activity_only_without_approving_builtin_costs() {
+    fn baseline_profile_intake_names_only_provider_owned_guarded_routes_without_approving_costs() {
         use culprit_core::telemetry::*;
         for engine in Engine::ALL {
             let Ok(registration) = registration(engine) else {
                 continue;
             };
-            let native_activity = match engine {
-                #[cfg(feature = "mssql")]
-                Engine::Mssql => true,
+            let profiles = match engine {
                 #[cfg(feature = "postgres")]
-                Engine::Postgres => true,
+                Engine::Postgres => culprit_postgres::telemetry_profile_selectors(),
+                #[cfg(feature = "mssql")]
+                Engine::Mssql => vec![RecipeSelector::Collection(TelemetryCollection::Activity)],
                 #[cfg(feature = "mysql")]
-                Engine::Mysql => true,
-                _ => false,
+                Engine::Mysql => culprit_mysql::telemetry_profile_selectors(),
+                _ => vec![],
             };
-            assert_eq!(
-                registration.supports_profile_source(RecipeSelector::Collection(TelemetryCollection::Activity)),
-                native_activity
-            );
             for recipe in registration.telemetry_recipes() {
                 assert!(!matches!(recipe.admission, RecipeAdmission::Measured(_)));
-                if recipe.selector != RecipeSelector::Collection(TelemetryCollection::Activity) {
-                    assert!(!registration.supports_profile_source(recipe.selector));
-                }
+                assert_eq!(registration.supports_profile_source(recipe.selector), profiles.contains(&recipe.selector));
             }
         }
     }
@@ -254,7 +251,7 @@ mod builtin_safety_tests {
     use super::*;
     use culprit_core::telemetry::*;
     #[test]
-    fn selected_registration_not_a_deserialized_policy_admits_the_two_builtin_pg_readers() {
+    fn selected_registration_not_a_deserialized_policy_admits_only_declared_builtin_pg_readers() {
         let registration = postgres_registration().unwrap();
         for recipe in registration
             .telemetry_recipes()
@@ -269,7 +266,13 @@ mod builtin_safety_tests {
             if recipe.purpose == RecipePurpose::Baseline {
                 let request = CollectionRequest {
                     subject: CollectionSubject::Database,
-                    selection: CollectionSelection::Activity,
+                    selection: match recipe.selector {
+                        RecipeSelector::Collection(TelemetryCollection::Activity) => CollectionSelection::Activity,
+                        RecipeSelector::Collection(TelemetryCollection::Snapshot(dataset)) => {
+                            CollectionSelection::Snapshot { dataset }
+                        }
+                        _ => panic!("baseline safety must retain its declared collection selector"),
+                    },
                     budget: recipe.budget.clone(),
                 };
                 let profile = SourceProfileAdmission::for_builtin(
@@ -345,10 +348,13 @@ mod mysql_safety_tests {
             foreign.templates_sha256 = digest(b"foreign-reader");
             assert!(!registration.verify_builtin_safety(&foreign).unwrap());
         }
-        assert_eq!(
-            recipes.iter().filter(|recipe| matches!(recipe.admission, RecipeAdmission::BuiltinSafety(_))).count(),
-            2
-        );
+        let mut admitted = recipes
+            .iter()
+            .filter(|recipe| matches!(recipe.admission, RecipeAdmission::BuiltinSafety(_)))
+            .map(|recipe| recipe.id.as_str())
+            .collect::<Vec<_>>();
+        admitted.sort_unstable();
+        assert_eq!(admitted, ["mysql.activity", "mysql.blocking", "mysql.settings"]);
         let untrusted = ProviderRegistration::new(
             Arc::new(|_, _| panic!("metadata listing never calls a factory")),
             crate::ProviderConstructionPolicy::DeferredNativeWork,

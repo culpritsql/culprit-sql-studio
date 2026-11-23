@@ -127,15 +127,7 @@ fn milliseconds(metric: &StatementCounter) -> Result<f64> {
         MeasurementValue::Integer(value) => value.parse::<u64>().map_err(|_| invalid())? as f64,
         MeasurementValue::Real(value) => *value,
     };
-    let milliseconds = match metric.unit {
-        RuntimeMetricUnit::Picoseconds => value / 1_000_000_000.0,
-        RuntimeMetricUnit::Nanoseconds => value / 1_000_000.0,
-        RuntimeMetricUnit::Microseconds => value / 1_000.0,
-        RuntimeMetricUnit::Milliseconds => value,
-        RuntimeMetricUnit::Seconds => value * 1_000.0,
-        _ => return Err(invalid()),
-    };
-    if milliseconds.is_finite() { Ok(milliseconds) } else { Err(invalid()) }
+    metric.unit.milliseconds(value).ok_or_else(invalid)
 }
 
 fn invalid() -> Error {

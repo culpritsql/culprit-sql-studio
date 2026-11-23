@@ -22,6 +22,8 @@ fn metadata(version: u32, extension_info: bool) -> Metadata {
             schema: "diagnostic".into(),
             columns: Default::default(),
             info: true,
+            extension_version: None,
+            max_entries: None,
         }),
     }
 }

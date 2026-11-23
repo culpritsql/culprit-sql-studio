@@ -356,6 +356,7 @@ mod tests {
     #[test]
     fn disabled_autovacuum_and_scale_factor_deduplicate_with_base_and_config_findings() {
         let mut s: Snapshot = serde_json::from_str(include_str!("../../../../fixtures/postgres-demo.json")).unwrap();
+        crate::postgres_settings_fixture::record_settings_acquisition(&mut s, true);
         // 1. A table with autovacuum_enabled=false and >= 20% dead rows emits one High `dead-rows:<table>` finding
         // (whose fix already sets `autovacuum_enabled = true`), not a duplicate `dead-rows:autovacuum-disabled:<table>`.
         let orders = s.tables.iter_mut().find(|t| t.name == "orders").unwrap();

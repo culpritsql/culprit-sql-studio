@@ -5,6 +5,9 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 #[cfg(test)]
+#[path = "definitions/source_tests.rs"]
+mod source_tests;
+#[cfg(test)]
 #[path = "definitions/variant_tests.rs"]
 mod variant_tests;
 
@@ -176,6 +179,11 @@ pub struct QueryDefinition {
 }
 
 impl QueryDefinition {
+    /// Exact native definition namespace only. Payload availability and wrapper hashes cannot repair a foreign ID.
+    pub(super) fn matches_source(&self, source: &CollectionDescription) -> Result<bool> {
+        Ok(self.id == self.identity.definition_id(source)?)
+    }
+
     pub fn is_valid(&self) -> bool {
         valid_digest(&self.id)
             && self.identity.is_valid()

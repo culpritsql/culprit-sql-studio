@@ -131,13 +131,13 @@ impl Provider for YugabyteProvider {
         })
         .await
     }
-    async fn explain_recorded(&self, sql: &str, id: Option<&str>) -> Result<Plan> {
+    async fn explain_recorded(&self, statement: culprit_core::RecordedStatement<'_>) -> Result<Plan> {
         deadline(OBSERVE_TIMEOUT, async {
             let mut session = read::application(self.connector.clone(), std::time::Duration::ZERO);
             let result: Result<String> = async {
                 let probe = probe::read_from(&mut session).await?;
                 let text = if culprit_postgres::wire::elevated_read(&mut session).await? {
-                    let id = id.ok_or_else(culprit_postgres::wire::foreign_statement)?;
+                    let id = statement.source_id().ok_or_else(culprit_postgres::wire::foreign_statement)?;
                     if probe.cluster {
                         global::nodes_from(&mut session).await?;
                     }
@@ -145,7 +145,7 @@ impl Provider for YugabyteProvider {
                         .await?
                         .ok_or_else(culprit_postgres::wire::foreign_statement)?
                 } else {
-                    sql.into()
+                    statement.sql().into()
                 };
                 Ok(text)
             }

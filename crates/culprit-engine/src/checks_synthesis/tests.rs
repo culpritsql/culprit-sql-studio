@@ -277,11 +277,11 @@ async fn independent_native_populations_retain_compact_assessments_when_findings
         let fixture = LocalCaptureFixture::query_history(source.clone(), records).await;
         let output = run(&fixture, vec![], synthesizer()).await.unwrap();
         let evaluations = &output.description.finding_evaluations;
-        assert!(evaluations.population_count > 0);
-        assert_eq!(evaluations.population_count as usize, evaluations.populations.len());
-        assert_eq!(evaluations.omitted_populations, 0);
+        assert!(evaluations.assessment_count > 0);
+        assert_eq!(evaluations.assessment_count as usize, evaluations.assessments.len());
+        assert_eq!(evaluations.omitted_assessments, 0);
         assert!(evaluations.checks.iter().any(|state| state.status == CheckStatus::Unavailable));
-        assert!(evaluations.populations.iter().all(|population| population.input == 0));
+        assert!(evaluations.assessments.iter().all(|population| population.input == 0));
         assert!(output.description.input_read_complete);
         assert!(!output.description.limitations().is_empty());
         assert!(serde_json::to_vec(&output.description).unwrap().len() < 128 * 1024);
@@ -352,7 +352,7 @@ fn real_saved_check_shapes_share_state_and_bound_large_multi_population_details_
         evaluations.add(&analysis, 0, &[], Engine::Mssql).unwrap();
     }
     let compact = evaluations.finish();
-    assert_eq!(compact.population_count, 100);
+    assert_eq!(compact.assessment_count, 100);
     let expected_ids = assessments
         .iter()
         .map(|assessment| assessment.check.as_str())
@@ -369,8 +369,8 @@ fn real_saved_check_shapes_share_state_and_bound_large_multi_population_details_
             original.reason.as_ref().map(|reason| culprit_core::redact::redact_prose(reason, Engine::Mssql))
         );
     }
-    assert_eq!(compact.populations.len() as u32 + compact.omitted_populations, 100);
-    assert!(compact.omitted_populations > 0, "the manifest budget preserves explicit omitted coverage");
+    assert_eq!(compact.assessments.len() as u32 + compact.omitted_assessments, 100);
+    assert!(compact.omitted_assessments > 0, "the manifest budget preserves explicit omitted coverage");
     assert!(serde_json::to_vec(&compact).unwrap().len() <= MAX_DERIVED_EVALUATION_BYTES);
 }
 
@@ -406,7 +406,7 @@ fn assessment_and_lock_are_one_unavailable_check_while_repeated_or_contradictory
     inventory.add(&analysis, 0, &[], Engine::Mssql).unwrap();
     let compact = inventory.finish();
     assert_eq!(compact.checks.len(), 1);
-    assert_eq!(compact.populations[0].checks.len(), 1);
+    assert_eq!(compact.assessments[0].checks.len(), 1);
     assert_eq!(compact.checks[0].reason, assessment.reason);
     assert_eq!(compact.checks[0].missing, lock.missing);
     assert_eq!(compact.checks[0].status, CheckStatus::Unavailable);

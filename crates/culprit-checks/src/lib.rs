@@ -11,6 +11,9 @@ mod checks;
 pub mod evidence;
 pub mod pipeline;
 #[cfg(test)]
+#[path = "../tests/postgres_settings_fixture.rs"]
+mod postgres_settings_fixture;
+#[cfg(test)]
 mod provenance_tests;
 mod refine;
 #[cfg(test)]

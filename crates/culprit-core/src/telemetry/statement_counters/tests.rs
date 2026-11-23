@@ -261,3 +261,65 @@ fn a_streamed_point_requires_its_declared_dataset_and_native_lower_bound_before_
         ExportedRecord::new(&source, &capture, TelemetryRecord::Operational(input.observations[0].clone())).is_err()
     );
 }
+
+#[test]
+fn acquired_counter_rows_use_their_native_member_clock_and_preserve_actual_read_role_separately() {
+    let point = sample(Some("0"), None);
+    let mut input = snapshot(point);
+    let context = input.context.as_mut().unwrap();
+    context.partition = SourcePartition::InstanceLocal {
+        member: Some(SharedResourceIdentity {
+            engine: Engine::Mysql,
+            kind: SharedResourceKind::Instance,
+            namespace: NativeIdentity::new("native-owner"),
+            native: NativeIdentity::new("instance"),
+        }),
+        epoch: Some("native-process".into()),
+    };
+    context.database_writable = Some(false);
+    input.coverage = StateSourceCoverage::collected(input.source.clone(), 1);
+    let source = CollectionDescription {
+        target: context.target.clone(),
+        partition: context.partition.clone(),
+        source: input.source.clone(),
+        continuity: SourceContinuity::Unverified,
+        observation: SourceObservation::SnapshotAcquisition {
+            snapshot: StateSnapshotDescription {
+                dataset: SnapshotDataset::StatementCounters,
+                observed_from: context.observed_from.clone(),
+                observed_until: context.observed_until.clone(),
+                records: 1,
+                sources: vec![input.coverage.clone()],
+            },
+            execution: context.clone(),
+            settings_context: None,
+        },
+    };
+    let restored = StatementCounterSnapshot::from_source(&source, input.observations.clone()).unwrap();
+    assert!(restored.is_valid());
+    assert_eq!(restored.context, input.context);
+    assert_eq!(NativeReadContext::from_snapshot(&source).unwrap().database_writable, None);
+    let record = TelemetryRecord::Operational(input.observations[0].clone());
+    let capture = CaptureIdentity { observation_id: "native-counter-acquisition".into(), revision: None };
+    assert!(ExportedRecord::new(&source, &capture, record.clone()).is_ok());
+    let mut staged = source.clone();
+    let SourceObservation::SnapshotAcquisition { snapshot, execution, .. } = staged.observation else { panic!() };
+    staged.observation = SourceObservation::PagedSnapshotAcquisition {
+        snapshot: PagedSnapshotDescription {
+            dataset: snapshot.dataset,
+            observed_from: snapshot.observed_from,
+            sources: vec![input.source.clone()],
+        },
+        execution,
+        settings_context: None,
+    };
+    assert!(ExportedRecord::new(&staged, &capture, record.clone()).is_ok());
+    let mut foreign = staged;
+    foreign.partition = SourcePartition::Target;
+    assert!(ExportedRecord::new(&foreign, &capture, record.clone()).is_err());
+    let mut late = source;
+    let SourceObservation::SnapshotAcquisition { snapshot, execution, .. } = &mut late.observation else { panic!() };
+    snapshot.observed_until = "2020-01-01T12:00:00.1Z".into();
+    execution.observed_until.clone_from(&snapshot.observed_until);
+    assert!(ExportedRecord::new(&late, &capture, record).is_err());
+}

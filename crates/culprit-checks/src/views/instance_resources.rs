@@ -24,14 +24,14 @@ pub fn explain_source(
     }
     let pool = mssql_pool_current_authority(source)?.filter(|authority| authority.native.is_some());
     let mut report = if let Some(authority) = pool {
-        if observations.iter().any(|row| !authority.accepts_operational(row)) {
+        let snapshot = source.observation.snapshot().ok_or_else(|| CollectionStop::InvalidPage.error())?;
+        if observations.iter().any(|row| !authority.accepts_operational(snapshot, row)) {
             return Err(CollectionStop::InvalidPage.error());
         }
         let mut report = unavailable();
         report.context =
             Some(ObservationReadContext::Native { context: Box::new(NativeReadContext::from_snapshot(source)?) });
-        report.source_state =
-            source.observation.snapshot().ok_or_else(|| CollectionStop::InvalidPage.error())?.coverage_state()?;
+        report.source_state = snapshot.coverage_state()?;
         report.read_complete = Some(read_complete);
         report.limitations.push(t!("view.pool_operational.limit.scope"));
         report

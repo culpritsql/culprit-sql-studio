@@ -600,3 +600,114 @@ async fn verify_index_compares_baseline_and_hypothetical_plans_and_validates_ddl
     assert!(verified.diff.cost_ratio.is_some_and(|r| r < 1.0));
     let _ = std::fs::remove_dir_all(home);
 }
+
+struct ObservedRecordedRequest {
+    source_id: Option<String>,
+    native_identity: Option<culprit_core::telemetry::NativeQueryIdentity>,
+}
+#[derive(Clone)]
+struct RecordedRequestProvider {
+    requests: Arc<std::sync::Mutex<Vec<ObservedRecordedRequest>>>,
+    query_log: bool,
+}
+#[async_trait]
+impl Provider for RecordedRequestProvider {
+    fn engine(&self) -> Engine {
+        Engine::Postgres
+    }
+    async fn probe(&self) -> Result<ServerInfo> {
+        Replay.probe().await
+    }
+    async fn snapshot(&self, connection: &str, options: &SnapshotOptions) -> Result<Snapshot> {
+        let mut snapshot = Replay.snapshot(connection, options).await?;
+        let workload = snapshot.workload.as_mut().unwrap();
+        workload.kind = Some(if self.query_log {
+            culprit_core::WorkloadKind::QueryLog
+        } else {
+            culprit_core::WorkloadKind::StatementStats
+        });
+        let query = workload.queries.first_mut().unwrap();
+        query.id = "opaque/model/id/that-is-not-native".into();
+        query.plan = None;
+        query.plan_id = None;
+        query.plans.clear();
+        query.plan_history = None;
+        query.native_identity = (!self.query_log).then(|| culprit_core::telemetry::NativeQueryIdentity {
+            query_id: "-777".into(),
+            qualifiers: std::collections::BTreeMap::from([
+                ("userid".into(), "10".into()),
+                ("dbid".into(), "42".into()),
+                ("toplevel".into(), "true".into()),
+                ("postmaster_started_at".into(), "2026-11-21T00:00:00.000001Z".into()),
+                ("stats_since".into(), "2026-11-21T00:00:00.000002Z".into()),
+            ]),
+        });
+        Ok(snapshot)
+    }
+    async fn explain(&self, sql: &str, mode: ExplainMode) -> Result<Plan> {
+        Explains.explain(sql, mode).await
+    }
+    async fn explain_recorded(&self, statement: culprit_core::RecordedStatement<'_>) -> Result<Plan> {
+        self.requests.lock().unwrap().push(ObservedRecordedRequest {
+            source_id: statement.source_id().map(str::to_owned),
+            native_identity: statement.native_identity().cloned(),
+        });
+        Explains.explain(statement.sql(), ExplainMode::Estimated).await
+    }
+    async fn live(&self) -> Result<LiveState> {
+        Replay.live().await
+    }
+    async fn run(&self, sql: &str, limit: usize) -> Result<ResultSet> {
+        Replay.run(sql, limit).await
+    }
+    async fn execute(&self, sql: &str, limit: usize) -> Result<ResultSet> {
+        Replay.execute(sql, limit).await
+    }
+}
+
+async fn recorded_request(query_log: bool) {
+    let home = temp_home(if query_log { "recorded-log-request" } else { "recorded-native-request" });
+    let requests = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let observed = requests.clone();
+    let ws = Workspace::open_in(&home).with_provider(
+        Engine::Postgres,
+        culprit_engine::ProviderRegistration::new(
+            Arc::new(move |_, _| {
+                Ok(Box::new(RecordedRequestProvider { requests: observed.clone(), query_log }) as Box<dyn Provider>)
+            }),
+            culprit_engine::ProviderConstructionPolicy::DeferredNativeWork,
+            Vec::new(),
+        )
+        .unwrap(),
+    );
+    ws.add_connection(NewConnection {
+        name: "recorded".into(),
+        input: "postgres://reader@replay.invalid:5432/demo".into(),
+        auth: Some(AuthKind::None),
+        ..Default::default()
+    })
+    .unwrap();
+    let report = crate::observed::run(&ws, culprit_core::ProviderReadKind::Scan, async |operation| {
+        ws.scan("recorded", &SnapshotOptions::default(), operation).await
+    })
+    .await
+    .unwrap();
+    let query =
+        report.snapshot.queries().iter().find(|query| query.id == "opaque/model/id/that-is-not-native").unwrap();
+    let expected = query.native_identity.clone();
+    ws.query_plan("recorded", &query.id, None).await.unwrap();
+    let calls = requests.lock().unwrap();
+    assert_eq!(calls.len(), 1);
+    assert_eq!(calls[0].source_id, (!query_log).then(|| query.id.clone()));
+    assert_eq!(calls[0].native_identity, expected);
+    drop(calls);
+    let _ = std::fs::remove_dir_all(home);
+}
+#[tokio::test]
+async fn recorded_plan_request_preserves_opaque_model_id_and_every_native_dimension() {
+    recorded_request(false).await;
+}
+#[tokio::test]
+async fn query_log_plan_continuation_remains_explicitly_unscoped_without_native_identity() {
+    recorded_request(true).await;
+}

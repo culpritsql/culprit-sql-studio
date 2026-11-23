@@ -109,6 +109,8 @@ pub(super) struct Reply<T = Vec<Rec>> {
     shutdown: SourceShutdown,
 }
 struct Streaming {
+    /// Present only when this exact idle client was already owned before the native task took it.
+    generation: Option<u64>,
     _owner: oneshot::Sender<()>,
     receiver: mpsc::Receiver<ReadBatch<Rec>>,
 }
@@ -164,7 +166,17 @@ impl ReadSession {
         ));
         Ok(owner)
     }
+    /// The original client belongs to the streaming task or its unacknowledged reply until native EOF.
+    /// This preserves acquisition continuity only; it never proves response completion or admits another read.
+    pub(crate) fn snapshot_generation(&self) -> Option<u64> {
+        let Some(stream) = &self.streaming else { return self.connection_generation() };
+        if self.closed || self.active.is_none() || self.peer.is_some() || self.connector.fence.is_uncertain() {
+            return None;
+        }
+        stream.generation.filter(|generation| Some(*generation) == self.accounting.connection_generation())
+    }
     pub(crate) async fn begin_stream(&mut self, sql: &str, parameters: Vec<Value>, row_limit: usize) -> Result<()> {
+        let generation = self.connection_generation();
         let budget = &self.accounting.budget;
         let (output, receiver) = RowOutput::streaming(budget.page_rows as usize, budget.page_bytes as usize);
         let request = owned::Request {
@@ -175,7 +187,7 @@ impl ReadSession {
             prepared: false,
         };
         let owner = self.start(request, output).await?;
-        self.streaming = Some(Streaming { _owner: owner, receiver });
+        self.streaming = Some(Streaming { generation, _owner: owner, receiver });
         Ok(())
     }
     pub(crate) async fn next_batch(&mut self) -> Result<ReadBatch<Rec>> {

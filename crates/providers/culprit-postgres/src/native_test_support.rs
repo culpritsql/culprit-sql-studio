@@ -3,6 +3,8 @@
 pub(crate) mod actor;
 pub mod case;
 mod maintenance;
+mod output_consumer;
+pub use output_consumer::OutputConsumerFixture;
 mod readable_secondary;
 use crate::{
     connect::Connector,
@@ -70,6 +72,7 @@ pub fn write_automatic_receipt(case: &str, name: &str, value: &serde_json::Value
             | "transaction-metadata"
             | "readable-secondary"
             | "readable-secondary-endpoint"
+            | "output-consumer"
     ));
     assert!(name.ends_with(".json") && !name.contains('/') && !name.contains('\\'));
     let directory = automatic_directory(case)?;
@@ -97,6 +100,7 @@ pub fn automatic_directory(case: &str) -> std::io::Result<std::path::PathBuf> {
             | "transaction-metadata"
             | "readable-secondary"
             | "readable-secondary-endpoint"
+            | "output-consumer"
     ));
     let root = std::path::PathBuf::from(std::env::var("CULPRIT_NATIVE_SAFETY_RECEIPT_DIR").map_err(|_| {
         std::io::Error::new(std::io::ErrorKind::NotFound, "explicit private native safety receipt directory required")

@@ -51,6 +51,12 @@ pub enum Flavor {
 }
 
 impl Flavor {
+    pub(crate) fn settings_format(self) -> culprit_core::telemetry::NativeSettingsFormat {
+        match self {
+            Self::Mysql => culprit_core::telemetry::NativeSettingsFormat::MysqlGlobalVariables,
+            Self::Mariadb => culprit_core::telemetry::NativeSettingsFormat::MariaDbGlobalVariables,
+        }
+    }
     /// From `VERSION()`: MariaDB says so (`11.8.9-MariaDB-ubu2404`, `10.11.6-MariaDB-log`).
     pub fn of_version(version: &str) -> Flavor {
         if version.to_ascii_lowercase().contains("mariadb") { Flavor::Mariadb } else { Flavor::Mysql }

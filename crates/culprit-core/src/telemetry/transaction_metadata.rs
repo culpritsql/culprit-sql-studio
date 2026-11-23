@@ -192,6 +192,31 @@ impl PostgresTransactionMetadata {
             && self.retainer_limited == (self.retainer_rows as usize > self.retention.holders.len())
             && self.retention.holders.iter().all(|holder| holder.fits_database_capture(&self.database))
     }
+    /// Select the exact native session fact from this point, without constructing a request or acquiring SQL.
+    /// The source/receipt owner still authenticates this point's database, member, epoch and observation bounds.
+    /// A partial native roster may retain a positive holder; it never establishes a unique global oldest.
+    pub fn xmin_retaining_session(&self, observed: &RetentionObservation) -> Option<&RetentionObservation> {
+        if !self.is_valid() || !self.retention.coverage.qualified_horizons.contains(&CleanupHorizon::Data) {
+            return None;
+        }
+        let holder = self.retention.holders.iter().find(|holder| *holder == observed)?;
+        let session = holder.session.as_ref()?;
+        (holder.holder == crate::CleanupHolder::Session
+            && holder.scope == crate::MeasurementScope::Database
+            && holder.database.as_deref() == Some(self.database.as_str())
+            && holder.horizons.iter().any(|horizon| horizon.protects.contains(&CleanupHorizon::Data))
+            && self.retention.sources.iter().any(|source| {
+                source.source == holder.source
+                    && matches!(source.state, crate::SourceState::Collected | crate::SourceState::Partial)
+            })
+            && session
+                .id
+                .parse::<u32>()
+                .is_ok_and(|pid| pid > 0 && pid <= i32::MAX as u32 && pid.to_string() == session.id)
+            && canonical_time(&session.generation).is_ok()
+            && ObservationBounds::new(&session.generation, &holder.observed_at).is_some())
+        .then_some(holder)
+    }
     /// Complete only within this documented selected profile, never a cluster-wide culprit census.
     pub fn observation_is_complete(&self) -> bool {
         self.is_valid()
@@ -309,3 +334,7 @@ fn invalid() -> Error {
 
 #[cfg(test)]
 pub(super) mod tests;
+
+#[cfg(test)]
+#[path = "transaction_metadata/xmin_tests.rs"]
+mod xmin_tests;

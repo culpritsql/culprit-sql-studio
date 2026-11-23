@@ -25,6 +25,7 @@ supported cases separately on the same existing runner, each with a fresh nonce 
 
 ```sh
 python3 -B dev/smoke-providers.py mssql-empty-catalog  # no smoke table or prior application workload
+python3 -B dev/smoke-providers.py mssql-database-counters  # fresh namespace; strict native name-collision proof
 python3 -B dev/smoke-providers.py mssql-fulltext      # matching mssql-server-fts package, verified after restart
 python3 -B dev/smoke-providers.py mssql-replication   # one pair; replication and cache workload on both native roles
 ```

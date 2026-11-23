@@ -18,6 +18,7 @@ import type { NativeFailureSnapshot } from "./NativeFailureSnapshot";
 import type { NodeResources } from "./NodeResources";
 import type { OperationalCounter } from "./OperationalCounter";
 import type { PageWaitSnapshot } from "./PageWaitSnapshot";
+import type { PostgresSettingsRead } from "./PostgresSettingsRead";
 import type { RecordedChangeCaptureHistories } from "./RecordedChangeCaptureHistories";
 import type { RecordedManagedInstanceResourceRead } from "./RecordedManagedInstanceResourceRead";
 import type { RecordedOperationalRead } from "./RecordedOperationalRead";
@@ -37,6 +38,10 @@ import type { TaskSpaceSnapshot } from "./TaskSpaceSnapshot";
 import type { TerminationHistory } from "./TerminationHistory";
 
 export type OperationalStats = { 
+/**
+ * Raw settings and the actual held acquisition, separate from independent display/statistics values.
+ */
+postgres_settings?: PostgresSettingsRead, 
 /**
  * Current native indexed-view indexes from the same combined Indexes read. Never a base-table or query owner.
  */

@@ -40,18 +40,27 @@ fn metadata(version: u32) -> Metadata {
         full_visibility: true,
         standby: false,
         replay_pause_access: super::super::replication::ReplayPauseAccess { requested: false, state: false },
-        statements: Some(StatementCatalog { schema: "public".into(), columns, info: true }),
+        statements: Some(StatementCatalog {
+            schema: "public".into(),
+            columns,
+            info: true,
+            extension_version: Some("1.12".into()),
+            max_entries: Some(5000),
+        }),
     }
 }
 
 fn row() -> Row {
+    row_with_stats_since("2020-01-01T12:00:00Z")
+}
+fn row_with_stats_since(since: &str) -> Row {
     fields(&[
         ("userid", Some("10")),
         ("dbid", Some("16384")),
         ("queryid", Some("-9223372036854775808")),
         ("toplevel", Some("true")),
         ("observed_at", Some("2020-01-02T00:00:00Z")),
-        ("stats_since", Some("2020-01-01T12:00:00Z")),
+        ("stats_since", Some(since)),
         ("minmax_stats_since", Some("2020-01-01T18:00:00Z")),
         ("calls", Some("2")),
         ("rows", Some("1")),
@@ -188,7 +197,7 @@ fn native_generations_keep_role_nesting_entry_and_extrema_resets_separate() {
     assert_eq!(sample.identity.qualifiers["userid"], "10");
     assert_eq!(sample.identity.qualifiers["dbid"], "16384");
     assert_eq!(sample.identity.qualifiers["toplevel"], "true");
-    assert_eq!(sample.identity.qualifiers["postmaster_started_at"], meta.started_at);
+    assert_eq!(sample.identity.qualifiers["postmaster_started_at"], canonical_time(&meta.started_at).unwrap());
     assert_eq!(sample.distributions[0].extrema_reset, ResetMarker::At("2020-01-01T18:00:00.000000000Z".into()));
     for (field, replacement) in [("userid", "11"), ("toplevel", "false"), ("stats_since", "2020-01-01T13:00:00Z")] {
         let mut values = row();
@@ -230,4 +239,207 @@ fn invalid_native_temp_values_fail_instead_of_disappearing_or_becoming_zero() {
         let values = if name == "temp_blks_read" { fields(&[(name, Some(value))]) } else { values };
         assert!(temporary_work(&values).is_err(), "{name}={value}");
     }
+}
+
+#[test]
+fn guarded_counters_require_a_known_native_entry_bound_and_complete_supported_extension_layout() {
+    let mut meta = metadata(180_006);
+    meta.statements.as_mut().unwrap().columns = GUARDED_COLUMNS.iter().map(|column| (*column).into()).collect();
+    assert!(validate_guarded_counters(&meta, 5000).is_ok());
+    for max in [None, Some(0), Some(5001), Some(u32::MAX)] {
+        let mut invalid = meta.clone();
+        invalid.statements.as_mut().unwrap().max_entries = max;
+        assert_eq!(validate_guarded_counters(&invalid, 5000).unwrap_err().code, ErrorCode::Unsupported);
+    }
+    for version in [None, Some("1.11"), Some("1.13")] {
+        let mut invalid = meta.clone();
+        invalid.statements.as_mut().unwrap().extension_version = version.map(str::to_owned);
+        assert_eq!(validate_guarded_counters(&invalid, 5000).unwrap_err().code, ErrorCode::Unsupported);
+    }
+    for missing in GUARDED_COLUMNS {
+        let mut invalid = meta.clone();
+        invalid.statements.as_mut().unwrap().columns.remove(*missing);
+        assert!(validate_guarded_counters(&invalid, 5000).is_err(), "{missing}");
+    }
+    for version in [170_009, 190_000] {
+        let mut invalid = meta.clone();
+        invalid.version = version;
+        assert!(validate_guarded_counters(&invalid, 5000).is_err());
+    }
+    meta.full_visibility = false;
+    assert_eq!(validate_guarded_counters(&meta, 5000).unwrap_err().code, ErrorCode::PermissionDenied);
+}
+
+#[test]
+fn guarded_entries_preserve_saved_native_stats_since_and_independent_extrema_instead_of_a_process_reset() {
+    let meta = metadata(180_006);
+    let mut sample = counters(&row(), &meta).unwrap();
+    assert!(validate_guarded_sample(&sample, &meta).is_ok());
+    let original = sample.clone();
+    let saved = "2019-01-01T00:00:00.123456000Z";
+    sample.identity.qualifiers.insert("stats_since".into(), saved.into());
+    sample.reset = ResetMarker::At(saved.into());
+    assert!(validate_guarded_sample(&sample, &meta).is_ok(), "persisted counters may precede current postmaster start");
+    assert_ne!(sample.reset, ResetMarker::At(meta.started_at.clone()));
+    assert_eq!(sample.distributions, original.distributions, "independent extrema clocks are retained");
+    for change in ["db", "user", "toplevel", "entry", "reset", "future", "extrema"] {
+        let mut sample = original.clone();
+        match change {
+            "db" => {
+                sample.identity.qualifiers.insert("dbid".into(), "other".into());
+            }
+            "user" => {
+                sample.identity.qualifiers.remove("userid");
+            }
+            "toplevel" => {
+                sample.identity.qualifiers.remove("toplevel");
+            }
+            "entry" => {
+                sample.identity.qualifiers.remove("stats_since");
+            }
+            "reset" => sample.reset = ResetMarker::Unknown,
+            "future" => {
+                let future = "2020-01-03T00:00:00Z";
+                sample.identity.qualifiers.insert("stats_since".into(), future.into());
+                sample.reset = ResetMarker::At(future.into());
+            }
+            "extrema" => sample.distributions[0].extrema_reset = ResetMarker::At("2020-01-03T00:00:00Z".into()),
+            _ => unreachable!(),
+        }
+        assert!(validate_guarded_sample(&sample, &meta).is_err(), "{change}");
+    }
+}
+
+#[test]
+fn builtin_statement_definition_decoder_keeps_its_source_id_for_partial_missing_and_oversized_payloads() {
+    let metadata = metadata(180_000);
+    let raw = "SELECT value FROM items WHERE id = 9264";
+    for complete in [true, false] {
+        let source = CollectionDescription {
+            target: metadata.database.clone().into(),
+            partition: SourcePartition::Target,
+            source: "postgres-statement-definitions".into(),
+            continuity: SourceContinuity::Unverified,
+            observation: SourceObservation::Snapshot(StateSnapshotDescription {
+                dataset: SnapshotDataset::StatementDefinitions,
+                observed_from: metadata.at.clone(),
+                observed_until: "2020-01-02T00:00:01Z".into(),
+                records: 1,
+                sources: vec![StateSourceCoverage::observed("pg_stat_statements".into(), 1, complete)],
+            }),
+        };
+        for (text, bytes, unavailable) in [
+            (Some(raw), Some(raw.len().to_string()), None),
+            (None, None, Some(PayloadUnavailable::Missing)),
+            (None, Some("1000000".into()), Some(PayloadUnavailable::Oversized)),
+        ] {
+            let original = row();
+            let native = Row::from_fields(
+                ["userid", "dbid", "queryid", "toplevel", "stats_since"]
+                    .into_iter()
+                    .map(|name| (name.into(), original.text(name)))
+                    .chain([("query".into(), text.map(str::to_owned)), ("source_text_bytes".into(), bytes)]),
+            );
+            let decoded = definition(&native, &metadata, &source, 1024).unwrap();
+            assert_eq!(decoded.id, decoded.identity.definition_id(&source).unwrap());
+            assert_eq!(decoded.identity.qualifiers["userid"], "10");
+            assert_eq!(decoded.identity.qualifiers["stats_since"], "2020-01-01T12:00:00.000000000Z");
+            assert_eq!(decoded.sql.is_available(), unavailable.is_none());
+            if let Some(reason) = unavailable {
+                assert_eq!(decoded.sql, DefinitionPayload::Unavailable { reason });
+            }
+            let record = TelemetryRecord::ObjectDefinition(
+                ObjectDefinitionRecord::new(
+                    "pg_stat_statements".into(),
+                    ObjectDefinitionFact::Statement(Box::new(decoded.clone())),
+                )
+                .unwrap(),
+            );
+            let capture = CaptureIdentity { observation_id: "actual-pg-definition-decoder".into(), revision: None };
+            let exported = ExportedRecord::new(&source, &capture, record.clone()).unwrap();
+            let TelemetryRecord::ObjectDefinition(wrapper) = exported.record else { panic!() };
+            let ObjectDefinitionFact::Statement(retained) = wrapper.fact else { panic!() };
+            assert_eq!(*retained, decoded);
+            assert!(!serde_json::to_string(&retained.sql).unwrap().contains("9264"));
+            let mut foreign = source.clone();
+            foreign.source = "postgres-statement-counters".into();
+            assert_eq!(
+                CollectionStop::from_error(&ExportedRecord::new(&foreign, &capture, record).unwrap_err()),
+                CollectionStop::InvalidPage
+            );
+        }
+    }
+}
+
+fn identity_scan_row(row: &Row, started_at: &str) -> Row {
+    let fields = ["queryid", "userid", "dbid", "toplevel", "stats_since"]
+        .into_iter()
+        .map(|name| (name.to_owned(), row.text(name)));
+    Row::from_fields(fields.chain(std::iter::once(("postmaster_started_at".into(), Some(started_at.into())))))
+}
+
+#[test]
+fn scan_and_captured_native_entry_clocks_share_one_canonical_identity_without_losing_qualifiers() {
+    let since = "2020-01-01T12:00:00.654321+00:00";
+    let values = row_with_stats_since(since);
+    let mut expected = None;
+    for started in ["2020-01-01T00:00:00.123456Z", "2020-01-01T00:00:00.123456+00:00", "2020-01-01T00:00:00.123456000Z"]
+    {
+        let mut meta = metadata(180_006);
+        meta.started_at = started.into();
+        let native = counters(&values, &meta).unwrap();
+        assert!(validate_guarded_sample(&native, &meta).is_ok());
+        let scan = scan_identity(&identity_scan_row(&values, "2020-01-01T00:00:00.123456000+00:00")).unwrap();
+        assert_eq!(native.identity, scan);
+        assert_eq!(scan.qualifiers.len(), 5);
+        assert_eq!(scan.qualifiers["userid"], "10");
+        assert_eq!(scan.qualifiers["dbid"], "16384");
+        assert_eq!(scan.qualifiers["toplevel"], "true");
+        assert_eq!(scan.qualifiers["postmaster_started_at"], "2020-01-01T00:00:00.123456000Z");
+        assert_eq!(scan.qualifiers["stats_since"], "2020-01-01T12:00:00.654321000Z");
+        if let Some(expected) = &expected {
+            assert_eq!(&scan, expected);
+        }
+        expected = Some(scan);
+    }
+}
+
+#[test]
+fn different_native_microsecond_process_epochs_and_entry_resets_remain_different_identities() {
+    let mut meta = metadata(180_006);
+    meta.started_at = "2020-01-01T00:00:00.123456Z".into();
+    let original = counters(&row(), &meta).unwrap();
+    let mut restarted = meta.clone();
+    restarted.started_at = "2020-01-01T00:00:00.123457+00:00".into();
+    assert_ne!(original.identity, counters(&row(), &restarted).unwrap().identity);
+    assert!(
+        validate_guarded_sample(&original, &restarted).is_err(),
+        "an equal-second different process cannot qualify the original entry"
+    );
+    let reset = row_with_stats_since("2020-01-01T12:00:00.000001Z");
+    assert_ne!(original.identity, counters(&reset, &meta).unwrap().identity);
+    for started in ["", "2020-01-01T00:00:00", "invalid-native-clock"] {
+        let mut invalid = meta.clone();
+        invalid.started_at = started.into();
+        assert!(counters(&row(), &invalid).is_err());
+        assert!(scan_identity(&identity_scan_row(&row(), started)).is_err());
+    }
+}
+
+#[test]
+fn native_scan_identity_sql_retains_the_same_fractional_epoch_and_reset_columns_as_capture() {
+    let meta = metadata(180_006);
+    let layout = Layout::detect(catalog(&meta).unwrap(), meta.version).unwrap();
+    let scan = scan_identity_projection(&layout);
+    assert!(
+        scan.contains(&format!(
+            "{} AS postmaster_started_at",
+            super::super::iso("pg_catalog.pg_postmaster_start_time()")
+        ))
+    );
+    assert!(scan.contains(&format!("{} AS stats_since", super::super::iso("stats_since"))));
+    assert!(!scan.contains(&crate::rows::iso("pg_postmaster_start_time()")));
+    let captured = query(&meta, false, 10, 1024).unwrap();
+    assert!(captured.contains(&format!("{} AS stats_since", super::super::iso("s.stats_since"))));
+    assert!(captured.contains(&format!("{} AS minmax_stats_since", super::super::iso("s.minmax_stats_since"))));
 }

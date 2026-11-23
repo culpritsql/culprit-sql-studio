@@ -3,8 +3,13 @@ mod activity;
 mod blocking;
 #[cfg(test)]
 mod native_tests;
+#[cfg(test)]
+mod profile_native_tests;
 mod readable_secondary_recovery;
 mod recipes;
+mod settings_profile;
+mod snapshot_io;
+mod statement_profile;
 mod transaction_metadata;
 use crate::connect::Connector;
 use crate::native;
@@ -12,10 +17,10 @@ use crate::native::metadata;
 use crate::native::metadata::Metadata;
 use crate::read::{NativeRead, ReadSession};
 use crate::rows::Row;
-pub(crate) use activity::profile_source;
 use culprit_core::{Error, ErrorCode, Result, telemetry::*};
 use culprit_read::{ReadBatch, SnapshotReader, SnapshotRecheck, SnapshotRecord, SnapshotScope, SnapshotSource};
-pub(crate) use recipes::{declarations, open as source};
+pub(crate) use recipes::{declarations, open as source, profile_selectors, profile_source};
+use snapshot_io::SnapshotIo;
 #[derive(Clone, Copy)]
 enum Recipe {
     Statements,
@@ -292,20 +297,36 @@ fn snapshot_source(
     request: &CollectionRequest,
     recipe: Recipe,
 ) -> Result<Box<dyn TelemetrySource>> {
+    snapshot_source_with_profile(connector, request, recipe, None)
+}
+fn snapshot_source_with_profile(
+    connector: Connector,
+    request: &CollectionRequest,
+    recipe: Recipe,
+    profile: Option<culprit_read::SourceProfileGuard>,
+) -> Result<Box<dyn TelemetrySource>> {
+    let io = ReadSession::new(connector.clone(), request.budget.clone());
+    let io = match &profile {
+        Some(profile) => io.with_profile(profile.clone()),
+        None => io,
+    };
     let reader = PostgresSnapshotReader {
         host: connector.host.clone(),
         port: connector.port,
-        io: ReadSession::new(connector, request.budget.clone()),
+        io,
         budget: request.budget.clone(),
         recipe,
         metadata: None,
         instance: None,
         memory_access: native::memory::Access::Unsupported,
+        acquisition: None,
+        generation: None,
+        profile,
     };
     Ok(Box::new(SnapshotSource::new(reader, request)?))
 }
-struct PostgresSnapshotReader {
-    io: ReadSession,
+struct PostgresSnapshotReader<R = ReadSession> {
+    io: R,
     budget: CollectionBudget,
     recipe: Recipe,
     host: String,
@@ -313,12 +334,68 @@ struct PostgresSnapshotReader {
     metadata: Option<Metadata>,
     instance: Option<SharedResourceIdentity>,
     memory_access: native::memory::Access,
+    acquisition: Option<native::local_context::Context>,
+    generation: Option<u64>,
+    profile: Option<culprit_read::SourceProfileGuard>,
+}
+impl<R: SnapshotIo> PostgresSnapshotReader<R> {
+    fn verify_profile_native(&self, profile: &culprit_read::SourceProfileGuard, metadata: &Metadata) -> Result<()> {
+        if metadata.version / 10_000 != 18 {
+            return Err(Error::new(ErrorCode::Unsupported, culprit_core::t!("collection.unsupported")));
+        }
+        match self.recipe {
+            Recipe::Settings => (),
+            Recipe::Statements => {
+                native::statements::validate_guarded_counters(metadata, statement_profile::MAX_NATIVE_ENTRIES)?
+            }
+            _ => return Err(native::invalid()),
+        }
+        if let Some(policy) = profile.builtin_policy() {
+            crate::builtin_safety::verify_native(policy, metadata.version)?;
+        }
+        Ok(())
+    }
+    fn check_profile(&self) -> Result<()> {
+        if let Some(profile) = &self.profile {
+            let current = self.io.connection_generation();
+            profile.check_connection(current)?;
+            if self.generation.is_some_and(|original| current != Some(original)) {
+                return Err(CollectionStop::SourceChanged.error());
+            }
+        }
+        Ok(())
+    }
 }
 #[async_trait::async_trait]
-impl SnapshotReader for PostgresSnapshotReader {
+impl<R: SnapshotIo> SnapshotReader for PostgresSnapshotReader<R> {
     type Row = Row;
+    fn check_lifetime(&self) -> Result<()> {
+        self.check_profile()
+    }
     async fn describe(&mut self, request: &CollectionRequest) -> Result<CollectionDescription> {
+        self.check_profile()?;
+        let opening = self.io.connection_generation();
         let meta = metadata::read(&mut self.io, &self.host, self.port).await?;
+        let acquisition = if let Some(profile) = &self.profile {
+            self.verify_profile_native(profile, &meta)?;
+            let generation = self
+                .io
+                .connection_generation()
+                .filter(|generation| *generation > 0)
+                .ok_or_else(|| CollectionStop::SourceChanged.error())?;
+            if opening.is_some_and(|original| original != generation) {
+                return Err(CollectionStop::SourceChanged.error());
+            }
+            self.generation = Some(generation);
+            let owner = native::local_context::Context::observe(&mut self.io, &meta)
+                .await?
+                .ok_or_else(|| CollectionStop::SourceChanged.error())?;
+            self.check_profile()?;
+            profile.bind_native(&owner.read_context()?, self.io.connection_generation())?;
+            Some(owner)
+        } else {
+            None
+        };
         let instance = if matches!(self.recipe, Recipe::InstanceOperational) {
             Some(native::instance::read(&mut self.io, meta.version).await?.identity)
         } else {
@@ -343,16 +420,34 @@ impl SnapshotReader for PostgresSnapshotReader {
         {
             return Err(Error::new(ErrorCode::PermissionDenied, culprit_core::t!("collection.invalid_source")));
         }
+        let execution = acquisition.as_ref().map(native::local_context::Context::read_context).transpose()?;
         let description = CollectionDescription {
-            partition: culprit_core::telemetry::SourcePartition::Target,
+            partition: if matches!(self.recipe, Recipe::Statements) {
+                execution.as_ref().map_or(SourcePartition::Target, |execution| execution.partition.clone())
+            } else {
+                SourcePartition::Target
+            },
             target,
             source: self.recipe.name().into(),
             continuity: SourceContinuity::Unverified,
-            observation: SourceObservation::PagedSnapshot(PagedSnapshotDescription {
-                dataset: self.recipe.dataset(),
-                observed_from: meta.at.clone(),
-                sources: self.recipe.sources(&meta),
-            }),
+            observation: {
+                let snapshot = PagedSnapshotDescription {
+                    dataset: self.recipe.dataset(),
+                    observed_from: meta.at.clone(),
+                    sources: self.recipe.sources(&meta),
+                };
+                match execution {
+                    Some(execution) => SourceObservation::PagedSnapshotAcquisition {
+                        snapshot,
+                        execution: Box::new(execution),
+                        settings_context: matches!(self.recipe, Recipe::Settings).then(|| NativeSettingsContext {
+                            format: NativeSettingsFormat::PostgresSettings,
+                            version: meta.version.to_string(),
+                        }),
+                    },
+                    None => SourceObservation::PagedSnapshot(snapshot),
+                }
+            },
         };
         if !description.matches_request(request) {
             return Err(CollectionStop::SourceChanged.error());
@@ -360,26 +455,51 @@ impl SnapshotReader for PostgresSnapshotReader {
         self.instance = instance;
         self.memory_access = memory_access;
         self.metadata = Some(meta);
+        self.acquisition = acquisition;
         Ok(description)
     }
     async fn begin(&mut self, request: &CollectionRequest) -> Result<()> {
+        self.check_profile()?;
         let meta = self.metadata.as_ref().ok_or_else(native::invalid)?;
         let query = self.recipe.query(meta, &request.budget, self.memory_access)?;
         self.io.begin_stream(&query, request.budget.max_snapshot_rows as usize + 1).await
     }
     async fn next_batch(&mut self) -> Result<ReadBatch<Row>> {
-        self.io.next_batch().await
+        self.check_profile()?;
+        let batch = self.io.next_batch().await?;
+        self.check_profile()?;
+        Ok(batch)
     }
     fn decode(&self, row: &Row, description: &CollectionDescription) -> Result<SnapshotRecord> {
         let meta = self.metadata.as_ref().ok_or_else(native::invalid)?;
         let (source, record) = self.recipe.decode(row, meta, description, &self.budget)?;
+        if self.profile.is_some() && matches!(self.recipe, Recipe::Statements) {
+            let TelemetryRecord::Operational(OperationalObservation {
+                fact: OperationalFact::StatementCounters(sample),
+                ..
+            }) = &record
+            else {
+                return Err(native::invalid());
+            };
+            native::statements::validate_guarded_sample(sample, meta)?;
+        }
         let complete_scope =
             !matches!(self.recipe, Recipe::Cleanup) || native::cleanup::scope_complete(&source, meta.standby);
         Ok(SnapshotRecord { source, record, complete_scope })
     }
     async fn recheck(&mut self, _: &CollectionDescription) -> Result<SnapshotRecheck> {
+        self.check_profile()?;
         let after = metadata::read(&mut self.io, &self.host, self.port).await?;
         let before = self.metadata.as_ref().ok_or_else(native::invalid)?;
+        let same_metadata = if matches!(self.recipe, Recipe::Replication) {
+            before.same_replication_source(&after)
+        } else {
+            before.same_source(&after)
+        };
+        if self.acquisition.is_some() && !same_metadata {
+            return Err(CollectionStop::SourceChanged.error());
+        }
+        self.check_profile()?;
         let same_instance = match &self.instance {
             Some(before) => native::instance::read(&mut self.io, after.version).await?.identity == *before,
             None => true,
@@ -394,14 +514,30 @@ impl SnapshotReader for PostgresSnapshotReader {
         } else {
             native::memory::Access::Unsupported
         };
+        let execution = if let Some(owner) = &self.acquisition {
+            let context = native::local_context::complete_observed(&mut self.io, before, Some(owner), &after)
+                .await?
+                .ok_or_else(|| CollectionStop::SourceChanged.error())?
+                .context;
+            self.profile
+                .as_ref()
+                .ok_or_else(native::invalid)?
+                .verify_final(&context, self.io.connection_generation())?;
+            Some(Box::new(context))
+        } else {
+            None
+        };
+        let observed_until = execution.as_ref().map_or(after.at.clone(), |context| context.observed_until.clone());
         Ok(SnapshotRecheck {
-            execution: None,
-            unchanged: (if matches!(self.recipe, Recipe::Replication) {
-                before.same_replication_source(&after)
-            } else {
-                before.same_source(&after)
-            }) && same_instance,
-            observed_until: after.at,
+            settings_context: self.acquisition.as_ref().filter(|_| matches!(self.recipe, Recipe::Settings)).map(|_| {
+                NativeSettingsContext {
+                    format: NativeSettingsFormat::PostgresSettings,
+                    version: after.version.to_string(),
+                }
+            }),
+            execution,
+            unchanged: same_metadata && same_instance,
+            observed_until,
             scopes: self
                 .recipe
                 .sources(before)

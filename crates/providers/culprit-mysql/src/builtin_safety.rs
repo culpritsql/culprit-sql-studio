@@ -1,4 +1,4 @@
-//! Source-owned safety for two existing native metadata readers, distinct from measured target cost.
+//! Source-owned safety for bounded native metadata readers, distinct from measured target cost.
 use crate::connect::Flavor;
 use culprit_core::{Result, telemetry::*};
 pub(crate) fn policy(
@@ -9,6 +9,9 @@ pub(crate) fn policy(
 ) -> Option<BuiltinRecipeSafety> {
     let purpose = match (id, selector) {
         ("mysql.activity", RecipeSelector::Collection(TelemetryCollection::Activity)) => RecipePurpose::Baseline,
+        ("mysql.settings", RecipeSelector::Collection(TelemetryCollection::Snapshot(SnapshotDataset::Settings))) => {
+            RecipePurpose::Baseline
+        }
         ("mysql.blocking", RecipeSelector::FocusedBlocking) => RecipePurpose::Investigation,
         _ => return None,
     };
@@ -40,6 +43,15 @@ fn templates() -> String {
         include_str!("native/mod.rs"),
         include_str!("native/instance.rs"),
         include_str!("telemetry/mod.rs"),
+        include_str!("telemetry/settings_profile.rs"),
+        include_str!("telemetry/snapshot_io.rs"),
+        include_str!("../../../culprit-read/src/snapshot.rs"),
+        include_str!("../../../culprit-read/src/profile.rs"),
+        include_str!("../../../culprit-core/src/telemetry/snapshot_acquisition.rs"),
+        include_str!("../../../culprit-core/src/telemetry/settings.rs"),
+        include_str!("../../../culprit-core/src/telemetry/settings/context.rs"),
+        include_str!("../../../culprit-core/src/telemetry/settings/mysql.rs"),
+        include_str!("native/settings.rs"),
         include_str!("telemetry/recipes.rs"),
         include_str!("native/activity.rs"),
         include_str!("native/activity/payload.rs"),
@@ -105,7 +117,7 @@ mod tests {
             .iter()
             .filter(|recipe| matches!(recipe.admission, RecipeAdmission::BuiltinSafety(_)))
             .collect::<Vec<_>>();
-        assert_eq!(selected.len(), 2);
+        assert_eq!(selected.len(), 3);
         for recipe in selected {
             let RecipeAdmission::BuiltinSafety(policy) = &recipe.admission else { panic!() };
             assert!(verify(policy).unwrap());
@@ -137,7 +149,7 @@ mod tests {
         assert!(
             recipes
                 .iter()
-                .filter(|recipe| !matches!(recipe.id.as_str(), "mysql.activity" | "mysql.blocking"))
+                .filter(|recipe| !matches!(recipe.id.as_str(), "mysql.activity" | "mysql.blocking" | "mysql.settings"))
                 .all(|recipe| matches!(recipe.admission, RecipeAdmission::Unqualified))
         );
     }

@@ -92,3 +92,136 @@ fn hyperscale_requires_positive_native_replica_identity_not_role_name_or_startup
     native.after = native.before.key().unwrap();
     assert!(original.partition_is_consistent());
 }
+
+fn tempdb_row() -> OperationalObservation {
+    OperationalObservation {
+        source: crate::source_id::TEMP_CAPACITY.into(),
+        key: "shared-tempdb".into(),
+        fact: OperationalFact::Space(OperationalSpace {
+            kind: crate::FileKind::Temp,
+            scope: crate::FileScope::Server,
+            population: StoragePopulation::SharedTempdbDataFiles,
+            observed_at: "2026-11-21T00:00:01Z".into(),
+            database: None,
+            native_name: None,
+            total_bytes: Some("1048576".into()),
+            used_bytes: Some("65536".into()),
+            limit_bytes: None,
+            growth_enabled: None,
+            reuse_wait: None,
+            parts: vec![],
+        }),
+    }
+}
+fn tempdb_source() -> CollectionDescription {
+    let mut source = native_source();
+    let SourceObservation::MssqlPoolCurrent { snapshot, .. } = &mut source.observation else { panic!() };
+    snapshot.records = 1;
+    *snapshot.sources.iter_mut().find(|source| source.source == crate::source_id::TEMP_CAPACITY).unwrap() =
+        StateSourceCoverage::collected(crate::source_id::TEMP_CAPACITY.into(), 1);
+    source
+}
+#[test]
+fn operational_rows_require_the_exact_current_header_with_canonical_utc_bounds() {
+    let original = tempdb_source();
+    let row = tempdb_row();
+    let SourceObservation::MssqlPoolCurrent { authority, snapshot } = &original.observation else { panic!() };
+    assert!(authority.accepts_operational(snapshot, &row));
+
+    let mut equivalent = snapshot.clone();
+    equivalent.observed_until = chrono::DateTime::parse_from_rfc3339(&snapshot.observed_until)
+        .unwrap()
+        .to_rfc3339_opts(chrono::SecondsFormat::Nanos, false);
+    assert_ne!(equivalent.observed_until, snapshot.observed_until);
+    assert!(authority.accepts_operational(&equivalent, &row));
+
+    let mut different = snapshot.clone();
+    different.observed_until = chrono::DateTime::parse_from_rfc3339(&snapshot.observed_until)
+        .unwrap()
+        .checked_add_signed(chrono::TimeDelta::milliseconds(1))
+        .unwrap()
+        .to_rfc3339();
+    assert!(different.is_valid(), "a valid header can still belong to a different acquisition");
+    assert!(!authority.accepts_operational(&different, &row));
+}
+#[test]
+fn pool_tempdb_preserves_shared_population_and_exact_native_authority_through_original_and_storage_contracts() {
+    let source = tempdb_source();
+    let row = tempdb_row();
+    assert!(MssqlPoolOperationalRead { source: source.clone(), observations: vec![row.clone()] }.is_valid());
+    ExportedRecord::new(
+        &source,
+        &CaptureIdentity { observation_id: "pool-tempdb-original".into(), revision: None },
+        TelemetryRecord::Operational(row.clone()),
+    )
+    .unwrap();
+    let read = StorageRead::from_source(&source, vec![row], true).unwrap();
+    assert_eq!(read.target, source.target);
+    assert_eq!(read.context.native().unwrap().database_writable, Some(true));
+    assert!(serde_json::from_value::<StorageRead>(serde_json::to_value(&read).unwrap()).unwrap().is_valid());
+    let mut readonly = source.clone();
+    let SourceObservation::MssqlPoolCurrent { authority, .. } = &mut readonly.observation else { panic!() };
+    authority.before.database_writable = false;
+    authority.after.database_writable = false;
+    let read = StorageRead::from_source(&readonly, vec![tempdb_row()], true).unwrap();
+    assert_eq!(read.context.native().unwrap().database_writable, Some(false));
+}
+#[test]
+fn a_selected_database_label_different_population_or_missing_pool_authority_cannot_mint_pool_allocation() {
+    let source = tempdb_source();
+    for change in 0..7 {
+        let mut row = tempdb_row();
+        let OperationalFact::Space(space) = &mut row.fact else { panic!() };
+        match change {
+            0 => space.database = Some("anchor".into()),
+            1 => space.native_name = Some("anchor".into()),
+            2 => {
+                space.kind = crate::FileKind::Log;
+                space.population = StoragePopulation::SharedTempdbTransactionLog;
+            }
+            3 => {
+                space.kind = crate::FileKind::Data;
+                space.scope = crate::FileScope::Database;
+                space.population = StoragePopulation::WritableOnlineDataFilegroups;
+            }
+            4 => row.source = crate::source_id::LOG_CAPACITY.into(),
+            5 => space.observed_at = "2026-11-20T23:59:59Z".into(),
+            6 => space.observed_at = "2026-11-21T00:00:00.500Z".into(),
+            _ => unreachable!(),
+        }
+        assert!(
+            ExportedRecord::new(
+                &source,
+                &CaptureIdentity { observation_id: "refused-pool-allocation".into(), revision: None },
+                TelemetryRecord::Operational(row)
+            )
+            .is_err(),
+            "{change}"
+        );
+    }
+    for change in 0..4 {
+        let mut original = source.clone();
+        let SourceObservation::MssqlPoolCurrent { authority, snapshot } = &mut original.observation else { panic!() };
+        match change {
+            0 => authority.native = None,
+            1 => authority.native.as_mut().unwrap().after = "f".repeat(64),
+            2 => {
+                snapshot.sources.retain(|source| source.source != crate::source_id::TEMP_CAPACITY);
+            }
+            3 => {
+                authority.before.native_tier = Some("Hyperscale".into());
+                authority.after.native_tier = Some("Hyperscale".into());
+            }
+            _ => unreachable!(),
+        }
+        assert!(
+            ExportedRecord::new(
+                &original,
+                &CaptureIdentity { observation_id: "refused-pool-owner".into(), revision: None },
+                TelemetryRecord::Operational(tempdb_row())
+            )
+            .is_err(),
+            "{change}"
+        );
+    }
+}

@@ -6,7 +6,15 @@ use super::*;
 #[ts(export)]
 pub enum MonitoringPolicy {
     Explicit,
-    Standard { budget: CollectionBudget },
+    Standard {
+        #[serde(default)]
+        budget: CollectionBudget,
+    },
+}
+impl Default for MonitoringPolicy {
+    fn default() -> Self {
+        Self::Standard { budget: CollectionBudget::default() }
+    }
 }
 impl MonitoringPolicy {
     pub fn validate(&self, inventory: &FleetInventory, shard: &str) -> Result<()> {
@@ -259,3 +267,6 @@ impl std::fmt::Debug for SourceProfileAdmission {
             .finish_non_exhaustive()
     }
 }
+
+#[cfg(test)]
+mod config_tests;

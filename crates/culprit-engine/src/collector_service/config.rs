@@ -25,7 +25,7 @@ pub struct CollectorConfig {
     pub workspace: PathBuf,
     pub state: PathBuf,
     pub inventory: FleetInventory,
-    #[serde(default = "standard_monitoring")]
+    #[serde(default)]
     pub monitoring: MonitoringPolicy,
     pub credentials: BTreeMap<String, CredentialProfile>,
     #[serde(default)]
@@ -122,8 +122,4 @@ impl CollectorConfig {
 
 fn invalid() -> culprit_core::Error {
     DeliveryProblem::InvalidContract.error()
-}
-
-fn standard_monitoring() -> MonitoringPolicy {
-    MonitoringPolicy::Standard { budget: CollectionBudget::default() }
 }

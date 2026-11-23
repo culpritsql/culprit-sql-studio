@@ -7,11 +7,12 @@ pub const MSSQL_POOL_OPERATIONAL_SOURCE: &str = "azure-pool-operational-state";
 pub const MAX_MSSQL_POOL_MEMBERS: usize = 500;
 /// Leaves headroom within the existing 128 KiB local manifest ceiling; no metadata limit is widened.
 pub const MAX_MSSQL_POOL_SCOPE_BYTES: usize = 64 * 1024;
-pub const MSSQL_POOL_OPERATIONAL_SOURCES: [&str; 4] = [
+pub const MSSQL_POOL_OPERATIONAL_SOURCES: [&str; 5] = [
     crate::source_id::MEMORY_CLERKS,
     crate::source_id::SCHEDULERS,
     crate::source_id::PERFORMANCE_COUNTERS,
     crate::source_id::FILE_LATENCY,
+    crate::source_id::TEMP_CAPACITY,
 ];
 
 #[derive(Serialize, Deserialize, TS, Clone, Debug, PartialEq, Eq)]
@@ -180,14 +181,14 @@ impl MssqlPoolNativeAuthority {
     }
 }
 impl MssqlPoolCurrentAuthority {
-    pub fn accepts_operational(&self, row: &OperationalObservation) -> bool {
+    pub fn accepts_operational(&self, snapshot: &StateSnapshotDescription, row: &OperationalObservation) -> bool {
         let Some(native) = self.native.as_deref() else {
             return false;
         };
         let Some((_, members)) = native.before.observed() else {
             return false;
         };
-        if !self.is_valid() || !row.is_valid() {
+        if !self.matches_snapshot(snapshot) || !row.is_valid() {
             return false;
         }
         match (&row.fact, row.source.as_str()) {
@@ -207,6 +208,15 @@ impl MssqlPoolCurrentAuthority {
                     .performance_counters()
                     .is_some_and(|profile| profile.validate(sample).is_ok())
                     && (!resource_governor_candidate(sample) || self.accepts_governor_sample(sample))
+            }
+            (OperationalFact::Space(space), crate::source_id::TEMP_CAPACITY) => {
+                space.population == StoragePopulation::SharedTempdbDataFiles
+                    && space.kind == crate::FileKind::Temp
+                    && space.scope == crate::FileScope::Server
+                    && space.database.is_none()
+                    && space.native_name.is_none()
+                    && ObservationBounds::new(&snapshot.observed_from, &snapshot.observed_until)
+                        .is_some_and(|bounds| bounds.contains(&space.observed_at))
             }
             (OperationalFact::FileIo(file), crate::source_id::FILE_LATENCY) => {
                 (file.scope == crate::FileScope::Database
@@ -267,7 +277,9 @@ impl MssqlPoolOperationalRead {
             return false;
         }
         let mut keys = BTreeSet::new();
-        self.observations.iter().all(|row| authority.accepts_operational(row) && keys.insert((&row.source, &row.key)))
+        self.observations
+            .iter()
+            .all(|row| authority.accepts_operational(snapshot, row) && keys.insert((&row.source, &row.key)))
             && snapshot.sources.iter().all(|source| {
                 self.observations.iter().filter(|row| row.source == source.source).count() == source.records as usize
             })

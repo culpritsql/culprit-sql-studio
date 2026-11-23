@@ -101,6 +101,7 @@ impl SnapshotReader for Reader {
     async fn recheck(&mut self, _: &CollectionDescription) -> Result<SnapshotRecheck> {
         self.called("recheck");
         Ok(SnapshotRecheck {
+            settings_context: None,
             execution: None,
             unchanged: !self.changed,
             observed_until: UNTIL.into(),
@@ -306,4 +307,30 @@ async fn materialized_native_rows_honor_page_rows_and_single_record_byte_limits(
     let mut buffer =
         SnapshotBuffer::new(vec![record], &CollectionBudget { page_bytes: 1024, ..Default::default() }).unwrap();
     assert_eq!(CollectionStop::from_error(&buffer.next_batch().err().unwrap()), CollectionStop::ByteLimit);
+}
+
+#[cfg(test)]
+mod acquisition;
+
+#[tokio::test]
+async fn one_native_batch_keeps_emitted_cursors_until_all_sized_records_are_delivered() {
+    let reader = Reader::new([batch(&[1, 2], true)]);
+    let calls = reader.calls.clone();
+    let mut source = source(reader);
+    source.describe().await.unwrap();
+    let CollectionRead::Page { records, next_cursor } = source.read_page(STREAM, None).await.unwrap() else { panic!() };
+    assert_eq!(records.len(), 1);
+    assert_eq!(next_cursor.as_deref(), Some("1"));
+    assert!(source.finish().await.is_err(), "native EOF cannot skip buffered records");
+    assert_eq!(*calls.lock().unwrap(), ["describe", "begin", "next"]);
+    let CollectionRead::Page { records, next_cursor } = source.read_page(STREAM, Some("1")).await.unwrap() else {
+        panic!()
+    };
+    assert_eq!(records.len(), 1);
+    assert_eq!(next_cursor, None);
+    let SourceCompletion::Snapshot(completed) = source.finish().await.unwrap() else { panic!() };
+    assert_eq!(completed.records, 2);
+    assert_eq!(completed.sources[0].records, 2);
+    assert_eq!(*calls.lock().unwrap(), ["describe", "begin", "next", "recheck"]);
+    assert_eq!(source.close().await, SourceShutdown::Quiescent);
 }

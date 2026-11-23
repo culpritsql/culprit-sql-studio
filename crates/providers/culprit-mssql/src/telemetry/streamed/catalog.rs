@@ -58,6 +58,7 @@ impl<D: SnapshotRecipe, R: NativeStreamRead> NativeSnapshotReader<D, R> {
             }
         };
         Ok(culprit_read::SnapshotRecheck {
+            settings_context: None,
             unchanged: true,
             observed_until: context.observed_until.clone(),
             execution: Some(Box::new(context)),

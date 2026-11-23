@@ -166,7 +166,7 @@ async fn capture_with_budget(fixture: &CostFixture, budget: CollectionBudget) ->
             if strict_row_cap {
                 assert!(captured.limited, "the strict caller cap must retain its native overflow witness");
                 assert!(
-                    (1..=7).contains(&reader.query_count()),
+                    (1..=crate::task_space::MAX_BOXED_QUERIES.min(budget.max_queries)).contains(&reader.query_count()),
                     "a limited capture may short-circuit but cannot exceed the unchanged source budget"
                 );
             } else {

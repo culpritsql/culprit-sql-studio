@@ -49,6 +49,33 @@ pub(super) fn append(
             }
             explanation.candidates.push(queries::from_qualified_request(&cache.actor, reference.clone()));
         }
+        for observed in &report.observed_xmin_sources {
+            let Some(holder) = point.xmin_retaining_session(observed) else { continue };
+            let session = holder.session.as_ref().ok_or_else(invalid)?;
+            let caller = holder
+                .client
+                .as_ref()
+                .filter(|client| client.application.is_some() || client.user.is_some() || client.host.is_some())
+                .map(|client| DerivedCaller {
+                    client: Some(client.clone()),
+                    session_context: None,
+                    evidence: reference.clone(),
+                });
+            let candidate = DerivedIncidentQuery {
+                causal_role: None,
+                identity: Some(DerivedQueryIdentity::Activity {
+                    actor: ActivityKey { session: session.clone(), request: None, transaction: None },
+                    statement: None,
+                }),
+                sql: DefinitionPayload::Unavailable { reason: PayloadUnavailable::NotCollected },
+                caller,
+                evidence: vec![reference.clone()],
+            };
+            if !candidate.is_valid() {
+                return Err(invalid());
+            }
+            explanation.candidates.push(candidate);
+        }
     }
     // No native dependency/row-lock edge in this question identifies an exclusive or contributing culprit.
     Ok(())

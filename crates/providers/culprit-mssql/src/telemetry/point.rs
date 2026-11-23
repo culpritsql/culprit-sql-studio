@@ -125,6 +125,9 @@ pub(super) fn families(dataset: SnapshotDataset) -> Result<Vec<Family>> {
 }
 
 pub(super) fn shared_families(dataset: SnapshotDataset) -> Result<Vec<Family>> {
+    if dataset == SnapshotDataset::WaitCounters {
+        return Ok(vec![Family::WaitCounters]);
+    }
     if dataset == SnapshotDataset::ProcessCpu {
         return Ok(vec![Family::ProcessorTopology, Family::CpuPools, Family::CpuHistory]);
     }
@@ -474,6 +477,8 @@ impl Family {
                 reader,
                 if matches!(owner, Some(super::subject::Identity::PoolCurrent(_))) {
                     crate::waits::Scope::ElasticPool
+                } else if matches!(owner, Some(super::subject::Identity::Instance(_))) {
+                    crate::waits::Scope::Server
                 } else {
                     crate::waits::Scope::Database
                 },

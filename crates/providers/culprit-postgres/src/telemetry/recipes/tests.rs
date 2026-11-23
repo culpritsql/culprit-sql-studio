@@ -84,12 +84,12 @@ fn every_public_declaration_has_one_actual_offline_constructor_and_no_native_cos
             descriptor.version,
             match registration.route {
                 Route::Activity => 4,
-                Route::Jobs => 3,
+                Route::Jobs | Route::Snapshot(Recipe::Statements) => 3,
                 Route::Blocking => 4,
                 Route::MaintenanceProgress
                 | Route::TransactionMetadata
                 | Route::CurrentRequestWork
-                | Route::Snapshot(Recipe::Operational | Recipe::Statements) => 2,
+                | Route::Snapshot(Recipe::Operational | Recipe::Settings) => 2,
                 _ => 1,
             }
         );
@@ -148,6 +148,21 @@ fn focused_sources_preserve_native_profiles_while_generic_recipes_keep_larger_va
             assert_eq!(bounded.budget, activity::bounded_budget(&maximum));
             assert_eq!(bounded.budget.max_queries, 6);
             assert_eq!(bounded.budget.max_snapshot_rows, 500);
+            assert_eq!(bounded.budget.statement_timeout_ms, 1_000);
+            assert_eq!(bounded.budget.total_timeout_ms, 5_000);
+        } else if matches!(registration.route, Route::Snapshot(Recipe::Statements)) {
+            assert_eq!(bounded.budget, super::super::statement_profile::bounded_budget(&maximum));
+            assert_eq!(bounded.budget.max_queries, 6);
+            assert_eq!(bounded.budget.max_snapshot_rows, 5000);
+            assert_eq!(bounded.budget.page_rows, 500);
+            assert_eq!(bounded.budget.page_bytes, 512 * 1024);
+            assert_eq!(bounded.budget.total_bytes, 8 * 1024 * 1024);
+            assert_eq!(bounded.budget.statement_timeout_ms, 1000);
+            assert_eq!(bounded.budget.total_timeout_ms, 5000);
+        } else if matches!(registration.route, Route::Snapshot(Recipe::Settings)) {
+            assert_eq!(bounded.budget, super::super::settings_profile::bounded_budget(&maximum));
+            assert_eq!(bounded.budget.max_queries, 6);
+            assert_eq!(bounded.budget.max_snapshot_rows, native::settings::capture_rows());
             assert_eq!(bounded.budget.statement_timeout_ms, 1_000);
             assert_eq!(bounded.budget.total_timeout_ms, 5_000);
         } else if matches!(registration.route, Route::Blocking) {

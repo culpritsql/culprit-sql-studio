@@ -1,4 +1,5 @@
 use super::*;
+use crate::postgres_settings_fixture::record_settings_acquisition;
 use crate::waits::snapshot_with;
 use culprit_core::{Pressure, Setting, Signal, SignalScope, SignalUnit, TableStorage, WaitStat};
 
@@ -351,6 +352,7 @@ fn maxdop_zero_matters_only_on_a_bigger_server() {
 fn autovacuum_scale_skips_append_only_tables_and_their_own_settings() {
     let mut s = snapshot_with(Engine::Postgres);
     set(&mut s, "autovacuum_vacuum_scale_factor", "0.3");
+    record_settings_acquisition(&mut s, true);
     for t in &mut s.tables {
         t.rows = Some(1_000.0);
     }
@@ -374,6 +376,7 @@ fn postgres_settings_are_worded_where_they_run() {
     set(&mut s, "autovacuum", "off");
     set(&mut s, "pg_stat_statements.dealloc", "40");
     set(&mut s, "pg_stat_statements.max", "50000");
+    record_settings_acquisition(&mut s, true);
     let out = postgres::check(&s);
     assert!(
         found(&out, "config:autovacuum")
@@ -458,4 +461,70 @@ fn postgres_wal_buffers_full_and_mysql_buffer_pool_wait_free() {
     let out = mysql::check(&my);
     let f = found(&out, "config:innodb_buffer_pool_wait_free").expect("innodb_buffer_pool_wait_free finding");
     assert!(f.title.contains("Queries waited 500 times for a clean buffer-pool page"), "{}", f.title);
+}
+
+#[test]
+fn postgres_config_uses_the_same_settings_role_not_probe_replica_or_session_permission() {
+    for writable in [true, false] {
+        let mut snapshot = snapshot_with(Engine::Postgres);
+        set(&mut snapshot, "autovacuum", "off");
+        set(&mut snapshot, culprit_core::REPLICA_SETTING, if writable { "standby" } else { "primary" });
+        snapshot.server.read_only_session = writable;
+        record_settings_acquisition(&mut snapshot, writable);
+        let original = serde_json::to_vec(&snapshot.operations.postgres_settings).unwrap();
+        let findings = postgres::check(&snapshot);
+        assert_eq!(found(&findings, "config:autovacuum").is_some(), writable);
+        assert_eq!(snapshot.setting("autovacuum").unwrap().value, "off");
+        let saved = serde_json::to_vec(&snapshot).unwrap();
+        let restored: Snapshot = serde_json::from_slice(&saved).unwrap();
+        assert_eq!(found(&postgres::check(&restored), "config:autovacuum").is_some(), writable);
+        assert_eq!(serde_json::to_vec(&restored.operations.postgres_settings).unwrap(), original);
+    }
+}
+
+#[test]
+fn flat_unknown_foreign_and_changed_settings_cannot_manufacture_primary_maintenance_advice() {
+    use culprit_core::telemetry::*;
+    let mut snapshot = snapshot_with(Engine::Postgres);
+    set(&mut snapshot, "autovacuum", "off");
+    assert!(found(&postgres::check(&snapshot), "config:autovacuum").is_none());
+    record_settings_acquisition(&mut snapshot, true);
+    // The raw native row, rather than independently edited display text, decides the case.
+    set_observed_postgres_setting(&mut snapshot, "autovacuum", "on");
+    assert!(found(&postgres::check(&snapshot), "config:autovacuum").is_none());
+    set_observed_postgres_setting(&mut snapshot, "autovacuum", "off");
+    let PostgresSettingsAcquisition::Completed { context } =
+        &snapshot.operations.postgres_settings.as_ref().unwrap().acquisition
+    else {
+        panic!()
+    };
+    let before = context.clone();
+    let mut after = context.clone();
+    after.database_writable = Some(false);
+    snapshot.operations.postgres_settings.as_mut().unwrap().acquisition = PostgresSettingsAcquisition::Unqualified {
+        before: Some(before),
+        after: Some(after),
+        reason: PostgresSettingsAcquisitionGap::SourceChanged,
+    };
+    assert!(found(&postgres::check(&snapshot), "config:autovacuum").is_none());
+    assert!(
+        snapshot
+            .postgres_configuration()
+            .unwrap()
+            .limitations
+            .contains(&PostgresSettingsAdviceLimit::UnqualifiedAcquisition)
+    );
+    assert!(matches!(
+        crate::evidence::assess(
+            &[crate::evidence::Requirement::Settings, crate::evidence::Requirement::ConfigurationApplicability],
+            &snapshot
+        ),
+        culprit_core::CheckEvidence::Insufficient(_)
+    ));
+}
+
+fn set_observed_postgres_setting(snapshot: &mut Snapshot, name: &str, value: &str) {
+    let read = snapshot.operations.postgres_settings.as_mut().expect("recorded native settings");
+    let setting = read.observations.iter_mut().find(|setting| setting.name == name).expect("recorded setting");
+    setting.value_in_use = Some(value.into());
 }

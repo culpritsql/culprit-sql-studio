@@ -52,6 +52,11 @@ pub fn telemetry_recipes() -> Vec<culprit_core::telemetry::RecipeDescriptor> {
     telemetry::declarations()
 }
 
+/// Existing baseline readers capable of enforcing an independently admitted native profile. No admission is issued.
+pub fn telemetry_profile_selectors() -> Vec<culprit_core::telemetry::RecipeSelector> {
+    telemetry::profile_selectors()
+}
+
 /// Identity of this crate's collector and native-plan parser, including a build revision when supplied.
 pub fn component_version() -> culprit_core::ComponentVersion {
     culprit_core::ComponentVersion::package(
@@ -195,6 +200,13 @@ impl PostgresProvider {
 
     fn environment(&self) -> Environment {
         self.spec.environment
+    }
+
+    async fn recorded_text(&self, statement: culprit_core::RecordedStatement<'_>) -> Result<String> {
+        let scope = read::ApplicationReadScope::until(tokio::time::Instant::now() + OBSERVE_TIMEOUT);
+        let mut reader = read::ReadSession::application(self.connector.clone(), INTERACTIVE, scope);
+        let result = trust::recorded::resolve(&mut reader, statement).await;
+        reader.finish(result).await
     }
 
     async fn explain_wire(
@@ -362,20 +374,11 @@ impl Provider for PostgresProvider {
         crate::pressure::sample(&mut &client, seconds).await
     }
 
-    async fn explain_recorded(&self, sql: &str, query_id: Option<&str>) -> Result<Plan> {
-        // Someone else's text: an elevated login plans only its own copy of it (`trust`), anyone else plans it as is.
-        let client = self.connector.connect(INTERACTIVE).await?;
-        if !trust::elevated(&client).await? {
-            return self.explain(sql, ExplainMode::Estimated).await;
-        }
-        let own = match query_id {
-            Some(id) => trust::own_text(&client, id).await?,
-            None => None,
-        };
-        match own {
-            Some(text) => self.explain(&text, ExplainMode::Estimated).await,
-            None => Err(trust::not_its_own()),
-        }
+    async fn explain_recorded(&self, statement: culprit_core::RecordedStatement<'_>) -> Result<Plan> {
+        let text = self.recorded_text(statement).await?;
+        // This is a current estimated replan under the ordinary planning trust owner. Resolving an older native
+        // entry does not make the new plan historical/same-execution or transfer that entry's identity to it.
+        self.explain(&text, ExplainMode::Estimated).await
     }
 
     async fn explain_hypothetical(&self, sql: &str, indexes: &[String]) -> Result<Plan> {

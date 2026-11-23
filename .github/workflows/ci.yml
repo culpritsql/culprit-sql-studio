@@ -203,6 +203,11 @@ jobs:
         env:
           CULPRIT_NATIVE_COST_RECEIPT_DIR: ${{ runner.temp }}/native-provider-cost-receipts
         run: python3 -B dev/smoke-providers.py mssql-empty-catalog
+      - name: Exercise selected database counters in their own native namespace
+        if: ${{ !cancelled() && matrix.fixture == 'mssql' }}
+        env:
+          CULPRIT_NATIVE_COST_RECEIPT_DIR: ${{ runner.temp }}/native-provider-cost-receipts
+        run: python3 -B dev/smoke-providers.py mssql-database-counters
       - name: Exercise native full-text metadata and population on its explicit owned installation
         if: ${{ !cancelled() && matrix.fixture == 'mssql' }}
         env:

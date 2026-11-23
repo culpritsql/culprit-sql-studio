@@ -9,6 +9,7 @@ pub enum Case<'s> {
     /// Big tables that churn and follow the server's scale factor (`factor`), the biggest first in `biggest`.
     AutovacuumScale {
         factor: f64,
+        configured_factor: String,
         big: Vec<&'s culprit_core::TableStat>,
         biggest: &'s culprit_core::TableStat,
     },
@@ -38,19 +39,24 @@ pub(super) fn decide(snapshot: &Snapshot) -> Vec<Case<'_>> {
     if value(snapshot, &["track_io_timing"]).is_some_and(|v| !is_on(v)) {
         out.push(Case::TrackIoTiming);
     }
-    out.extend(health(snapshot));
+    let configuration = snapshot.postgres_configuration();
+    out.extend(health(snapshot, configuration.as_ref()));
     out
 }
 
-fn health(snapshot: &Snapshot) -> Vec<Case<'_>> {
+fn health<'s>(
+    snapshot: &'s Snapshot,
+    configuration: Option<&culprit_core::telemetry::PostgresConfigurationAdvice>,
+) -> Vec<Case<'s>> {
     let mut out = Vec::new();
-    if value(snapshot, &["autovacuum"]).is_some_and(|v| !is_on(v)) {
+    if configuration.and_then(|read| read.setting("autovacuum")).is_some_and(|setting| !is_on(&setting.value)) {
         out.push(Case::AutovacuumOff);
     }
 
     // Big tables that churn and still follow the server's scale factor. A table that only grows (no updates or
     // deletes) leaves no dead rows for the factor to wait for, and one with its own factor isn't following it.
-    let factor = number(snapshot, "autovacuum_vacuum_scale_factor");
+    let configured_factor = configuration.and_then(|read| read.setting("autovacuum_vacuum_scale_factor"));
+    let factor = configured_factor.and_then(|setting| setting.value.trim().parse::<f64>().ok());
     let big: Vec<&culprit_core::TableStat> = snapshot
         .tables
         .iter()
@@ -73,7 +79,12 @@ fn health(snapshot: &Snapshot) -> Vec<Case<'_>> {
             .copied()
             .max_by(|a, b| a.rows.unwrap_or(0.0).total_cmp(&b.rows.unwrap_or(0.0)))
             .expect("non-empty");
-        out.push(Case::AutovacuumScale { factor, biggest, big });
+        out.push(Case::AutovacuumScale {
+            factor,
+            configured_factor: configured_factor.expect("a parsed factor has its original value").value.clone(),
+            biggest,
+            big,
+        });
     }
 
     if value(snapshot, &["pg_stat_statements.track"]).is_some_and(|v| v.eq_ignore_ascii_case("none")) {
@@ -155,7 +166,7 @@ pub(super) fn render(snapshot: &Snapshot, case: Case<'_>) -> Finding {
             f.confidence = Confidence::High;
             f
         }
-        Case::AutovacuumScale { factor, big, biggest } => {
+        Case::AutovacuumScale { factor, configured_factor, big, biggest } => {
             let rows = biggest.rows.unwrap_or(0.0);
             let mut f = setting_finding(
                 "autovacuum-scale",
@@ -167,7 +178,7 @@ pub(super) fn render(snapshot: &Snapshot, case: Case<'_>) -> Finding {
                 ),
                 t!(
                     "check.config.autovacuum_scale.summary",
-                    factor = value(snapshot, &["autovacuum_vacuum_scale_factor"]).unwrap_or("0.2"),
+                    factor = configured_factor,
                     table = biggest.qualified(),
                     rows = format::count(rows),
                     changed = format::count(rows * factor)

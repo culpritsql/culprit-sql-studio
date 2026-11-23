@@ -300,6 +300,9 @@ fn admit_shared_evidence<T>(
 pub fn redact_snapshot(snapshot: &Snapshot) -> Snapshot {
     let engine = snapshot.server.engine;
     let mut s = snapshot.clone();
+    if let Some(read) = &mut s.operations.postgres_settings {
+        read.withdraw_for_sharing();
+    }
     if page_server_reads::redact(&mut s).is_err() {
         s.record_unavailable_evidence(crate::source_id::QUERY_STORE, crate::message!("view.page_server_reads.invalid"));
     }

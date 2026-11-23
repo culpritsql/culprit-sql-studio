@@ -21,7 +21,7 @@ pub use relation_queue::{RelationQueueCase, RelationQueueRole};
 
 const CASE_TIMEOUT: Duration = Duration::from_secs(25);
 const CONTROL_TIMEOUT: Duration = Duration::from_secs(3);
-const AUTOMATIC_FOCUS_TIMEOUT: Duration = Duration::from_secs(120);
+const AUTOMATIC_FOCUS_TIMEOUT: Duration = Duration::from_secs(180);
 const DEFAULT_CADENCE_RECOVERY_TIMEOUT: Duration = Duration::from_secs(380);
 const MAX_PHASE_OBSERVATIONS: u32 = 120;
 const POSTGRES_IDENTIFIER_BYTES: usize = 63;

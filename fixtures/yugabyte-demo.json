@@ -2614,7 +2614,7 @@
       "change_feed": []
     }
   },
-  "format": 57,
+  "format": 58,
   "id": "20261024T065249.190547Z",
   "connection": "yugabyte-demo",
   "environment": "local",

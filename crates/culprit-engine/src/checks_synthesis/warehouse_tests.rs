@@ -201,7 +201,7 @@ async fn missing_verified_rows_remain_partial_and_do_not_read_native_recovery_as
     let output = policy(false).synthesize_captures(&capture, &[], RECORDED_AT, &display()).unwrap();
     assert!(!output.description.input_read_complete);
     assert!(!output.description.limitations().is_empty());
-    assert!(!output.description.finding_evaluations.populations.is_empty());
+    assert!(!output.description.finding_evaluations.assessments.is_empty());
     assert_eq!(warehouse.work(), before);
     assert_eq!(before.2, 0);
     output.validate().unwrap();

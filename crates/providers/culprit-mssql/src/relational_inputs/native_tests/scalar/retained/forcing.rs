@@ -55,7 +55,7 @@ async fn capture_tuning(owner: &mut OwnedCaptures, factory: &Factory) -> Capture
     );
     assert!(capture.manifest.source_queries <= 19);
     let recipe = crate::telemetry::recipes().into_iter().find(|recipe| recipe.id == "mssql.tuning").unwrap();
-    assert_eq!(recipe.version, 2);
+    assert_eq!(recipe.version, 4);
     assert_eq!(recipe.admission, RecipeAdmission::Unqualified);
     capture
 }

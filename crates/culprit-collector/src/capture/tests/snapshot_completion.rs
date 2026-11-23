@@ -80,6 +80,7 @@ impl SnapshotReader for Reader {
         self.called("recheck");
         let snapshot = self.script.source.observation.snapshot().unwrap();
         Ok(SnapshotRecheck {
+            settings_context: None,
             unchanged: true,
             observed_until: snapshot.observed_until.clone(),
             execution: None,

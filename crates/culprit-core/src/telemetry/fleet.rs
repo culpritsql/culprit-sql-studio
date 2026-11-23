@@ -24,6 +24,8 @@ pub struct FleetTarget {
     /// Configured physical-resource group. All members must belong to the same static shard.
     /// This is an admission policy, never evidence that a native measurement has this scope.
     pub admission_group: String,
+    /// Empty configuration delegates selection to Standard policy; Explicit validation still requires schedules.
+    #[serde(default)]
     pub schedules: Vec<FleetSchedule>,
 }
 

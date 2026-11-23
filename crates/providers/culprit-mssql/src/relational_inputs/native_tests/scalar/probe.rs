@@ -1,6 +1,6 @@
 use super::*;
 use crate::test_support::{actual_plan_capture_admitted, owned_case};
-use culprit_core::telemetry::CachedStatementContext;
+use culprit_core::telemetry::{CachedStatementContext, NativeActivityIdentity};
 use culprit_read::cancellation::CollectionCancellation;
 use futures_util::future::LocalBoxFuture;
 
@@ -8,7 +8,10 @@ mod cache_observation;
 mod memory_phases;
 mod metadata;
 mod post_execution;
+mod settlement;
 mod stack_tests;
+pub(super) use settlement::NativeWork;
+pub(crate) use settlement::SettledScalarActor;
 
 const MARKER: &str = "scalar_original_probe";
 const SOURCE_ROWS: usize = 32_768;
@@ -96,6 +99,8 @@ pub(super) struct Probe {
     actor: Actor,
     projection: Projection,
     cancellation: CollectionCancellation,
+    database: String,
+    native_work: NativeWork,
 }
 impl Probe {
     pub async fn new(fixture: &OwnedSourceFixture, database: &str, coverage: IndexCoverage) -> Self {
@@ -219,7 +224,17 @@ impl Probe {
             }
         };
         let pool = Arc::new(Pool::new(config(fixture.port, database, fixture.password(), "culprit"), None));
-        Self { application, pool, port: fixture.port, object, actor, projection, cancellation }
+        Self {
+            application,
+            pool,
+            port: fixture.port,
+            object,
+            actor,
+            projection,
+            cancellation,
+            database: database.into(),
+            native_work: NativeWork::after_setup(),
+        }
     }
     pub(super) fn cancellation(&self) -> &CollectionCancellation {
         &self.cancellation
@@ -227,6 +242,31 @@ impl Probe {
     pub fn actor(&self) -> Actor {
         self.actor.clone()
     }
+    pub(super) fn native_work(&self) -> NativeWork {
+        self.native_work.clone()
+    }
+
+    pub(super) async fn verify_resource_route(
+        &mut self,
+        fixture: &crate::activity::memory::native_tests::fixture::Fixture,
+    ) -> culprit_core::Result<NativeActivityIdentity> {
+        let dispatched = self.native_work.application_dispatch()?;
+        let actor = fixture.verify_scalar_route(&mut self.application).await?;
+        dispatched.complete();
+        Ok(actor)
+    }
+
+    /// A completed native response and this original client's retirement are independent prerequisites.
+    /// Evidence/plan/cache failures never mint settlement; neither can physical close repair native debt.
+    pub(super) async fn retire(self) -> culprit_core::Result<SettledScalarActor> {
+        let Self { application, pool, database, actor, native_work, .. } = self;
+        let retired = owned_case::retire(application).await;
+        if pool.source_shutdown() != SourceShutdown::Quiescent {
+            native_work.withhold();
+        }
+        native_work.retired(database, actor, retired)
+    }
+
     pub async fn record(&mut self, bucket: i32, expected: CacheExpectation<'_>) -> Box<RecordedRun> {
         let mut run = self.record_native(bucket, expected).await;
         run.plan = culprit_core::redact::redact_plan(&run.plan);
@@ -260,6 +300,7 @@ impl Probe {
             let cancellation = self.cancellation.clone();
             let metadata_budget = super::super::expressions::reader_budget();
             let metadata_query_cap = metadata_budget.max_queries;
+            let native_reader = self.native_work.reader();
             let mut original_reader = ReadSession::new(self.pool.clone(), metadata_budget);
             let mut transition = None;
             let outcome = AssertUnwindSafe(async {
@@ -287,10 +328,12 @@ impl Probe {
                 }
                 phase("execution-owner-start", &reader);
                 let sql = format!("EXEC dbo.scalar_probe @bucket={bucket}");
+                let dispatched = self.native_work.application_dispatch().unwrap();
                 let captured =
                     actual_plan_capture_admitted(&mut self.application, &sql, vec![], submitting, &cancellation)
                         .await
                         .unwrap();
+                dispatched.complete();
                 phase("execution-response-drained", &reader);
                 if let Some(directory) = diagnostics {
                     post_execution::save_completed(directory, &captured.plans).unwrap();
@@ -341,6 +384,7 @@ impl Probe {
             .await;
             // The original metadata owner closes on cancelled admission, native failure and panic alike.
             let shutdown = original_reader.close().await;
+            native_reader.closed(shutdown);
             let diagnostic = match (diagnostics, transition) {
                 (Some(directory), Some((phase, transition))) => crate::test_support::save_cost_receipt(
                     directory,

@@ -69,3 +69,48 @@ async fn changed_pause_access_retires_only_the_standby_replication_read_not_an_u
     changed_process.started_at = "2026-11-13T05:30:00Z".into();
     assert!(!before.same_replication_source(&changed_process));
 }
+
+#[tokio::test]
+async fn statement_entry_bound_and_extension_version_are_native_facts_in_the_existing_metadata_dispatch() {
+    let columns = serde_json::to_string(super::super::statements::GUARDED_COLUMNS).unwrap();
+    let base = row();
+    let names = [
+        "build",
+        "database_oid",
+        "database",
+        "version",
+        "block_bytes",
+        "standby",
+        "started_at",
+        "observed_at",
+        "full_visibility",
+        "replay_pause_requested_access",
+        "replay_pause_state_access",
+    ];
+    let mut fields = names.into_iter().map(|name| (name.into(), base.text(name))).collect::<Vec<_>>();
+    fields.extend([
+        ("pgss_schema".into(), Some("public".into())),
+        ("pgss_columns".into(), Some(columns)),
+        ("pgss_info".into(), Some("t".into())),
+        ("pgss_version".into(), Some("1.12".into())),
+        ("pgss_max_entries".into(), Some("5000".into())),
+    ]);
+    let mut reader = Reader { replies: [Ok(vec![Row::from_fields(fields)])].into(), calls: vec![] };
+    let before = read(&mut reader, "fixture.invalid", 5432).await.unwrap();
+    assert_eq!(reader.calls.len(), 1);
+    assert!(reader.calls[0].contains("current_setting('pg_stat_statements.max', true) AS pgss_max_entries"));
+    assert!(!reader.calls[0].contains("pg_stat_statements(false)"));
+    let catalog = before.statements.as_ref().unwrap();
+    assert_eq!(catalog.max_entries, Some(5000));
+    assert_eq!(catalog.extension_version.as_deref(), Some("1.12"));
+    for field in ["max", "version"] {
+        let mut after = before.clone();
+        match field {
+            "max" => after.statements.as_mut().unwrap().max_entries = Some(5001),
+            "version" => after.statements.as_mut().unwrap().extension_version = Some("1.11".into()),
+            _ => unreachable!(),
+        }
+        assert!(!before.same_source(&after));
+        assert!(before.same_activity_source(&after), "Activity owns no pgss layout or population work");
+    }
+}

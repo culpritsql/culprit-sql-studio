@@ -103,6 +103,21 @@ impl RuntimeMetricUnit {
     pub fn is_valid(self) -> bool {
         !matches!(self, Self::Pages { bytes_per_page: 0 })
     }
+    /// Convert a declared native time unit without accepting negative, non-finite or overflowing values.
+    pub fn milliseconds(self, value: f64) -> Option<f64> {
+        if !value.is_finite() || value < 0.0 {
+            return None;
+        }
+        let milliseconds = match self {
+            Self::Picoseconds => value / 1_000_000_000.0,
+            Self::Nanoseconds => value / 1_000_000.0,
+            Self::Microseconds => value / 1_000.0,
+            Self::Milliseconds => value,
+            Self::Seconds => value * 1_000.0,
+            _ => return None,
+        };
+        milliseconds.is_finite().then_some(milliseconds)
+    }
     pub(super) fn is_time(self) -> bool {
         matches!(self, Self::Picoseconds | Self::Nanoseconds | Self::Microseconds | Self::Milliseconds | Self::Seconds)
     }

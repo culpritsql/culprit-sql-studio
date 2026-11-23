@@ -44,7 +44,31 @@ impl Route {
             Self::CurrentRequestWork => crate::progress::current_work_budget(requested),
             Self::TransactionMetadata => transaction_metadata::bounded_budget(requested),
             Self::ReadableSecondaryRecovery => readable_secondary_recovery::bounded_budget(requested),
+            Self::Snapshot(Recipe::Settings) => settings_profile::bounded_budget(requested),
+            Self::Snapshot(Recipe::Statements) => statement_profile::bounded_budget(requested),
             Self::Snapshot(_) => requested.clone(),
+        }
+    }
+    fn supports_profile(self) -> bool {
+        matches!(self, Self::Activity | Self::Snapshot(Recipe::Settings | Recipe::Statements))
+    }
+    fn open_profile(
+        self,
+        connector: Connector,
+        request: &CollectionRequest,
+        profile: &SourceProfileAdmission,
+    ) -> Result<Box<dyn TelemetrySource>> {
+        match self {
+            Self::Activity => activity::profile_source(connector, request, profile),
+            Self::Snapshot(recipe @ (Recipe::Settings | Recipe::Statements)) => {
+                request.subject.require_database()?;
+                if self.bounded_budget(&request.budget) != request.budget {
+                    return Err(native::invalid());
+                }
+                let guard = culprit_read::SourceProfileGuard::new(request, profile)?;
+                snapshot_source_with_profile(connector, request, recipe, Some(guard))
+            }
+            _ => Err(unsupported()),
         }
     }
     fn open(self, connector: Connector, request: &CollectionRequest) -> Result<Box<dyn TelemetrySource>> {
@@ -170,13 +194,13 @@ const REGISTRATIONS: &[Registration] = &[
         subject: RecipeSubject::Database,
         route: Route::Blocking,
     },
-    Registration::snapshot("postgres.statement-counters", Recipe::Statements).version(2).baseline(),
+    Registration::snapshot("postgres.statement-counters", Recipe::Statements).version(3).baseline(),
     Registration::snapshot("postgres.statement-definitions", Recipe::Definitions),
     Registration::snapshot("postgres.operational", Recipe::Operational).version(2).baseline(),
     Registration::snapshot("postgres.instance-operational", Recipe::InstanceOperational)
         .shared(SharedResourceKind::Instance)
         .baseline(),
-    Registration::snapshot("postgres.settings", Recipe::Settings).baseline(),
+    Registration::snapshot("postgres.settings", Recipe::Settings).version(2).baseline(),
     Registration::snapshot("postgres.tables", Recipe::Tables).baseline(),
     Registration::snapshot("postgres.indexes", Recipe::Indexes).baseline(),
     Registration::snapshot("postgres.replication", Recipe::Replication).baseline(),
@@ -190,6 +214,26 @@ const REGISTRATIONS: &[Registration] = &[
     Registration::snapshot("postgres.partitions", Recipe::Catalog(native::catalog::Kind::Partitions)),
     Registration::snapshot("postgres.statistics", Recipe::Catalog(native::catalog::Kind::Statistics)),
 ];
+
+pub(crate) fn profile_selectors() -> Vec<RecipeSelector> {
+    REGISTRATIONS
+        .iter()
+        .filter(|registration| registration.purpose == RecipePurpose::Baseline && registration.route.supports_profile())
+        .map(|registration| registration.route.selector())
+        .collect()
+}
+pub(crate) fn profile_source(
+    connector: Connector,
+    request: &CollectionRequest,
+    profile: &SourceProfileAdmission,
+) -> Result<Box<dyn TelemetrySource>> {
+    request.validate()?;
+    let registration = REGISTRATIONS
+        .iter()
+        .find(|registration| registration.purpose == RecipePurpose::Baseline && registration.accepts(request))
+        .ok_or_else(unsupported)?;
+    registration.route.open_profile(connector, request, profile)
+}
 
 pub(crate) fn declarations() -> Vec<RecipeDescriptor> {
     REGISTRATIONS.iter().map(Registration::descriptor).collect()

@@ -154,8 +154,8 @@ async fn capture_original(
     if cancellation.is_cancelled() {
         return Err(CollectionStop::Cancelled.error());
     }
-    let budget = bounded_budget(&CollectionBudget::upper_limits());
-    let mut discovery = ReadSession::new(fixture.pool.clone(), budget.clone());
+    let caller = CollectionBudget::upper_limits();
+    let mut discovery = ReadSession::new(fixture.pool.clone(), bounded_budget(&caller));
     let owner = until_cancelled(cancellation, crate::instance::read(&mut discovery)).await;
     let discovery_shutdown = discovery.close().await;
     if discovery_shutdown != SourceShutdown::Quiescent {
@@ -166,7 +166,7 @@ async fn capture_original(
     let request = CollectionRequest {
         subject: CollectionSubject::Shared { resource: owner.identity },
         selection: CollectionSelection::Snapshot { dataset: SnapshotDataset::Jobs },
-        budget,
+        budget: collection_budget(&caller),
     };
     let temporary = tempfile::tempdir().map_err(|_| invalid_data())?;
     let mut outbox = Outbox::create(&temporary.path().join("outbox"), OutboxLimits::default())?;
@@ -185,8 +185,8 @@ async fn capture_original(
     .await;
     lease.finish().await?;
     let manifest = result?;
-    if manifest.status != CollectionStatus::Complete {
-        return Err(invalid_data());
+    if let CollectionStatus::Incomplete(stop) = manifest.status {
+        return Err(stop.error());
     }
     assert_eq!(fixture.pool.source_shutdown(), SourceShutdown::Quiescent);
     let attempt = outbox.attempt_receipt(&identity, None).await?;

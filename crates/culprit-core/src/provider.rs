@@ -1,3 +1,6 @@
+mod recorded_statement;
+pub use recorded_statement::RecordedStatement;
+
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
@@ -199,10 +202,11 @@ pub trait Provider: Send + Sync {
 
     /// The estimated plan of a statement someone else's session recorded (a query from a scan, a session's current
     /// statement), never run. Unlike [`Provider::explain`], whoever asks didn't write its text, so an engine whose
-    /// planner runs the code a statement reaches may plan the login's own copy instead (`query_id`, its id in the
-    /// engine's statistics) or refuse. Everyone else plans it as `explain` would.
-    async fn explain_recorded(&self, sql: &str, _query_id: Option<&str>) -> Result<Plan> {
-        self.explain(sql, ExplainMode::Estimated).await
+    /// planner runs the code a statement reaches may resolve the native identity to the login's own copy or refuse.
+    /// The source ID is opaque; each provider owns its native identity and trust checks. Unscoped log input carries
+    /// no native identity. Everyone else plans the supplied SQL as `explain` would.
+    async fn explain_recorded(&self, statement: RecordedStatement<'_>) -> Result<Plan> {
+        self.explain(statement.sql(), ExplainMode::Estimated).await
     }
 
     /// Estimated plan of `sql` with one or more virtual indexes (`CREATE INDEX ...`) registered only in this session's

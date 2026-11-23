@@ -34,9 +34,10 @@ impl SnapshotScope {
 pub struct SnapshotRecheck {
     pub unchanged: bool,
     pub observed_until: String,
-    /// Final native owner for a declared SourceRead or an explicitly supported local catalog.
+    /// Final native owner for a declared ordinary acquisition, SourceRead or explicitly supported local catalog.
     /// It never supplies a global data namespace or a historical executor.
     pub execution: Option<Box<NativeReadContext>>,
+    pub settings_context: Option<NativeSettingsContext>,
     pub scopes: Vec<SnapshotScope>,
 }
 #[async_trait::async_trait]
@@ -45,6 +46,10 @@ pub trait SnapshotReader: Send {
     /// Registration routes and native qualification remain mandatory; unsupported readers refuse offline.
     fn supports_source_read(&self, _question: SourceReadQuestion) -> bool {
         false
+    }
+    /// Buffered records remain under the original provider lifetime. This check starts no native work.
+    fn check_lifetime(&self) -> Result<()> {
+        Ok(())
     }
     async fn describe(&mut self, request: &CollectionRequest) -> Result<CollectionDescription>;
     async fn begin(&mut self, request: &CollectionRequest) -> Result<()>;
@@ -60,6 +65,10 @@ struct Count {
     rows: u32,
     incomplete_scope: bool,
 }
+struct PendingRecords {
+    buffer: SnapshotBuffer,
+    native_complete: bool,
+}
 pub struct SnapshotSource<R: SnapshotReader> {
     reader: R,
     request: CollectionRequest,
@@ -67,6 +76,7 @@ pub struct SnapshotSource<R: SnapshotReader> {
     progress: Progress,
     rows: u32,
     counts: BTreeMap<String, Count>,
+    pending: Option<PendingRecords>,
 }
 impl<R: SnapshotReader> SnapshotSource<R> {
     pub fn new(reader: R, request: &CollectionRequest) -> Result<Self> {
@@ -83,6 +93,7 @@ impl<R: SnapshotReader> SnapshotSource<R> {
             progress: Progress::New,
             rows: 0,
             counts: BTreeMap::new(),
+            pending: None,
         })
     }
     /// Read-only access to provider diagnostics; lifecycle transitions stay owned here.
@@ -107,36 +118,56 @@ impl<R: SnapshotReader> SnapshotSource<R> {
         if starting {
             self.reader.begin(&self.request).await?;
         }
-        let batch = self.reader.next_batch().await?;
-        if batch.rows.is_empty() && !batch.complete {
-            return Err(invalid_source());
+        self.reader.check_lifetime()?;
+        if self.pending.is_none() {
+            let batch = self.reader.next_batch().await?;
+            if batch.rows.is_empty() && !batch.complete {
+                return Err(invalid_source());
+            }
+            let decoded =
+                batch.rows.iter().map(|row| self.reader.decode(row, description)).collect::<Result<Vec<_>>>()?;
+            if decoded.iter().any(|row| {
+                let source = match row.record.native_identity() {
+                    NativeRecordIdentity::Operational { source, .. }
+                    | NativeRecordIdentity::WaitCounter { source, .. }
+                    | NativeRecordIdentity::Replication { source, .. }
+                    | NativeRecordIdentity::Setting { source, .. }
+                    | NativeRecordIdentity::Tuning { source, .. }
+                    | NativeRecordIdentity::ObjectDefinition { source, .. } => Some(source),
+                    _ => None,
+                };
+                !declared.sources.contains(&row.source)
+                    || row.record.stream() != stream
+                    || source.as_deref() != Some(&row.source)
+                    || !row.record.is_valid()
+            }) {
+                return Err(invalid_source());
+            }
+            if self
+                .rows
+                .checked_add(decoded.len().try_into().map_err(|_| invalid_source())?)
+                .is_none_or(|rows| rows > self.request.budget.max_snapshot_rows)
+            {
+                return Err(CollectionStop::RowLimit.error());
+            }
+            self.pending = Some(PendingRecords {
+                buffer: SnapshotBuffer::new(decoded, &self.request.budget)?,
+                native_complete: batch.complete,
+            });
         }
-        let decoded = batch.rows.iter().map(|row| self.reader.decode(row, description)).collect::<Result<Vec<_>>>()?;
-        if decoded.iter().any(|row| {
-            let source = match row.record.native_identity() {
-                NativeRecordIdentity::Operational { source, .. }
-                | NativeRecordIdentity::WaitCounter { source, .. }
-                | NativeRecordIdentity::Replication { source, .. }
-                | NativeRecordIdentity::Setting { source, .. }
-                | NativeRecordIdentity::Tuning { source, .. }
-                | NativeRecordIdentity::ObjectDefinition { source, .. } => Some(source),
-                _ => None,
-            };
-            !declared.sources.contains(&row.source)
-                || row.record.stream() != stream
-                || source.as_deref() != Some(&row.source)
-                || !row.record.is_valid()
-        }) {
-            return Err(invalid_source());
+        self.reader.check_lifetime()?;
+        let pending = self.pending.as_mut().ok_or_else(invalid_source)?;
+        let batch = pending.buffer.next_batch()?;
+        let complete = batch.complete && pending.native_complete;
+        if batch.complete {
+            self.pending.take();
         }
         self.rows = self
             .rows
-            .checked_add(decoded.len().try_into().map_err(|_| invalid_source())?)
+            .checked_add(batch.rows.len().try_into().map_err(|_| invalid_source())?)
             .ok_or_else(invalid_source)?;
-        if self.rows > self.request.budget.max_snapshot_rows {
-            return Err(CollectionStop::RowLimit.error());
-        }
-        let records = decoded
+        let records = batch
+            .rows
             .into_iter()
             .map(|row| {
                 let count = self.counts.entry(row.source).or_default();
@@ -145,8 +176,8 @@ impl<R: SnapshotReader> SnapshotSource<R> {
                 row.record
             })
             .collect();
-        self.progress = if batch.complete { Progress::Complete } else { Progress::Reading };
-        Ok(CollectionRead::Page { records, next_cursor: (!batch.complete).then(|| self.rows.to_string()) })
+        self.progress = if complete { Progress::Complete } else { Progress::Reading };
+        Ok(CollectionRead::Page { records, next_cursor: (!complete).then(|| self.rows.to_string()) })
     }
     fn coverage(
         &self,
@@ -225,6 +256,11 @@ impl<R: SnapshotReader> TelemetrySource for SnapshotSource<R> {
             return Ok(SourceCompletion::Changed);
         }
         let declared = declaration(description)?;
+        if recheck.settings_context.is_some()
+            && !matches!(&description.observation, SourceObservation::PagedSnapshotAcquisition { snapshot, .. } if snapshot.dataset == SnapshotDataset::Settings)
+        {
+            return Err(invalid_source());
+        }
         let snapshot = StateSnapshotDescription {
             dataset: declared.dataset,
             observed_from: declared.observed_from.clone(),
@@ -236,6 +272,16 @@ impl<R: SnapshotReader> TelemetrySource for SnapshotSource<R> {
             (SourceObservation::PagedSnapshot(_), None) => SourceCompletion::Snapshot(snapshot),
             (SourceObservation::PagedSnapshot(_), Some(execution)) => {
                 SourceCompletion::LocalResource { snapshot, execution }
+            }
+            (SourceObservation::PagedSnapshotAcquisition { execution: initial, .. }, Some(execution)) => {
+                if !execution.completes_read(initial) {
+                    return Ok(SourceCompletion::Changed);
+                }
+                SourceCompletion::SnapshotAcquisition {
+                    snapshot,
+                    execution,
+                    settings_context: recheck.settings_context,
+                }
             }
             (SourceObservation::PagedSourceRead { execution: initial, .. }, Some(execution)) => {
                 let question = SourceReadQuestion::for_dataset(declared.dataset).ok_or_else(invalid_source)?;
@@ -252,15 +298,16 @@ impl<R: SnapshotReader> TelemetrySource for SnapshotSource<R> {
     }
     async fn close(&mut self) -> SourceShutdown {
         self.progress = Progress::Closed;
+        self.pending.take();
         self.reader.close().await
     }
 }
 
 fn declaration(description: &CollectionDescription) -> Result<&PagedSnapshotDescription> {
     match &description.observation {
-        SourceObservation::PagedSnapshot(snapshot) | SourceObservation::PagedSourceRead { snapshot, .. } => {
-            Ok(snapshot)
-        }
+        SourceObservation::PagedSnapshot(snapshot)
+        | SourceObservation::PagedSnapshotAcquisition { snapshot, .. }
+        | SourceObservation::PagedSourceRead { snapshot, .. } => Ok(snapshot),
         _ => Err(invalid_source()),
     }
 }

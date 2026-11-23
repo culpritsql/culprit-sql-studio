@@ -13,12 +13,14 @@ const MAX_BUFFERED_FAMILY_ROWS: usize = 10_000;
 const SNAPSHOT_CLOCK_QUERIES: u32 = 2;
 #[cfg(test)]
 mod database_counters;
+mod local_operational;
 mod local_point;
-mod operational_files;
 pub(crate) mod pool_operational;
 pub(super) use pool_operational::bounded_budget as pool_operational_budget;
 mod pool_current;
+mod wait_counters;
 pub(super) use pool_current::bounded_budget as pool_current_budget;
+pub(super) use wait_counters::bounded_budget as wait_counter_budget;
 mod numa_nodes;
 mod process_cpu;
 pub(super) use numa_nodes::bounded_budget as numa_nodes_budget;
@@ -37,6 +39,8 @@ fn native_budget(request: &CollectionRequest) -> CollectionBudget {
         pool_operational_budget(&request.budget)
     } else if request.selection == (CollectionSelection::Snapshot { dataset: SnapshotDataset::MissingIndexes }) {
         super::streamed::catalog_budget(&request.budget)
+    } else if wait_counters::instance_selected(request) {
+        wait_counter_budget(&request.budget)
     } else if pool_current::selected(request) {
         pool_current_budget(&request.budget)
     } else if request.selection == (CollectionSelection::Snapshot { dataset: SnapshotDataset::ProcessCpu }) {
@@ -107,6 +111,7 @@ impl<R: NativeRead> StateSource<R> {
         let mut request = request.clone();
         if pool_operational::selected(&request)
             || pool_current::selected(&request)
+            || wait_counters::instance_selected(&request)
             || matches!(
                 dataset,
                 SnapshotDataset::ProcessCpu
@@ -137,7 +142,22 @@ impl<R: NativeRead> StateSource<R> {
         })
     }
     async fn clock(&mut self) -> Result<(String, bool)> {
-        clock(&mut self.io).await
+        self.check_instance_wait_transport()?;
+        self.check_local_transport()?;
+        let result = clock(&mut self.io).await;
+        if let Err(changed) = self.check_instance_wait_transport() {
+            return Err(result.err().unwrap_or(changed));
+        }
+        if let Err(changed) = self.check_local_transport() {
+            return Err(result.err().unwrap_or(changed));
+        }
+        result
+    }
+    fn check_instance_wait_transport(&self) -> Result<()> {
+        if wait_counters::instance_selected(&self.request) {
+            wait_counters::check_transport(self.point_generation, self.io.connection_generation())?;
+        }
+        Ok(())
     }
     async fn read_families(
         &mut self,
@@ -159,7 +179,7 @@ impl<R: NativeRead> StateSource<R> {
         };
         for family in families {
             let source = family.source().name.to_string();
-            if self.local_file_profile() && !operational_files::allows(*family) {
+            if self.local_operational_profile() && !local_operational::allows(*family) {
                 outcomes.push(StateSourceCoverage::unavailable(source, ErrorCode::Unsupported, None));
                 continue;
             }
@@ -187,11 +207,14 @@ impl<R: NativeRead> StateSource<R> {
                     self.identity.as_ref(),
                 )
                 .await;
-            if let Err(changed) = self.check_local_file_transport() {
+            if let Err(changed) = self.check_instance_wait_transport() {
                 return Err(result.err().unwrap_or(changed));
             }
-            if self.local_file_profile() {
-                operational_files::validate(self.identity.as_ref().ok_or_else(invalid_data)?, &result)?;
+            if let Err(changed) = self.check_local_transport() {
+                return Err(result.err().unwrap_or(changed));
+            }
+            if self.local_operational_profile() {
+                local_operational::validate(self.identity.as_ref().ok_or_else(invalid_data)?, *family, &result)?;
             }
             if let Ok(point::ReadOutcome::Observed(batch)) = &result
                 && let Some(point) = &batch.pool_settings_point
@@ -204,16 +227,17 @@ impl<R: NativeRead> StateSource<R> {
         }
         Ok(outcomes)
     }
-    fn local_file_profile(&self) -> bool {
+    fn local_operational_profile(&self) -> bool {
         matches!(self.request.selection, CollectionSelection::Snapshot { dataset: SnapshotDataset::Operational })
             && matches!(self.identity, Some(subject::Identity::LocalDatabase(_)))
     }
-    fn check_local_file_transport(&self) -> Result<()> {
-        if self.local_file_profile() {
-            operational_files::check_transport(
-                self.identity.as_ref().ok_or_else(invalid_data)?,
-                self.io.connection_generation(),
-            )?;
+    fn check_local_transport(&self) -> Result<()> {
+        if matches!(
+            self.request.collection(),
+            TelemetryCollection::Snapshot(SnapshotDataset::Operational | SnapshotDataset::Settings)
+        ) && let Some(subject::Identity::LocalDatabase(owner)) = &self.identity
+        {
+            owner.check_transport(self.io.connection_generation())?;
         }
         Ok(())
     }
@@ -222,11 +246,13 @@ impl<R: NativeRead> StateSource<R> {
         if remaining == 0 {
             return Err(CollectionStop::RowLimit.error());
         }
+        self.check_instance_wait_transport()?;
         // Ordinary instance statistics are an explicitly selected bounded source family. They do not execute
         // application work or optional enrichment; Azure database reads retain their native pressure guard.
-        self.check_local_file_transport()?;
+        self.check_local_transport()?;
         self.identity.as_ref().ok_or_else(invalid_data)?.admit(&mut self.io).await?;
-        self.check_local_file_transport()?;
+        self.check_instance_wait_transport()?;
+        self.check_local_transport()?;
         Ok(remaining)
     }
 }
@@ -329,7 +355,9 @@ impl<R: NativeRead> TelemetrySource for StateSource<R> {
             ));
         }
         let target = read.identity.target();
-        if matches!(dataset, SnapshotDataset::NumaNodes | SnapshotDataset::ProcessCpu) {
+        if matches!(dataset, SnapshotDataset::NumaNodes | SnapshotDataset::ProcessCpu)
+            || wait_counters::instance_selected(&self.request)
+        {
             self.point_generation = Some(
                 self.io
                     .connection_generation()
@@ -339,7 +367,7 @@ impl<R: NativeRead> TelemetrySource for StateSource<R> {
         }
         self.identity = Some(read.identity);
         let (mut observed_from, metadata_visible, properties) =
-            if !shared && dataset == SnapshotDataset::Operational && !self.local_file_profile() {
+            if !shared && dataset == SnapshotDataset::Operational && !self.local_operational_profile() {
                 let read = crate::database_properties::read(&mut self.io).await?;
                 if target.database().is_none_or(|database| database.database != read.database) {
                     return Err(CollectionStop::SourceChanged.error());
@@ -357,7 +385,7 @@ impl<R: NativeRead> TelemetrySource for StateSource<R> {
                 (canonical_time(&read.observed_at)?, read.metadata_visible, Some(source))
             } else {
                 let (at, visible) = self.clock().await?;
-                let properties = self.local_file_profile().then(|| {
+                let properties = self.local_operational_profile().then(|| {
                     StateSourceCoverage::unavailable(DATABASE_PROPERTIES_SOURCE.into(), ErrorCode::Unsupported, None)
                 });
                 (at, visible, properties)
@@ -387,7 +415,7 @@ impl<R: NativeRead> TelemetrySource for StateSource<R> {
                 Err(error) => source_failure(CONFIGURED_LOG_RATES_SOURCE.into(), error)?,
             });
         }
-        self.check_local_file_transport()?;
+        self.check_local_transport()?;
         let closing =
             pool_current::closing(self.identity.as_ref().ok_or_else(invalid_data)?, &mut self.io, &observed_from)
                 .await?;
@@ -398,7 +426,7 @@ impl<R: NativeRead> TelemetrySource for StateSource<R> {
                 (at, visible, None)
             }
         };
-        self.check_local_file_transport()?;
+        self.check_local_transport()?;
         if !final_metadata_visible {
             for (source, family) in sources.iter_mut().zip(&families) {
                 if family.requires_metadata()
@@ -431,6 +459,8 @@ impl<R: NativeRead> TelemetrySource for StateSource<R> {
             } else if shared {
                 if dataset == SnapshotDataset::MemoryFailures {
                     "shared-memory-failure-state"
+                } else if dataset == SnapshotDataset::WaitCounters {
+                    "shared-wait-counter-state"
                 } else {
                     "shared-operational-state"
                 }
@@ -568,7 +598,8 @@ impl<R: NativeRead> TelemetrySource for StateSource<R> {
             return Err(invalid_data());
         }
         self.progress = Progress::Failed;
-        self.check_local_file_transport()?;
+        self.check_instance_wait_transport()?;
+        self.check_local_transport()?;
         let owner = self.identity.as_ref().ok_or_else(invalid_data)?;
         let (identity, final_at) = if self.point_generation.is_some() {
             owner.recheck_clock(&mut self.io, &self.host, self.port).await?

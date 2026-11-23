@@ -377,3 +377,68 @@ async fn both_instance_resource_checkpoints_fail_closed_without_dispatching_agen
     assert_eq!(io.queries(), 12);
     assert_eq!(io.closed, 1);
 }
+
+#[tokio::test]
+async fn collection_setup_keeps_all_thirteen_native_checks_and_refuses_the_stricter_original_caller() {
+    for maximum in [MAX_SOURCE_QUERIES, MAX_SOURCE_QUERIES + ReadSession::SESSION_SETUP_QUERIES] {
+        let caller = CollectionBudget { max_queries: maximum, ..CollectionBudget::upper_limits() };
+        let total = collection_budget(&caller);
+        assert_eq!(total.max_queries, maximum);
+        let native = ReadSession::budget_after_setup(total.clone()).unwrap();
+        let mut request = request();
+        request.budget = total;
+        let mut reader = Reader {
+            io: FakeRead::new(replies()).with_query_limit(native.max_queries),
+            host: "fixture.invalid".into(),
+            port: 1433,
+            verified: None,
+        };
+        let result = reader.observe(&request).await;
+        if maximum == MAX_SOURCE_QUERIES {
+            assert_eq!(
+                CollectionStop::from_error(&result.err().expect("the stricter caller cannot fund the final check")),
+                CollectionStop::QueryLimit
+            );
+            assert_eq!(reader.io.queries(), MAX_SOURCE_QUERIES - ReadSession::SESSION_SETUP_QUERIES);
+            assert!(reader.verified.is_none(), "the final native epoch check cannot be skipped");
+        } else {
+            let observed = result.unwrap();
+            assert!(reader.verify(&observed.description).await.unwrap());
+            assert_eq!(reader.io.queries(), MAX_SOURCE_QUERIES);
+        }
+        assert_eq!(reader.close().await, SourceShutdown::Quiescent);
+        assert_eq!(reader.io.closed, 1);
+    }
+}
+
+#[tokio::test]
+async fn empty_agent_tables_preserve_the_two_native_context_points_and_partial_retained_history() {
+    let mut inputs = replies();
+    for index in [6, 7, 8] {
+        inputs[index] = Ok(vec![]);
+    }
+    let mut io = FakeRead::new(inputs);
+    let read = capture(
+        &mut io,
+        ReadSubject::Connected,
+        &bounded_budget(&CollectionBudget::upper_limits()),
+        "fixture.invalid",
+        1433,
+    )
+    .await
+    .unwrap();
+    assert!(read.is_valid_read(true));
+    assert_eq!(read.observations.len(), 2);
+    assert!(read.observations.iter().all(|row| matches!(row.fact, OperationalFact::MssqlAgentContext(_))));
+    for source in &read.sources {
+        let (state, complete_scope, records) = match source.source.as_str() {
+            MSSQL_AGENT_CONTEXT_SOURCE => (culprit_core::SourceState::Collected, true, 2),
+            MSSQL_AGENT_HISTORY_SOURCE => (culprit_core::SourceState::Partial, false, 0),
+            MSSQL_AGENT_JOBS_SOURCE | MSSQL_AGENT_STEPS_SOURCE => (culprit_core::SourceState::Empty, true, 0),
+            _ => panic!("unexpected Agent source"),
+        };
+        assert_eq!((source.state, source.complete_scope, source.records), (state, complete_scope, records));
+    }
+    assert_eq!(io.queries(), MAX_SOURCE_QUERIES);
+    assert_eq!(io.close().await, SourceShutdown::Quiescent);
+}

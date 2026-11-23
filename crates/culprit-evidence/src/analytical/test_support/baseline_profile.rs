@@ -8,7 +8,7 @@ pub fn baseline_profile_expectation(
     let mut receipt = investigation_fixture().intent.qualification.measured().expect("measured fixture").clone();
     receipt.recipe_id = "fixture.baseline-profile-binding".into();
     receipt.purpose = RecipePurpose::Baseline;
-    receipt.selector = RecipeSelector::Collection(TelemetryCollection::Activity);
+    receipt.selector = RecipeSelector::Collection(request.collection());
     receipt.scope = RecipeCostScope::NativeRead(SourceReadExecutionScope::Local(
         LocalResourceReadScope::from_context(context).unwrap(),
     ));

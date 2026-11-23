@@ -8,6 +8,7 @@ use culprit_mysql::native_test_support::{self as owned, BlockingFixture};
 use std::{path::Path, sync::Arc, time::Duration};
 
 const CONNECTION: &str = "owned-builtin-mysql";
+mod settings;
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Completion {
     Focused,
@@ -16,8 +17,8 @@ enum Completion {
 impl Completion {
     fn captures(self) -> usize {
         match self {
-            Self::Focused => 2,
-            Self::DefaultCadenceRecovery => 3,
+            Self::Focused => 3,
+            Self::DefaultCadenceRecovery => 4,
         }
     }
 }
@@ -61,10 +62,19 @@ fn configured(source: &culprit_core::ConnectionSpec, directory: &Path) -> (Colle
         })
         .unwrap();
     let plan = Enrollment::resolve(&workspace, &config).unwrap();
-    assert_eq!(plan.summary.automatic.len(), 1);
-    assert_eq!(plan.summary.automatic[0].recipe_id, "mysql.activity");
+    let mut selected = plan.summary.automatic.iter().map(|source| source.recipe_id.as_str()).collect::<Vec<_>>();
+    selected.sort_unstable();
+    assert_eq!(
+        selected,
+        ["mysql.activity", "mysql.settings"],
+        "the actual normal production catalog, without filtering a sibling baseline"
+    );
     assert!(!plan.summary.gaps.iter().any(|gap| gap.recipe_id.as_deref() == Some("mysql.activity")));
-    let schedule = &plan.inventory.as_ref().unwrap().targets[0].schedules[0];
+    let schedule = plan.inventory.as_ref().unwrap().targets[0]
+        .schedules
+        .iter()
+        .find(|schedule| schedule.id == "mysql.activity")
+        .unwrap();
     assert_eq!(schedule.every_seconds, 300, "actual unchanged standard cadence");
     assert_eq!(schedule.budget.max_queries, 20, "focused policy cannot enlarge baseline native work");
     let ScheduledCollection::Activity { policy } = &schedule.collection else { panic!() };
@@ -118,15 +128,17 @@ async fn prove(fixture: &mut BlockingFixture, completion: Completion) {
         let mut runner = FleetRunner::new(&backend, inventory, &config.shard, &journal, &mut outbox).unwrap();
         Box::pin(step(&mut runner, &fixture.cancellation, &mut events, completion)).await;
         assert_eq!(events[0].schedule, "mysql.activity");
-        Box::pin(step(&mut runner, &fixture.cancellation, &mut events, completion)).await;
-        assert_eq!(events[1].schedule, "mysql.blocking");
+        while !events.iter().any(|event| event.schedule == "mysql.blocking") {
+            Box::pin(step(&mut runner, &fixture.cancellation, &mut events, completion)).await;
+        }
     }
     assert!(
         started.elapsed() >= Duration::from_secs(culprit_collector::fleet::MIN_RESOURCE_GAP_SECONDS.into()),
         "real resource cooldown cannot be advanced by fixture control time"
     );
     let original_capture = events[0].capture.clone().unwrap();
-    let focused_capture = events[1].capture.clone().unwrap();
+    let focused_capture =
+        events.iter().find(|event| event.schedule == "mysql.blocking").unwrap().capture.clone().unwrap();
     let baseline = Box::new(
         Box::pin(outbox.diagnostic_input(&original_capture.observation_id, DIAGNOSTIC_CONTROLLER_VERSION))
             .await
@@ -142,10 +154,21 @@ async fn prove(fixture: &mut BlockingFixture, completion: Completion) {
     let intent = manifest.investigation.as_ref().unwrap().intent_for_source(&focused.source).unwrap();
     let strict = Box::pin(fixture.strict_caller_refusal(&request)).await;
     Box::pin(fixture.release_and_complete()).await;
+    // Settle the genuine application owner immediately after its selected proof. Any still-due independent
+    // Settings baseline then pays the same scheduler/cooldown without holding an unrelated native lock for it.
+    {
+        let mut runner = FleetRunner::new(&backend, inventory, &config.shard, &journal, &mut outbox).unwrap();
+        while events.len() < Completion::Focused.captures() {
+            Box::pin(step(&mut runner, &fixture.cancellation, &mut events, completion)).await;
+        }
+    }
+    let mut selected = events.iter().map(|event| event.schedule.as_str()).collect::<Vec<_>>();
+    selected.sort_unstable();
+    assert_eq!(selected, ["mysql.activity", "mysql.blocking", "mysql.settings"]);
     if completion == Completion::DefaultCadenceRecovery {
         let mut runner = FleetRunner::new(&backend, inventory, &config.shard, &journal, &mut outbox).unwrap();
         Box::pin(step(&mut runner, &fixture.cancellation, &mut events, completion)).await;
-        assert_eq!(events[2].schedule, "mysql.activity");
+        assert_eq!(events[3].schedule, "mysql.activity");
         assert!(started.elapsed() >= Duration::from_secs(300), "the original standard poll owns recovery");
     }
     assert_eq!(events.len(), completion.captures());
@@ -156,7 +179,7 @@ async fn prove(fixture: &mut BlockingFixture, completion: Completion) {
         assert_ne!(entry.request.collection(), TelemetryCollection::DerivedDiagnosis);
         let captured = Box::pin(archive.capture(&outbox, &entry, &fixture.cancellation)).await.unwrap();
         if completion == Completion::DefaultCadenceRecovery
-            && captured.original.capture == *events[2].capture.as_ref().unwrap()
+            && captured.original.capture == *events[3].capture.as_ref().unwrap()
         {
             recovery_original = Some(Box::new(captured));
         } else {
@@ -187,7 +210,7 @@ async fn prove(fixture: &mut BlockingFixture, completion: Completion) {
             let proof = history.latest.recovery.as_ref().unwrap();
             let recovered = recovery_original.as_ref().unwrap();
             assert_eq!(proof.capture(), &recovered.original);
-            assert_eq!(proof.capture().capture, *events[2].capture.as_ref().unwrap());
+            assert_eq!(proof.capture().capture, *events[3].capture.as_ref().unwrap());
             assert!(proof.matches_source(&history.latest, &recovered.source, &recovered.original));
         }
     }
@@ -276,17 +299,23 @@ async fn write_receipt(
     elapsed: Duration,
 ) {
     let mut originals = Vec::new();
-    for (index, event) in events.iter().enumerate() {
+    for event in events {
         let capture = event.capture.as_ref().unwrap();
         let manifest = outbox.verify(&capture.observation_id).await.unwrap();
         assert_eq!(manifest.status, CollectionStatus::Complete);
-        assert_eq!(manifest.request.budget.max_queries, [20, 33, 20][index]);
-        assert_eq!(manifest.source_queries, [20, 33, 20][index]);
+        let expected = match event.schedule.as_str() {
+            "mysql.activity" => 20,
+            "mysql.settings" => 18,
+            "mysql.blocking" => 33,
+            _ => panic!("unselected native schedule"),
+        };
+        assert_eq!(manifest.request.budget.max_queries, expected);
+        assert_eq!(manifest.source_queries, expected);
         let metrics = manifest.read_metrics.as_ref().unwrap();
         assert!(metrics.is_valid() && !metrics.has_unconfirmed_work());
         assert_eq!((metrics.active_tasks, metrics.untracked_tasks), (0, 0));
         assert_eq!(metrics.templates.iter().map(|row| row.completed_tasks).sum::<u32>(), manifest.source_queries);
-        if index == 1 {
+        if event.schedule == "mysql.blocking" {
             let intent = manifest
                 .investigation
                 .as_ref()
@@ -318,7 +347,7 @@ fn receipt(
         "stored_output_native_queries":0,"controller_elapsed_ms":elapsed.as_millis().to_string(),
         "default_attention_ms":30_000,"default_cadence_seconds":300,
         "default_cadence_recovery_exercised":history.latest.recovery.is_some(),
-        "source_capture_cap":events.len(),"source_query_cap_including_setup":if events.len()==3 {73}else {53},
+        "source_capture_cap":events.len(),"source_query_cap_including_setup":if events.len()==4 {91}else {71},
         "strict32_caller_metrics":strict,
         "source_cancellation":cancellation,"measured_cpu":null,"measured_cost_qualification":false,
         "one_hop_only":true,"complete_head_chain":false,"ddl_sandwich_exercised":false,"row_lock_trigger_exercised":false,

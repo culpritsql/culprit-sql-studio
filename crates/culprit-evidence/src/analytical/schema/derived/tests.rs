@@ -177,7 +177,7 @@ async fn zero_finding_rows_retain_locked_and_partial_evaluation_in_the_same_auth
     output.changes.clear();
     output.description.counts = Default::default();
     output.description.finding_evaluations =
-        DerivedFindingEvaluations { population_count: 2, omitted_populations: 2, ..Default::default() };
+        DerivedFindingEvaluations { assessment_count: 2, omitted_assessments: 2, ..Default::default() };
     output.description.context_issues = vec![DerivedContextIssue::PartialCatalog];
     output.description.analysis_id = output.description.expected_analysis_id().unwrap();
     output.validate().unwrap();
@@ -190,7 +190,7 @@ async fn zero_finding_rows_retain_locked_and_partial_evaluation_in_the_same_auth
     assert_eq!(restored.counts.findings, 0);
     assert_eq!(restored.display.connection_alias, "Orders production");
     assert_eq!(restored.display.database_name, None, "an absent approved name stays unknown even with zero rows");
-    assert_eq!(restored.finding_evaluations.omitted_populations, 2);
+    assert_eq!(restored.finding_evaluations.omitted_assessments, 2);
     assert!(restored.input_read_complete);
     assert!(!restored.limitations().is_empty());
 }

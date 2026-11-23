@@ -11,4 +11,8 @@ id: string, connection: string, subject: CollectionSubject, shard: string,
  * Configured physical-resource group. All members must belong to the same static shard.
  * This is an admission policy, never evidence that a native measurement has this scope.
  */
-admission_group: string, schedules: Array<FleetSchedule>, };
+admission_group: string, 
+/**
+ * Empty configuration delegates selection to Standard policy; Explicit validation still requires schedules.
+ */
+schedules: Array<FleetSchedule>, };

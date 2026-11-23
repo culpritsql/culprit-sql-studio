@@ -12,9 +12,16 @@ use futures_util::{FutureExt, future::LocalBoxFuture};
 use std::{panic::AssertUnwindSafe, time::Duration};
 
 const DATABASE: &str = "culprit_replication";
-const CASE_TIMEOUT: Duration = Duration::from_secs(240);
+const CASE_TIMEOUT: Duration = Duration::from_secs(300);
 const NATIVE_PHASE_TIMEOUT: Duration = Duration::from_secs(5);
 const CONFLICT_JOIN_TIMEOUT: Duration = Duration::from_secs(140);
+// The original reader first pays60s attention. Its actual120s standby conflict starts immediately
+// after Activity; focused Recovery then Settings each preserve the60s resource cooldown. The40001
+// can arrive around180s after this actor starts. Keep that SAME statement alive beyond the conflict;
+// neither its normal completion nor57014 is proof.
+const READER_WORKLOAD: Duration = Duration::from_secs(260);
+const READER_STATEMENT_TIMEOUT: Duration = Duration::from_secs(270);
+const READER_IDLE_TIMEOUT: Duration = Duration::from_secs(275);
 const MAX_ORACLE_READS: u32 = 320;
 const UNRELATED_LOCKS: u32 = 4096;
 static SERIAL: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
@@ -51,6 +58,7 @@ impl ReadableSecondaryFixture {
                 "unrelated_advisory_locks":UNRELATED_LOCKS,"observed_native_lock_rows":fixture.observed_lock_rows,
                 "max_connections":128,"max_locks_per_transaction":256,"max_prepared_transactions":16,
                 "standby_streaming_delay_seconds":120,"recovery_conflict_response_confirmed":fixture.recovery_conflict_confirmed,
+                "reader_workload_seconds":READER_WORKLOAD.as_secs(),"reader_statement_timeout_seconds":READER_STATEMENT_TIMEOUT.as_secs(),"reader_idle_timeout_seconds":READER_IDLE_TIMEOUT.as_secs(),
                 "fixture_actor_dispatches":fixture.primary.queries+fixture.standby.queries+fixture.reader.as_ref().map_or(0,|actor|actor.queries)+fixture.unrelated.as_ref().map_or(0,|actor|actor.queries),
                 "native_cpu":null,"native_cost_measured":false,"source_limits_changed":false,
             }),
@@ -172,11 +180,19 @@ impl ReadableSecondaryFixture {
                 .unwrap(),
         );
         let reader = self.reader.as_mut().unwrap();
-        reader.execute("SET statement_timeout='230s';SET idle_in_transaction_session_timeout='235s'").await.unwrap();
+        reader
+            .execute(&format!(
+                "SET statement_timeout='{}s';SET idle_in_transaction_session_timeout='{}s'",
+                READER_STATEMENT_TIMEOUT.as_secs(),
+                READER_IDLE_TIMEOUT.as_secs(),
+            ))
+            .await
+            .unwrap();
         self.reader_identity = reader.identity.clone();
         reader
             .start_workload(format!(
-                "BEGIN;SELECT pg_catalog.pg_sleep(220) FROM {}.items WHERE id=1",
+                "BEGIN;SELECT pg_catalog.pg_sleep({}) FROM {}.items WHERE id=1",
+                READER_WORKLOAD.as_secs(),
                 quote_ident(&self.schema)
             ))
             .unwrap();

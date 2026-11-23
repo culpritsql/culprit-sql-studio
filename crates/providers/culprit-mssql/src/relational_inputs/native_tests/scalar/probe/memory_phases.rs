@@ -284,6 +284,8 @@ impl Probe {
                 .ok_or_else(crate::read::invalid_data)?;
             let mut observer_budget = super::super::super::expressions::reader_budget();
             observer_budget.max_queries = observer_cap;
+            let source_work = self.native_work.reader();
+            let observer_work = self.native_work.reader();
             let mut source = ReadSession::new(self.pool.clone(), source_budget.clone());
             let mut observer = ReadSession::new(observer_pool, observer_budget.clone());
             let mut trace = PhaseRead::new(&mut source, &mut observer, original, self.object, &self.cancellation);
@@ -334,6 +336,8 @@ impl Probe {
                 Ok(Ok(()))
             };
             let shutdown = trace.close().await;
+            source_work.closed(trace.source_shutdown.unwrap_or(SourceShutdown::Unconfirmed));
+            observer_work.closed(trace.observer_shutdown.unwrap_or(SourceShutdown::Unconfirmed));
             trace.assign_phases(&spans);
             let receipt = save_cost_receipt(
                 directory,

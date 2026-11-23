@@ -204,6 +204,102 @@ fn catalog(meta: &Metadata) -> Result<&StatementCatalog> {
         .as_ref()
         .ok_or_else(|| Error::new(ErrorCode::Unsupported, culprit_core::t!("collection.unsupported")))
 }
+// PG18 extension 1.12's native function contract, including fields not interpreted by this decoder.
+// Old/partial extension installs never inherit a native work bound from a server version or outer LIMIT.
+// https://github.com/postgres/postgres/blob/REL_18_STABLE/contrib/pg_stat_statements/pg_stat_statements--1.11--1.12.sql
+pub(crate) const GUARDED_COLUMNS: &[&str] = &[
+    "userid",
+    "dbid",
+    "toplevel",
+    "queryid",
+    "query",
+    "plans",
+    "total_plan_time",
+    "min_plan_time",
+    "max_plan_time",
+    "mean_plan_time",
+    "stddev_plan_time",
+    "calls",
+    "total_exec_time",
+    "min_exec_time",
+    "max_exec_time",
+    "mean_exec_time",
+    "stddev_exec_time",
+    "rows",
+    "shared_blks_hit",
+    "shared_blks_read",
+    "shared_blks_dirtied",
+    "shared_blks_written",
+    "local_blks_hit",
+    "local_blks_read",
+    "local_blks_dirtied",
+    "local_blks_written",
+    "temp_blks_read",
+    "temp_blks_written",
+    "shared_blk_read_time",
+    "shared_blk_write_time",
+    "local_blk_read_time",
+    "local_blk_write_time",
+    "temp_blk_read_time",
+    "temp_blk_write_time",
+    "wal_records",
+    "wal_fpi",
+    "wal_bytes",
+    "wal_buffers_full",
+    "jit_functions",
+    "jit_generation_time",
+    "jit_inlining_count",
+    "jit_inlining_time",
+    "jit_optimization_count",
+    "jit_optimization_time",
+    "jit_emission_count",
+    "jit_emission_time",
+    "jit_deform_count",
+    "jit_deform_time",
+    "parallel_workers_to_launch",
+    "parallel_workers_launched",
+    "stats_since",
+    "minmax_stats_since",
+];
+
+pub(crate) fn validate_guarded_counters(meta: &Metadata, max_entries: u32) -> Result<()> {
+    let catalog = catalog(meta)?;
+    if meta.version / 10_000 != 18
+        || catalog.extension_version.as_deref() != Some("1.12")
+        || !catalog.max_entries.is_some_and(|entries| (1..=max_entries).contains(&entries))
+        || !GUARDED_COLUMNS.iter().all(|column| catalog.columns.contains(*column))
+    {
+        return Err(Error::new(ErrorCode::Unsupported, culprit_core::t!("collection.unsupported")));
+    }
+    Layout::detect(catalog, meta.version)?;
+    Ok(())
+}
+
+/// Guarded snapshots retain native entry/reset identity, not a fabricated execution interval. A saved entry
+/// may precede this postmaster start; its own stats_since remains the only per-entry reset witness.
+pub(crate) fn validate_guarded_sample(sample: &StatementCounterSample, meta: &Metadata) -> Result<()> {
+    let identity = &sample.identity;
+    let Some(since) = identity.qualifiers.get("stats_since") else { return Err(invalid()) };
+    let since = canonical_time(since)?;
+    let started_at = canonical_time(&meta.started_at)?;
+    if sample.member.is_some()
+        || sample.scope != culprit_core::MeasurementScope::Database
+        || identity.qualifiers.get("dbid") != Some(&meta.database_oid)
+        || identity.qualifiers.get("postmaster_started_at") != Some(&started_at)
+        || !identity.qualifiers.get("userid").is_some_and(|user| user.parse::<u32>().is_ok_and(|user| user > 0))
+        || !matches!(identity.qualifiers.get("toplevel").map(String::as_str), Some("true" | "false"))
+        || sample.reset != ResetMarker::At(since.clone())
+        || ObservationBounds::new(&since, &sample.observed_at).is_none()
+        || sample.distributions.iter().any(|distribution| match &distribution.extrema_reset {
+            ResetMarker::At(at) => ObservationBounds::new(at, &sample.observed_at).is_none(),
+            ResetMarker::Unknown | ResetMarker::Generation(_) => true,
+        })
+    {
+        return Err(invalid());
+    }
+    Ok(())
+}
+
 pub(crate) fn query(meta: &Metadata, definitions: bool, limit: usize, max_sql_bytes: usize) -> Result<String> {
     let catalog = catalog(meta)?;
     let layout = Layout::detect(catalog, meta.version)?;
@@ -252,16 +348,27 @@ pub(crate) fn query(meta: &Metadata, definitions: bool, limit: usize, max_sql_by
     ))
 }
 fn identity(row: &Row, meta: &Metadata) -> Result<NativeQueryIdentity> {
+    entry_identity(row, &meta.database_oid, &meta.started_at)
+}
+
+/// Scan and exported points keep the same native entry dimensions. This is content identity, not permission,
+/// acquisition ownership or a claim that an older source without stats_since exposes a reset witness.
+pub(crate) fn scan_identity(row: &Row) -> Result<NativeQueryIdentity> {
+    let database_oid = integer(row, "dbid")?.to_string();
+    entry_identity(row, &database_oid, &text(row, "postmaster_started_at")?)
+}
+
+fn entry_identity(row: &Row, database_oid: &str, started_at: &str) -> Result<NativeQueryIdentity> {
     let query_id = text(row, "queryid")?;
     query_id.parse::<i64>().map_err(|_| invalid())?;
     let dbid = integer(row, "dbid")?.to_string();
-    if dbid != meta.database_oid {
+    if dbid != database_oid {
         return Err(invalid());
     }
     let mut qualifiers = BTreeMap::from([
         ("userid".into(), integer(row, "userid")?.to_string()),
         ("dbid".into(), dbid),
-        ("postmaster_started_at".into(), meta.started_at.clone()),
+        ("postmaster_started_at".into(), canonical_time(started_at)?),
     ]);
     if row.value("toplevel").is_some() {
         qualifiers.insert("toplevel".into(), flag(row, "toplevel")?.to_string());
@@ -379,34 +486,77 @@ pub(crate) fn definition(
     })
 }
 
+/// Every selected row remains one native userid/dbid/queryid/top-level entry and counter lifetime.
+/// Query text is still the native representative for that entry, never another role's preferred text.
 pub(crate) fn aggregated_base(relation: &str, c: &Layout) -> String {
     let toplevel = if c.toplevel { " AND toplevel" } else { "" };
-    let first_seen =
-        c.since.map(|since| crate::rows::iso(&format!("min({since})"))).unwrap_or_else(|| "NULL::text".to_string());
+    let extrema = |aggregate: &str, column: &str| {
+        let value = format!("{aggregate}({column})");
+        if let Some(since) = c.since {
+            format!("CASE WHEN bool_and(minmax_stats_since = {since}) THEN {value} END")
+        } else {
+            value
+        }
+    };
     format!(
-        "SELECT queryid::text AS id, (array_agg(query ORDER BY {total} DESC))[1] AS query, sum(calls) AS calls,
+        "SELECT {identity}, (array_agg(query ORDER BY {total} DESC))[1] AS query, sum(calls) AS calls,
                 sum({total}) AS total_ms, sum({total}) / nullif(sum(calls), 0)::float8 AS mean_ms,
-                max({max}) AS max_ms, min({min}) AS min_ms,
+                {maximum} AS max_ms, {minimum} AS min_ms,
                 sqrt(greatest(sum(calls * ({stddev} ^ 2 + {mean} ^ 2)) / nullif(sum(calls), 0)::float8
                               - (sum({total}) / nullif(sum(calls), 0)::float8) ^ 2, 0)) AS stddev_ms,
                 sum(rows) AS rows, sum(shared_blks_hit + shared_blks_read) AS reads, sum(shared_blks_read) AS phys,
-                {temporary}, sum({io}) AS io_ms, {first_seen} AS first_seen,
-                count(*) AS entries,
+                {temporary}, sum({io}) AS io_ms, count(*) AS entries,
                 (array_agg(query ORDER BY {total} DESC)
                    FILTER (WHERE pg_get_userbyid(userid) = session_user AND current_user = session_user))[1] AS own_query
          FROM {relation}
          WHERE dbid = (SELECT oid FROM pg_database WHERE datname = current_database()){toplevel}
            AND query NOT LIKE '%{tag}'
-         GROUP BY queryid",
-        tag=crate::rows::TAG,
+         GROUP BY {group}",
+        identity = scan_identity_projection(c),
+        group = scan_identity_group(c),
+        tag = crate::rows::TAG,
         total = c.total,
         mean = c.mean,
-        max = c.max,
+        maximum = extrema("max", c.max),
+        minimum = extrema("min", c.min),
         stddev = c.stddev,
-        min = c.min,
         io = c.io,
         temporary = temporary_projection(c),
     )
+}
+
+/// Shared by the workload and its later optional costs read, so neither can regroup another role/reset into it.
+pub(crate) fn scan_identity_projection(layout: &Layout) -> String {
+    // Identity clocks retain the same native microseconds as metadata and exported entry/reset points.
+    // The display-oriented rows::iso truncates fractional seconds and must not merge distinct native lifetimes.
+    let started = iso("pg_catalog.pg_postmaster_start_time()");
+    let since = layout.since.map(iso).unwrap_or_else(|| "NULL::text".into());
+    let top_key = if layout.toplevel { "toplevel::text" } else { "'unknown'" };
+    let mut fields = vec![
+        format!(
+            "queryid::text || '/' || userid::text || '/' || dbid::text || '/' || {top_key} || '/' || coalesce({since}, 'unknown') || '/' || {started} AS id"
+        ),
+        "queryid::text AS queryid".into(),
+        "userid::text AS userid".into(),
+        "dbid::text AS dbid".into(),
+        format!("{started} AS postmaster_started_at"),
+        format!("{since} AS stats_since"),
+    ];
+    if layout.toplevel {
+        fields.push("toplevel".into());
+    }
+    fields.join(", ")
+}
+
+pub(crate) fn scan_identity_group(layout: &Layout) -> String {
+    let mut keys = vec!["queryid", "userid", "dbid"];
+    if layout.toplevel {
+        keys.push("toplevel");
+    }
+    if let Some(since) = layout.since {
+        keys.push(since);
+    }
+    keys.join(", ")
 }
 
 pub(crate) fn statements_base(relation: &str, version_num: u32) -> String {

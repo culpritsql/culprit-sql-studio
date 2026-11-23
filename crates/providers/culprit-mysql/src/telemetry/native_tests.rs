@@ -1,12 +1,12 @@
 use super::*;
 use culprit_core::{ConnectionSpec, Engine, Provider};
 
-mod capture;
+pub(in crate::telemetry) mod capture;
 mod replication;
 mod replication_movement;
 mod scheduled_events;
 
-fn fixture() -> crate::MysqlProvider {
+pub(in crate::telemetry) fn fixture() -> crate::MysqlProvider {
     crate::MysqlProvider::new(&ConnectionSpec {
         engine: Some(Engine::Mysql),
         host: "127.0.0.1".into(),

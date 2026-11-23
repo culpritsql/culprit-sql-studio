@@ -18,50 +18,97 @@ impl Evaluations {
         catalog_inputs: &[u16],
         engine: Engine,
     ) -> Result<()> {
-        self.output.population_count = self.output.population_count.checked_add(1).ok_or_else(capacity)?;
-        if analysis.assessments.len() > MAX_DERIVED_CHECK_STATES || analysis.locked.len() > MAX_DERIVED_CHECK_STATES {
-            self.output.omitted_populations = self.output.omitted_populations.checked_add(1).ok_or_else(capacity)?;
-            return Ok(());
+        self.append(
+            DerivedFindingAssessment {
+                input,
+                scope: DerivedFindingScope::QueryHistory { population: analysis.population.clone() },
+                checks: vec![],
+                limitations: limitation_reasons(&analysis.limitations),
+                catalog_inputs: catalog_inputs.to_vec(),
+            },
+            &analysis.assessments,
+            &analysis.locked,
+            engine,
+        )
+    }
+    pub fn add_settings(
+        &mut self,
+        analysis: &crate::collected_evidence::RetainedSettingsAnalysis,
+        input: u16,
+        engine: Engine,
+    ) -> Result<()> {
+        self.append(
+            DerivedFindingAssessment {
+                input,
+                scope: DerivedFindingScope::Settings,
+                checks: vec![],
+                limitations: limitation_reasons(&analysis.limitations),
+                catalog_inputs: vec![],
+            },
+            &analysis.report.assessments,
+            &analysis.report.locked,
+            engine,
+        )
+    }
+    pub fn add_statement_counters(
+        &mut self,
+        limitations: Vec<culprit_core::collected_analysis::CollectedAnalysisLimit>,
+        engine: Engine,
+    ) -> Result<()> {
+        self.append(
+            DerivedFindingAssessment {
+                input: 0,
+                scope: DerivedFindingScope::StatementCounters,
+                checks: vec![],
+                limitations,
+                catalog_inputs: vec![],
+            },
+            &[],
+            &[],
+            engine,
+        )
+    }
+    fn append(
+        &mut self,
+        mut assessment: DerivedFindingAssessment,
+        assessments: &[CheckAssessment],
+        locked: &[LockedCheck],
+        engine: Engine,
+    ) -> Result<()> {
+        self.output.assessment_count = self.output.assessment_count.checked_add(1).ok_or_else(capacity)?;
+        if assessments.len() > MAX_DERIVED_CHECK_STATES || locked.len() > MAX_DERIVED_CHECK_STATES {
+            return self.omit();
         }
         let checkpoint = self.output.checks.len();
-        let mut checks = Vec::new();
-        for state in check_states(analysis, engine)? {
-            checks.push(self.index(state)?);
+        for state in check_states(assessments, locked, engine)? {
+            assessment.checks.push(self.index(state)?);
         }
-        let mut limitations = Vec::new();
-        for limitation in &analysis.limitations {
-            if !limitations.contains(&limitation.reason) {
-                limitations.push(limitation.reason);
-            }
-        }
-        self.output.populations.push(DerivedPopulationEvaluation {
-            input,
-            population: analysis.population.clone(),
-            checks,
-            limitations,
-            catalog_inputs: catalog_inputs.to_vec(),
-        });
+        self.output.assessments.push(assessment);
         if self.output.checks.len() > MAX_DERIVED_CHECK_STATES || self.serialized_bound_exceeded() {
-            self.output.populations.pop();
+            self.output.assessments.pop();
             self.output.checks.truncate(checkpoint);
-            self.output.omitted_populations = self.output.omitted_populations.checked_add(1).ok_or_else(capacity)?;
+            self.omit()?;
         }
+        Ok(())
+    }
+    fn omit(&mut self) -> Result<()> {
+        self.output.omitted_assessments = self.output.omitted_assessments.checked_add(1).ok_or_else(capacity)?;
         Ok(())
     }
     fn serialized_bound_exceeded(&self) -> bool {
         #[derive(serde::Serialize)]
         struct ReservedCounts<'a> {
             checks: &'a [DerivedCheckEvaluation],
-            populations: &'a [DerivedPopulationEvaluation],
-            population_count: u32,
-            omitted_populations: u32,
+            assessments: &'a [DerivedFindingAssessment],
+            assessment_count: u32,
+            omitted_assessments: u32,
         }
         json_size(
             &ReservedCounts {
                 checks: &self.output.checks,
-                populations: &self.output.populations,
-                population_count: u32::MAX,
-                omitted_populations: u32::MAX,
+                assessments: &self.output.assessments,
+                assessment_count: u32::MAX,
+                omitted_assessments: u32::MAX,
             },
             MAX_DERIVED_EVALUATION_BYTES,
         )
@@ -79,13 +126,28 @@ impl Evaluations {
         self.output
     }
 }
+fn limitation_reasons(
+    limitations: &[culprit_core::collected_analysis::CollectedAnalysisLimitation],
+) -> Vec<culprit_core::collected_analysis::CollectedAnalysisLimit> {
+    let mut reasons = Vec::new();
+    for limitation in limitations {
+        if !reasons.contains(&limitation.reason) {
+            reasons.push(limitation.reason);
+        }
+    }
+    reasons
+}
 
 /// Assessment wording and missing-capability locks are two facets of the same pipeline check.
 /// Preserve their one coherent Unavailable state; contradictory or repeated facets still refuse.
-fn check_states(analysis: &CollectedQueryAnalysisResult, engine: Engine) -> Result<Vec<DerivedCheckEvaluation>> {
+fn check_states(
+    assessments: &[CheckAssessment],
+    locked: &[LockedCheck],
+    engine: Engine,
+) -> Result<Vec<DerivedCheckEvaluation>> {
     let mut states = Vec::new();
     let mut positions = BTreeMap::new();
-    for assessment in &analysis.assessments {
+    for assessment in assessments {
         if positions.insert(assessment.check.as_str(), states.len()).is_some() {
             return Err(invalid());
         }
@@ -98,23 +160,23 @@ fn check_states(analysis: &CollectedQueryAnalysisResult, engine: Engine) -> Resu
         });
     }
     let mut locks = BTreeSet::new();
-    for locked in &analysis.locked {
-        if !locks.insert(locked.check.id.as_str()) {
+    for lock in locked {
+        if !locks.insert(lock.check.id.as_str()) {
             return Err(invalid());
         }
-        if let Some(position) = positions.get(locked.check.id.as_str()) {
+        if let Some(position) = positions.get(lock.check.id.as_str()) {
             let state = states.get_mut(*position).ok_or_else(invalid)?;
             if state.status != CheckStatus::Unavailable || state.assessed_queries != 0 {
                 return Err(invalid());
             }
-            state.missing = locked.missing.clone();
+            state.missing = lock.missing.clone();
         } else {
-            positions.insert(locked.check.id.as_str(), states.len());
+            positions.insert(lock.check.id.as_str(), states.len());
             states.push(DerivedCheckEvaluation {
-                check: locked.check.id.clone(),
+                check: lock.check.id.clone(),
                 status: CheckStatus::Unavailable,
                 reason: None,
-                missing: locked.missing.clone(),
+                missing: lock.missing.clone(),
                 assessed_queries: 0,
             });
         }

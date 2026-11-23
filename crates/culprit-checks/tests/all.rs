@@ -28,6 +28,7 @@ mod plan_cache;
 mod plan_insights;
 mod plan_warnings;
 mod plugin;
+mod postgres_settings_fixture;
 mod pressure_config_maintenance;
 mod provider_audit;
 mod query_checks;

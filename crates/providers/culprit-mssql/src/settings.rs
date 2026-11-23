@@ -57,7 +57,10 @@ fn query(kind: Kind, context_columns: &str) -> String {
         ),
         Kind::Scoped => format!("SELECT {context_columns}{SCOPED}"),
         Kind::Server => format!("SELECT {context_columns}{SERVER}"),
-        Kind::QueryStore => crate::query_store::catalog_sql::options_with_context(context_columns),
+        Kind::QueryStore => crate::query_store::catalog_sql::options_with_context(
+            context_columns,
+            if context_columns.is_empty() { "" } else { frame::EXECUTION_PARAMETERS },
+        ),
     }
 }
 
@@ -92,31 +95,17 @@ fn scalar(value: &Val) -> Result<Option<String>> {
     })
 }
 pub(crate) fn query_store_options(row: &Rec) -> Result<Vec<SettingObservation>> {
-    ordered(wide_row(row, Kind::QueryStore, query_store_nature)?)
-}
-fn query_store_nature(name: &str) -> SettingNature {
-    match name {
-        "desired_state"
-        | "desired_state_desc"
-        | "flush_interval_seconds"
-        | "interval_length_minutes"
-        | "max_storage_size_mb"
-        | "stale_query_threshold_days"
-        | "max_plans_per_query"
-        | "query_capture_mode"
-        | "query_capture_mode_desc"
-        | "size_based_cleanup_mode"
-        | "size_based_cleanup_mode_desc"
-        | "wait_stats_capture_mode"
-        | "wait_stats_capture_mode_desc"
-        | "capture_policy_stale_threshold_hours"
-        | "capture_policy_execution_count"
-        | "capture_policy_total_compile_cpu_time_ms"
-        | "capture_policy_total_execution_cpu_time_ms" => SettingNature::Configuration,
-        "actual_state" | "actual_state_desc" | "readonly_reason" => SettingNature::State,
-        "current_storage_size_mb" => SettingNature::Measurement,
-        _ => SettingNature::Unknown,
-    }
+    let values = crate::query_store::options::fields()
+        .map(|(name, nature)| {
+            let mut columns = row.columns().filter(|(column, _)| *column == name);
+            let (_, value) = columns.next().ok_or_else(invalid_data)?;
+            if columns.next().is_some() {
+                return Err(invalid_data());
+            }
+            Ok(base(Kind::QueryStore, name.into(), scalar(value)?, nature))
+        })
+        .collect::<Result<_>>()?;
+    ordered(values)
 }
 pub(crate) async fn read<R: NativeRead>(reader: &mut R, kind: Kind, limit: usize) -> Result<Vec<SettingObservation>> {
     Ok(read_family(reader, kind, limit, None).await?.values)
@@ -221,9 +210,6 @@ fn database_settings(
         .map(|(name, value, nature)| base(Kind::Database, name.into(), value, nature))
         .collect(),
     )
-}
-fn wide_row(row: &Rec, kind: Kind, nature: impl Fn(&str) -> SettingNature) -> Result<Vec<SettingObservation>> {
-    row.columns().map(|(name, value)| Ok(base(kind, name.into(), scalar(value)?, nature(name)))).collect()
 }
 fn named_row(row: &Rec, kind: Kind) -> Result<SettingObservation> {
     let field = if kind == Kind::Scoped { "value_text" } else { "value" };

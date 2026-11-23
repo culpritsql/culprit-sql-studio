@@ -73,7 +73,7 @@ async fn constructing_shared_oom_and_pool_operational_profiles_is_read_free_with
     other.selection = CollectionSelection::Snapshot { dataset: SnapshotDataset::Operational };
     assert!(pool_operational::selected(&other));
     let limits = native_budget(&other);
-    assert_eq!(limits.max_queries, 20);
+    assert_eq!(limits.max_queries, 22, "shared tempdb retains its own admission and native point");
     assert_eq!(limits.max_snapshot_rows, other.budget.max_snapshot_rows);
     assert_eq!(limits.page_bytes, 512 * 1024);
     assert_eq!(limits.total_bytes, 8 * 1024 * 1024);
@@ -198,7 +198,7 @@ fn memory_failure_subject_refusals_and_the_independent_pool_operational_route_st
     assert!(pool_operational::selected(&operational));
     let source = StateSource::with_io(FakeRead::new(vec![]), &operational, "route".into(), 1433).unwrap();
     assert_eq!(source.request.selection, operational.selection);
-    assert_eq!(source.request.budget.max_queries, 20);
+    assert_eq!(source.request.budget.max_queries, 22);
     assert!(source.io.calls.is_empty());
     let mut refused = operational;
     refused.selection = CollectionSelection::Snapshot { dataset: SnapshotDataset::Tuning };

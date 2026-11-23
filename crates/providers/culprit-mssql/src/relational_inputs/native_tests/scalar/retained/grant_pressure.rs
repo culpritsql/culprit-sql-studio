@@ -28,17 +28,9 @@ pub(crate) async fn prove(fixture: &mut Fixture) -> culprit_core::Result<()> {
     let outcome = AssertUnwindSafe(capture_episode(fixture, &mut probe)).catch_unwind().await;
     // This phase owns the original scalar client, including timeout/panic paths in the existing capture owner.
     // A successful physical close never repairs a failed/unconfirmed original execution.
-    let source_shutdown = probe.pool.source_shutdown();
-    let closed = crate::test_support::owned_case::retire(probe.application).await;
-    let mut episode = match outcome {
-        Ok(result) => result?,
-        Err(original) => std::panic::resume_unwind(original),
-    };
-    closed?;
+    let retired = probe.retire().await;
+    let (mut episode, retired) = settled_scalar_outcome(fixture, outcome, retired)?;
     crate::test_support::owned_case::require_active(&cancellation)?;
-    if source_shutdown != SourceShutdown::Quiescent {
-        return Err(CollectionStop::CancellationUnconfirmed.error());
-    }
     let (admitted, database) = fixture.original_context()?;
     // Pin live and closed matching through the existing exact-generation verifier, never a bare session number.
     episode.retained.verify_after_actor_disappears(admitted, database, actor.clone()).await;
@@ -104,7 +96,7 @@ pub(crate) async fn prove(fixture: &mut Fixture) -> culprit_core::Result<()> {
         }),
     )?;
     crate::test_support::owned_case::require_active(&cancellation)?;
-    fixture.control_completed();
+    fixture.settle_scalar_actor(retired)?;
     Ok(())
 }
 
@@ -116,7 +108,7 @@ fn capture_episode<'a>(
         let cancellation = fixture.cancellation.clone();
         crate::test_support::owned_case::require_active(&cancellation)?;
         let actor = probe.actor();
-        let original_actor = fixture.verify_scalar_route(&mut probe.application).await?;
+        let original_actor = probe.verify_resource_route(fixture).await?;
         assert_eq!(original_actor, native_actor(&actor));
         let prime = probe.record(2, CacheExpectation::New).await;
         assert_context(&prime, ParameterValues::Same);
@@ -131,13 +123,15 @@ fn capture_episode<'a>(
                 "cache-after-holder-before-memory-source",
             )
             .await?;
+        let native_work = probe.native_work();
         let mut owner = OwnedCaptures::from_pool(probe.pool.clone(), probe.port)?;
-        let holder_point = owner
-            .capture_with_cancellation(
-                CollectionSelection::Snapshot { dataset: SnapshotDataset::CurrentRequestMemory },
-                &cancellation,
-            )
-            .await?;
+        let holder_point = capture_original(
+            &mut owner,
+            CollectionSelection::Snapshot { dataset: SnapshotDataset::CurrentRequestMemory },
+            &cancellation,
+            &native_work,
+        )
+        .await?;
         // Retain the successful canonical source before a later cache guard can fail and drop this fixture's
         // temporary Outbox. These are the actual sealed original rows and accounting, never a recreated snapshot.
         crate::test_support::save_cost_receipt(
@@ -185,10 +179,8 @@ fn capture_episode<'a>(
                 fixture,
                 &mut owner,
                 &submitting,
-                &actor,
-                &prime.context,
-                &holder,
-                &holder_source,
+                WaiterBasis { actor: &actor, statement: &prime.context, holder: &holder, source: &holder_source },
+                &native_work,
             ),
         );
         // Both borrowed owners settle before a failure is propagated. A source failure never causes another capture.
@@ -203,15 +195,20 @@ fn capture_episode<'a>(
         let waiting = &observed_waiter.0;
         assert_context(&original, ParameterValues::Different);
         crate::test_support::owned_case::require_active(&cancellation)?;
-        let retained_capture = owner
-            .capture_with_cancellation(
-                CollectionSelection::Snapshot { dataset: SnapshotDataset::RetainedPlans },
-                &cancellation,
-            )
-            .await?;
+        let retained_capture = capture_original(
+            &mut owner,
+            CollectionSelection::Snapshot { dataset: SnapshotDataset::RetainedPlans },
+            &cancellation,
+            &native_work,
+        )
+        .await?;
         let mut retained = Original::from_capture(owner, retained_capture, &original, cancellation.clone());
         let (admitted, database) = fixture.original_context()?;
+        let actor_verifier = native_work.reader();
+        // The existing verifier returns only after its complete native result and same-client retirement.
+        // Any native error, panic or dropped future leaves this independent reader unconfirmed.
         verify_actor_count(admitted, database, &actor, 1, &cancellation).await;
+        actor_verifier.closed(SourceShutdown::Quiescent);
         assert_eq!(waiting.source()?.target, retained.capture.source()?.target);
         assert_eq!(waiting.source()?.partition, retained.capture.source()?.partition);
         let earlier = waiting.source()?.observation.snapshot().unwrap();
@@ -252,31 +249,64 @@ fn capture_episode<'a>(
     })
 }
 
+async fn capture_original(
+    owner: &mut OwnedCaptures,
+    selection: CollectionSelection,
+    cancellation: &CollectionCancellation,
+    native_work: &probe::NativeWork,
+) -> culprit_core::Result<Captured> {
+    let reader = native_work.reader();
+    let captured = owner.capture_with_cancellation(selection, cancellation).await?;
+    reader.captured(&captured)?;
+    Ok(captured)
+}
+
+/// Native retirement is attempted before the original evidence result is propagated. A positive receipt
+/// may reopen cleanup on an evidence failure; native uncertainty never does, and the original failure wins.
+fn settled_scalar_outcome<T>(
+    fixture: &mut Fixture,
+    outcome: std::thread::Result<culprit_core::Result<T>>,
+    retired: culprit_core::Result<probe::SettledScalarActor>,
+) -> culprit_core::Result<(T, probe::SettledScalarActor)> {
+    match outcome {
+        Ok(Ok(value)) => Ok((value, retired?)),
+        original => {
+            if let Ok(retired) = retired {
+                // A refusal keeps the owner's conservative flag. It cannot replace the first evidence error.
+                let _ = fixture.settle_scalar_actor(retired);
+            }
+            match original {
+                Ok(Err(error)) => Err(error),
+                Err(panic) => std::panic::resume_unwind(panic),
+                Ok(Ok(_)) => unreachable!(),
+            }
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+struct WaiterBasis<'a> {
+    actor: &'a probe::Actor,
+    statement: &'a CachedStatementContext,
+    holder: &'a ExecutionGrantObservation,
+    source: &'a CollectionDescription,
+}
+
 type WaiterOutcome = std::thread::Result<culprit_core::Result<Box<(Captured, ExecutionGrantObservation)>>>;
 
 fn capture_waiter_and_release<'a>(
     fixture: &'a mut Fixture,
     owner: &'a mut OwnedCaptures,
     submitting: &'a Notify,
-    actor: &'a probe::Actor,
-    statement: &'a CachedStatementContext,
-    holder: &'a ExecutionGrantObservation,
-    holder_source: &'a CollectionDescription,
+    basis: WaiterBasis<'a>,
+    native_work: &'a probe::NativeWork,
 ) -> LocalBoxFuture<'a, WaiterOutcome> {
     Box::pin(async move {
         // One unwind owner while the original native capture is active. Return its completed outcome instead
         // of rethrowing it into a second caller-side unwind poll frame.
-        let captured = AssertUnwindSafe(Box::pin(capture_waiter(
-            fixture,
-            owner,
-            submitting,
-            actor,
-            statement,
-            holder,
-            holder_source,
-        )))
-        .catch_unwind()
-        .await;
+        let captured = AssertUnwindSafe(Box::pin(capture_waiter(fixture, owner, submitting, basis, native_work)))
+            .catch_unwind()
+            .await;
         // Always attempt cleanup of the SAME held stream, after capture settlement. Cleanup's separate unwind
         // boundary is sequential; neither its panic nor its error replaces the original capture failure.
         let drained = AssertUnwindSafe(Box::pin(fixture.drain_original_holder()))
@@ -291,19 +321,20 @@ async fn capture_waiter(
     fixture: &mut Fixture,
     owner: &mut OwnedCaptures,
     submitting: &Notify,
-    actor: &probe::Actor,
-    statement: &CachedStatementContext,
-    holder: &ExecutionGrantObservation,
-    holder_source: &CollectionDescription,
+    basis: WaiterBasis<'_>,
+    native_work: &probe::NativeWork,
 ) -> culprit_core::Result<Box<(Captured, ExecutionGrantObservation)>> {
+    let WaiterBasis { actor, statement, holder, source: holder_source } = basis;
     let cancellation = fixture.cancellation.clone();
     crate::test_support::owned_case::until_cancelled(&cancellation, async {
         tokio::time::timeout(CONTROL_TIMEOUT, submitting.notified()).await.map_err(|_| CollectionStop::TimedOut.error())
     })
     .await?;
-    let captured = Box::pin(owner.capture_with_cancellation(
+    let captured = Box::pin(capture_original(
+        owner,
         CollectionSelection::Snapshot { dataset: SnapshotDataset::CurrentRequestMemory },
         &cancellation,
+        native_work,
     ))
     .await?;
     assert_eq!(captured.source()?.target, holder_source.target);
@@ -565,9 +596,11 @@ async fn start_scalar_probe(fixture: &mut Fixture) -> culprit_core::Result<Box<P
     fixture.begin_scalar_actor()?;
     let application = fixture.scalar_application()?;
     let (admitted, database) = fixture.original_context()?;
-    Ok(Box::new(
+    let probe = Box::new(
         Probe::granted_counted(admitted, database, IndexCoverage::LookupRequired, &application, &cancellation).await,
-    ))
+    );
+    fixture.register_scalar_actor(native_actor(&probe.actor()))?;
+    Ok(probe)
 }
 
 /// Diagnostic only: either fully observed final selection outcome is useful. Neither closes G3 grant acceptance.
@@ -576,7 +609,7 @@ pub(crate) async fn cache_without_collection(fixture: &mut Fixture) -> culprit_c
     let outcome = Box::pin(
         AssertUnwindSafe(async {
             let actor = probe.actor();
-            assert_eq!(fixture.verify_scalar_route(&mut probe.application).await?, native_actor(&actor));
+            assert_eq!(probe.verify_resource_route(fixture).await?, native_actor(&actor));
             let prime = probe.record(2, CacheExpectation::New).await;
             assert_context(&prime, ParameterValues::Same);
             fixture.start_actor().await?;
@@ -617,20 +650,10 @@ pub(crate) async fn cache_without_collection(fixture: &mut Fixture) -> culprit_c
         .catch_unwind(),
     )
     .await;
-    let shutdown = probe.pool.source_shutdown();
-    let closed = crate::test_support::owned_case::retire(probe.application).await;
-    let result = match outcome {
-        Ok(result) => result,
-        Err(original) => std::panic::resume_unwind(original),
-    };
-    result?;
-    closed?;
-    if shutdown != SourceShutdown::Quiescent {
-        return Err(CollectionStop::CancellationUnconfirmed.error());
-    }
-    crate::test_support::owned_case::require_active(&fixture.cancellation)?;
-    fixture.control_completed();
-    Ok(())
+    let retired = probe.retire().await;
+    let (_, retired) = settled_scalar_outcome(fixture, outcome, retired)?;
+    fixture.settle_scalar_actor(retired)?;
+    crate::test_support::owned_case::require_active(&fixture.cancellation)
 }
 
 pub(crate) async fn source_phase_control(fixture: &mut Fixture) -> culprit_core::Result<()> {
@@ -638,7 +661,7 @@ pub(crate) async fn source_phase_control(fixture: &mut Fixture) -> culprit_core:
     let outcome = Box::pin(
         AssertUnwindSafe(async {
             let actor = probe.actor();
-            assert_eq!(fixture.verify_scalar_route(&mut probe.application).await?, native_actor(&actor));
+            assert_eq!(probe.verify_resource_route(fixture).await?, native_actor(&actor));
             let prime = probe.record(2, CacheExpectation::New).await;
             assert_context(&prime, ParameterValues::Same);
             fixture.start_actor().await?;
@@ -656,20 +679,10 @@ pub(crate) async fn source_phase_control(fixture: &mut Fixture) -> culprit_core:
         .catch_unwind(),
     )
     .await;
-    let source_shutdown = probe.pool.source_shutdown();
-    let closed = crate::test_support::owned_case::retire(probe.application).await;
-    let result = match outcome {
-        Ok(result) => result,
-        Err(original) => std::panic::resume_unwind(original),
-    };
-    result?;
-    closed?;
-    if source_shutdown != SourceShutdown::Quiescent {
-        return Err(CollectionStop::CancellationUnconfirmed.error());
-    }
-    crate::test_support::owned_case::require_active(&fixture.cancellation)?;
-    fixture.control_completed();
-    Ok(())
+    let retired = probe.retire().await;
+    let (_, retired) = settled_scalar_outcome(fixture, outcome, retired)?;
+    fixture.settle_scalar_actor(retired)?;
+    crate::test_support::owned_case::require_active(&fixture.cancellation)
 }
 
 #[cfg(test)]

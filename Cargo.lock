@@ -1239,6 +1239,7 @@ dependencies = [
  "async-trait",
  "culprit-collector",
  "culprit-core",
+ "culprit-evidence",
  "culprit-plans",
  "culprit-read",
  "futures-util",

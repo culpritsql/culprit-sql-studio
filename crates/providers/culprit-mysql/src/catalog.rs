@@ -349,37 +349,6 @@ pub(crate) async fn foreign_keys(conn: &mut impl crate::read::QueryRead, db: &st
     Ok(out)
 }
 
-/// Server variables the checks and the UI read, with their compiled-in defaults: MySQL 8.0/8.4, then MariaDB 10.11/11.x
-/// (`None` where that server has no such variable, empty where its default isn't one value). MySQL 5.7 has no
-/// internal_tmp_mem_storage_engine or temptable_max_ram: a variable the server doesn't have isn't read.
-const SETTINGS: [(&str, Option<&str>, Option<&str>); 23] = [
-    ("performance_schema_digests_size", Some("10000"), Some("-1")),
-    ("performance_schema_max_digest_length", Some("1024"), Some("1024")),
-    ("performance_schema_max_sql_text_length", Some("1024"), Some("1024")),
-    ("max_digest_length", Some("1024"), Some("1024")),
-    ("innodb_buffer_pool_size", Some("134217728"), Some("134217728")),
-    ("innodb_page_size", Some("16384"), Some("16384")),
-    ("tmp_table_size", Some("16777216"), Some("16777216")),
-    ("max_heap_table_size", Some("16777216"), Some("16777216")),
-    // Which engine keeps internal temporary tables in memory, and TempTable's memory for all of them together (1 GB
-    // on 8.0; 8.4 takes 3% of the host's memory, between 1 and 4 GB).
-    ("internal_tmp_mem_storage_engine", Some("TempTable"), None),
-    ("temptable_max_ram", Some(""), None),
-    ("sort_buffer_size", Some("262144"), Some("2097152")),
-    ("join_buffer_size", Some("262144"), Some("262144")),
-    ("long_query_time", Some("10.000000"), Some("10.000000")),
-    ("slow_query_log", Some("OFF"), Some("OFF")),
-    ("log_output", Some("FILE"), Some("FILE")),
-    ("performance_schema", Some("ON"), Some("OFF")),
-    ("max_connections", Some("151"), Some("151")),
-    ("innodb_flush_log_at_trx_commit", Some("1"), Some("1")),
-    ("transaction_isolation", Some("REPEATABLE-READ"), Some("REPEATABLE-READ")),
-    ("tx_isolation", None, Some("REPEATABLE-READ")),
-    ("max_execution_time", Some("0"), None),
-    ("max_statement_time", None, Some("0.000000")),
-    ("userstat", None, Some("OFF")),
-];
-
 /// "replica" when this server replicates from another: its replication status has a row, or, where this login can't
 /// read that status, it is read-only (how replicas and Aurora's readers run). Its usage counters count the reads run on
 /// it (and the replication applier's), not the primary's workload.
@@ -403,26 +372,19 @@ pub(crate) async fn replica_role(conn: &mut impl crate::read::QueryRead, probe: 
     }
 }
 
-fn setting_default(name: &str, flavor: Flavor) -> Option<&'static str> {
-    SETTINGS.iter().find(|(n, _, _)| *n == name).and_then(|(_, mysql, maria)| match flavor {
-        Flavor::Mysql => *mysql,
-        Flavor::Mariadb => *maria,
-    })
-}
-pub(crate) fn settings_names(flavor: Flavor) -> Vec<&'static str> {
-    SETTINGS.iter().filter(|(name, _, _)| setting_default(name, flavor).is_some()).map(|(name, _, _)| *name).collect()
-}
 pub(crate) async fn settings(conn: &mut impl crate::read::QueryRead, flavor: Flavor) -> Result<Vec<Setting>> {
-    let names = settings_names(flavor);
-    let rows = vars::variables(conn, &names).await?;
-    Ok(rows
-        .into_iter()
-        .map(|(name, value)| {
-            let default = setting_default(&name, flavor).filter(|d| !d.is_empty()).map(str::to_string);
-            Setting { name, value, default_value: default, scope: "server".into() }
-        })
-        .chain(statement_status(conn).await)
-        .collect())
+    let names = crate::native::settings::names(flavor)?;
+    let rows = vars::records(conn, vars::VariableSet::Configuration, &names).await?;
+    let mut settings = Vec::new();
+    for row in &rows {
+        let native = crate::native::settings::decode(row, flavor)?;
+        if let Some(setting) = flavor.settings_format().project_global_variable(&native) {
+            settings.push(setting);
+        }
+    }
+    // Existing optional status work remains a separate scan source, never part of the guarded Settings body.
+    settings.extend(statement_status(conn).await);
+    Ok(settings)
 }
 
 /// Whether performance_schema keeps up with the workload: digests it had no room for, statements lumped into the

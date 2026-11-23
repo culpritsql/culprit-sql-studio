@@ -13,6 +13,7 @@ use super::actors::FixtureRequest;
 use super::observations;
 use super::observations::NativePoint;
 use super::profile::ResourceProfile;
+use crate::relational_inputs::native_tests::scalar::SettledScalarActor;
 use crate::{
     conn::{MsClient, Pool, SessionKind, map_error},
     read::invalid_data,
@@ -46,6 +47,7 @@ pub(crate) struct Fixture {
     observer: Option<Arc<Pool>>,
     actor_pools: Vec<Pool>,
     additional_actors: usize,
+    scalar_actor: Option<NativeActivityIdentity>,
     profile: Option<ResourceProfile>,
     requests: Vec<FixtureRequest>,
     demands: BTreeMap<NativeActivityIdentity, u64>,
@@ -83,6 +85,7 @@ impl Fixture {
             observer: None,
             actor_pools: vec![],
             additional_actors: 0,
+            scalar_actor: None,
             profile: None,
             requests: vec![],
             demands: BTreeMap::new(),
@@ -282,6 +285,24 @@ impl Fixture {
         }
         self.control_started()?;
         self.additional_actors += 1;
+        Ok(())
+    }
+
+    pub fn register_scalar_actor(&mut self, actor: NativeActivityIdentity) -> Result<()> {
+        if !self.control_unconfirmed || self.additional_actors != 1 || self.scalar_actor.is_some() {
+            return Err(invalid_data());
+        }
+        self.scalar_actor = Some(actor);
+        Ok(())
+    }
+
+    pub fn settle_scalar_actor(&mut self, retired: SettledScalarActor) -> Result<()> {
+        let database = self.database.as_deref().ok_or_else(invalid_data)?;
+        let actor = self.scalar_actor.as_ref().ok_or_else(invalid_data)?;
+        if !self.control_unconfirmed || !retired.matches(database, actor) {
+            return Err(invalid_data());
+        }
+        self.control_completed();
         Ok(())
     }
 

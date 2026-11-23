@@ -47,6 +47,24 @@ impl Context {
         Ok(self.recheck_completion(reader, host, port).await?.map(|completion| completion.context))
     }
 
+    fn matches_metadata(&self, metadata: &native::metadata::Metadata) -> bool {
+        self.metadata.same_activity_source(metadata)
+            && ObservationBounds::new(&self.metadata.at, &metadata.at).is_some()
+    }
+
+    /// Complete already-observed paired metadata/member bounds. Snapshot readers retain their own native
+    /// layout checks and never pay for a duplicate Activity metadata recheck.
+    pub(crate) fn completed(&self, after: &Self) -> Result<Completion> {
+        if !self.matches_metadata(&after.metadata) || self.member != after.member {
+            return Err(CollectionStop::SourceChanged.error());
+        }
+        let context = self.context_until(&after.member_observed_at)?;
+        if !context.completes_read(&self.read_context()?) {
+            return Err(CollectionStop::SourceChanged.error());
+        }
+        Ok(Completion { context, full_visibility: self.metadata.full_visibility && after.metadata.full_visibility })
+    }
+
     async fn recheck_completion<R: QueryRead>(
         &self,
         reader: &mut R,
@@ -58,18 +76,7 @@ impl Context {
             Err(error) if optional(&error) => return Ok(None),
             Err(error) => return Err(error),
         };
-        if !self.metadata.same_activity_source(&after) || ObservationBounds::new(&self.metadata.at, &after.at).is_none()
-        {
-            return Ok(None);
-        }
-        let Some(other) = Self::observe(reader, &after).await? else { return Ok(None) };
-        if self.member != other.member {
-            return Ok(None);
-        }
-        let context = self.context_until(&other.member_observed_at)?;
-        Ok(context
-            .has_qualified_local_owner()
-            .then_some(Completion { context, full_visibility: self.metadata.full_visibility && after.full_visibility }))
+        complete_observed(reader, &self.metadata, Some(self), &after).await
     }
 
     fn context_until(&self, until: &str) -> Result<NativeReadContext> {
@@ -119,17 +126,32 @@ pub(crate) async fn complete<R: QueryRead>(
             .ok_or_else(|| CollectionStop::SourceChanged.error());
     }
     let after = native::metadata::activity(reader, host, port).await?;
-    if !before.same_activity_source(&after) || ObservationBounds::new(&before.at, &after.at).is_none() {
-        return Err(CollectionStop::SourceChanged.error());
+    complete_observed(reader, before, None, &after).await?.ok_or_else(|| CollectionStop::SourceChanged.error())
+}
+
+/// Settle already-paid paired native bounds once. Snapshot profiles and ordinary Settings reuse their
+/// own initial metadata/context here; no second metadata query, role inference or member repair is performed.
+pub(crate) async fn complete_observed<R: QueryRead>(
+    reader: &mut R,
+    before: &native::metadata::Metadata,
+    owner: Option<&Context>,
+    after: &native::metadata::Metadata,
+) -> Result<Option<Completion>> {
+    if !before.same_activity_source(after) || ObservationBounds::new(&before.at, &after.at).is_none() {
+        return Ok(None);
     }
-    let until = match Context::observe(reader, &after).await? {
+    let observed = Context::observe(reader, after).await?;
+    if let Some(owner) = owner {
+        return Ok(observed.as_ref().and_then(|other| owner.completed(other).ok()));
+    }
+    let until = match observed {
         Some(owner) => owner.read_context()?.observed_until,
-        None => after.at,
+        None => after.at.clone(),
     };
-    Ok(Completion {
+    Ok(Some(Completion {
         context: unknown(before, &until)?,
         full_visibility: before.full_visibility && after.full_visibility,
-    })
+    }))
 }
 
 fn optional(error: &culprit_core::Error) -> bool {

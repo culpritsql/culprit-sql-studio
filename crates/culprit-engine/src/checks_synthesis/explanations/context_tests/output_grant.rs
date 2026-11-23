@@ -4,6 +4,13 @@ async fn scenario(
     case: Case,
     sequence: u64,
 ) -> (EvidenceCapture, EvidenceCapture, DiagnosticEpisode, OutputGrantRetentionAnswer) {
+    scenario_with_peer_count(case, sequence, usize::from(case == Case::Peer)).await
+}
+async fn scenario_with_peer_count(
+    case: Case,
+    sequence: u64,
+    peer_count: usize,
+) -> (EvidenceCapture, EvidenceCapture, DiagnosticEpisode, OutputGrantRetentionAnswer) {
     let input = output_grant_original();
     let basis = retained(input.source, vec![input.original.record], sequence).await;
     let original = basis.verified_original().unwrap();
@@ -37,7 +44,28 @@ async fn scenario(
     let execution =
         SourceReadExecutionScope::from_context(focus.question, &focus.original_context(basis.source()).unwrap())
             .unwrap();
-    let (source, rows) = output_grant_result(&focus, &execution, case);
+    let (mut source, mut rows) = output_grant_result(&focus, &execution, case);
+    assert!(peer_count == 0 || case == Case::Peer);
+    if peer_count > 1 {
+        let template = rows[1].clone();
+        for index in 1..peer_count {
+            let TelemetryRecord::Operational(mut row) = template.clone() else { panic!() };
+            let OperationalFact::ExecutionGrant(grant) = &mut row.fact else { panic!() };
+            grant.identity = NativeIdentity::new(format!("native-concurrent-reservation-{index}"));
+            let actor = grant.request.as_mut().unwrap();
+            actor.key.session.id = (77 + index).to_string();
+            if let Some(session) = grant.native_properties.get_mut("session_id") {
+                *session = actor.key.session.id.clone();
+            }
+            row.key = grant.key().unwrap();
+            assert!(row.is_valid());
+            rows.push(TelemetryRecord::Operational(row));
+        }
+        let SourceObservation::SourceRead { snapshot, .. } = &mut source.observation else { panic!() };
+        snapshot.records = rows.len() as u32;
+        snapshot.sources[0] =
+            StateSourceCoverage::observed(snapshot.sources[0].source.clone(), rows.len() as u32, true);
+    }
     let result = retained(source, rows, sequence + 1).await;
     let captured = result.verified_original().unwrap();
     let references =
@@ -252,4 +280,70 @@ async fn native_memory_acquisition_context_remains_distinct_from_logical_snapsho
         episode.source_reads.get(SourceReadQuestion::OutputGrantRetention).unwrap().result().is_some(),
         "a terminal sibling answer remains original history"
     );
+}
+
+#[tokio::test]
+async fn a_complete_large_native_reservation_roster_publishes_a_bounded_incident_without_changing_its_evidence_or_cause()
+ {
+    let peers = MAX_DERIVED_QUERIES + 8;
+    let (basis, result, episode, answer) = scenario_with_peer_count(Case::Peer, 924_000, peers).await;
+    assert!(result.is_read_complete());
+    assert_eq!(result.records().len(), peers + 1);
+    assert_eq!(answer.peers.len(), peers);
+    let native_read = result.verified_original().unwrap().operational_read().unwrap();
+    let full_report = culprit_checks::output_grant_retention::explain(&answer, &native_read, None).unwrap();
+    assert_eq!(full_report.memory.entries.len(), peers + 1);
+    let original_body = serde_json::to_vec(&result.source()).unwrap();
+    let revisions = history(episode, 924_002).await;
+    let output = project(&[&revisions, &basis, &result], vec![]).unwrap();
+    output.validate().unwrap();
+    let [incident] = output.incidents.as_slice() else { panic!() };
+    assert_eq!(incident.affected_queries.len(), 1);
+    assert!(incident.culprit_queries.is_empty());
+    assert_eq!(incident.candidate_queries.len(), MAX_DERIVED_QUERIES - 1);
+    assert_eq!(incident.attribution_status, DerivedAttributionStatus::CandidatesOnly);
+    assert_eq!(
+        incident.mechanism.as_deref(),
+        Some(full_report.summary.as_str()),
+        "full-roster interpretation is retained before presentation selection"
+    );
+    assert!(
+        incident.entry.reasons.iter().any(|reason| reason
+            == &t!("view.synthesis.limit.query_details", affected = "0", culprits = "0", candidates = "9"))
+    );
+    let original = result.verified_original().unwrap();
+    assert!(output.description.contains_capture_for(&original.reference(peers).unwrap()));
+    assert!(
+        answer.peers.contains(&original.reference(peers).unwrap()),
+        "the recorded answer retains the omitted peer's exact original row reference"
+    );
+    assert!(
+        incident
+            .entry
+            .evidence
+            .iter()
+            .any(|evidence| evidence.reference.is_none() && evidence.capture == answer.result),
+        "the shared history contract retains the whole follow-up capture without copying every peer link"
+    );
+    assert!(incident.entry.evidence.len() < peers, "history links stay independent of the peer roster size");
+    assert!(incident.candidate_queries.iter().all(|query| query.causal_role.is_none()));
+    assert_eq!(serde_json::to_vec(&result.source()).unwrap(), original_body);
+    assert_eq!(
+        serde_json::to_vec(&project(&[&revisions, &basis, &result], vec![]).unwrap()).unwrap(),
+        serde_json::to_vec(&output).unwrap()
+    );
+}
+
+#[tokio::test]
+async fn a_reservation_roster_at_the_combined_gold_boundary_keeps_all_details_without_claiming_omission() {
+    let peers = MAX_DERIVED_QUERIES - 1;
+    let (basis, result, episode, _) = scenario_with_peer_count(Case::Peer, 924_010, peers).await;
+    let revisions = history(episode, 924_012).await;
+    let output = project(&[&revisions, &basis, &result], vec![]).unwrap();
+    output.validate().unwrap();
+    let incident = &output.incidents[0];
+    assert_eq!(incident.affected_queries.len() + incident.candidate_queries.len(), MAX_DERIVED_QUERIES);
+    assert_eq!(incident.candidate_queries.len(), peers);
+    let omitted = t!("view.synthesis.limit.query_details", affected = "0", culprits = "0", candidates = "0");
+    assert!(!incident.entry.reasons.contains(&omitted));
 }

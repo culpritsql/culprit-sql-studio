@@ -114,6 +114,17 @@ fn file() -> Rec {
         ],
     )
 }
+fn tempdb_row() -> Rec {
+    Rec::of(&[
+        ("observed_at", Val::Text(AT.into())),
+        ("database_name", Val::Null),
+        ("total", Val::Int(1_048_576)),
+        ("used", Val::Int(327_680)),
+        ("users", Val::Int(131_072)),
+        ("internals", Val::Int(65_536)),
+        ("versions", Val::Int(65_536)),
+    ])
+}
 fn pool_pressure() -> Rec {
     extend(
         &crate::resources::pool::test_support::row(AT),
@@ -142,6 +153,8 @@ fn replies() -> Vec<ReadResult<Vec<Rec>>> {
         Ok(counters()),
         Ok(vec![pool_pressure()]),
         Ok(vec![file()]),
+        Ok(vec![pool_pressure()]),
+        Ok(vec![tempdb_row()]),
         Ok(vec![member(UNTIL)]),
         Ok(vec![process()]),
         Ok(roster()),
@@ -193,15 +206,15 @@ async fn drain(source: &mut StateSource<FakeRead>) -> Vec<TelemetryRecord> {
 }
 #[tokio::test]
 async fn exact_pool_anchor_process_and_members_bracket_existing_readers_without_relabelling_raw_scope() {
-    let mut source = scripted_source(replies(), 20);
+    let mut source = scripted_source(replies(), 22);
     let original = source.describe().await.unwrap();
     let rows = drain(&mut source).await;
     assert_eq!(source.finish().await.unwrap(), SourceCompletion::Verified);
-    assert_eq!(source.query_count(), 19);
+    assert_eq!(source.query_count(), 21);
     assert_eq!(source.close().await, SourceShutdown::Quiescent);
     let authority = mssql_pool_current_authority(&original).unwrap().unwrap();
     assert!(authority.native.as_ref().unwrap().before.observed().is_some());
-    let CollectionSubject::Shared { resource } = request(20).subject else { panic!() };
+    let CollectionSubject::Shared { resource } = request(22).subject else { panic!() };
     assert_eq!(original.target, CollectionTarget::Shared(resource));
     assert_eq!(original.partition, SourcePartition::Target);
     assert_eq!(original.continuity, SourceContinuity::Unverified);
@@ -240,13 +253,16 @@ async fn exact_pool_anchor_process_and_members_bracket_existing_readers_without_
     assert!(resources.groups.is_empty()); // no instance-pressure/CPU verdict is invented.
 }
 #[tokio::test]
-async fn nineteen_cannot_pay_for_set_and_every_final_scope_check_and_tighter_caps_survive() {
-    let mut source = scripted_source(replies(), 19);
-    source.describe().await.unwrap();
-    drain(&mut source).await;
-    assert_eq!(CollectionStop::from_error(&source.finish().await.unwrap_err()), CollectionStop::QueryLimit);
-    assert_eq!(source.query_count(), 18);
-    source.close().await;
+async fn twenty_and_twenty_one_cannot_pay_for_set_and_every_final_scope_check_and_tighter_caps_survive() {
+    for total in [20, 21] {
+        let mut source = scripted_source(replies(), total);
+        source.describe().await.unwrap();
+        drain(&mut source).await;
+        assert_eq!(CollectionStop::from_error(&source.finish().await.unwrap_err()), CollectionStop::QueryLimit);
+        assert_eq!(source.query_count(), total - 1);
+        assert!(source.read_page(TelemetryStream::OperationalSamples, None).await.is_err());
+        source.close().await;
+    }
     let requested = CollectionBudget {
         max_queries: 4,
         max_snapshot_rows: 3,
@@ -263,23 +279,28 @@ async fn nineteen_cannot_pay_for_set_and_every_final_scope_check_and_tighter_cap
         (bounded.page_bytes, bounded.total_bytes, bounded.statement_timeout_ms, bounded.total_timeout_ms),
         (1024, 2048, 250, 750)
     );
+    let maximum = bounded_budget(&CollectionBudget::upper_limits());
+    assert_eq!(maximum.max_queries, 22);
+    assert_eq!(maximum.max_snapshot_rows, 10_000);
+    assert_eq!((maximum.page_bytes, maximum.total_bytes), (512 * 1024, 8 * 1024 * 1024));
+    assert_eq!((maximum.statement_timeout_ms, maximum.total_timeout_ms), (1000, 8000));
 }
 #[tokio::test]
 async fn changed_anchor_role_process_epoch_roster_and_reused_database_ids_refuse_before_publication() {
     for (index, fields) in [
-        (13, vec![("pool_name", Val::Text("foreign-pool".into()))]),
-        (13, vec![("updateability", Val::Text("READ_ONLY".into()))]),
-        (13, vec![("server_performance_state", Val::Null)]),
-        (14, vec![("local_started_ticks", Val::Int(101))]),
-        (14, vec![("local_process_id", Val::Int(11))]),
-        (15, vec![("physical_database_guid", Val::Text("33333333-3333-3333-3333-333333333333".into()))]),
-        (15, vec![("logical_database_guid", Val::Text("44444444-4444-4444-4444-444444444444".into()))]),
-        (15, vec![("primary_group_id", Val::Int(4))]),
+        (15, vec![("pool_name", Val::Text("foreign-pool".into()))]),
+        (15, vec![("updateability", Val::Text("READ_ONLY".into()))]),
+        (15, vec![("server_performance_state", Val::Null)]),
+        (16, vec![("local_started_ticks", Val::Int(101))]),
+        (16, vec![("local_process_id", Val::Int(11))]),
+        (17, vec![("physical_database_guid", Val::Text("33333333-3333-3333-3333-333333333333".into()))]),
+        (17, vec![("logical_database_guid", Val::Text("44444444-4444-4444-4444-444444444444".into()))]),
+        (17, vec![("primary_group_id", Val::Int(4))]),
     ] {
         let mut data = replies();
         let rows = data[index].as_mut().unwrap();
         rows[0] = replace(&rows[0], &fields);
-        let mut source = scripted_source(data, 20);
+        let mut source = scripted_source(data, 22);
         assert!(source.describe().await.is_err(), "{index}");
         assert!(source.read_page(TelemetryStream::OperationalSamples, None).await.is_err());
         source.close().await;
@@ -287,7 +308,7 @@ async fn changed_anchor_role_process_epoch_roster_and_reused_database_ids_refuse
 }
 #[tokio::test]
 async fn transport_change_or_missing_epoch_never_borrows_an_anchor_or_stable_compute_identity() {
-    let mut source = scripted_source(replies(), 20);
+    let mut source = scripted_source(replies(), 22);
     source.io = source.io.change_generation_at(11);
     assert!(source.describe().await.is_err());
     source.close().await;
@@ -304,7 +325,7 @@ async fn transport_change_or_missing_epoch_never_borrows_an_anchor_or_stable_com
             ],
         )]));
     }
-    let mut source = scripted_source(data, 20);
+    let mut source = scripted_source(data, 22);
     let original = source.describe().await.unwrap();
     assert!(
         original
@@ -333,7 +354,7 @@ async fn effective_permission_unknown_or_denied_does_not_open_any_pool_family_or
             Ok(vec![replace(&member(UNTIL), &[("server_performance_state", permission.clone())])]),
             Ok(vec![replace(&member(FINAL), &[("server_performance_state", permission)])]),
         ];
-        let mut source = scripted_source(data, 20);
+        let mut source = scripted_source(data, 22);
         let original = source.describe().await.unwrap();
         let header = original.observation.snapshot().unwrap();
         assert_eq!(header.coverage_state().unwrap(), SourceState::Unavailable);
@@ -347,19 +368,19 @@ async fn effective_permission_unknown_or_denied_does_not_open_any_pool_family_or
 async fn foreign_file_or_counter_epoch_is_not_relabelled_as_pool_and_empty_family_remains_unavailable() {
     let mut data = replies();
     data[12] = Ok(vec![replace(&file(), &[("database_id", Val::Int(999))])]);
-    let mut source = scripted_source(data, 20);
+    let mut source = scripted_source(data, 22);
     assert!(source.describe().await.is_err());
     source.close().await;
     let mut data = replies();
     let mut values = counters();
     values[0] = replace(&values[0], &[("process_id", Val::Int(999))]);
     data[10] = Ok(values);
-    let mut source = scripted_source(data, 20);
+    let mut source = scripted_source(data, 22);
     assert!(source.describe().await.is_err());
     source.close().await;
     let mut data = replies();
     data[5] = Ok(vec![]);
-    let mut source = scripted_source(data, 20);
+    let mut source = scripted_source(data, 22);
     let original = source.describe().await.unwrap();
     let header = original.observation.snapshot().unwrap();
     assert_eq!(
@@ -381,13 +402,13 @@ async fn cancellation_and_deadline_stop_the_same_owner_without_later_dispatch_or
     ] {
         let mut data = replies();
         data[10] = Err(crate::read::ReadError::Stopped(stop));
-        let mut source = scripted_source(data, 20);
+        let mut source = scripted_source(data, 22);
         assert!(source.describe().await.is_err());
         assert_eq!(source.query_count(), 11);
         assert!(source.read_page(TelemetryStream::OperationalSamples, None).await.is_err());
         assert_eq!(source.close().await, SourceShutdown::Quiescent);
     }
-    let mut source = scripted_source(replies(), 20);
+    let mut source = scripted_source(replies(), 22);
     source.io = source.io.pause_on_query(11);
     assert!(tokio::time::timeout(std::time::Duration::from_millis(5), source.describe()).await.is_err());
     assert_eq!(source.query_count(), 11);
@@ -406,7 +427,7 @@ async fn pool_pressure_not_an_idle_anchor_controls_every_new_family_and_missing_
     ] {
         let mut data = replies();
         data[4] = Ok(vec![row]);
-        let mut source = scripted_source(data, 20);
+        let mut source = scripted_source(data, 22);
         assert!(source.describe().await.is_err());
         assert_eq!(source.query_count(), 5);
         assert!(source.io.calls[4].sql.contains("sys.dm_elastic_pool_resource_stats"));
@@ -417,11 +438,11 @@ async fn pool_pressure_not_an_idle_anchor_controls_every_new_family_and_missing_
 #[tokio::test]
 async fn a_known_readonly_operational_anchor_keeps_its_role_and_unknown_or_changing_role_refuses() {
     let mut data = replies();
-    for index in [1, 13, 16] {
+    for index in [1, 15, 18] {
         data[index].as_mut().unwrap()[0] = replace(
             &member(if index == 1 {
                 BEFORE
-            } else if index == 13 {
+            } else if index == 15 {
                 UNTIL
             } else {
                 FINAL
@@ -434,7 +455,7 @@ async fn a_known_readonly_operational_anchor_keeps_its_role_and_unknown_or_chang
             *row = extend(row, &[("updateability", Val::Text("READ_ONLY".into()))]);
         }
     }
-    let mut source = scripted_source(data, 20);
+    let mut source = scripted_source(data, 22);
     let original = source.describe().await.unwrap();
     assert_eq!(NativeReadContext::from_snapshot(&original).unwrap().database_writable, Some(false));
     drain(&mut source).await;
@@ -442,7 +463,7 @@ async fn a_known_readonly_operational_anchor_keeps_its_role_and_unknown_or_chang
     source.close().await;
     let mut data = replies();
     data[1] = Ok(vec![replace(&member(BEFORE), &[("updateability", Val::Null)])]);
-    let mut source = scripted_source(data, 20);
+    let mut source = scripted_source(data, 22);
     assert!(source.describe().await.is_err());
     assert_eq!(source.query_count(), 2);
     source.close().await;
@@ -453,7 +474,7 @@ async fn a_native_error_that_retires_the_reader_stops_before_replacement_setup_o
     data[5] =
         Err(culprit_core::Error::new(culprit_core::ErrorCode::PermissionDenied, "scripted native permission failure")
             .into());
-    let mut source = scripted_source(data, 20);
+    let mut source = scripted_source(data, 22);
     source.io = source.io.change_generation_at(6);
     let error = source.describe().await.unwrap_err();
     assert_eq!(error.code, culprit_core::ErrorCode::PermissionDenied);
@@ -468,7 +489,9 @@ fn the_closed_pool_route_is_only_an_unqualified_baseline_recipe_not_a_measured_o
     let recipe = crate::telemetry::recipes().into_iter().find(|recipe| recipe.id == "mssql.pool-operational").unwrap();
     assert!(matches!(recipe.admission, RecipeAdmission::Unqualified));
     assert_eq!(recipe.purpose, RecipePurpose::Baseline);
-    assert_eq!(recipe.budget.max_queries, 20);
+    assert_eq!(recipe.budget.max_queries, 22);
+    assert_eq!(recipe.version, 2);
 }
 
 mod original;
+mod tempdb;

@@ -599,6 +599,7 @@ fn health_settings_per_engine() {
         setting("pg_stat_statements.dealloc", "4200", "status"),
         setting("pg_stat_statements.max", "5000", "server"),
     ]);
+    crate::postgres_settings_fixture::record_settings_acquisition(&mut pg, true);
     let found = ids(pg);
     for id in ["config:autovacuum", "config:pg_stat_statements.track", "config:pg_stat_statements.max"] {
         assert!(found.iter().any(|f| f == id), "missing {id}: {found:?}");

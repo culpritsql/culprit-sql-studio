@@ -60,7 +60,7 @@ async fn retained_catalogs_feed_the_installed_pipeline_once_without_current_sche
     let raw = originals.iter().map(|original| serde_json::to_vec(original.source()).unwrap()).collect::<Vec<_>>();
     let output = policy.analyze_originals(&originals, "2020-01-01T12:02:00Z", &display(), vec![]).unwrap();
     assert!(entered.load(Ordering::SeqCst));
-    assert!(output.description.finding_evaluations.populations.iter().all(|population| {
+    assert!(output.description.finding_evaluations.assessments.iter().all(|population| {
         population.catalog_inputs == [1, 2, 3, 4, 5]
             && population.limitations.contains(&culprit_core::collected_analysis::CollectedAnalysisLimit::MissingSchema)
             && population

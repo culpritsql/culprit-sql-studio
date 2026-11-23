@@ -356,15 +356,15 @@ fn zero_findings_keep_typed_locked_evaluations_and_independent_context_gaps() {
             missing: vec![crate::Capability::IndexUsage],
             assessed_queries: 0,
         }],
-        populations: vec![DerivedPopulationEvaluation {
+        assessments: vec![DerivedFindingAssessment {
             input: 0,
-            population: CollectedQueryPopulation::Unknown,
+            scope: DerivedFindingScope::QueryHistory { population: CollectedQueryPopulation::Unknown },
             checks: vec![0],
             limitations: vec![crate::collected_analysis::CollectedAnalysisLimit::MissingSchema],
             catalog_inputs: vec![],
         }],
-        population_count: 1,
-        omitted_populations: 0,
+        assessment_count: 1,
+        omitted_assessments: 0,
     };
     header.context_issues.push(DerivedContextIssue::MissingOriginal);
     header.analysis_id = header.expected_analysis_id().unwrap();
@@ -374,19 +374,19 @@ fn zero_findings_keep_typed_locked_evaluations_and_independent_context_gaps() {
     assert_eq!(header.limitations().len(), 2);
     let restored: DerivedDiagnosisDescription = serde_json::from_slice(&serde_json::to_vec(&header).unwrap()).unwrap();
     assert_eq!(restored, header);
-    header.finding_evaluations.populations[0].checks[0] = 1;
+    header.finding_evaluations.assessments[0].checks[0] = 1;
     assert!(!header.is_valid(), "an invalid check-state reference cannot become an assessed empty result");
 }
 #[test]
 fn omitted_evaluation_detail_is_explicit_and_unknown_indices_or_totals_refuse() {
     let mut header = description();
-    header.finding_evaluations.population_count = 100;
-    header.finding_evaluations.omitted_populations = 100;
+    header.finding_evaluations.assessment_count = 100;
+    header.finding_evaluations.omitted_assessments = 100;
     assert!(header.is_valid());
     assert_eq!(header.limitations().len(), 1);
-    header.finding_evaluations.omitted_populations = 99;
+    header.finding_evaluations.omitted_assessments = 99;
     assert!(!header.is_valid());
-    header.finding_evaluations.omitted_populations = 100;
+    header.finding_evaluations.omitted_assessments = 100;
     header.context_issues = vec![DerivedContextIssue::PartialCatalog, DerivedContextIssue::PartialCatalog];
     assert!(!header.is_valid(), "repeated reasons are not independent evidence gaps");
 }
@@ -400,8 +400,8 @@ fn missing_context_selection_changes_analysis_identity_without_turning_a_retry_i
     assert!(!gap.is_valid(), "the previous selected-context identity must not authenticate different context gaps");
     gap.analysis_id = gap.expected_analysis_id().unwrap();
     assert!(gap.is_valid());
-    gap.finding_evaluations.population_count = 1;
-    gap.finding_evaluations.omitted_populations = 1;
+    gap.finding_evaluations.assessment_count = 1;
+    gap.finding_evaluations.omitted_assessments = 1;
     assert_eq!(gap.expected_analysis_id().unwrap(), gap.analysis_id, "rendered evaluation is rules-and-input output");
 }
 
@@ -622,4 +622,65 @@ fn shared_worker_query_retains_member_and_native_database_label_without_target_o
     let Some(DerivedQueryIdentity::SharedActivity { member_id, .. }) = &mut query.identity else { panic!() };
     member_id.clear();
     assert!(!query.is_valid(), "a database label cannot replace missing shared member identity");
+}
+
+#[test]
+fn settings_assessment_is_explicit_and_cannot_impersonate_a_query_population_or_unbound_input() {
+    let mut header = description();
+    header.inputs[0].role = DerivedInputRole::Catalog;
+    header.finding_evaluations = DerivedFindingEvaluations {
+        checks: vec![],
+        assessments: vec![DerivedFindingAssessment {
+            input: 0,
+            scope: DerivedFindingScope::Settings,
+            checks: vec![],
+            limitations: vec![],
+            catalog_inputs: vec![],
+        }],
+        assessment_count: 1,
+        omitted_assessments: 0,
+    };
+    header.analysis_id = header.expected_analysis_id().unwrap();
+    assert!(header.is_valid());
+    let encoded = serde_json::to_string(&header.finding_evaluations).unwrap();
+    assert!(encoded.contains("settings"));
+    assert!(!encoded.contains("query-history"));
+    header.finding_evaluations.assessments[0].input = 1;
+    assert!(!header.is_valid());
+    header.finding_evaluations.assessments[0].input = 0;
+    header.inputs[0].role = DerivedInputRole::Observation;
+    header.analysis_id = header.expected_analysis_id().unwrap();
+    assert!(!header.is_valid(), "settings evaluation requires its own catalog capture role");
+}
+
+#[test]
+fn statement_counter_assessment_binds_observation_input_without_claiming_query_history_or_settings() {
+    let mut header = description();
+    header.inputs[0].role = DerivedInputRole::Observation;
+    header.finding_evaluations = DerivedFindingEvaluations {
+        checks: vec![],
+        assessments: vec![DerivedFindingAssessment {
+            input: 0,
+            scope: DerivedFindingScope::StatementCounters,
+            checks: vec![],
+            limitations: vec![crate::collected_analysis::CollectedAnalysisLimit::MissingQueryDefinition],
+            catalog_inputs: vec![],
+        }],
+        assessment_count: 1,
+        omitted_assessments: 0,
+    };
+    header.output_coverage.findings =
+        DerivedOutputCoverage::ContextUnavailable { reason: DerivedOutputGap::AnalysisSourceUnavailable };
+    header.analysis_id = header.expected_analysis_id().unwrap();
+    assert!(header.is_valid());
+    let encoded = serde_json::to_string(&header.finding_evaluations).unwrap();
+    assert!(encoded.contains("statement-counters"));
+    assert!(!encoded.contains("query-history"));
+    header.inputs[0].role = DerivedInputRole::Catalog;
+    header.analysis_id = header.expected_analysis_id().unwrap();
+    assert!(!header.is_valid());
+    header.inputs[0].role = DerivedInputRole::Observation;
+    header.finding_evaluations.assessments[0].input = 1;
+    header.analysis_id = header.expected_analysis_id().unwrap();
+    assert!(!header.is_valid(), "an assessment cannot outlive or invent its original capture input");
 }

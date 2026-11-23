@@ -49,15 +49,16 @@ fn registered_source_versions_include_native_acquisition_policy_revisions() {
             ("mssql.columnstore-rowgroups", 3),
             ("mssql.cdc", 3),
             ("mssql.backup-history", 3),
-            ("mssql.operational", 11),
+            ("mssql.operational", 12),
             ("mssql.shared-operational", 12),
+            ("mssql.pool-operational", 2),
             ("mssql.memory-failures", 2),
             ("mssql.plan-cache-summary", 2),
             ("mssql.missing-indexes", 3),
             ("mssql.tuning", 4),
             ("mssql.wait-counters", 2),
             ("mssql.replication", 4),
-            ("mssql.settings", 7),
+            ("mssql.settings", 8),
             ("mssql.statement-grants", 3),
             ("mssql.index-operations", 3),
             ("mssql.tables", 9),
@@ -426,6 +427,7 @@ async fn native_resource_discovery_derives_its_routes_from_registrations_and_obs
             expected.insert(1, TelemetryCollection::ResourceHistory);
             expected.push(TelemetryCollection::Snapshot(SnapshotDataset::MemoryFailures));
         }
+        expected.push(TelemetryCollection::Snapshot(SnapshotDataset::WaitCounters));
         assert_eq!(collections, expected, "native edition {edition}");
         for collection in collections {
             let request = CollectionRequest {
@@ -833,7 +835,7 @@ fn local_file_census_registration_keeps_ordinary_bounds_and_unqualified_admissio
     assert_eq!(descriptor.purpose, RecipePurpose::Baseline);
     assert_eq!(descriptor.admission, RecipeAdmission::Unqualified);
     assert_eq!(descriptor.budget, CollectionBudget::upper_limits());
-    assert_eq!(descriptor.version, 11);
+    assert_eq!(descriptor.version, 12);
 }
 
 #[test]
@@ -905,4 +907,56 @@ fn instance_activity_declares_only_closed_native_routes_and_keeps_original_datab
     assert_eq!(REGISTRATIONS.iter().filter(|recipe| recipe.accepts(&request)).count(), 1);
     let registration = REGISTRATIONS.iter().find(|recipe| recipe.id == instance.id).unwrap();
     assert_eq!(registration.editions, crate::instance::SUPPORTED_EDITIONS);
+}
+
+#[test]
+fn instance_waits_are_explicit_unqualified_and_share_the_original_pool_envelope_without_rebinding_database_waits() {
+    let declarations = declarations();
+    let instance = declarations.iter().find(|recipe| recipe.id == "mssql.instance-wait-counters").unwrap();
+    let pool = declarations.iter().find(|recipe| recipe.id == "mssql.pool-wait-counters").unwrap();
+    let database = declarations.iter().find(|recipe| recipe.id == "mssql.wait-counters").unwrap();
+    assert_eq!(instance.subjects, [RecipeSubject::Shared(SharedResourceKind::Instance)]);
+    assert_eq!(instance.purpose, RecipePurpose::Baseline);
+    assert_eq!(instance.admission, RecipeAdmission::Unqualified);
+    assert_eq!(instance.version, 1);
+    assert_eq!(instance.budget, pool.budget, "the shared envelope retains every existing pool ceiling");
+    assert_eq!(instance.budget.max_queries, 8);
+    assert_eq!(instance.budget.max_snapshot_rows, 500);
+    assert_eq!(database.subjects, [RecipeSubject::Database]);
+    assert_eq!(database.version, 2);
+    for kind in [
+        RecipeSubject::Database,
+        RecipeSubject::Shared(SharedResourceKind::Pool),
+        RecipeSubject::Shared(SharedResourceKind::Instance),
+    ] {
+        let request = CollectionRequest {
+            subject: subject(kind),
+            selection: CollectionSelection::Snapshot { dataset: SnapshotDataset::WaitCounters },
+            budget: CollectionBudget::default(),
+        };
+        assert_eq!(REGISTRATIONS.iter().filter(|recipe| recipe.accepts(&request)).count(), 1);
+    }
+    let registration = REGISTRATIONS.iter().find(|recipe| recipe.id == instance.id).unwrap();
+    assert_eq!(registration.editions, crate::instance::SUPPORTED_EDITIONS);
+}
+
+#[test]
+fn managed_instance_settings_reuses_the_existing_database_recipe_and_never_adds_cost_or_default_admission() {
+    let catalog = declarations();
+    let settings = catalog.iter().find(|recipe| recipe.id == "mssql.settings").unwrap();
+    assert_eq!(settings.subjects, [RecipeSubject::Database]);
+    assert_eq!(settings.purpose, RecipePurpose::Baseline);
+    assert_eq!(settings.admission, RecipeAdmission::Unqualified);
+    assert_eq!(settings.budget.max_queries, 18);
+    assert_eq!(settings.budget.max_snapshot_rows, 512);
+    let request = CollectionRequest {
+        subject: CollectionSubject::Database,
+        selection: CollectionSelection::Snapshot { dataset: SnapshotDataset::Settings },
+        budget: CollectionBudget::default(),
+    };
+    assert_eq!(REGISTRATIONS.iter().filter(|recipe| recipe.accepts(&request)).count(), 1);
+    assert!(!catalog.iter().any(|recipe| recipe.id == "mssql.managed-instance-settings"));
+    let source =
+        open(Arc::new(Pool::new(tiberius::Config::new(), None)), &request, "unopened.invalid".into(), 1433).unwrap();
+    assert_eq!(source.query_count(), 0);
 }

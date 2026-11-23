@@ -27,7 +27,10 @@ pub(super) fn require_profile(identity: &Identity) -> Result<()> {
         Identity::Database { .. } => Ok(()),
         Identity::ResourcePoolSettings(owner) if owner.settings_membership(None).is_valid() => Ok(()),
         Identity::LocalDatabase(owner)
-            if matches!(owner.activity.edition, 2..=4) && owner.activity.major >= MIN_BOXED_MAJOR =>
+            if (owner.activity.edition == crate::probe::ENGINE_EDITION_MANAGED_INSTANCE
+                || matches!(owner.activity.edition, 2..=4) && owner.activity.major >= MIN_BOXED_MAJOR)
+                && owner.is_qualified()
+                && owner.activity.writable == Some(true) =>
         {
             Ok(())
         }

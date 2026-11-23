@@ -435,6 +435,20 @@ impl DiagnosticCaptureDescription {
 #[ts(export)]
 pub enum SourceObservation {
     CollectorConnection(CollectorConnectionDescription),
+    /// Provisional ordinary snapshot. This actual read owner supplies no global data incarnation.
+    PagedSnapshotAcquisition {
+        snapshot: PagedSnapshotDescription,
+        execution: Box<NativeReadContext>,
+        #[serde(deserialize_with = "super::settings::required_context")]
+        settings_context: Option<NativeSettingsContext>,
+    },
+    /// Completed ordinary snapshot with its original read owner, independent of the data namespace.
+    SnapshotAcquisition {
+        snapshot: StateSnapshotDescription,
+        execution: Box<NativeReadContext>,
+        #[serde(deserialize_with = "super::settings::required_context")]
+        settings_context: Option<NativeSettingsContext>,
+    },
     /// Existing held local readers retain their actual native role; identity/bounds stay in the source/snapshot.
     LocalResource {
         snapshot: StateSnapshotDescription,
@@ -659,12 +673,13 @@ impl SourceObservation {
             Self::MysqlEvents { .. } | Self::Jobs { .. } | Self::MssqlAgentJobs { .. } => {
                 TelemetryCollection::Snapshot(SnapshotDataset::Jobs)
             }
-            Self::Snapshot(snapshot) | Self::LocalResource { snapshot, .. } | Self::SourceRead { snapshot, .. } => {
-                TelemetryCollection::Snapshot(snapshot.dataset)
-            }
-            Self::PagedSnapshot(snapshot) | Self::PagedSourceRead { snapshot, .. } => {
-                TelemetryCollection::Snapshot(snapshot.dataset)
-            }
+            Self::Snapshot(snapshot)
+            | Self::SnapshotAcquisition { snapshot, .. }
+            | Self::LocalResource { snapshot, .. }
+            | Self::SourceRead { snapshot, .. } => TelemetryCollection::Snapshot(snapshot.dataset),
+            Self::PagedSnapshot(snapshot)
+            | Self::PagedSnapshotAcquisition { snapshot, .. }
+            | Self::PagedSourceRead { snapshot, .. } => TelemetryCollection::Snapshot(snapshot.dataset),
         }
     }
     /// The same retained-window semantics serve ordinary and explicitly scoped readable-member histories.
@@ -738,6 +753,8 @@ impl SourceObservation {
             | Self::Galera { .. }
             | Self::LocalResource { .. }
             | Self::Snapshot(_)
+            | Self::SnapshotAcquisition { .. }
+            | Self::PagedSnapshotAcquisition { .. }
             | Self::PagedSnapshot(_) => TelemetryRange::Current,
         })
     }
@@ -789,6 +806,9 @@ impl SourceObservation {
             Self::DerivedDiagnosis(description) => description.is_valid(),
             Self::CollectorConnection(description) => description.is_valid(),
             Self::LocalResource { snapshot, .. } => local_resource_header_is_valid(snapshot),
+            Self::SnapshotAcquisition { snapshot, execution, settings_context } => {
+                super::snapshot_acquisition::completed_header_is_valid(snapshot, execution, settings_context.as_ref())
+            }
             Self::SourceRead { snapshot, focus_key, execution } => {
                 snapshot.is_valid()
                     && SourceReadQuestion::for_dataset(snapshot.dataset).is_some()
@@ -921,7 +941,7 @@ impl SourceObservation {
                         | SnapshotDataset::PageTaskHolders
                 ) && snapshot.is_valid()
             }
-            Self::PagedSnapshot(_) | Self::PagedSourceRead { .. } => false,
+            Self::PagedSnapshot(_) | Self::PagedSnapshotAcquisition { .. } | Self::PagedSourceRead { .. } => false,
         }
     }
     pub fn events(&self) -> Option<&EventHistoryDescription> {
@@ -941,6 +961,7 @@ impl SourceObservation {
     pub fn snapshot(&self) -> Option<&StateSnapshotDescription> {
         match self {
             Self::Snapshot(snapshot)
+            | Self::SnapshotAcquisition { snapshot, .. }
             | Self::LocalResource { snapshot, .. }
             | Self::SourceRead { snapshot, .. }
             | Self::Jobs { snapshot, .. }
@@ -972,6 +993,7 @@ impl SourceObservation {
     pub fn accepts_snapshot_record(&self, stream: TelemetryStream, source: &str) -> bool {
         match self {
             Self::Snapshot(snapshot)
+            | Self::SnapshotAcquisition { snapshot, .. }
             | Self::LocalResource { snapshot, .. }
             | Self::SourceRead { snapshot, .. }
             | Self::Jobs { snapshot, .. }
@@ -998,7 +1020,9 @@ impl SourceObservation {
             | Self::FullTextPopulations { snapshot, .. }
             | Self::CacheEntryMemory { snapshot, .. } => snapshot.accepts(stream, source),
             Self::Diagnostics(_) => stream == TelemetryStream::OperationalSamples && source == DIAGNOSTICS_SOURCE,
-            Self::PagedSnapshot(snapshot) | Self::PagedSourceRead { snapshot, .. } => snapshot.accepts(stream, source),
+            Self::PagedSnapshot(snapshot)
+            | Self::PagedSnapshotAcquisition { snapshot, .. }
+            | Self::PagedSourceRead { snapshot, .. } => snapshot.accepts(stream, source),
             _ => false,
         }
     }
@@ -1057,6 +1081,7 @@ impl SourceObservation {
                     && count(TelemetryStream::DiagnosticCheckpoints) == u64::from(description.checkpoint_records)
             }
             Self::Snapshot(snapshot)
+            | Self::SnapshotAcquisition { snapshot, .. }
             | Self::LocalResource { snapshot, .. }
             | Self::SourceRead { snapshot, .. }
             | Self::MssqlReplication { snapshot, .. }
@@ -1064,7 +1089,7 @@ impl SourceObservation {
             | Self::MssqlPoolSettings { snapshot, .. } => {
                 count(snapshot.dataset.stream()) == u64::from(snapshot.records)
             }
-            Self::PagedSnapshot(_) | Self::PagedSourceRead { .. } => false,
+            Self::PagedSnapshot(_) | Self::PagedSnapshotAcquisition { .. } | Self::PagedSourceRead { .. } => false,
         }
     }
 }
@@ -1100,7 +1125,9 @@ impl CollectionDescription {
             SourceCompletion::Verified
                 if !matches!(
                     self.observation,
-                    SourceObservation::PagedSnapshot(_) | SourceObservation::PagedSourceRead { .. }
+                    SourceObservation::PagedSnapshot(_)
+                        | SourceObservation::PagedSnapshotAcquisition { .. }
+                        | SourceObservation::PagedSourceRead { .. }
                 ) && !matches!(&self.observation,SourceObservation::QueryHistory(history) if history.acquisition_owner.is_some()) =>
             {
                 Ok(Some(self.clone()))
@@ -1144,6 +1171,9 @@ impl CollectionDescription {
                     return Err(CollectionStop::InvalidPage.error());
                 }
                 Ok(Some(completed))
+            }
+            SourceCompletion::SnapshotAcquisition { snapshot, execution, settings_context } => {
+                super::snapshot_acquisition::complete(self, snapshot, execution, settings_context).map(Some)
             }
             SourceCompletion::LocalResource { snapshot, execution } => {
                 let SourceObservation::PagedSnapshot(declared) = &self.observation else {
@@ -1450,6 +1480,7 @@ impl CollectionDescription {
         }
         if let (
             SourceObservation::Snapshot(snapshot)
+            | SourceObservation::SnapshotAcquisition { snapshot, .. }
             | SourceObservation::LocalResource { snapshot, .. }
             | SourceObservation::MssqlPoolCurrent { snapshot, .. }
             | SourceObservation::BackupHistory { snapshot, .. }
@@ -1470,8 +1501,10 @@ impl CollectionDescription {
         {
             return self.observation.covers_request() && snapshot.records <= request.budget.max_snapshot_rows;
         }
-        if let (SourceObservation::PagedSnapshot(snapshot), CollectionSelection::Snapshot { dataset }) =
-            (&self.observation, &request.selection)
+        if let (
+            SourceObservation::PagedSnapshot(snapshot) | SourceObservation::PagedSnapshotAcquisition { snapshot, .. },
+            CollectionSelection::Snapshot { dataset },
+        ) = (&self.observation, &request.selection)
         {
             return snapshot.is_valid() && snapshot.dataset == *dataset;
         }

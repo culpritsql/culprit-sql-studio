@@ -81,9 +81,10 @@ pub fn explain(evidence: PerformanceCounterEvidence<'_>) -> Result<PerformanceCo
             let Some(authority) = mssql_pool_current_authority(source)? else {
                 return Err(invalid());
             };
+            let snapshot = source.observation.snapshot().ok_or_else(invalid)?;
             if authority.native.is_none()
-                || source.observation.snapshot().is_none_or(|snapshot| !snapshot.sources.contains(coverage))
-                || observations.iter().any(|row| !authority.accepts_operational(row))
+                || !snapshot.sources.contains(coverage)
+                || observations.iter().any(|row| !authority.accepts_operational(snapshot, row))
             {
                 return Err(invalid());
             }

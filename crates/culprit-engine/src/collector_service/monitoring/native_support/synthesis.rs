@@ -9,7 +9,13 @@ const MAX_EXPECTED_OUTPUTS: usize = 16;
 struct ExpectedOutput {
     primary: DiagnosticCaptureRef,
     description: DerivedDiagnosisDescription,
-    incident_digests: Vec<String>,
+    digests: DerivedDigests,
+}
+#[derive(Clone)]
+struct DerivedDigests {
+    incidents: Vec<String>,
+    findings: Vec<String>,
+    changes: Vec<String>,
 }
 struct ObservingSynthesizer {
     real: Arc<dyn Synthesizer>,
@@ -42,6 +48,28 @@ impl Synthesizer for ObservingSynthesizer {
                 serde_json::to_vec(&record).map(|bytes| digest(&bytes)).map_err(|_| DeliveryProblem::Integrity.error())
             })
             .collect::<Result<Vec<_>>>()?;
+        let finding_digests = output
+            .findings
+            .iter()
+            .map(|finding| {
+                let mut finding = finding.clone();
+                finding.redact(engine);
+                serde_json::to_vec(&TelemetryRecord::DerivedFinding(Box::new(finding)))
+                    .map(|bytes| digest(&bytes))
+                    .map_err(|_| DeliveryProblem::Integrity.error())
+            })
+            .collect::<Result<Vec<_>>>()?;
+        let change_digests = output
+            .changes
+            .iter()
+            .map(|change| {
+                let mut change = change.clone();
+                change.redact(engine);
+                serde_json::to_vec(&TelemetryRecord::DerivedChange(Box::new(change)))
+                    .map(|bytes| digest(&bytes))
+                    .map_err(|_| DeliveryProblem::Integrity.error())
+            })
+            .collect::<Result<Vec<_>>>()?;
         let mut expected = self.expected.lock().map_err(|_| DeliveryProblem::Storage.error())?;
         if expected.len() >= MAX_EXPECTED_OUTPUTS {
             return Err(DeliveryProblem::Capacity.error());
@@ -49,7 +77,7 @@ impl Synthesizer for ObservingSynthesizer {
         expected.push(ExpectedOutput {
             primary: input.primary().original().clone(),
             description: output.description.clone(),
-            incident_digests,
+            digests: DerivedDigests { incidents: incident_digests, findings: finding_digests, changes: change_digests },
         });
         Ok(output)
     }
@@ -57,6 +85,10 @@ impl Synthesizer for ObservingSynthesizer {
 pub(in crate::collector_service::monitoring) struct NativeSynthesis {
     automatic: AutomaticSynthesis,
     expected: Arc<Mutex<Vec<ExpectedOutput>>>,
+}
+struct NativeDerivedOutput {
+    incidents: Vec<DerivedIncident>,
+    findings: Vec<DerivedFinding>,
 }
 impl NativeSynthesis {
     pub async fn install(
@@ -79,7 +111,24 @@ impl NativeSynthesis {
         archive: &mut NativeArchive,
         cancellation: &CollectionCancellation,
     ) -> Result<Vec<DerivedIncident>> {
-        let mut incidents = Vec::new();
+        Ok(self.drain_output(outbox, archive, cancellation).await?.incidents)
+    }
+    #[cfg(any(feature = "postgres-native-tests", feature = "mysql-native-tests"))]
+    pub async fn drain_findings(
+        &self,
+        outbox: &mut Outbox,
+        archive: &mut NativeArchive,
+        cancellation: &CollectionCancellation,
+    ) -> Result<Vec<DerivedFinding>> {
+        Ok(self.drain_output(outbox, archive, cancellation).await?.findings)
+    }
+    async fn drain_output(
+        &self,
+        outbox: &mut Outbox,
+        archive: &mut NativeArchive,
+        cancellation: &CollectionCancellation,
+    ) -> Result<NativeDerivedOutput> {
+        let mut output_rows = NativeDerivedOutput { incidents: vec![], findings: vec![] };
         for _ in 0..=MAX_EXPECTED_OUTPUTS {
             case::require_active(cancellation)?;
             let turn = case::admitted(
@@ -96,7 +145,7 @@ impl NativeSynthesis {
                     if backlog.pending != 0 || backlog.failed != 0 || backlog.failure_watermark.total != 0 {
                         return Err(DeliveryProblem::Integrity.error());
                     }
-                    return Ok(incidents);
+                    return Ok(output_rows);
                 }
                 _ => return Err(DeliveryProblem::Integrity.error()),
             };
@@ -124,7 +173,7 @@ impl NativeSynthesis {
                 if expected.description != **header {
                     return Err(DeliveryProblem::Integrity.error());
                 }
-                expected.incident_digests.clone()
+                expected.digests.clone()
             };
             let entry = super::archive::retained(outbox, cancellation)
                 .await?
@@ -136,12 +185,13 @@ impl NativeSynthesis {
                 return Err(DeliveryProblem::Integrity.error());
             }
             verify_stored(&stored, &expected_digests)?;
-            incidents.extend(stored.incidents);
+            output_rows.incidents.extend(stored.incidents);
+            output_rows.findings.extend(stored.findings);
         }
         Err(DeliveryProblem::Capacity.error())
     }
 }
-fn verify_stored(stored: &ArchivedCapture, expected: &[String]) -> Result<()> {
+fn verify_stored(stored: &ArchivedCapture, expected: &DerivedDigests) -> Result<()> {
     let actual = stored
         .incidents
         .iter()
@@ -151,7 +201,25 @@ fn verify_stored(stored: &ArchivedCapture, expected: &[String]) -> Result<()> {
                 .map_err(|_| DeliveryProblem::Integrity.error())
         })
         .collect::<Result<Vec<_>>>()?;
-    if actual != expected {
+    let findings = stored
+        .findings
+        .iter()
+        .map(|finding| {
+            serde_json::to_vec(&TelemetryRecord::DerivedFinding(Box::new(finding.clone())))
+                .map(|bytes| digest(&bytes))
+                .map_err(|_| DeliveryProblem::Integrity.error())
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let changes = stored
+        .changes
+        .iter()
+        .map(|change| {
+            serde_json::to_vec(&TelemetryRecord::DerivedChange(Box::new(change.clone())))
+                .map(|bytes| digest(&bytes))
+                .map_err(|_| DeliveryProblem::Integrity.error())
+        })
+        .collect::<Result<Vec<_>>>()?;
+    if actual != expected.incidents || findings != expected.findings || changes != expected.changes {
         return Err(DeliveryProblem::Integrity.error());
     }
     Ok(())

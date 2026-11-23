@@ -24,7 +24,7 @@ verified delivery path as the original telemetry. This local analysis adds no da
 | Table | Contents |
 |---|---|
 | `CulpritIncidentsV1` | Recorded incident updates, victim summary, affected and culprit queries, candidates, mechanism, developer action and verification |
-| `CulpritFindingsV1` | Ranked findings from the captured query history, with original query references and explicit check coverage |
+| `CulpritFindingsV1` | Ranked findings from supported original query history or Settings captures, with exact input references and explicit check coverage |
 | `CulpritChangesV1` | The shared change-event contract; unavailable comparisons remain explicit in output coverage |
 
 An observed blocker, a reported task holder and a memory reservation contributor retain their different native
@@ -617,6 +617,14 @@ clocks and reset qualification, and shares the scan's temporary-work explanation
 block traffic and recorded I/O timing from internal-table and sort-pass counts. Exact integer counters survive
 readback; missing metrics remain unknown. A point does not establish an interval or safe delta, and matching a
 query ID does not attach SQL from a separately captured definition. No mode reconnects to the monitored database.
+
+Automatic analysis of a counter-only original currently records a `statement-counters` assessment with explicit
+missing query-definition, unknown statement-origin, execution-population and workload-denominator limitations.
+It does not run application-query findings from counters alone or report a healthy empty workload. A separate
+Activity or definition capture cannot supply those proofs merely through a matching query ID; original source IDs
+are preserved. PostgreSQL's guarded counter route exists but remains `Unqualified`, so Standard does not schedule
+it automatically. Statement-definition capture is likewise separate from admitted Settings work.
+
 Yugabyte points retain the observed node and native user/top-level statement context. Readback requires the same
 qualified member, process generation and observation bounds. Scan summaries attach temporary work only when one
 local native row supplies those dimensions; global or mixed-context groups do not inherit a representative row's
@@ -930,14 +938,42 @@ Validation reads saved metadata, checks unattended authentication and configures
 opens no database, object-storage or warehouse connections and creates no runtime state. `collect schema` generates DDL, mappings, canonical
 queries and native ingestion assets without opening a workspace or applying anything to a service.
 
-The required `monitoring` policy is `{ "kind": "explicit" }` in the deployment example, preserving its
-explicit schedules. `{ "kind": "standard", "budget": ... }` uses the same `CollectionBudget` fields as a
-schedule. Standard targets may start with empty schedules. The service restores original issued approvals,
-selects applicable Baseline recipes from each selected provider registration, and enrolls only matching
-approved profiles whose existing native reader can enforce the original scope before source work. Explicit
-schedules remain unchanged. Unsupported, unqualified, retired, conflicting or unavailable approvals are gaps;
-a successful small fixture or a returned-row cap never promotes one. No built-in native source is qualified
-by this enrollment implementation.
+The deployment example uses `{ "kind": "standard", "budget": ... }` and one shared caller budget instead of
+repeating source schedules and budget fields. Its existing 15-second total, 3-second statement and row/byte
+ceilings remain unchanged. Standard targets may omit `schedules`; the selected provider registration supplies
+the applicable Baseline recipes. Omitting `monitoring`, or specifying only `{ "kind": "standard" }`, uses the
+same existing default monitoring policy and `CollectionBudget`. A supplied `budget` remains a complete
+`CollectionBudget`, and tighter values intersect every selected source's own limits. It never grants admission.
+
+The service restores issued measured approvals and checks each selected provider's source-owned validated safety
+policies. Only applicable profiles whose existing native reader enforces the original scope before source work
+are enrolled. A bounded safety policy is distinct from measured native CPU, I/O or grant cost. Unsupported,
+unqualified, retired, conflicting or unavailable profiles remain coverage gaps; a small fixture or a returned-row
+cap never promotes one. The same policy applies to every provider, including injected registrations.
+
+The current built-in Standard baselines include Activity and Settings on PostgreSQL 18, MySQL 8.4 and MariaDB
+11.8. MySQL/MariaDB Settings admission requires a writable native role; other versions or roles do not inherit it.
+A completed Settings read uses these normal-path dispatch ceilings, including session setup:
+
+| Settings profile | Native dispatch ledger | Statement / total timeout |
+|---|---|---|
+| PostgreSQL 18 | 6: setup 1, initial metadata/member 2, allowlisted settings 1, final metadata/member 2 | 1 second / 5 seconds |
+| MySQL 8.4 / MariaDB 11.8 | 18: setup 7, initial metadata 5, global variables 1, final metadata 5 | 1 second / 5 seconds |
+
+PREPARE and EXECUTE are charged separately where used. Stricter caller limits still apply, and emergency cancellation
+or connection-retirement work is reported separately from a successful source ledger. These are limits on admitted
+work, not proof of zero impact or measured production CPU, I/O or memory cost.
+
+All built-in SQL Server recipes, including the Activity baseline, currently remain `Unqualified` for automatic admission.
+The pinned official Tiberius 0.13.0 does not satisfy the
+[strict active-cancellation acknowledgement prerequisite](../crates/providers/culprit-mssql/src/read/admission_prerequisites.rs).
+That requires a released upstream driver fix and native revalidation; a new release alone would not qualify a
+profile. Explicit reads and native fixture passes do not enable automatic collection or establish production cost.
+
+For explicitly scheduled work, choose `{ "kind": "explicit" }` and supply the target's schedules. Their existing
+optional `budget` uses `CollectionBudget` defaults when omitted. Explicit mode still refuses an empty schedule
+list, and Standard mode preserves supplied schedules. Neither mode changes native ownership, pressure,
+cancellation, cooldown, recovery-debt or credential guards.
 
 Standard jobs have a five-minute minimum requested period, extended when the existing admitted source lifetime
 (start window, native timeout, shutdown) and per-resource cooldown require it. A conflicting or infeasible
@@ -1189,6 +1225,7 @@ lower history bound permits a native-retention gap. Waiting does not count as a 
 | Azure SQL Managed Instance | `--kind instance` | `--resource instance.json --collection resource-history --from … --until …` | Native service-tier CPU mean, interval I/O totals, storage and configuration; at most two hours and 512 retained rows. Publication freshness remains unproven; bounded partial prefixes do not advance the history checkpoint. |
 | Azure SQL elastic pool or Managed Instance | `--kind pool` or `--kind instance` | `--resource resource.json --collection memory-failures` | Retained native OOM observations with verified shared identity; incomplete history, offset-free event times and no query owner |
 | SQL Server or Managed Instance, through an existing database connection | `--kind instance` | `--resource instance.json --collection operational` | Memory, schedulers, performance/topology, compiler admission and tempdb context tied to the verified native instance |
+| SQL Server or Managed Instance, through an existing database connection | `--kind instance` | `--resource instance.json --collection wait-counters` | Shared native waits with instance/process and held-connection checks; at most eight queries including setup, without a fabricated reset or selected-database charge |
 | SQL Server 2017+ or Managed Instance, through an existing database connection | `--kind instance` | `--resource instance.json --collection deadlock-history --from … --until …` | Existing absolute filesystem `system_health` target (Blob URLs unavailable); shared incidents with incomplete retention, without current-database counts |
 | PostgreSQL instance, through a TCP database connection | `--kind instance` | `--resource instance.json --collection operational` | Shared archive, writer, WAL, I/O, checkpointer, available statistics-eviction counters and main shared-memory allocations; database counters stay on database captures |
 
@@ -1205,11 +1242,33 @@ culprit collect once shop-sqlserver --resource ./instance.json --collection oper
 
 SQL Server instance identities use native server/machine names in their observed network namespace; process identity
 and startup ticks verify a capture, rather than becoming a fabricated permanent host ID. Azure SQL Database uses
-the pool route for retained pool resource history. Generic current-state memory, schedulers, performance counters,
-processor topology, compiler admission and tempdb capacity are not exposed through that pool route: their native
-instance/host/resource-governor scope does not establish elastic-pool ownership. Database operational captures
-exclude instance performance counters, processor topology, compiler
-gateways and shared tempdb capacity. The shared resource is assigned once instead of reread for every database.
+the pool route for retained pool resource history. Explicit pool Operational captures reuse the current native
+anchor, process, replica and member-roster proof for memory clerks, schedulers, performance counters, member file
+I/O and shared tempdb data-file allocation. The tempdb point retains total/used bytes and user-object,
+internal-object and version-store allocation; it does not attribute those pool totals to the selected database or
+a query. A read-only pool replica has its own tempdb. This route charges at most 22 queries including setup, with
+the existing one-second statement and eight-second total limits; stricter caller ceilings remain in force. It is
+cost-unqualified. Missing permission, process, replica or roster evidence remains unavailable, not healthy empty.
+Processor topology and compiler admission remain unavailable through this pool route. Database operational
+captures exclude instance performance counters, processor topology, compiler gateways and shared tempdb capacity.
+The shared resource is assigned once instead of reread for every database.
+
+Selected-database Operational captures on SQL Server and Managed Instance reuse the scan's file/filegroup,
+transaction-log, file-I/O, version-store and persistent-version-store readers. All five available families cost at
+most 22 native queries including setup; stricter caller limits still apply. Their exact database and final native
+owner are checked independently of shared-instance observations. Unsupported ADR/version layouts and unavailable
+families keep their own coverage; a file-I/O point does not establish a counter reset or elapsed rate.
+
+The Settings route also supports verified writable SQL Server 2016+ and Managed Instance database owners. Its four
+native catalog families use at most 18 queries including setup. The shared Query Store projection retains 21 public
+options, distinguishing configuration, actual state and storage measurements; absent versioned columns stay NULL,
+not defaults. These routes remain `Unqualified` for automatic admission. Local SQL Server 16 fixture positives do
+not qualify Azure SQL Database, Managed Instance, Hyperscale, production cost or active cancellation.
+
+Microsoft documents [pool-shared tempdb and cross-database DMV access](https://learn.microsoft.com/en-us/sql/relational-databases/databases/tempdb-database?view=azuresqldb-current#tempdb-in-azure-sql-database),
+[separate resources for each pool read-only replica](https://learn.microsoft.com/en-us/azure/azure-sql/database/resource-limits-vcore-elastic-pools?view=azuresql#database-properties-for-pooled-databases)
+and the [native file-space allocation columns and required pool permissions](https://learn.microsoft.com/en-us/sql/relational-databases/system-dynamic-management-objects/sys-dm-db-file-space-usage-transact-sql?view=sql-server-ver17#permissions).
+These source semantics do not establish measured native cost or validate a live Azure deployment.
 
 The SQL Server/Managed Instance operational point includes bounded native scheduler queues, process/system memory,
 grant waiters, pending I/O and current I/O waits. Explicit scan shared-resource diagnostics use the same native
@@ -1507,9 +1566,9 @@ Their statement, total-time, row and byte ceilings still apply to explicit colle
 limits. The retained-plan reader accounts for all 13 phases including setup and its final native binding check;
 a caller allowing only 12 cannot complete that read. Correctness fixtures do not measure production CPU or I/O cost.
 
-Approved SQL Server and PostgreSQL Activity profiles bind their original native owner, known role and held
-connection inside the existing reader. Approval retirement is permanent for that source lifetime and is checked
-before routing, login, session setup, internal dispatch and final acceptance. This does not qualify built-in costs
+Admitted provider profiles bind their original native owner, known role and held connection inside the existing
+reader. This does not grant admission to SQL Server's unqualified recipes. Approval retirement is permanent for that
+source lifetime and is checked before routing, login, session setup, internal dispatch and final acceptance. This does not qualify built-in costs
 or add a fallback to ordinary collection.
 
 ## PostgreSQL source coverage
@@ -1542,8 +1601,16 @@ Counter values are current native totals or gauges, not fabricated time buckets.
 when PostgreSQL exposes them; a global reset does not prove each entry's lifetime. Unknown resets cannot establish
 rates, and minimum/maximum statistics retain their separate reset epoch. Disabled I/O or planning instrumentation
 may produce native zero totals; consult the captured settings before interpreting those totals as observed work.
-Server-scoped observations must not be summed as if each database owns them. Settings describe the collector's effective
-session, including its safety overrides; they do not reveal every application's settings or a pending configured value.
+Server-scoped observations must not be summed as if each database owns them. Settings retain native scope, context,
+unit, default provenance and pending-restart state where available. Server values and collector-session values remain
+distinct; neither reveals every application's effective configuration.
+
+Guarded Settings captures use the same native reader and checked conversion as scans, then the same `ConfigCheck`
+and pure pipeline to publish `CulpritFindingsV1`. Their final header binds the actual native version, member/process,
+selected database, acquisition bounds and observed role. PostgreSQL retains the raw cohort even when advice is
+withheld: NULL or unavailable values, session-only settings, partial coverage and unqualified acquisition are explicit.
+Maintenance advice that is inactive on a known standby is withheld; an unknown role is not treated as a primary.
+A successful empty result does not turn unavailable checks into a healthy configuration verdict.
 
 Full statistics visibility is required for complete activity and restricted native sources. Planner statistics also
 need visibility of the selected relations. Metadata-only activity capture supports PostgreSQL 12+; native query IDs
@@ -1583,6 +1650,13 @@ Keep the three-minute activity and five-minute health cadences as conservative s
 shared resource gap. Catalogs and definitions belong in slower profiles. These are policy defaults, not measured
 production overhead guarantees. Native fixture tests exercise capture, cancellation, restart/replay and ADX
 projection; production load qualification and the live ADX round trip remain separate.
+
+MySQL 8.4 and MariaDB 11.8 Standard Settings read an allowlist from `SHOW GLOBAL VARIABLES` and use the same
+checked conversion and `ConfigCheck` as scans. Global values keep server scope even though acquisition uses a
+selected database. Captured product/version chooses the native format; default hints are identified as catalog
+values, not a native default verdict. Missing values remain unknown, and saved values or pending-restart state are
+not inferred. This Settings route can use an authenticated native owner with Performance Schema disabled; it does
+not enable Performance Schema or make Activity/statement instrumentation available.
 
 MySQL and MariaDB retain exact picosecond counters. Digest entry eviction and independent resets remain unknown
 unless native evidence establishes them. Disabled instrumentation, insufficient visibility and digest overflow
@@ -1842,9 +1916,9 @@ level remain native facts rather than mandatory columns for every engine.
 
 Cumulative query totals use `statement-counters` facts in `CulpritOperationalV1`, with query identity, observation
 time, unit-bearing totals and explicit reset evidence. Their enclosing observation is current state, with no
-invented native interval or plan. This contract is available to source adapters; it does not enable another built-in
-provider. Preserve native units, unknown values, scope and reset evidence. Do not average averages or invent
-deltas across an unknown reset. Full SQL/XML payloads stay in the private native recovery store; analytical rows carry bounded previews, checksums, redaction
+invented native interval or plan. A declared counter route does not grant automatic admission or supply missing
+SQL definitions and application provenance. Preserve native units, unknown values, scope and reset evidence. Do not
+average averages or invent deltas across an unknown reset. Full SQL/XML payloads stay in the private native recovery store; analytical rows carry bounded previews, checksums, redaction
 versions and native references. Large fact detail also becomes an explicit recovery reference.
 
 For Event Grid delivery, configure managed ingestion only for each generated `ready/<table>/` prefix in the **ready container**, with its

@@ -1,8 +1,16 @@
 //! Native configuration observations keep scope, pending values and default provenance separate from display.
 use super::*;
 const MAX_SETTING_VALUE_BYTES: usize = 16 * 1024;
+mod context;
+mod mysql;
 mod pool;
+mod postgres;
+pub use context::*;
 pub use pool::*;
+pub use postgres::{
+    PostgresConfigurationAdvice, PostgresSettingsAcquisition, PostgresSettingsAcquisitionGap,
+    PostgresSettingsAdviceLimit, PostgresSettingsRead,
+};
 
 #[derive(Serialize, Deserialize, TS, Clone, Copy, Debug, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
@@ -69,6 +77,13 @@ impl SettingObservation {
                 SettingDefaultSource::EngineSpec | SettingDefaultSource::NativeValue => self.default_value.is_some(),
             }
     }
+}
+
+// Nullable is explicit on the wire: an omitted field cannot establish a new acquisition.
+pub(super) fn required_context<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> std::result::Result<Option<NativeSettingsContext>, D::Error> {
+    Option::<NativeSettingsContext>::deserialize(deserializer)
 }
 
 #[cfg(test)]

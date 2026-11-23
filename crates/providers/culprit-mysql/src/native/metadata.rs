@@ -74,14 +74,38 @@ impl Metadata {
     }
 }
 pub(crate) async fn read<R: QueryRead>(reader: &mut R, connector: &Connector) -> Result<Metadata> {
-    read_identity(reader, connector, false).await
+    read_identity(reader, connector, IdentityPurpose::Snapshot).await
 }
 pub(crate) async fn activity<R: QueryRead>(reader: &mut R, connector: &Connector) -> Result<Metadata> {
-    read_identity(reader, connector, true).await
+    read_identity(reader, connector, IdentityPurpose::Activity).await
 }
-async fn read_identity<R: QueryRead>(reader: &mut R, connector: &Connector, process_epoch: bool) -> Result<Metadata> {
+pub(crate) async fn settings<R: QueryRead>(reader: &mut R, connector: &Connector) -> Result<Metadata> {
+    read_identity(reader, connector, IdentityPurpose::Settings).await
+}
+#[derive(Clone, Copy)]
+enum IdentityPurpose {
+    Snapshot,
+    Activity,
+    Settings,
+}
+impl IdentityPurpose {
+    fn captures_owner(self, connection: &ConnectionContext) -> bool {
+        match self {
+            Self::Snapshot => false,
+            Self::Activity => connection.performance_schema,
+            // Both products retain the existing global-status clock while instrumentation is disabled.
+            // No statement consumer, instrumentation or workload source is enabled by this read.
+            Self::Settings => true,
+        }
+    }
+}
+async fn read_identity<R: QueryRead>(
+    reader: &mut R,
+    connector: &Connector,
+    purpose: IdentityPurpose,
+) -> Result<Metadata> {
     let connection = connection_context(reader, connector).await?;
-    let started_second = if process_epoch && connection.performance_schema {
+    let started_second = if purpose.captures_owner(&connection) {
         // The native process clock is independent of resets of digest/table/status counters.
         Some(process_started_second(reader, connection.flavor).await?)
     } else {
@@ -90,14 +114,14 @@ async fn read_identity<R: QueryRead>(reader: &mut R, connector: &Connector, proc
     let grantee = grantee(&connection.login)?;
     // Direct global/schema privileges are sufficient proof. Role-only grants remain unverified rather than
     // interpreting server-specific role expansion or silently claiming an inventory is database-wide.
-    let member = member_projection(&connection, process_epoch);
+    let member = member_projection(&connection, purpose);
     let visibility = one(reader, &format!("SELECT
         (EXISTS(SELECT 1 FROM information_schema.USER_PRIVILEGES WHERE GRANTEE=? AND PRIVILEGE_TYPE='SELECT')
           OR EXISTS(SELECT 1 FROM information_schema.SCHEMA_PRIVILEGES WHERE GRANTEE=? AND TABLE_SCHEMA=? AND PRIVILEGE_TYPE='SELECT')) AS database_wide,
         EXISTS(SELECT 1 FROM information_schema.USER_PRIVILEGES WHERE GRANTEE=? AND PRIVILEGE_TYPE='PROCESS') AS process_wide,
         {member} AS native_member"),
         vec![Value::from(grantee.clone()),Value::from(grantee.clone()),Value::from(connection.database_name.clone()),Value::from(grantee)]).await?;
-    let member = if process_epoch {
+    let member = if purpose.captures_owner(&connection) {
         visibility
             .native_text("native_member")?
             .map(|value| super::instance::resource(connection.flavor, &value))
@@ -119,8 +143,8 @@ pub(crate) fn grantee(login: &str) -> Result<String> {
     Ok(format!("'{}'@'{}'", user.replace('\'', "''"), host.replace('\'', "''")))
 }
 
-fn member_projection(connection: &ConnectionContext, process_epoch: bool) -> &'static str {
-    if !process_epoch || !connection.performance_schema {
+fn member_projection(connection: &ConnectionContext, purpose: IdentityPurpose) -> &'static str {
+    if !purpose.captures_owner(connection) {
         return "NULL";
     }
     match connection.flavor {

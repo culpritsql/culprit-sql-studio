@@ -141,6 +141,7 @@ pub fn capture_context(manifest: &RangeManifest, manifest_digest: &str) -> Resul
             context["observed_until"] = json!(snapshot.observed_until);
         }
         SourceObservation::Snapshot(snapshot)
+        | SourceObservation::SnapshotAcquisition { snapshot, .. }
         | SourceObservation::LocalResource { snapshot, .. }
         | SourceObservation::SourceRead { snapshot, .. }
         | SourceObservation::PageWaitTargets { snapshot, .. }
@@ -186,7 +187,9 @@ pub fn capture_context(manifest: &RangeManifest, manifest_digest: &str) -> Resul
             context["diagnostic"] = super::investigations::diagnostic_context(description)?
         }
         SourceObservation::QueryHistory(_) => (),
-        SourceObservation::PagedSnapshot(_) | SourceObservation::PagedSourceRead { .. } => return Err(invalid()),
+        SourceObservation::PagedSnapshot(_)
+        | SourceObservation::PagedSnapshotAcquisition { .. }
+        | SourceObservation::PagedSourceRead { .. } => return Err(invalid()),
     }
     Ok(context)
 }

@@ -101,6 +101,7 @@ impl Probe {
             let query_cap = selection.query_cap();
             let mut budget = super::super::super::expressions::reader_budget();
             budget.max_queries = query_cap;
+            let native_reader = self.native_work.reader();
             let mut reader = ReadSession::new(self.pool.clone(), budget);
             let mut absence = None;
             let outcome = AssertUnwindSafe(async {
@@ -114,7 +115,7 @@ impl Probe {
             })
             .catch_unwind()
             .await;
-            let observed = settle_observation(&mut reader, outcome, directory, phase, query_cap)
+            let observed = settle_observation(&mut reader, native_reader, outcome, directory, phase, query_cap)
                 .await
                 .and_then(metadata::CacheContextComparison::require_original_match);
             // The same settlement owner has closed the reader before either failure is propagated or extra receipt
@@ -183,6 +184,7 @@ impl Probe {
     ) -> Result<ExactCachePhase> {
         owned_case::require_active(&self.cancellation)?;
         let budget = exact_boundary_budget(deadline.saturating_duration_since(tokio::time::Instant::now()))?;
+        let native_reader = self.native_work.reader();
         let mut reader = ReadSession::new(self.pool.clone(), budget);
         let outcome = AssertUnwindSafe(async {
             let mut admitted = owned_case::AdmittedRead::new(&mut reader, &self.cancellation);
@@ -207,8 +209,15 @@ impl Probe {
         })
         .catch_unwind()
         .await;
-        let observed =
-            settle_observation(&mut reader, outcome, directory, boundary.receipt_name(), EXACT_PHASE_QUERY_CAP).await?;
+        let observed = settle_observation(
+            &mut reader,
+            native_reader,
+            outcome,
+            directory,
+            boundary.receipt_name(),
+            EXACT_PHASE_QUERY_CAP,
+        )
+        .await?;
         owned_case::require_active(&self.cancellation)?;
         Ok(observed)
     }
@@ -227,6 +236,7 @@ fn exact_boundary_budget(remaining: Duration) -> Result<CollectionBudget> {
 
 async fn settle_observation<T: serde::Serialize + Debug>(
     reader: &mut ReadSession,
+    native_reader: settlement::ReaderWork,
     outcome: std::thread::Result<Result<T>>,
     directory: &Path,
     phase: &'static str,
@@ -234,6 +244,7 @@ async fn settle_observation<T: serde::Serialize + Debug>(
 ) -> Result<T> {
     // One native settlement owner for every result, cancellation and panic in either fixture observation.
     let shutdown = reader.close().await;
+    native_reader.closed(shutdown);
     let comparison = outcome.as_ref().ok().and_then(|result| result.as_ref().ok());
     eprintln!(
         "owned scalar cache observation phase={phase}; comparison={comparison:?}; queries={}; shutdown={shutdown:?}",

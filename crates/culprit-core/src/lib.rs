@@ -265,7 +265,7 @@ pub use provenance::{
     AnalysisExtension, AnalysisOrigin, AnalysisProvenance, AnalysisStage, BaselinePurpose, BaselineReference,
     CollectionProvenance, ComponentVersion, PipelineProvenance, ReportEvidence, ScanReference,
 };
-pub use provider::{ExplainMode, Provider, SnapshotOptions};
+pub use provider::{ExplainMode, Provider, RecordedStatement, SnapshotOptions};
 pub use query_temporary_work::{StatementTemporaryWork, TemporaryWorkExplanation};
 pub use refinement::{FixWithholdingBasis, HistoryBasis, PresentationAspect, RefinementDecision, RefinementOutcome};
 pub use replication_report::*;

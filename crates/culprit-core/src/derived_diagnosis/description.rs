@@ -89,10 +89,10 @@ impl DerivedDiagnosisDescription {
                 reasons.push(reason);
             }
         }
-        if self.finding_evaluations.omitted_populations > 0 {
+        if self.finding_evaluations.omitted_assessments > 0 {
             reasons.push(crate::t!(
                 "view.synthesis.context.omitted_evaluations",
-                count = self.finding_evaluations.omitted_populations
+                count = self.finding_evaluations.omitted_assessments
             ));
         }
         if self.finding_evaluations.checks.iter().any(|check| {

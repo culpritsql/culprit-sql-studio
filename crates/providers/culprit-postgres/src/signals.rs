@@ -109,37 +109,72 @@ async fn attach_costs(
     let columns = costs_columns(version_num);
     let ids: Vec<&str> = queries
         .iter()
-        .map(|q| q.id.as_str())
-        // pg_stat_statements query ids are 64-bit integers; anything else never reaches the SQL text.
+        .filter_map(|query| query.native_identity.as_ref())
+        .map(|identity| identity.query_id.as_str())
+        // Numeric native ids alone may enter SQL. Full native identity is checked again after the read.
         .filter(|id| id.parse::<i64>().is_ok())
         .collect();
     if columns.is_empty() || ids.is_empty() {
         return Ok(());
     }
+    let layout = crate::native::statements::Layout::for_version(version_num);
     let scope = format!(
         "dbid = (SELECT oid FROM pg_database WHERE datname = current_database()){}",
-        if version_num >= 140_000 { " AND toplevel" } else { "" }
+        if layout.toplevel { " AND toplevel" } else { "" }
     );
     let sql = format!(
-        "SELECT queryid::text AS id, {} FROM {relation} WHERE {scope} AND queryid IN ({}) GROUP BY queryid",
+        "SELECT {}, {} FROM {relation} WHERE {scope} AND queryid IN ({}) GROUP BY {}",
+        crate::native::statements::scan_identity_projection(&layout),
         columns.join(", "),
-        ids.join(", ")
+        ids.join(", "),
+        crate::native::statements::scan_identity_group(&layout),
     );
-    let rows: HashMap<String, Row> = query(client, &sql).await?.into_iter().map(|r| (r.string("id"), r)).collect();
-    let total_wal = if version_num >= 130_000 {
-        query_one(client, &format!("SELECT sum(wal_bytes) AS wal FROM {relation} WHERE {scope}"))
-            .await
-            .ok()
-            .flatten()
-            .and_then(|r| r.number("wal"))
-            .filter(|w| *w > 0.0)
+    let rows = query(client, &sql).await?;
+    let total_wal = if version_num >= 170_000 {
+        query_one(client, &format!(
+            "SELECT sum(wal_bytes) AS wal, {} AS reset_from, {} AS reset_until, count(*) FILTER (WHERE stats_since IS NULL) AS unknown_reset FROM {relation} WHERE {scope}",
+            crate::rows::iso("min(stats_since)"),
+            crate::rows::iso("max(stats_since)"),
+        ))
+        .await
+        .ok()
+        .flatten()
     } else {
         None
     };
-    for q in queries.iter_mut() {
-        let Some(r) = rows.get(&q.id) else { continue };
-        let costs = statement_costs(q.costs.take().unwrap_or_default(), |name| r.number(name), total_wal);
-        q.costs = (!costs.is_empty()).then_some(costs);
+    attach_cost_rows(queries, &rows, total_wal.as_ref())?;
+    Ok(())
+}
+
+/// Optional cost enrichment cannot repair a changed or missing native entry. Different user/reset/process rows
+/// remain independent even when their numeric queryid or representative SQL text happens to match.
+fn attach_cost_rows(queries: &mut [QueryStat], rows: &[Row], total_wal: Option<&Row>) -> culprit_core::Result<()> {
+    let mut by_identity = HashMap::new();
+    for row in rows {
+        let identity = crate::native::statements::scan_identity(row)?;
+        if by_identity.insert(identity.native().key()?, row).is_some() {
+            return Err(culprit_core::telemetry::CollectionStop::InvalidPage.error());
+        }
+    }
+    for query in queries {
+        let Some(identity) = &query.native_identity else { continue };
+        let Some(row) = by_identity.get(&identity.native().key()?) else { continue };
+        let denominator = total_wal.and_then(|total| {
+            let since = identity.qualifiers.get("stats_since")?;
+            let canonical =
+                |name| total.text(name).and_then(|value| culprit_core::telemetry::canonical_time(&value).ok());
+            (total.number("unknown_reset") == Some(0.0)
+                && canonical("reset_from").as_ref() == Some(since)
+                && canonical("reset_until").as_ref() == Some(since))
+            .then(|| {
+                total
+                    .number("wal")
+                    .filter(|value| *value > 0.0 && row.number("wal_bytes").is_some_and(|own| own <= *value))
+            })
+            .flatten()
+        });
+        let costs = statement_costs(query.costs.take().unwrap_or_default(), |name| row.number(name), denominator);
+        query.costs = (!costs.is_empty()).then_some(costs);
     }
     Ok(())
 }
@@ -365,7 +400,7 @@ async fn advice_settings(client: &mut impl QueryRead) -> culprit_core::Result<Ve
     let rows = query(client, &crate::native::settings::query(crate::native::settings::ADVICE, 1000)).await?;
     rows.iter()
         .map(crate::native::settings::decode)
-        .map(|result| result.map(crate::native::settings::project))
+        .map(|result| result.and_then(|setting| setting.to_postgres_setting().ok_or_else(crate::native::invalid)))
         .collect()
 }
 
@@ -603,3 +638,7 @@ mod tests {
         assert_eq!(said, [("New connections".into(), None), ("Sessions with a lost client connection".into(), None),]);
     }
 }
+
+#[cfg(test)]
+#[path = "signals/entry_identity_tests.rs"]
+mod entry_identity_tests;

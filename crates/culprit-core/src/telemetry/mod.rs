@@ -162,6 +162,7 @@ pub use source_read::{
 };
 pub use transaction_metadata::*;
 mod instance_resources;
+mod snapshot_acquisition;
 mod source_partition;
 mod state;
 pub use instance_resources::*;
@@ -818,7 +819,7 @@ impl TelemetryRecord {
                 if let DefinitionPayload::Available { text, .. } = &row.sql {
                     row.sql = DefinitionPayload::sql(text, source.target.engine());
                 }
-                row.id == row.identity.definition_id(source)?
+                row.matches_source(source)?
             }
             Self::PlanDefinition(row) => {
                 if let DefinitionPayload::Available { text, .. } = &row.plan {
@@ -872,8 +873,8 @@ impl TelemetryRecord {
                 row.fact.redact(source.target.engine());
                 let accepted = source.observation.accepts_snapshot_record(row.stream(), &row.source);
                 match (&source.observation, &row.fact) {
-                    (SourceObservation::MssqlPoolCurrent { authority, .. }, _) if authority.native.is_some() => {
-                        accepted && authority.accepts_operational(row)
+                    (SourceObservation::MssqlPoolCurrent { authority, snapshot }, _) if authority.native.is_some() => {
+                        accepted && authority.accepts_operational(snapshot, row)
                     }
                     _ if mssql_pool_operational_candidate(source) => false,
                     (SourceObservation::Snapshot(header), _) if header.dataset == SnapshotDataset::ProcessCpu => {
@@ -1063,6 +1064,10 @@ impl TelemetryRecord {
             Self::ObjectDefinition(row) => {
                 *row = row.for_export(source.target.engine())?;
                 source.observation.accepts_snapshot_record(TelemetryStream::ObjectDefinitions, &row.source)
+                    && match &row.fact {
+                        ObjectDefinitionFact::Statement(statement) => statement.matches_source(source)?,
+                        _ => true,
+                    }
                     && row.fact.native_plan_proofs_match(source)
             }
             Self::WaitCounter(row) => {
@@ -1279,6 +1284,12 @@ pub enum SourceCompletion {
     Verified,
     QueryHistory(Box<QueryHistoryDescription>),
     Snapshot(StateSnapshotDescription),
+    /// Ordinary bounded data retains its actual read owner separately from the data namespace.
+    SnapshotAcquisition {
+        snapshot: StateSnapshotDescription,
+        execution: Box<NativeReadContext>,
+        settings_context: Option<NativeSettingsContext>,
+    },
     /// A local catalog closes through the same snapshot worker with its final native acquisition owner.
     LocalResource {
         snapshot: StateSnapshotDescription,

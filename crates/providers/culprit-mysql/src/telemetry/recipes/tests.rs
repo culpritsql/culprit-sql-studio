@@ -65,7 +65,7 @@ async fn every_static_declaration_selects_one_real_native_constructor_without_op
         assert!(descriptor.accepts(&request));
         assert_eq!(
             matches!(descriptor.admission, RecipeAdmission::BuiltinSafety(_)),
-            matches!(descriptor.id.as_str(), "mysql.activity" | "mysql.blocking")
+            matches!(descriptor.id.as_str(), "mysql.activity" | "mysql.blocking" | "mysql.settings")
         );
         assert_eq!(REGISTRATIONS.iter().filter(|candidate| candidate.accepts(&request)).count(), 1);
         let mut source = crate::telemetry::source(connector(), &request).unwrap();
@@ -88,7 +88,7 @@ fn native_projection_revisions_invalidate_only_changed_recipe_identities_without
     for recipe in &declarations {
         let expected = match recipe.id.as_str() {
             "mysql.activity" => 3,
-            "mysql.current-request-work" | "mysql.operational" => 2,
+            "mysql.current-request-work" | "mysql.operational" | "mysql.settings" => 2,
             _ => 1,
         };
         assert_eq!(recipe.version, expected, "{}", recipe.id);
@@ -96,7 +96,7 @@ fn native_projection_revisions_invalidate_only_changed_recipe_identities_without
     assert!(
         declarations
             .iter()
-            .filter(|recipe| !matches!(recipe.id.as_str(), "mysql.activity" | "mysql.blocking"))
+            .filter(|recipe| !matches!(recipe.id.as_str(), "mysql.activity" | "mysql.blocking" | "mysql.settings"))
             .all(|recipe| recipe.admission == RecipeAdmission::Unqualified)
     );
 }
@@ -123,7 +123,7 @@ fn baseline_and_investigation_meaning_is_explicit_without_qualifying_native_cost
     assert!(
         declarations
             .iter()
-            .filter(|recipe| !matches!(recipe.id.as_str(), "mysql.activity" | "mysql.blocking"))
+            .filter(|recipe| !matches!(recipe.id.as_str(), "mysql.activity" | "mysql.blocking" | "mysql.settings"))
             .all(|recipe| recipe.admission == RecipeAdmission::Unqualified)
     );
     assert!(declarations.iter().all(|recipe| !matches!(

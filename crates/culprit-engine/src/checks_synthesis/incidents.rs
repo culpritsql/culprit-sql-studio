@@ -40,9 +40,9 @@ pub(super) fn project(
         };
         let episode = &revision.episode;
         let mut affected_queries = affected(originals, episode)?;
-        let explanation = explanations::for_episode(originals, episode)?;
+        let mut explanation = explanations::for_episode(originals, episode)?;
         affected_queries.extend(explanation.affected.iter().cloned());
-        let affected_queries = distinct(affected_queries)?;
+        let mut affected_queries = distinct(affected_queries)?;
         let original_interval = match (&episode.signal, &episode.scope.population) {
             (
                 DiagnosticSignal::OriginalObservation {
@@ -57,6 +57,13 @@ pub(super) fn project(
             _ => None,
         };
         let caller = if affected_queries.len() == 1 { affected_queries[0].caller.clone() } else { None };
+        if let Some(reason) = incident_queries::limit_details(
+            &mut affected_queries,
+            &mut explanation.culprits,
+            &mut explanation.candidates,
+        )? {
+            explanation.limitations.push(reason);
+        }
         for reason in &explanation.limitations {
             if !entry.reasons.contains(reason) {
                 entry.reasons.push(reason.clone());
@@ -154,9 +161,6 @@ pub(super) fn distinct(queries: Vec<DerivedIncidentQuery>) -> Result<Vec<Derived
         let encoded = serde_json::to_vec(&query).map_err(|_| invalid())?;
         if keys.insert(digest(&encoded)) {
             output.push(query)
-        }
-        if output.len() > MAX_DERIVED_QUERIES {
-            return Err(capacity());
         }
     }
     Ok(output)

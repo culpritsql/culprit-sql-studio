@@ -31,12 +31,10 @@ SELECT
 
 const START_TIME_SQL: &str = "SELECT CONVERT(varchar(19), DATEADD(minute, DATEDIFF(minute, GETDATE(), GETUTCDATE()), sqlserver_start_time), 126) + 'Z' AS started_at FROM sys.dm_os_sys_info";
 
-const QUERY_STORE_SQL: &str = crate::query_store::catalog_sql::OPTIONS;
-
 #[derive(Clone, Debug, Default)]
 pub(crate) struct QueryStoreState {
     pub(crate) actual: String,
-    /// Every column of sys.database_query_store_options, surfaced as settings.
+    /// The supported public options and native layout, shared with retained Settings capture.
     pub(crate) options: Rec,
 }
 
@@ -151,7 +149,7 @@ pub(crate) async fn run(client: &mut impl NativeRead) -> culprit_core::Result<Pr
         .ok()
         .and_then(|rows| rows.into_iter().next())
         .and_then(|r| r.str("started_at"));
-    let query_store = query(client, QUERY_STORE_SQL)
+    let query_store = query(client, &crate::query_store::catalog_sql::options())
         .await
         .ok()
         .and_then(|rows| rows.into_iter().next())

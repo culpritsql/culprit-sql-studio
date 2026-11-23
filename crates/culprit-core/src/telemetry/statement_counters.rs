@@ -1,5 +1,7 @@
 //! Cumulative statement totals are point observations, never fabricated native intervals.
 use super::*;
+mod query_metrics;
+pub use query_metrics::StatementQueryMetrics;
 #[cfg(test)]
 mod tests;
 
@@ -65,8 +67,9 @@ impl StatementCounterSample {
         if !self.is_valid() || source.target.database().is_none() {
             return false;
         }
-        if let SourceObservation::PagedSnapshot(header) | SourceObservation::PagedSourceRead { snapshot: header, .. } =
-            &source.observation
+        if let SourceObservation::PagedSnapshot(header)
+        | SourceObservation::PagedSnapshotAcquisition { snapshot: header, .. }
+        | SourceObservation::PagedSourceRead { snapshot: header, .. } = &source.observation
         {
             // Staging has only its native lower bound. The same source owner's final header must admit the
             // original retained row again before the capture can become complete.
@@ -175,7 +178,10 @@ impl StatementCounterSnapshot {
         }
         let snapshot = Self {
             source: frame.sources[0].source.clone(),
-            context: Some(Box::new(NativeReadContext::from_snapshot(source)?)),
+            context: Some(Box::new(match source.observation.snapshot_acquisition_context() {
+                Some(context) => context.clone(),
+                None => NativeReadContext::from_snapshot(source)?,
+            })),
             coverage: frame.sources[0].clone(),
             observations,
         };

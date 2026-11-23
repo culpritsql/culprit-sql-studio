@@ -11,6 +11,7 @@ enum InitialPoint {
     Ordinary,
     Retained(test_support::TransactionMetadataSlruCase),
     Continuation(test_support::TransactionMetadataContinuationCase),
+    Xmin(test_support::TransactionMetadataXminCase),
 }
 async fn scenario_with_slru(
     case: Case,
@@ -65,6 +66,10 @@ async fn scenario_point(
                 case,
                 test_support::TransactionMetadataObservation::Initial,
             );
+            (source, rows, None)
+        }
+        InitialPoint::Xmin(case) => {
+            let (source, rows) = test_support::transaction_metadata_xmin_result(&focus, &execution, case);
             (source, rows, None)
         }
         InitialPoint::Ordinary => {
@@ -290,3 +295,114 @@ async fn missing_fields_foreign_reset_or_unordered_context_never_becomes_request
 }
 
 mod continuation;
+
+#[tokio::test]
+async fn exact_native_xmin_sessions_reach_gold_as_session_only_candidates_with_conditional_lifetime_advice() {
+    use test_support::TransactionMetadataXminCase as Xmin;
+    for (index, case) in [Xmin::Session, Xmin::PreviousStatement, Xmin::Partial].into_iter().enumerate() {
+        let (basis, result, episode, _) =
+            scenario_point(Case::Clear, 945_000 + index as u64 * 10, InitialPoint::Xmin(case)).await;
+        assert!(result.is_read_complete());
+        let revisions = history(episode, 945_002 + index as u64 * 10).await;
+        let output = project(&[&revisions, &basis, &result], vec![]).unwrap();
+        output.validate().unwrap();
+        let incident = &output.incidents[0];
+        assert_eq!(incident.affected_queries.len(), 1);
+        assert!(incident.culprit_queries.is_empty());
+        assert_eq!(incident.attribution_status, DerivedAttributionStatus::CandidatesOnly);
+        let candidate = incident.candidate_queries.iter().find(|candidate| {
+            matches!(&candidate.identity,
+            Some(DerivedQueryIdentity::Activity {actor,..}) if actor.session.id=="77")
+        });
+        let candidate = candidate.expect("qualified native xmin session is not lost after overflow-only projection");
+        let Some(DerivedQueryIdentity::Activity { actor, statement }) = &candidate.identity else { panic!() };
+        assert_eq!(actor.session.id, "77");
+        assert!(actor.request.is_none() && actor.transaction.is_none() && statement.is_none());
+        assert!(!candidate.sql.is_available(), "previous/current SQL and acquiring request are not invented");
+        assert!(candidate.causal_role.is_none());
+        let caller = candidate.caller.as_ref().unwrap();
+        assert_eq!(caller.client.as_ref().unwrap().application.as_deref(), Some("native-retainer-application"));
+        assert!(caller.session_context.is_none());
+        let original = result.verified_original().unwrap();
+        assert_eq!(candidate.evidence, vec![original.reference(0).unwrap()]);
+        assert!(candidate.evidence.contains(&caller.evidence));
+        assert!(incident.developer_action.contains(&t!("view.transaction_metadata.xmin_session.action")));
+        assert!(incident.verification.contains(&t!("view.transaction_metadata.xmin_session.verify")));
+        assert!(output.findings.is_empty());
+    }
+}
+
+#[tokio::test]
+async fn unresolved_future_foreign_prepared_and_unqualified_retention_sources_remain_facts_without_a_query_or_primary_fix()
+ {
+    use test_support::TransactionMetadataXminCase as Xmin;
+    for (index, case) in [
+        Xmin::UnresolvedSession,
+        Xmin::FutureGeneration,
+        Xmin::ForeignServerSession,
+        Xmin::PreparedTransaction,
+        Xmin::UnqualifiedHorizon,
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let (basis, result, episode, _) =
+            scenario_point(Case::Clear, 945_100 + index as u64 * 10, InitialPoint::Xmin(case)).await;
+        let revisions = history(episode, 945_102 + index as u64 * 10).await;
+        let output = project(&[&revisions, &basis, &result], vec![]).unwrap();
+        output.validate().unwrap();
+        let incident = &output.incidents[0];
+        assert!(incident.candidate_queries.is_empty());
+        assert!(incident.culprit_queries.is_empty());
+        assert_eq!(incident.attribution_status, DerivedAttributionStatus::Unestablished);
+        assert!(!incident.developer_action.contains(&t!("view.transaction_metadata.xmin_session.action")));
+        assert!(
+            incident.entry.reasons.iter().any(|reason| reason.contains("backend_xmin")),
+            "the original retainer fact is preserved"
+        );
+    }
+}
+
+#[tokio::test]
+async fn a_reused_retainer_pid_keeps_its_own_backend_generation_and_never_borrows_the_old_cache_sql_or_caller() {
+    let (basis, result, episode, _) =
+        scenario_point(Case::Clear, 945_200, InitialPoint::Xmin(test_support::TransactionMetadataXminCase::ReusedPid))
+            .await;
+    let revisions = history(episode, 945_202).await;
+    let output = project(&[&revisions, &basis, &result], vec![]).unwrap();
+    output.validate().unwrap();
+    let incident = &output.incidents[0];
+    let candidates = incident
+        .candidate_queries
+        .iter()
+        .filter(|query| {
+            matches!(&query.identity,
+        Some(DerivedQueryIdentity::Activity {actor,..}) if actor.session.id=="43")
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(candidates.len(), 2);
+    let retainer = candidates
+        .iter()
+        .find(|query| {
+            matches!(&query.identity,
+        Some(DerivedQueryIdentity::Activity {actor,..}) if actor.request.is_none())
+        })
+        .unwrap();
+    let Some(DerivedQueryIdentity::Activity { actor, .. }) = &retainer.identity else { panic!() };
+    let TelemetryRecord::Operational(OperationalObservation {
+        fact: OperationalFact::PostgresTransactionMetadata(point),
+        ..
+    }) = &result.records()[0].row().record
+    else {
+        panic!()
+    };
+    let native_session = point.retention.holders.iter().find_map(|holder| holder.session.as_ref()).unwrap();
+    assert_eq!(actor.session, *native_session);
+    assert!(!retainer.sql.is_available());
+    assert_eq!(
+        retainer.caller.as_ref().unwrap().client.as_ref().unwrap().application.as_deref(),
+        Some("native-retainer-application")
+    );
+    assert!(candidates.iter().any(|query| query.sql.is_available()));
+    assert!(incident.culprit_queries.is_empty());
+}

@@ -294,7 +294,7 @@ Information and history (4)
  17  ○  A call to pg_sleep takes 20.0 s of database time over the 5 hours since statistics were reset (12%), sleeping
        heavy-query:-8886085649470066503
 
-Check coverage: 7 assessed without a finding; 25 limited by missing or incomplete evidence. JSON includes each check's reason.
+Check coverage: 6 assessed without a finding; 26 limited by missing or incomplete evidence. JSON includes each check's reason.
 
 ! 1 check is locked (Repeated statements within logged requests). See `culprit doctor pg-demo`.
 

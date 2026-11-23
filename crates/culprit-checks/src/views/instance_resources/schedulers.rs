@@ -15,10 +15,10 @@ pub(super) fn explain_source(
 ) -> Result<SchedulerReport> {
     let context = NativeReadContext::from_snapshot(source)?;
     let pool = mssql_pool_current_authority(source)?.filter(|authority| authority.native.is_some());
+    let snapshot = source.observation.snapshot().ok_or_else(invalid)?;
     if !valid_owner(&context) && pool.is_none()
-        || source.observation.snapshot().is_none_or(|header| {
-            header.dataset != SnapshotDataset::Operational || !header.sources.iter().any(|value| value == coverage)
-        })
+        || snapshot.dataset != SnapshotDataset::Operational
+        || !snapshot.sources.iter().any(|value| value == coverage)
         || coverage.source != culprit_core::source_id::SCHEDULERS
         || coverage.records as usize > MAX_MSSQL_SCHEDULERS
         || observations.len() > coverage.records as usize
@@ -32,7 +32,7 @@ pub(super) fn explain_source(
         if !row.is_valid() || row.source != coverage.source {
             return Err(invalid());
         }
-        if pool.is_some_and(|authority| !authority.accepts_operational(row)) {
+        if pool.is_some_and(|authority| !authority.accepts_operational(snapshot, row)) {
             return Err(invalid());
         }
         let OperationalFact::CounterSet(sample) = &row.fact else {

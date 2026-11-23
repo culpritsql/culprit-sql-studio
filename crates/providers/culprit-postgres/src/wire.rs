@@ -89,15 +89,21 @@ impl SqlExecutor {
         self.inner.hypothetical_wire(sql, indexes, false).await
     }
 
-    pub async fn recorded_text(&self, sql: &str, query_id: Option<&str>) -> Result<String> {
-        let client = self.inner.connector.connect(INTERACTIVE).await?;
-        if !crate::trust::elevated(&client).await? {
-            return Ok(sql.into());
+    /// YSQL's independently retained scalar query-ID policy, not PostgreSQL entry/reset identity.
+    pub async fn ysql_recorded_text(&self, statement: culprit_core::RecordedStatement<'_>) -> Result<String> {
+        let scope = crate::read::ApplicationReadScope::until(
+            tokio::time::Instant::now() + culprit_core::limits::OBSERVE_TIMEOUT,
+        );
+        let mut reader = crate::read::ReadSession::application(self.inner.connector.clone(), INTERACTIVE, scope);
+        let result = async {
+            if !crate::trust::elevated_read(&mut reader).await? {
+                return Ok(statement.sql().into());
+            }
+            let id = statement.source_id().ok_or_else(crate::trust::not_its_own)?;
+            crate::trust::own_ysql_text_from(&mut reader, id, false).await?.ok_or_else(crate::trust::not_its_own)
         }
-        match query_id {
-            Some(id) => crate::trust::own_text(&client, id).await?.ok_or_else(crate::trust::not_its_own),
-            None => Err(crate::trust::not_its_own()),
-        }
+        .await;
+        reader.finish(result).await
     }
 
     pub async fn run(&self, sql: &str, limit: usize) -> Result<ResultSet> {
@@ -227,13 +233,15 @@ mod tests {
         .await
         .unwrap()
         .unwrap();
-        let own = executor
-            .recorded_text(
-                "SELECT name FROM public.customers WHERE id = $1 ORDER BY name",
-                recorded.text("id").as_deref(),
-            )
-            .await
-            .unwrap();
+        // This is YSQL's generation-independent scalar statistics policy, not a fabricated PostgreSQL entry
+        // lifetime. The production YSQL provider uses this same native ownership helper.
+        let id = recorded.text("id").unwrap();
+        let statement = culprit_core::RecordedStatement::new(
+            "SELECT name FROM public.customers WHERE id = $1 ORDER BY name",
+            &id,
+            None,
+        );
+        let own = executor.ysql_recorded_text(statement).await.unwrap();
         assert!(own.contains("ysql_native_test"));
         assert_eq!(
             executor.explain_ysql(&own, ExplainMode::Estimated).await.unwrap().kind,

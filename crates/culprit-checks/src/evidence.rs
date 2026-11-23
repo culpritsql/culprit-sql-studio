@@ -65,6 +65,8 @@ pub enum Requirement<'a> {
         complete: bool,
     },
     Settings,
+    /// Native configuration cases may need a separately qualified same-read server role.
+    ConfigurationApplicability,
     Deadlocks,
     Unknown,
     /// Evidence the check knows is incomplete, and why: the key of the message that says so.
@@ -349,6 +351,7 @@ impl Requirement<'_> {
             }
             Self::Settings if s.settings.is_empty() => insufficient(t!("evidence.no_settings")),
             Self::Deadlocks if s.deadlocks.is_none() => insufficient(t!("evidence.no_deadlocks")),
+            Self::ConfigurationApplicability => postgres_settings_problem(s).map(Insufficient).unwrap_or(Available),
             Self::Settings => source_failed(
                 s,
                 &[
@@ -503,5 +506,21 @@ fn tables(measure: TableMeasure, s: &Snapshot) -> CheckEvidence {
         Available
     } else {
         Insufficient(t!("evidence.tables_unmeasured"))
+    }
+}
+
+fn postgres_settings_problem(snapshot: &Snapshot) -> Option<String> {
+    use culprit_core::telemetry::PostgresSettingsAdviceLimit as Limit;
+    let advice = snapshot.postgres_configuration()?;
+    if advice.limitations.contains(&Limit::RecoveryMaintenanceInactive) {
+        Some(t!("engine.collected_analysis.recovery_settings"))
+    } else if advice.limitations.iter().any(|issue| {
+        matches!(issue, Limit::MissingAcquisition | Limit::UnqualifiedAcquisition | Limit::InvalidObservation)
+    }) {
+        Some(t!("evidence.postgres.settings_acquisition_unavailable"))
+    } else if !advice.is_complete() {
+        Some(t!("engine.collected_analysis.partial_settings"))
+    } else {
+        None
     }
 }

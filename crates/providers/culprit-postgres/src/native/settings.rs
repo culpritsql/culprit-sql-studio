@@ -1,6 +1,9 @@
 //! One allowlisted configuration reader for interactive scans and background capture.
 use super::*;
-use culprit_core::{MeasurementScope, Setting, telemetry::*};
+use culprit_core::{MeasurementScope, telemetry::*};
+
+mod scan;
+pub(crate) use scan::{CollectedSettings, scan};
 
 pub(crate) const SETTINGS: &[&str] = &[
     "pg_stat_statements.max",
@@ -45,6 +48,10 @@ pub fn query(names: &[&str], limit: usize) -> String {
     format!(
         "SELECT name, setting, unit, boot_val, source, context, pending_restart FROM pg_catalog.pg_settings WHERE name IN ({names}) ORDER BY name LIMIT {limit}"
     )
+}
+/// The one source allowlist also bounds retained metadata; this is not a configured fleet count.
+pub(crate) fn capture_rows() -> u32 {
+    (SETTINGS.len() + ADVICE.len() + COLLECTION.len()) as u32
 }
 pub(crate) fn capture_query(limit: usize) -> String {
     query(&SETTINGS.iter().chain(ADVICE).chain(COLLECTION).copied().collect::<Vec<_>>(), limit)
@@ -96,15 +103,6 @@ pub fn decode_native<'a>(
     }
     Ok(observation)
 }
-pub(crate) fn project(observation: SettingObservation) -> Setting {
-    let format = |value: &str| crate::catalog::pretty_setting(value, observation.unit.as_deref());
-    Setting {
-        name: observation.name,
-        value: observation.value_in_use.as_deref().or(observation.value.as_deref()).map(format).unwrap_or_default(),
-        default_value: observation.default_value.as_deref().map(format),
-        scope: if observation.scope == MeasurementScope::Session { "session" } else { "server" }.into(),
-    }
-}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -131,6 +129,6 @@ mod tests {
         assert_eq!(observation.scope, MeasurementScope::Session);
         assert_eq!(observation.unit.as_deref(), Some("kB"));
         assert_eq!(observation.default_source, SettingDefaultSource::NativeValue);
-        assert_eq!(project(observation).value, "4MB");
+        assert_eq!(observation.to_postgres_setting().unwrap().value, "4MB");
     }
 }

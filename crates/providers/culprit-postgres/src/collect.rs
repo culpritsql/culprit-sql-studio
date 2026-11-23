@@ -50,10 +50,20 @@ pub async fn snapshot(
                 connector.port,
                 None,
             );
-            let result = Ok::<_, culprit_core::Error>((
-                settings(&mut client).await,
-                crate::pressure::collect(&mut client, &probe, target).await,
-            ));
+            let settings = settings(&mut client, &connector.host, connector.port).await;
+            let failure = match &settings {
+                Ok(settings) => settings.failure.as_ref(),
+                Err(error) => Some(error),
+            };
+            let pressure = if let Some(error) = failure {
+                // Keep already-read settings, but never start more source work after failed settlement.
+                let mut coverage = Coverage::default();
+                coverage.sources_failed(sources::MISC, error);
+                (culprit_core::Pressure::default(), coverage)
+            } else {
+                crate::pressure::collect(&mut client, &probe, target).await
+            };
+            let result = Ok::<_, culprit_core::Error>((settings, pressure));
             client.finish(result).await
         },
         async {
@@ -138,14 +148,26 @@ pub async fn snapshot(
         }
     };
 
-    let (mut settings_out, mut pressure_out) = match misc {
+    let (mut settings_out, postgres_settings, mut pressure_out) = match misc {
         Ok((settings, (pressure, read))) => {
             coverage.merge(read);
-            (coverage.read_rows(&sources::SETTINGS, settings).unwrap_or_default(), Some(pressure))
+            match settings {
+                Ok(settings) => {
+                    let values = coverage.read_rows(&sources::SETTINGS, Ok(settings.values)).unwrap_or_default();
+                    if let Some(error) = &settings.failure {
+                        coverage.source_failed(&sources::SETTINGS, error);
+                    }
+                    (values, Some(Box::new(settings.read)), Some(pressure))
+                }
+                Err(error) => {
+                    coverage.source_failed(&sources::SETTINGS, &error);
+                    (Vec::new(), None, Some(pressure))
+                }
+            }
         }
         Err(e) => {
             coverage.sources_failed(sources::MISC, &e);
-            (Vec::new(), None)
+            (Vec::new(), None, None)
         }
     };
     let (resource_counters, resource_coverage) = shared_resources;
@@ -227,6 +249,7 @@ pub async fn snapshot(
         evictions_before: None,
         sizes_before: None,
         operations: culprit_core::operations::OperationalStats {
+            postgres_settings,
             index_usage_scope: Some(culprit_core::operations::IndexUsageScope::ConnectedMember),
             ..Default::default()
         },

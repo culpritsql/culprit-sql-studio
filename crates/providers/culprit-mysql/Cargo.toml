@@ -27,6 +27,7 @@ serde_json.workspace = true
 tokio.workspace = true
 
 [dev-dependencies]
+culprit-evidence = { workspace = true, features = ["test-support"] }
 culprit-collector.workspace = true
 tempfile.workspace = true
 tokio = { workspace = true, features = ["test-util"] }

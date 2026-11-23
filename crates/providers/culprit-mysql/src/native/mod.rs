@@ -42,3 +42,5 @@ pub(crate) async fn one<R: QueryRead>(reader: &mut R, sql: &str, parameters: Vec
 pub(crate) mod group_replication;
 
 pub(crate) mod galera;
+
+pub(crate) mod settings;

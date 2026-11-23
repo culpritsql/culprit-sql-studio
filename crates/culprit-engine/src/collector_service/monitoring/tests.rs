@@ -648,14 +648,32 @@ fn builtin_pg_workspace(root: &Path) -> (CollectorConfig, Workspace, Arc<AtomicU
 fn standard_builtin_pg_enrollment_needs_no_operator_receipt_and_never_constructs_a_provider() {
     let root = tempfile::tempdir().unwrap();
     let (config, workspace, calls) = builtin_pg_workspace(root.path());
-    let plan = Enrollment::resolve(&workspace, &config).unwrap();
-    assert_eq!(calls.load(Ordering::SeqCst), 0);
-    assert_eq!(plan.summary.automatic.len(), 1);
-    assert_eq!(plan.summary.automatic[0].recipe_id, "postgres.activity");
-    assert!(plan.summary.gaps.iter().all(|gap| gap.recipe_id.as_deref() != Some("postgres.activity")));
-    assert!(
-        plan.profiles.values().all(|profile| profile.qualification().is_none() && profile.builtin_policy().is_some())
-    );
+    let original = Enrollment::resolve(&workspace, &config).unwrap();
+    for explicit_standard in [false, true] {
+        let mut compact = serde_json::to_value(&config).unwrap();
+        if explicit_standard {
+            compact["monitoring"] = serde_json::json!({"kind":"standard"});
+        } else {
+            compact.as_object_mut().unwrap().remove("monitoring");
+        }
+        compact["inventory"]["targets"][0].as_object_mut().unwrap().remove("schedules");
+        let path = root.path().join("collector-compact.json");
+        std::fs::write(&path, serde_json::to_vec(&compact).unwrap()).unwrap();
+        let parsed = CollectorConfig::from_file(&path).unwrap();
+        let plan = Enrollment::resolve(&workspace, &parsed).unwrap();
+        assert_eq!(serde_json::to_value(&plan.inventory).unwrap(), serde_json::to_value(&original.inventory).unwrap());
+        assert_eq!(serde_json::to_value(&plan.summary).unwrap(), serde_json::to_value(&original.summary).unwrap());
+        assert!(!parsed.state.exists());
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+        assert_eq!(plan.summary.automatic.len(), 1);
+        assert_eq!(plan.summary.automatic[0].recipe_id, "postgres.activity");
+        assert!(plan.summary.gaps.iter().all(|gap| gap.recipe_id.as_deref() != Some("postgres.activity")));
+        assert!(
+            plan.profiles
+                .values()
+                .all(|profile| profile.qualification().is_none() && profile.builtin_policy().is_some())
+        );
+    }
 }
 
 #[cfg(feature = "postgres")]
@@ -672,7 +690,10 @@ fn automatic_activity_preserves_its_six_queries_and_the_exact_distinct_followup_
             total_timeout_ms: 4_000,
             ..CollectionBudget::default()
         };
-        config.monitoring = MonitoringPolicy::Standard { budget: caller.clone() };
+        let mut compact = serde_json::to_value(&config).unwrap();
+        compact["monitoring"] = serde_json::json!({"kind":"standard","budget":caller});
+        compact["inventory"]["targets"][0].as_object_mut().unwrap().remove("schedules");
+        config = serde_json::from_value(compact).unwrap();
         let plan = Enrollment::resolve(&workspace, &config).unwrap();
         let inventory = plan.inventory.as_ref().unwrap();
         let target = &inventory.targets[0];

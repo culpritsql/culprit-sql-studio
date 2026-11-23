@@ -159,7 +159,7 @@ pub async fn attach(
     // statements; SQLite plans `?` placeholders as NULL. One the engine can't plan stays unplanned.
     let mut planned = 0;
     for q in workload.queries.iter_mut().take(options.plans as usize) {
-        if let Ok(plan) = provider.explain_recorded(&q.text, None).await {
+        if let Ok(plan) = provider.explain_recorded(culprit_core::RecordedStatement::unscoped(&q.text)).await {
             q.plan = Some(plan);
             planned += 1;
         }

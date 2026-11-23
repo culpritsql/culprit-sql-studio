@@ -62,6 +62,10 @@ pub fn component_version() -> culprit_core::ComponentVersion {
 pub fn telemetry_recipes() -> Vec<culprit_core::telemetry::RecipeDescriptor> {
     telemetry::recipes()
 }
+/// Native profile capability only; the selected production catalog separately owns admission.
+pub fn telemetry_profile_selectors() -> Vec<culprit_core::telemetry::RecipeSelector> {
+    telemetry::profile_selectors()
+}
 
 pub struct MysqlProvider {
     connector: Arc<Connector>,
@@ -236,8 +240,8 @@ impl Provider for MysqlProvider {
 
     /// A statement the scan recorded is digest text (`COUNT ( * )`, `LIMIT ?`): planned as far as it runs, and when its
     /// placeholders stop it, said so instead of the server's syntax error.
-    async fn explain_recorded(&self, sql: &str, _query_id: Option<&str>) -> Result<Plan> {
-        let text = fingerprint::runnable(sql);
+    async fn explain_recorded(&self, statement: culprit_core::RecordedStatement<'_>) -> Result<Plan> {
+        let text = fingerprint::runnable(statement.sql());
         self.explain(&text, ExplainMode::Estimated).await.map_err(|e| {
             if !fingerprint::has_placeholders(&text)
                 || !matches!(e.code, ErrorCode::QueryFailed | ErrorCode::InvalidInput)

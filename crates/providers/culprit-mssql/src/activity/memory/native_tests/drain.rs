@@ -29,7 +29,7 @@ pub(super) async fn prove(fixture: &mut Fixture) -> Result<()> {
             "intervention": "only the original holder's unchanged result stream will be drained",
         }),
     )?;
-    require_original_resource_shortfall(&pair.point, &pair.waiter)?;
+    require_original_resource_shortfall(&pair.point.report, &pair.waiter)?;
     let holder_rows = fixture.drain_original_holder().await?;
     if holder_rows != FIXTURE_ROWS {
         return Err(invalid_data());
@@ -75,7 +75,7 @@ pub(super) async fn prove(fixture: &mut Fixture) -> Result<()> {
 }
 
 fn require_original_resource_shortfall(
-    point: &super::observations::NativePoint,
+    report: &culprit_core::MemoryParticipantsReport,
     waiter: &ExecutionGrantObservation,
 ) -> Result<()> {
     let resource = waiter.resource_observation.as_ref().ok_or_else(invalid_data)?;
@@ -93,8 +93,8 @@ fn require_original_resource_shortfall(
         return Err(invalid_data());
     }
     let key = waiter.key()?;
-    let entry = point.report.entries.iter().find(|entry| entry.observation_key == key).ok_or_else(invalid_data)?;
-    if entry.investigation != culprit_core::t!("view.request_memory.resource.investigation")
+    let entry = report.entries.iter().find(|entry| entry.observation_key == key).ok_or_else(invalid_data)?;
+    if !entry.investigation.contains(&culprit_core::t!("view.request_memory.resource.investigation"))
         || !entry.explanation.contains(&culprit_core::t!("view.request_memory.resource.limit"))
     {
         return Err(invalid_data());
@@ -181,5 +181,70 @@ mod tests {
         let mut missing = granted;
         missing.request = None;
         assert!(!same_original_waiter(&waiting, &missing), "a missing request is not a positive transition");
+    }
+
+    #[tokio::test]
+    async fn native_shortfall_accepts_composed_reservation_advice_without_losing_its_original_limits() {
+        use crate::{activity::memory::tests, resources::test_support::replace, value::Val};
+        use culprit_core::{SourceOutcome, SourceState};
+        let holder = replace(
+            &tests::row(),
+            &[
+                ("edition", Val::Int(3)),
+                ("grant_requested_memory_kb", Val::Int(181_304)),
+                ("grant_required_memory_kb", Val::Int(512)),
+                ("grant_granted_memory_kb", Val::Int(181_304)),
+                ("resource_pool_id", Val::Int(2)),
+                ("resource_resource_semaphore_id", Val::Int(0)),
+                ("resource_available_memory_kb", Val::Int(76_456)),
+                ("resource_granted_memory_kb", Val::Int(181_304)),
+                ("resource_grantee_count", Val::Int(1)),
+                ("resource_waiter_count", Val::Int(1)),
+            ],
+        );
+        let waiter = replace(
+            &holder,
+            &[
+                ("session_id", Val::Int(43)),
+                ("grant_session_id", Val::Int(43)),
+                ("grant_granted_without_offset", Val::Null),
+                ("grant_granted_memory_kb", Val::Int(0)),
+                ("grant_is_next_candidate", Val::Int(1)),
+            ],
+        );
+        let mut reader = tests::reader(vec![
+            Ok(vec![crate::instance::test_support::metadata()]),
+            Ok(vec![crate::instance::test_support::epoch(100)]),
+            Ok(vec![crate::activity::database_context::tests::row(3)]),
+            Ok(tests::columns()),
+            Ok(vec![holder, waiter]),
+        ]);
+        let frame = reader.observe_memory().await.unwrap();
+        let context = frame.owner.completed(&frame.owner).unwrap();
+        let observations = frame.into_observations().unwrap();
+        assert_eq!(reader.close().await, SourceShutdown::Quiescent);
+        let waiter = observations.iter().find(|row| row.state == ExecutionGrantState::Waiting).unwrap();
+        let rows = observations.iter().collect::<Vec<_>>();
+        let report = culprit_checks::request_memory::explain(
+            culprit_checks::request_memory::RequestMemoryEvidence { context: &context, observations: &rows },
+            Some(&SourceOutcome { source: waiter.source.clone(), state: SourceState::Collected, reason: None }),
+        )
+        .unwrap();
+        let entry = report.entries.iter().find(|entry| entry.observation_key == waiter.key().unwrap()).unwrap();
+        assert!(entry.investigation.contains(&culprit_core::t!("view.request_memory.demand.larger_investigation")));
+        assert!(entry.investigation.contains(&culprit_core::t!("view.request_memory.resource.investigation")));
+        require_original_resource_shortfall(&report, waiter).unwrap();
+        for (available, required, next) in [("181304", "512", true), ("76456", "0", true), ("76456", "512", false)] {
+            let mut changed = waiter.clone();
+            changed.resource_observation.as_mut().unwrap().available_kibibytes = Some(available.into());
+            changed.required_kibibytes = Some(required.into());
+            changed.queue.next_candidate = Some(next);
+            assert!(require_original_resource_shortfall(&report, &changed).is_err());
+        }
+        let mut incomplete_advice = report;
+        for entry in &mut incomplete_advice.entries {
+            entry.investigation.clear();
+        }
+        assert!(require_original_resource_shortfall(&incomplete_advice, waiter).is_err());
     }
 }

@@ -84,70 +84,25 @@ pub(crate) async fn foreign_keys(client: &mut impl QueryRead) -> Result<Vec<Fore
         .collect()
 }
 
-pub(crate) async fn settings(client: &mut impl QueryRead) -> Result<Vec<Setting>> {
-    let rows = query(client, &crate::native::settings::query(crate::native::settings::SETTINGS, 1000)).await?;
-    let mut out = rows
-        .iter()
-        .map(crate::native::settings::decode)
-        .map(|result| result.map(crate::native::settings::project))
-        .collect::<Result<Vec<_>>>()?;
-    if let Some(row) =
-        query_one(client, "SELECT age(datfrozenxid) AS age FROM pg_database WHERE datname = current_database()").await?
+pub(crate) async fn settings(
+    client: &mut impl QueryRead,
+    host: &str,
+    port: u16,
+) -> Result<crate::native::settings::CollectedSettings> {
+    let mut collected = crate::native::settings::scan(client, host, port).await?;
+    if collected.failure.is_some() {
+        return Ok(collected);
+    }
+    match query_one(client, "SELECT age(datfrozenxid) AS age FROM pg_database WHERE datname = current_database()").await
     {
-        out.push(Setting {
+        Ok(Some(row)) => collected.values.push(Setting {
             name: "datfrozenxid_age".into(),
             value: row.string("age"),
             default_value: None,
             scope: "database".into(),
-        });
+        }),
+        Ok(None) => {}
+        Err(error) => collected.failure = Some(error),
     }
-    Ok(out)
-}
-
-/// Render a pg_settings value with its unit the way Postgres displays it (`4MB`, `200ms`).
-pub fn pretty_setting(value: &str, unit: Option<&str>) -> String {
-    let Some(unit) = unit else { return value.to_string() };
-    let Ok(number) = value.trim().parse::<i64>() else { return value.to_string() };
-    if number < 0 {
-        return number.to_string();
-    }
-    const MEMORY: &[(&str, i64)] = &[("TB", 1 << 40), ("GB", 1 << 30), ("MB", 1 << 20), ("kB", 1 << 10), ("B", 1)];
-    const TIME: &[(&str, i64)] = &[("d", 86_400_000), ("h", 3_600_000), ("min", 60_000), ("s", 1_000), ("ms", 1)];
-    let (base, scale) = match unit {
-        "B" => (MEMORY, 1),
-        "kB" => (MEMORY, 1 << 10),
-        "8kB" => (MEMORY, 8 << 10),
-        "16kB" => (MEMORY, 16 << 10),
-        "32kB" => (MEMORY, 32 << 10),
-        "MB" => (MEMORY, 1 << 20),
-        "ms" => (TIME, 1),
-        "s" => (TIME, 1_000),
-        "min" => (TIME, 60_000),
-        _ => return format!("{value} {unit}"),
-    };
-    let amount = number * scale;
-    if amount == 0 {
-        return format!("0{}", base.last().map(|(u, _)| *u).unwrap_or(""));
-    }
-    for (label, size) in base {
-        if amount % size == 0 {
-            return format!("{}{label}", amount / size);
-        }
-    }
-    amount.to_string()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn settings_render_like_postgres() {
-        assert_eq!(pretty_setting("16384", Some("8kB")), "128MB");
-        assert_eq!(pretty_setting("4096", Some("kB")), "4MB");
-        assert_eq!(pretty_setting("200", Some("ms")), "200ms");
-        assert_eq!(pretty_setting("60", Some("s")), "1min");
-        assert_eq!(pretty_setting("4", None), "4");
-        assert_eq!(pretty_setting("-1", Some("kB")), "-1");
-    }
+    Ok(collected)
 }

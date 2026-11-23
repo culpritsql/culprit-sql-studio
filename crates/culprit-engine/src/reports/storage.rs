@@ -7,7 +7,7 @@ use serde_json::Value;
 
 const KEY: &str = "_culprit_store";
 // Catalog arguments own observation text; imported native events retain their distinct provenance.
-const STORAGE_VERSION: u32 = 6;
+const STORAGE_VERSION: u32 = 7;
 
 fn retained_snapshot(snapshot: &culprit_core::Snapshot) -> serde_json::Result<Value> {
     let mut snapshot = snapshot.clone();

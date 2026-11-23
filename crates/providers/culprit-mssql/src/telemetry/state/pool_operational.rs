@@ -3,16 +3,21 @@ use super::*;
 use crate::resources::pool::native::Context;
 use culprit_core::telemetry::{SharedResourceIdentity, SharedResourceKind};
 
-// Azure profile1 + three native anchor/process/roster observations3x3 + four pressure admissions4
-// + clerks1/scheduler-layout+rows2/counters1/files1 + the existing owned SET1 = 20.
-const MAX_TOTAL_QUERIES: u32 = 20;
+// Azure profile1 + three native anchor/process/roster observations3x3 + five pressure admissions5
+// + clerks1/scheduler-layout+rows2/counters1/files1/tempdb1 + the existing owned SET1 = 22.
+const MAX_TOTAL_QUERIES: u32 = 22;
 const MAX_CURRENT_ROWS: u32 = 10_000;
 const MAX_PAGE_BYTES: u32 = 512 * 1024;
 const MAX_TOTAL_BYTES: u32 = 8 * 1024 * 1024;
 const STATEMENT_TIMEOUT_MS: u32 = 1000;
 const TOTAL_TIMEOUT_MS: u32 = 8000;
-const FAMILIES: [point::Family; 4] =
-    [point::Family::MemoryClerks, point::Family::Schedulers, point::Family::PerformanceCounters, point::Family::FileIo];
+const FAMILIES: [point::Family; 5] = [
+    point::Family::MemoryClerks,
+    point::Family::Schedulers,
+    point::Family::PerformanceCounters,
+    point::Family::FileIo,
+    point::Family::Operation(crate::operations::native::Kind::Temp),
+];
 
 pub(crate) fn bounded_budget(caller: &CollectionBudget) -> CollectionBudget {
     CollectionBudget {
@@ -137,7 +142,11 @@ async fn read_family(
                 pool_settings_point: None,
             }))
         }
-        point::Family::MemoryClerks | point::Family::Schedulers => family.read(reader, limit, None, None).await,
+        point::Family::MemoryClerks
+        | point::Family::Schedulers
+        | point::Family::Operation(crate::operations::native::Kind::Temp) => {
+            family.read(reader, limit, None, None).await
+        }
         _ => Err(invalid_data()),
     }
 }

@@ -78,7 +78,7 @@ pub(super) fn authority(edition: i64) -> Rec {
         ],
     )
 }
-pub(super) fn options(edition: i64, partitioned: bool) -> Rec {
+pub(crate) fn options(edition: i64, partitioned: bool) -> Rec {
     Rec::of(&[
         ("engine_edition", Val::Int(edition)),
         ("tempdb", Val::Int(1)),

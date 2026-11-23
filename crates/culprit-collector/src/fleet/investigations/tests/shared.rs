@@ -457,14 +457,16 @@ async fn a_shared_only_runner_retires_consumed_completed_work_after_its_first_fr
 }
 
 fn elapse_quiet_scheduler_downtime(path: &Path) {
-    // Age only scheduler anchors, exactly as elapsed known-quiet wall time would. Native facts, references,
-    // source clocks, retained counters, remaining delays and source-work obligations remain byte-exact.
+    // Age only scheduler anchors, including both job deadlines' paired observation clocks, exactly as elapsed
+    // known-quiet wall time would. Native facts, references, source clocks, retained counters, remaining delays
+    // and source-work obligations remain byte-exact.
     let mut connection = rusqlite::Connection::open(path).unwrap();
     let transaction = connection.transaction().unwrap();
     let age = chrono::Duration::days(2);
     for (table, pointer) in [
         ("admission_clock", "/wall"),
         ("admission_jobs", "/delay/observed_at"),
+        ("admission_jobs", "/protected_deadline/observed_at"),
         ("admission_resources", "/delay/observed_at"),
         ("admission_families", "/observed_at"),
         ("admission_focused", "/delay/observed_at"),

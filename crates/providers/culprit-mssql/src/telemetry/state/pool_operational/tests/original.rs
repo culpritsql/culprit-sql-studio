@@ -19,9 +19,9 @@ impl SourceFactory for Factory {
 }
 #[tokio::test]
 async fn one_pool_original_reopens_to_eof_and_feeds_existing_scan_views_without_native_recollection() {
-    let (_directory, outbox, manifest, factory) = capture_source(scripted_source(replies(), 20)).await;
+    let (_directory, outbox, manifest, factory) = capture_source(scripted_source(replies(), 22)).await;
     assert_eq!(manifest.status, CollectionStatus::Complete);
-    assert_eq!(manifest.source_queries, 19);
+    assert_eq!(manifest.source_queries, 21);
     let attempt = outbox.attempt_receipt(&manifest.capture, None).await.unwrap();
     let captured = outbox
         .delivery()
@@ -59,6 +59,15 @@ async fn one_pool_original_reopens_to_eof_and_feeds_existing_scan_views_without_
     assert!(!counters.entries.is_empty());
     let schedulers = culprit_checks::instance_resources::explain_captured(&original).unwrap();
     assert_eq!(schedulers.schedulers.unwrap().entries.len(), 1);
+    let storage = culprit_checks::storage::explain_captured(&original).unwrap();
+    assert_eq!(storage.target, original.description.target);
+    assert_eq!(storage.native_rows, 1);
+    assert_eq!(storage.observed_rows, 1);
+    assert_eq!(storage.source_state, SourceState::Collected);
+    assert_eq!(storage.entries.len(), 1);
+    assert!(storage.entries[0].fields.iter().any(|field| field.key == "user_bytes" && field.value.is_some()));
+    assert!(storage.entries[0].fields.iter().any(|field| field.key == "internal_bytes" && field.value.is_some()));
+    assert!(storage.entries[0].fields.iter().any(|field| field.key == "version_bytes" && field.value.is_some()));
     let public = culprit_core::redact::redact_snapshot(&scan);
     assert!(public.operations.memory_clerks.is_none());
     assert!(!serde_json::to_string(&public).unwrap().contains(PHYSICAL));
@@ -68,6 +77,30 @@ async fn one_pool_original_reopens_to_eof_and_feeds_existing_scan_views_without_
     authority.native.as_mut().unwrap().after = "f".repeat(64);
     assert!(!tampered.is_valid());
     assert!(culprit_checks::memory_clerks::explain_captured(&tampered).is_err());
+    assert!(culprit_checks::storage::explain_captured(&tampered).is_err());
+}
+
+#[tokio::test]
+async fn caller_twenty_or_twenty_one_never_commits_a_complete_pool_original_without_all_final_native_checks() {
+    for total in [20, 21] {
+        let (_directory, outbox, manifest, _) = capture_source(scripted_source(replies(), total)).await;
+        assert_eq!(manifest.status, CollectionStatus::Incomplete(CollectionStop::QueryLimit));
+        assert_eq!(manifest.source_queries, total - 1);
+        let attempt = outbox.attempt_receipt(&manifest.capture, None).await.unwrap();
+        assert!(
+            outbox
+                .delivery()
+                .completed_snapshot_for_connection(
+                    "pool-anchor",
+                    &attempt,
+                    SnapshotDataset::Operational,
+                    CompletedCaptureBudget::default(),
+                    &CollectionCancellation::default(),
+                )
+                .await
+                .is_err()
+        );
+    }
 }
 
 async fn capture_source(source: StateSource<FakeRead>) -> (tempfile::TempDir, Outbox, CollectionManifest, Factory) {
@@ -87,7 +120,7 @@ async fn capture_source(source: StateSource<FakeRead>) -> (tempfile::TempDir, Ou
 }
 #[tokio::test]
 async fn unconfirmed_native_shutdown_keeps_failed_bytes_sealed_and_never_publishes_a_pool_original() {
-    let mut source = scripted_source(replies(), 20);
+    let mut source = scripted_source(replies(), 22);
     source.io.shutdown = SourceShutdown::Unconfirmed;
     let (_directory, outbox, manifest, _) = capture_source(source).await;
     assert_eq!(manifest.status, CollectionStatus::Incomplete(CollectionStop::CancellationUnconfirmed));

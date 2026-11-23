@@ -48,6 +48,12 @@ enum PublicObservation<'a> {
         cohort_rows: u32,
     },
     Snapshot(&'a StateSnapshotDescription),
+    SnapshotAcquisitionContext {
+        snapshot: &'a StateSnapshotDescription,
+        settings_context: Option<&'a NativeSettingsContext>,
+        acquisition_key: String,
+        database_writable: bool,
+    },
     LocalResourceContext(LocalPointContext<'a>),
     SourceReadContext {
         snapshot: &'a StateSnapshotDescription,
@@ -257,6 +263,16 @@ pub(super) fn observation(value: &SourceObservation) -> Result<Value> {
             }
         }
         SourceObservation::Snapshot(value) => PublicObservation::Snapshot(value),
+        SourceObservation::SnapshotAcquisition { snapshot, execution, settings_context } => {
+            PublicObservation::SnapshotAcquisitionContext {
+                snapshot,
+                settings_context: settings_context.as_ref(),
+                acquisition_key: digest(
+                    &serde_json::to_vec(execution).map_err(|_| DeliveryProblem::Integrity.error())?,
+                ),
+                database_writable: execution.database_writable.ok_or_else(|| DeliveryProblem::Integrity.error())?,
+            }
+        }
         SourceObservation::LocalResource { snapshot, database_writable } => {
             PublicObservation::LocalResourceContext(LocalPointContext::new(snapshot, *database_writable))
         }
@@ -394,7 +410,9 @@ pub(super) fn observation(value: &SourceObservation) -> Result<Value> {
         SourceObservation::Diagnostics(value) => {
             PublicObservation::DiagnosticContext(super::super::investigations::diagnostic_context(value)?)
         }
-        SourceObservation::PagedSnapshot(_) | SourceObservation::PagedSourceRead { .. } => {
+        SourceObservation::PagedSnapshot(_)
+        | SourceObservation::PagedSnapshotAcquisition { .. }
+        | SourceObservation::PagedSourceRead { .. } => {
             return Err(DeliveryProblem::Integrity.error());
         }
     };
@@ -676,3 +694,6 @@ mod collector_connection_tests {
         assert!(source.target.database().is_none());
     }
 }
+
+#[cfg(test)]
+mod snapshot_acquisition_tests;

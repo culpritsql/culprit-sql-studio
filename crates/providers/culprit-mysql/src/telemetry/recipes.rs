@@ -49,6 +49,7 @@ impl Acquisition {
             Self::NativeFailures => crate::native_failures::bounded_budget(&budget),
             Self::Jobs => crate::jobs::bounded_budget(&budget),
             Self::SessionMemory => crate::session_memory::bounded_budget(&budget),
+            Self::Snapshot(Recipe::Settings) => settings_profile::bounded_budget(&budget),
             Self::GroupReplication => crate::group_replication::bounded_budget(&budget),
             Self::Galera => crate::galera::bounded_budget(&budget),
             Self::CurrentRequestWork => crate::progress::bounded_budget(&budget),
@@ -153,7 +154,7 @@ const REGISTRATIONS: &[Registration] = &[
         )
     },
     Registration::baseline("mysql.replication", Acquisition::Snapshot(Recipe::Replication)),
-    Registration::baseline("mysql.settings", Acquisition::Snapshot(Recipe::Settings)),
+    Registration { version: 2, ..Registration::baseline("mysql.settings", Acquisition::Snapshot(Recipe::Settings)) },
     Registration::baseline("mysql.native-failures", Acquisition::NativeFailures),
     Registration::investigation("mysql.runtime-distributions", Acquisition::RuntimeDistributions),
     Registration::investigation("mysql.session-memory", Acquisition::SessionMemory),
@@ -207,6 +208,17 @@ const REGISTRATIONS: &[Registration] = &[
         Acquisition::Snapshot(Recipe::Catalog(native::catalog::Kind::Sequences)),
     ),
 ];
+
+pub(super) fn profile_selectors() -> Vec<RecipeSelector> {
+    REGISTRATIONS
+        .iter()
+        .filter(|registration| {
+            registration.purpose == RecipePurpose::Baseline
+                && matches!(registration.acquisition, Acquisition::Activity | Acquisition::Snapshot(Recipe::Settings))
+        })
+        .map(Registration::selector)
+        .collect()
+}
 
 pub(super) fn declarations() -> Vec<RecipeDescriptor> {
     REGISTRATIONS.iter().map(Registration::descriptor).collect()

@@ -21,6 +21,8 @@
 use culprit_core::{Error, ErrorCode, Result};
 use tokio_postgres::Client;
 
+pub(crate) mod recorded;
+
 use crate::connect::map_error;
 use crate::rows::tagged;
 
@@ -125,7 +127,7 @@ pub fn not_its_own() -> Error {
 /// the role it authenticated as (`session_user`), and only while it acts as itself: one acting as a shared role (a
 /// `role` setting) can't tell its statements from anyone else's acting as that role. The id is bound, never spliced;
 /// the view's schema is quoted.
-pub async fn own_text(client: &Client, query_id: &str) -> Result<Option<String>> {
+async fn own_ysql_local_text(client: &Client, query_id: &str) -> Result<Option<String>> {
     let Ok(id) = query_id.trim().parse::<i64>() else { return Ok(None) };
     let schema = on_catalog(
         client,
@@ -175,7 +177,7 @@ pub async fn own_ysql_text_from(
 /// representative text picked while aggregating other roles; retrieve the authenticated role's copy instead.
 pub async fn own_ysql_text(client: &Client, query_id: &str, cluster: bool) -> Result<Option<String>> {
     if !cluster {
-        return own_text(client, query_id).await;
+        return own_ysql_local_text(client, query_id).await;
     }
     let Ok(id) = query_id.trim().parse::<i64>() else { return Ok(None) };
     let relation = "pg_catalog.\"gv$pg_stat_statements\"";

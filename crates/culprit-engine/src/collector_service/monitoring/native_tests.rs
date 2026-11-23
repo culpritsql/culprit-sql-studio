@@ -7,9 +7,10 @@ use culprit_postgres::native_test_support::{self as owned, AutomaticCase, Mainte
 use std::{future::Future, pin::Pin, sync::Arc, time::Duration};
 
 const NATIVE_CONNECTION: &str = "owned-builtin-pg";
-const SOURCE_CAPTURE_CAP: usize = 3;
+const SOURCE_CAPTURE_CAP: usize = 4;
 use super::native_support::{archive, history, synthesis};
 mod readable_secondary;
+mod settings;
 
 #[tokio::test]
 #[ignore = "requires the nonce-owned PostgreSQL18 fixture and explicit private safety receipt directory"]
@@ -32,38 +33,25 @@ fn configured_spec(
     password_env: &str,
     directory: &Path,
 ) -> (CollectorConfig, Workspace, Enrollment) {
-    let mut config = super::super::tests::config(directory);
-    config.source_credentials.clear();
-    config.monitoring = MonitoringPolicy::Standard { budget: CollectionBudget::default() };
-    let target = &mut config.inventory.targets[0];
-    target.id = NATIVE_CONNECTION.into();
-    target.connection = NATIVE_CONNECTION.into();
-    target.admission_group = "owned-native-instance".into();
-    target.schedules.clear();
-    let workspace = Workspace::open_in(&config.workspace).with_secrets(Arc::new(Memory::default()));
-    workspace
-        .add_connection(NewConnection {
-            name: NATIVE_CONNECTION.into(),
-            input: format!(
-                "postgres://postgres@127.0.0.1:{}/{}?sslmode=disable",
-                source.port.unwrap(),
-                source.database.as_ref().unwrap()
-            ),
-            engine: Some(Engine::Postgres),
-            environment: Environment::Local,
-            auth: Some(AuthKind::Password),
-            password_env: Some(password_env.into()),
-            ..Default::default()
-        })
-        .unwrap();
+    let (config, workspace) = configured_workspace(source, password_env, directory, NATIVE_CONNECTION);
     let plan = Enrollment::resolve(&workspace, &config).unwrap();
-    assert_eq!(plan.summary.automatic.len(), 1);
-    assert_eq!(plan.summary.automatic[0].recipe_id, "postgres.activity");
-    assert!(!plan.summary.gaps.iter().any(|gap| gap.recipe_id.as_deref() == Some("postgres.activity")));
+    let mut enrolled = plan.summary.automatic.iter().map(|source| source.recipe_id.as_str()).collect::<Vec<_>>();
+    enrolled.sort_unstable();
+    assert_eq!(enrolled, ["postgres.activity", "postgres.settings"]);
+    assert!(
+        !plan
+            .summary
+            .gaps
+            .iter()
+            .any(|gap| { matches!(gap.recipe_id.as_deref(), Some("postgres.activity" | "postgres.settings")) })
+    );
     let inventory = plan.inventory.as_ref().unwrap();
-    let schedule = &inventory.targets[0].schedules[0];
-    assert_eq!(schedule.every_seconds, 300, "native acceptance uses the actual unchanged standard cadence");
-    assert_eq!(schedule.budget.max_queries, 6);
+    assert_eq!(inventory.targets[0].schedules.len(), 2);
+    for schedule in &inventory.targets[0].schedules {
+        assert_eq!(schedule.every_seconds, 300, "native acceptance uses the actual unchanged standard cadence");
+        assert_eq!(schedule.budget.max_queries, 6);
+    }
+    let schedule = inventory.targets[0].schedules.iter().find(|schedule| schedule.id == "postgres.activity").unwrap();
     let ScheduledCollection::Activity { policy } = &schedule.collection else { panic!() };
     assert_eq!(policy.blocked_after_ms, 30_000, "native acceptance pays the actual standard attention threshold");
     assert_eq!(policy.running_after_ms, 60_000);
@@ -78,6 +66,39 @@ fn configured_spec(
         plan.profiles.values().all(|profile| profile.qualification().is_none() && profile.builtin_policy().is_some())
     );
     (config, workspace, plan)
+}
+
+fn configured_workspace(
+    source: &culprit_core::ConnectionSpec,
+    password_env: &str,
+    directory: &Path,
+    connection: &str,
+) -> (CollectorConfig, Workspace) {
+    let mut config = super::super::tests::config(directory);
+    config.source_credentials.clear();
+    config.monitoring = MonitoringPolicy::Standard { budget: CollectionBudget::default() };
+    let target = &mut config.inventory.targets[0];
+    target.id = connection.into();
+    target.connection = connection.into();
+    target.admission_group = "owned-native-instance".into();
+    target.schedules.clear();
+    let workspace = Workspace::open_in(&config.workspace).with_secrets(Arc::new(Memory::default()));
+    workspace
+        .add_connection(NewConnection {
+            name: connection.into(),
+            input: format!(
+                "postgres://postgres@127.0.0.1:{}/{}?sslmode=disable",
+                source.port.unwrap(),
+                source.database.as_ref().unwrap()
+            ),
+            engine: Some(Engine::Postgres),
+            environment: Environment::Local,
+            auth: Some(AuthKind::Password),
+            password_env: Some(password_env.into()),
+            ..Default::default()
+        })
+        .unwrap();
+    (config, workspace)
 }
 
 async fn step(
@@ -121,24 +142,26 @@ async fn prove(fixture: &mut MaintenanceFixture, recover_at_default_cadence: boo
         step(&mut runner, &fixture.cancellation, &mut events).await;
         assert_eq!(events[0].schedule, "postgres.activity");
         step(&mut runner, &fixture.cancellation, &mut events).await;
+        assert_eq!(events[1].schedule, "postgres.settings", "the due second baseline remains genuinely scheduled");
+        step(&mut runner, &fixture.cancellation, &mut events).await;
         assert_eq!(
-            events[1].schedule, "postgres.blocking",
-            "the controller selects the original lock question automatically"
+            events[2].schedule, "postgres.blocking",
+            "the controller selects the original lock question after the current periodic-first fairness policy"
         );
         assert!(
-            started.elapsed() >= Duration::from_secs(culprit_collector::fleet::MIN_RESOURCE_GAP_SECONDS.into()),
-            "the real scheduler must pay its resource cooldown, without advancing control time"
+            started.elapsed() >= Duration::from_secs(2 * u64::from(culprit_collector::fleet::MIN_RESOURCE_GAP_SECONDS)),
+            "the real scheduler must pay both resource cooldowns, without advancing control time"
         );
         // Same original fixture transactions/CREATE owner are settled, never replaced to manufacture recovery.
         fixture.release_and_complete().await;
         if recover_at_default_cadence {
             step(&mut runner, &fixture.cancellation, &mut events).await;
-            assert_eq!(events[2].schedule, "postgres.activity");
+            assert_eq!(events[3].schedule, "postgres.activity");
             assert!(started.elapsed() >= Duration::from_secs(300));
         }
     }
     let baseline_capture = events[0].capture.as_ref().unwrap();
-    let focused_capture = events[1].capture.as_ref().unwrap();
+    let focused_capture = events[2].capture.as_ref().unwrap();
     let baseline = Box::new(
         outbox.diagnostic_input(&baseline_capture.observation_id, DIAGNOSTIC_CONTROLLER_VERSION).await.unwrap(),
     );
@@ -179,14 +202,14 @@ async fn prove(fixture: &mut MaintenanceFixture, recover_at_default_cadence: boo
             metrics.templates.iter().map(|template| template.completed_tasks).sum::<u32>(),
             manifest.source_queries
         );
-        assert_eq!(manifest.request.budget.max_queries, [6, 25, 6][index]);
+        assert_eq!(manifest.request.budget.max_queries, [6, 6, 25, 6][index]);
         assert!(manifest.source_queries <= manifest.request.budget.max_queries);
         source_queries += manifest.source_queries;
         originals
             .push(serde_json::json!({ "capture": capture, "source_queries_including_setup": manifest.source_queries,
             "source": manifest.description, "read_metrics": metrics }));
     }
-    assert!(source_queries <= if recover_at_default_cadence { 37 } else { 31 });
+    assert!(source_queries <= if recover_at_default_cadence { 43 } else { 37 });
     // Working checkpoints retire resolved episodes. Their canonical revision files remain the authority.
     let mut archive = archive::NativeArchive::create(&directory, &fixture.cancellation).await.unwrap();
     let mut revisions = Vec::new();
@@ -194,7 +217,7 @@ async fn prove(fixture: &mut MaintenanceFixture, recover_at_default_cadence: boo
     for entry in archive::retained(&outbox, &fixture.cancellation).await.unwrap() {
         assert_ne!(entry.request.collection(), TelemetryCollection::DerivedDiagnosis);
         let captured = Box::pin(archive.capture(&outbox, &entry, &fixture.cancellation)).await.unwrap();
-        if recover_at_default_cadence && captured.original.capture == *events[2].capture.as_ref().unwrap() {
+        if recover_at_default_cadence && captured.original.capture == *events[3].capture.as_ref().unwrap() {
             recovery_original = Some(Box::new(captured));
         } else {
             revisions.extend(captured.revisions);
@@ -214,7 +237,7 @@ async fn prove(fixture: &mut MaintenanceFixture, recover_at_default_cadence: boo
         let proof = history.latest.recovery.as_ref().unwrap();
         let recovered = recovery_original.as_ref().unwrap();
         assert_eq!(proof.capture(), &recovered.original);
-        assert_eq!(proof.capture().capture, *events[2].capture.as_ref().unwrap());
+        assert_eq!(proof.capture().capture, *events[3].capture.as_ref().unwrap());
         assert!(proof.matches_source(&history.latest, &recovered.source, &recovered.original));
     } else {
         assert!(active);
@@ -257,8 +280,8 @@ async fn prove(fixture: &mut MaintenanceFixture, recover_at_default_cadence: boo
             "controller_elapsed_ms": started.elapsed().as_millis().to_string(),
             "default_attention_ms": 30_000, "default_period_seconds": 300,
             "trigger": "native-lock-wait-point", "duration_threshold_exercised": false,
-            "source_capture_cap": if recover_at_default_cadence { 3 } else { 2 },
-            "source_query_cap_including_each_setup": if recover_at_default_cadence { 37 } else { 31 },
+            "source_capture_cap": if recover_at_default_cadence { 4 } else { 3 },
+            "source_query_cap_including_each_setup": if recover_at_default_cadence { 43 } else { 37 },
             "native_source_queries_including_setup": source_queries,
             "default_cadence_recovery_exercised": recover_at_default_cadence,
             "measured_cpu": null, "measured_cost_qualification": false,

@@ -444,7 +444,7 @@ impl<R: crate::read::NativeRead> TelemetrySource for Source<R> {
 }
 
 #[cfg(test)]
-mod history_tests;
+pub(crate) mod history_tests;
 
 #[cfg(test)]
 mod native_history;

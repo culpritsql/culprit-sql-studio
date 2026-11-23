@@ -96,17 +96,25 @@ async fn prove(fixture: &mut ReadableSecondaryFixture) {
     let backend = plan.backend(&workspace);
     let started = tokio::time::Instant::now();
     let mut events = Vec::new();
+    let oracle;
     {
         let mut runner = FleetRunner::new(&backend, inventory, &config.shard, &journal, &mut outbox).unwrap();
         Box::pin(step(&mut runner, &fixture.cancellation, &mut events)).await;
         assert_eq!(events[0].schedule, "postgres.activity");
+        // Start the genuine120s replay conflict immediately after the adverse original. The admitted focus
+        // precedes stable Settings, but still pays the same60s resource cooldown before its native read.
         Box::pin(fixture.begin_replay_conflict()).await;
         Box::pin(step(&mut runner, &fixture.cancellation, &mut events)).await;
         assert_eq!(events[1].schedule, "postgres.readable-secondary-recovery");
-        assert!(started.elapsed() >= Duration::from_secs(culprit_collector::fleet::MIN_RESOURCE_GAP_SECONDS.into()));
+        assert!(
+            started.elapsed() >= Duration::from_secs(u64::from(culprit_collector::fleet::MIN_RESOURCE_GAP_SECONDS))
+        );
+        // Observe the same live relation edge before the next cooldown can reach the server's conflict
+        // cancellation boundary. This is the existing single oracle read, not a synthetic edge or retry.
+        oracle = Box::pin(fixture.relation_edge_observed()).await;
     }
-    let baseline_capture = events[0].capture.as_ref().unwrap();
-    let focused_capture = events[1].capture.as_ref().unwrap();
+    let baseline_capture = events[0].capture.as_ref().unwrap().clone();
+    let focused_capture = events[1].capture.as_ref().unwrap().clone();
     let baseline = Box::new(
         outbox.diagnostic_input(&baseline_capture.observation_id, DIAGNOSTIC_CONTROLLER_VERSION).await.unwrap(),
     );
@@ -138,7 +146,7 @@ async fn prove(fixture: &mut ReadableSecondaryFixture) {
     let snapshot = selected.source.observation.snapshot().unwrap();
     assert_eq!(snapshot.coverage_state().unwrap(), culprit_core::SourceState::Partial);
     let readers = point.native_blocking_readers();
-    let oracle = Box::pin(fixture.relation_edge_observed()).await;
+
     if oracle {
         assert_eq!(readers.len(), 1, "a real generation-qualified relation edge must survive the production decoder");
     }
@@ -163,10 +171,27 @@ async fn prove(fixture: &mut ReadableSecondaryFixture) {
         },
         budget: intent.budget.clone(),
     };
+    // Qualify the strict8-query LIVE branch while the same reader still holds its original statement.
+    // Settings' next60s cooldown can reach the real120s conflict deadline; an ended branch legitimately
+    // needs less native work and cannot prove live-path budget refusal.
     let short_caller = Box::pin(fixture.short_caller_source(&request)).await;
+    {
+        // The existing journal restores both completed jobs and resource cooldown. Keep the same Outbox,
+        // native ownership and journal; this is not a new enrollment or an admission-clock reset.
+        let mut runner = FleetRunner::new(&backend, inventory, &config.shard, &journal, &mut outbox).unwrap();
+        Box::pin(step(&mut runner, &fixture.cancellation, &mut events)).await;
+        assert_eq!(events[2].schedule, "postgres.settings", "stable Settings still runs after the admitted focus");
+        assert!(
+            started.elapsed() >= Duration::from_secs(2 * u64::from(culprit_collector::fleet::MIN_RESOURCE_GAP_SECONDS))
+        );
+    }
 
-    for event in &events {
+    assert_eq!(events.len(), 3);
+    let mut normal_source_queries = 0_u32;
+    for (event, ceiling) in events.iter().zip([6, 9, 6]) {
         let value = outbox.verify(&event.capture.as_ref().unwrap().observation_id).await.unwrap();
+        assert_eq!(value.request.budget.max_queries, ceiling);
+        normal_source_queries = normal_source_queries.checked_add(value.source_queries).unwrap();
         assert_eq!(value.status, CollectionStatus::Complete);
         let metrics = value.read_metrics.as_ref().unwrap();
         assert!(metrics.is_valid() && !metrics.has_unconfirmed_work());
@@ -174,6 +199,7 @@ async fn prove(fixture: &mut ReadableSecondaryFixture) {
         assert_eq!(metrics.templates.iter().map(|row| row.completed_tasks).sum::<u32>(), value.source_queries);
         assert!(value.source_queries <= value.request.budget.max_queries);
     }
+    assert!(normal_source_queries <= 21, "two genuine baselines plus the original recovery follow-up");
     let mut archive = archive::NativeArchive::create(&directory, &fixture.cancellation).await.unwrap();
     let mut revisions = Vec::new();
     for entry in archive::retained(&outbox, &fixture.cancellation).await.unwrap() {
@@ -184,7 +210,7 @@ async fn prove(fixture: &mut ReadableSecondaryFixture) {
     let SourceReadStageState::Answered { answer } = &stage.state else {
         panic!("actual controller must retain its independent typed answer")
     };
-    assert_eq!(answer.result().capture, *focused_capture);
+    assert_eq!(answer.result().capture, focused_capture);
     assert_eq!(history.latest.first, original.reference);
     let stored = Box::pin(synthesis.drain(&mut outbox, &mut archive, &fixture.cancellation)).await.unwrap();
     let incident =
@@ -214,6 +240,7 @@ async fn prove(fixture: &mut ReadableSecondaryFixture) {
     write_receipt(RecoveryReceipt {
         plan: &plan,
         events: &events,
+        normal_source_queries,
         point,
         oracle,
         timeout: &timeout,
@@ -251,6 +278,7 @@ fn verify_gold(incident: &DerivedIncident, victim: &ActivityObservation, readers
 struct RecoveryReceipt<'a> {
     plan: &'a Enrollment,
     events: &'a [FleetCollectionEvent],
+    normal_source_queries: u32,
     point: &'a ReadableSecondaryRecoveryPoint,
     oracle: bool,
     timeout: &'a ReadWorkMetrics,
@@ -269,7 +297,13 @@ fn write_receipt(receipt: RecoveryReceipt<'_>) {
     owned::write_automatic_receipt("readable-secondary","automatic-native-recovery.json",&serde_json::json!({
         "native_timeout_metrics":receipt.timeout,"native_cancelled_caller_metrics":receipt.cancelled,
         "strict_caller_eight_metrics":receipt.short_caller,"missing_original_metrics":receipt.missing_metrics,"missing_original_queries_including_setup":receipt.missing_queries,
-        "normal_enrollment":receipt.plan.summary,"events":receipt.events,"source_point":receipt.point,"independent_native_relation_edge":receipt.oracle,
+        "normal_enrollment":receipt.plan.summary,"events":receipt.events,
+        "normal_source_capture_count":receipt.events.len(),"normal_source_query_cap_including_setup":21,
+        "normal_source_query_ceilings_including_setup":[6,9,6],"focused_event_index":1,
+        "replay_conflict_started_after":"postgres.activity","relation_oracle_phase":"after-focused-before-settings",
+        "strict_caller_eight_phase":"after-focused-before-settings","settings_restores_same_journal_and_outbox":true,
+        "normal_source_queries_including_setup":receipt.normal_source_queries,
+        "source_point":receipt.point,"independent_native_relation_edge":receipt.oracle,
         "same_reset_native_changes_across_actual_points":receipt.changes,"qualification_endpoint_metrics":receipt.endpoint_metrics,"qualification_endpoint_queries_including_setup":receipt.endpoint_queries,
         "ended_identity_metrics":receipt.ended_metrics,"ended_identity_queries_including_setup":receipt.ended_queries,"stored_incident":receipt.incident,
         "threshold_running_ms":60_000,"resource_cooldown_seconds":culprit_collector::fleet::MIN_RESOURCE_GAP_SECONDS,

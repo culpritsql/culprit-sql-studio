@@ -179,7 +179,7 @@ pub(super) struct Settings {
 }
 
 pub(super) async fn settings<R: NativeRead>(session: &mut R) -> Result<Settings> {
-    let rows = session.query(sql::OPTIONS, vec![], 1).await.map_err(ReadError::into_error)?;
+    let rows = session.query(&sql::options(), vec![], 1).await.map_err(ReadError::into_error)?;
     let [row] = rows.as_slice() else { return Err(malformed()) };
     if crate::read::optional_boolean(row, "metadata_visibility")? != Some(true) {
         return Err(crate::catalog_visibility::unavailable());

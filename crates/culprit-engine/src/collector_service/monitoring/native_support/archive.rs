@@ -36,6 +36,9 @@ pub(in crate::collector_service::monitoring) struct ArchivedCapture {
     pub source: Box<CollectionDescription>,
     pub revisions: Vec<RetainedRevision>,
     pub incidents: Vec<DerivedIncident>,
+    pub findings: Vec<DerivedFinding>,
+    pub changes: Vec<DerivedChange>,
+    pub settings: Vec<SettingObservation>,
 }
 impl NativeArchive {
     pub async fn create(directory: &Path, cancellation: &CollectionCancellation) -> Result<Box<Self>> {
@@ -125,6 +128,9 @@ impl NativeArchive {
             source: Box::new(manifest.source.clone()),
             revisions: vec![],
             incidents: vec![],
+            findings: vec![],
+            changes: vec![],
+            settings: vec![],
         };
         for batch in &manifest.batches {
             self.check(cancellation)?;
@@ -150,6 +156,9 @@ impl NativeArchive {
                         });
                     }
                     TelemetryRecord::DerivedIncident(incident) => output.incidents.push(incident.as_ref().clone()),
+                    TelemetryRecord::DerivedFinding(finding) => output.findings.push(finding.as_ref().clone()),
+                    TelemetryRecord::DerivedChange(change) => output.changes.push(change.as_ref().clone()),
+                    TelemetryRecord::Setting(setting) => output.settings.push(setting.clone()),
                     _ => (),
                 }
             }

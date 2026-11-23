@@ -10,14 +10,18 @@ mod causal_actors;
 mod changes;
 mod evaluation;
 mod explanations;
+mod finding_rows;
 mod job_executions;
 mod output_budget;
+mod settings;
+mod statement_counters;
 use output_budget::OutputBudget;
+mod incident_queries;
 mod incidents;
 mod queries;
 
 // Advance this policy when retained interpretation changes, including builds sharing a package version.
-pub(crate) const BUILTIN_RULES_VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "/retained-diagnosis-4");
+pub(crate) const BUILTIN_RULES_VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "/retained-diagnosis-5");
 
 pub struct ChecksSynthesizer {
     pipeline: Arc<culprit_checks::Pipeline>,
@@ -109,6 +113,11 @@ impl ChecksSynthesizer {
                 description.context_issues.push(issue);
             }
         }
+        if let Some(issue) = settings::role_limitation(primary)
+            && !description.context_issues.contains(&issue)
+        {
+            description.context_issues.push(issue);
+        }
         if let Some(evaluation) = changes.evaluation() {
             description.change_evaluations.push(evaluation);
             description.output_coverage.changes = DerivedOutputCoverage::Evaluated;
@@ -124,6 +133,17 @@ impl ChecksSynthesizer {
         if matches!(primary.source().observation, SourceObservation::Diagnostics(_)) {
             output.incidents = incidents::project(originals, &description, &mut budget)?;
             description.output_coverage.incidents = DerivedOutputCoverage::Evaluated;
+        }
+        if settings::supports(primary) {
+            let projected = settings::findings(primary, &description, &self.pipeline, &mut budget)?;
+            output.findings = projected.findings;
+            description.finding_evaluations = projected.evaluations;
+            description.output_coverage.findings = DerivedOutputCoverage::Evaluated;
+        }
+        if statement_counters::supports(primary) {
+            description.finding_evaluations = statement_counters::evaluations(primary)?;
+            // The input point is retained and assessed, but missing native application definitions still prevent
+            // running query checks. Keep the existing visible AnalysisSourceUnavailable output limitation.
         }
         if primary.source().query_history().is_some() {
             let projected = queries::findings(primary, &description, &self.pipeline, &catalogs, &mut budget)?;
@@ -268,3 +288,9 @@ mod job_execution_tests;
 
 #[cfg(test)]
 mod metadata_queue_tests;
+
+#[cfg(test)]
+mod settings_tests;
+
+#[cfg(test)]
+mod statement_counter_tests;

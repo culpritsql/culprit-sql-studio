@@ -405,7 +405,15 @@ impl Execution<'_> {
             {
                 return Ok(plan);
             }
-            match (provider.explain_recorded(&query.text, Some(query_id)).await, &query.plan) {
+            let query_log = report
+                .and_then(|report| report.snapshot.workload.as_ref())
+                .is_some_and(|workload| workload.kind == Some(culprit_core::WorkloadKind::QueryLog));
+            let statement = if query_log {
+                culprit_core::RecordedStatement::unscoped(&query.text)
+            } else {
+                culprit_core::RecordedStatement::new(&query.text, &query.id, query.native_identity.as_ref())
+            };
+            match (provider.explain_recorded(statement).await, &query.plan) {
                 (Ok(plan), _) => Ok(plan),
                 // Normalized text (`WHERE id = ?`) can't be planned again; the scan planned a real sample of it.
                 (Err(e), Some(captured))

@@ -1,7 +1,7 @@
 use super::*;
 use culprit_core::collected_analysis::CollectedQueryAnalysisResult;
 use culprit_evidence::original_projection::OriginalProjection;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 
 pub(super) struct FindingProjection {
     pub findings: Vec<DerivedFinding>,
@@ -22,15 +22,14 @@ pub(super) fn findings(
         catalogs,
     )?;
     let database = original.source().target.database().map(IncidentDatabaseSelector::from_route).transpose()?;
-    let mut findings: Vec<DerivedFinding> = Vec::new();
-    let mut identities = BTreeMap::<&str, (&Finding, usize)>::new();
+    let mut findings = finding_rows::FindingRows::new();
     let mut evaluations = evaluation::Evaluations::new();
     for analysis in &analyses {
         evaluations.add(analysis, 0, catalogs.inputs(), original.source().target.engine())?;
         for finding in &analysis.findings {
             let refs = finding_references(original, analysis, finding)?;
             let query = finding_query(original, analysis, finding)?;
-            let mut derived = DerivedFinding {
+            let derived = DerivedFinding {
                 analysis_id: description.analysis_id.clone(),
                 database: database.clone(),
                 display: description.display.clone(),
@@ -40,21 +39,10 @@ pub(super) fn findings(
                 cause: None,
                 guidance: DerivedGuidance::HistoricalRequiresFreshVerification,
             };
-            derived.redact(original.source().target.engine());
-            // One catalog fact can recur in independent workload assessments. Coalesce only identical
-            // source and projected findings; a shared ID never licenses merging populations or causes.
-            if let Some((previous, position)) = identities.get(finding.id.as_str()) {
-                if *previous != finding || findings[*position] != derived {
-                    return Err(invalid());
-                }
-                continue;
-            }
-            budget.admit(&derived)?;
-            identities.insert(&finding.id, (finding, findings.len()));
-            findings.push(derived);
+            findings.admit(finding, derived, original.source().target.engine(), budget)?;
         }
     }
-    Ok(FindingProjection { findings, evaluations: evaluations.finish() })
+    Ok(FindingProjection { findings: findings.finish(), evaluations: evaluations.finish() })
 }
 fn finding_query(
     original: &dyn OriginalProjection,

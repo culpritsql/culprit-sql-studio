@@ -46,6 +46,7 @@ pub(crate) struct Actor {
     pub queries: u32,
     pub cancellation_attempts: u32,
     settlement_failed: bool,
+    output_release: Option<tokio::sync::oneshot::Sender<()>>,
 }
 impl Actor {
     pub async fn open(
@@ -91,6 +92,7 @@ impl Actor {
             queries: 2,
             cancellation_attempts: 0,
             settlement_failed: false,
+            output_release: None,
         })
     }
     #[cfg(test)]
@@ -159,6 +161,47 @@ impl Actor {
     pub(crate) fn start_workload(&mut self, sql: String) -> Result<()> {
         self.start_original(sql)
     }
+    /// The original RowStream stays owned and unpolled until this actor's normal join/retirement.
+    /// Backpressure is observed independently at the database; pausing is never treated as wait evidence.
+    pub(crate) fn start_paused_output(&mut self, sql: String, expected_rows: u64, row_bytes: usize) -> Result<()> {
+        use futures_util::TryStreamExt;
+        case::require_active(&self.cancellation)?;
+        if self.task.is_some() || self.output_release.is_some() || self.settlement_failed {
+            return Err(unconfirmed());
+        }
+        let client = self.client.take().ok_or_else(unconfirmed)?;
+        let cancellation = self.cancellation.clone();
+        let (release, paused) = tokio::sync::oneshot::channel();
+        self.output_release = Some(release);
+        self.queries += 1;
+        self.task = Some(tokio::spawn(async move {
+            let result = match case::require_active(&cancellation) {
+                Err(error) => StatementResult::refused(error),
+                Ok(()) => {
+                    let result = async {
+                        let stream = client
+                            .query_raw(&sql, std::iter::empty::<&(dyn tokio_postgres::types::ToSql + Sync)>())
+                            .await?;
+                        tokio::pin!(stream);
+                        let _ = paused.await;
+                        let mut rows = 0;
+                        while let Some(row) = stream.try_next().await? {
+                            let value: String = row.try_get(0)?;
+                            assert_eq!(value.len(), row_bytes, "the owned output has a fixed finite row width");
+                            rows += 1;
+                            assert!(rows <= expected_rows, "the owned output cannot exceed its declared workload");
+                        }
+                        assert_eq!(rows, expected_rows, "the original output must be fully drained through EOF");
+                        Ok(())
+                    }
+                    .await;
+                    StatementResult::native(result)
+                }
+            };
+            (client, result)
+        }));
+        Ok(())
+    }
     fn start_original(&mut self, sql: String) -> Result<()> {
         case::require_active(&self.cancellation)?;
         if self.task.is_some() || self.settlement_failed {
@@ -185,6 +228,9 @@ impl Actor {
         completion.result
     }
     async fn join_original(&mut self, allowance: Duration) -> Result<StatementResult> {
+        if let Some(release) = self.output_release.take() {
+            let _ = release.send(());
+        }
         let task = self.task.as_mut().ok_or_else(unconfirmed)?;
         let joined = match timeout(allowance, task).await {
             Ok(joined) => joined,

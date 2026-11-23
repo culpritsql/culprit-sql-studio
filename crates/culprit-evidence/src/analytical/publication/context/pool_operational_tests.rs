@@ -25,7 +25,7 @@ fn public_pool_coverage_keeps_dataset_and_gaps_without_minting_native_member_or_
     assert!(source.partition_is_consistent());
     let public = observation(&source.observation).unwrap();
     assert_eq!(public["data"]["snapshot"]["dataset"], "operational");
-    assert_eq!(public["data"]["snapshot"]["sources"].as_array().unwrap().len(), 4);
+    assert_eq!(public["data"]["snapshot"]["sources"].as_array().unwrap().len(), 5);
     assert_eq!(public["data"].as_object().unwrap().len(), 1);
     let text = public.to_string();
     for private in [

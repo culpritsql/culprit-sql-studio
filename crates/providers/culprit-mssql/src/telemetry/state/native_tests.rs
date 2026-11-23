@@ -34,7 +34,9 @@ async fn instance(provider: &MssqlProvider) -> SharedResourceIdentity {
         [
             TelemetryCollection::Snapshot(SnapshotDataset::Jobs),
             TelemetryCollection::DeadlockHistory,
+            TelemetryCollection::Activity,
             TelemetryCollection::Snapshot(SnapshotDataset::PageWaitTargets),
+            TelemetryCollection::Snapshot(SnapshotDataset::ProcessCpu),
             TelemetryCollection::Snapshot(SnapshotDataset::NumaNodes),
             TelemetryCollection::Snapshot(SnapshotDataset::Operational),
         ]

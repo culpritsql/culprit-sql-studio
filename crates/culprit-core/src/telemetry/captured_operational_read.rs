@@ -76,7 +76,7 @@ impl CapturedOperationalRead {
             };
             if !row.is_valid()
                 || matches!(&self.description.observation, SourceObservation::MssqlPoolCurrent { authority, .. }
-                    if authority.native.is_some() && !authority.accepts_operational(row))
+                    if authority.native.is_some() && !authority.accepts_operational(header, row))
                 || !matches!(coverage.state, crate::SourceState::Collected | crate::SourceState::Partial)
                 || !keys.insert((row.source.as_str(), row.key.as_str()))
                 || *count >= coverage.records as usize

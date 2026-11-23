@@ -548,6 +548,7 @@ async fn native_temporary_work_matches_scan_and_capture_without_executing_applic
         .iter()
         .find(|query| query.text.contains("/* culprit_temporary_actor */"))
         .expect("the native application statement remains identifiable without executing its plan");
+    let native_identity = query.native_identity.as_ref().expect("the scan retains this complete native entry identity");
     let work = query.temporary_work.as_ref().unwrap();
     let culprit_core::StatementTemporaryWork::BlockIo {
         bytes_per_block,
@@ -602,7 +603,7 @@ async fn native_temporary_work_matches_scan_and_capture_without_executing_applic
             else {
                 continue;
             };
-            if sample.identity.query_id == query.id {
+            if &sample.identity == native_identity {
                 assert!(captured.is_none(), "one native role/top-level entry belongs to this fixture statement");
                 captured = Some(sample);
             }

@@ -72,6 +72,8 @@ REPLICATION_FIXTURES = (
 POSTGRES_REPLICATION_IMAGES = {"postgres-replication": "postgres:18.6", "postgres-16-replication": "postgres:16"}
 MSSQL_EMPTY_CATALOG_TEST = ("indexes::native_tests::configuration_scale::"
                             "owned_index_and_heap_partition_projection_records_small_and_medium_catalog_work")
+MSSQL_DATABASE_COUNTER_TEST = ("telemetry::state::native_tests::"
+                               "owned_selected_database_performance_counters_use_the_real_factory_and_sealed_original_outbox")
 MSSQL_FULL_TEXT_TESTS = (
     "tables::native_tests::owned_full_text_enabled_and_disabled_rows_match_scan_and_stream_without_starting_a_population",
     "tables::native_tests::owned_full_text_runtime_population_retains_original_after_stop_with_supervisor_owned_background",
@@ -97,9 +99,12 @@ OPTIONAL_NATIVE_MODULES = {
         "local_native_writer_plans_keep_targeted_writes_separate_from_readers_and_other_resources",
         "exact_original_scalar_metadata_is_observed_without_memory_collection",
         "exact_original_scalar_metadata_is_observed_between_memory_source_phases",
-        AG_WORKLOAD_TEST, MSSQL_EMPTY_CATALOG_TEST, *MSSQL_FULL_TEXT_TESTS, MSSQL_SQL2016_TEST,
+        AG_WORKLOAD_TEST, MSSQL_EMPTY_CATALOG_TEST, MSSQL_DATABASE_COUNTER_TEST, *MSSQL_FULL_TEXT_TESTS, MSSQL_SQL2016_TEST,
     ),
 }
+POSTGRES_OUTPUT_CONSUMER_TEST = ("checks_synthesis::explanations::context_tests::native_output_blocking::"
+                                 "owned_client_write_retains_a_relation_lock_and_exact_collateral_victim_through_canonical_gold_and_retirement")
+
 NATIVE_TEST_FEATURES = {
     "culprit-engine": "collector",
     "culprit-postgres": "native-test-support",
@@ -113,6 +118,7 @@ class MySqlAcceptancePolicy:
     test_features: tuple[str, ...]
     seed_current_statements: bool
     startup_options: tuple[str, ...] = ()
+    expected_slow_query_log: str | None = None
 
     def accepts(self, crate, selection):
         return crate == "culprit-engine" and selection.startswith(self.selection)
@@ -144,6 +150,22 @@ MYSQL_METADATA_CONTEXT = MySqlAcceptancePolicy(
         "--performance-schema-instrument=wait/lock/metadata/sql/mdl=ON",
     ),
 )
+MYSQL_SETTINGS = MySqlAcceptancePolicy(
+    "settings",
+    "collector_service::monitoring::mysql_native_tests::settings::normal_builtin_mysql_settings_",
+    MYSQL_AUTOMATIC_BLOCKING.test_features,
+    seed_current_statements=False,
+    startup_options=("--slow-query-log=OFF", "--long-query-time=0.2", "--log-output=FILE"),
+    expected_slow_query_log="OFF",
+)
+MYSQL_SETTINGS_HEALTHY = MySqlAcceptancePolicy(
+    "settings-healthy",
+    MYSQL_SETTINGS.selection,
+    MYSQL_SETTINGS.test_features,
+    seed_current_statements=False,
+    startup_options=("--slow-query-log=ON", "--long-query-time=0.2", "--log-output=FILE"),
+    expected_slow_query_log="ON",
+)
 MYSQL_ACCEPTANCE_CASES = {
     "mysql-automatic-blocking": ("mysql", MYSQL_AUTOMATIC_BLOCKING),
     "mariadb-automatic-blocking": ("mariadb-11.8", MYSQL_AUTOMATIC_BLOCKING),
@@ -151,6 +173,10 @@ MYSQL_ACCEPTANCE_CASES = {
     "mariadb-automatic-recovery": ("mariadb-11.8", MYSQL_AUTOMATIC_RECOVERY),
     "mysql-metadata-context": ("mysql", MYSQL_METADATA_CONTEXT),
     "mariadb-metadata-context": ("mariadb-11.8", MYSQL_METADATA_CONTEXT),
+    "mysql-settings": ("mysql", MYSQL_SETTINGS),
+    "mariadb-settings": ("mariadb-11.8", MYSQL_SETTINGS),
+    "mysql-settings-healthy": ("mysql", MYSQL_SETTINGS_HEALTHY),
+    "mariadb-settings-healthy": ("mariadb-11.8", MYSQL_SETTINGS_HEALTHY),
 }
 
 
@@ -582,6 +608,30 @@ class Database:
         print(f"Removed owned {self.fixture.name} container and anonymous volumes", flush=True)
 
 
+class PostgresOutputConsumerDatabase(Database):
+    """Explicit real ClientWrite plus retained-lock acceptance on the existing disposable PG18 owner."""
+    def seed(self):
+        # The Rust fixture owns its finite schema/workload. No unrelated catalog or HypoPG setup is required.
+        self.prepare_database()
+
+    def verify(self, selected_tests=None):
+        if self.fixture.name != "postgres" or self.fixture.image != "postgres:18.6":
+            raise RuntimeError("output-consumer acceptance requires the existing PostgreSQL18 fixture")
+        tests = selected_tests or [("culprit-engine", POSTGRES_OUTPUT_CONSUMER_TEST)]
+        if tests != [("culprit-engine", POSTGRES_OUTPUT_CONSUMER_TEST)]:
+            raise RuntimeError("output-consumer fixture accepts only its explicit native library selector")
+        directory = os.environ.get("CULPRIT_NATIVE_SAFETY_RECEIPT_DIR")
+        if directory is None:
+            directory = tempfile.mkdtemp(prefix="culprit-postgres-output-consumer-")
+        if not directory:
+            raise RuntimeError("native receipt directory must not be empty")
+        Path(directory).mkdir(parents=True, exist_ok=True)
+        print(self.commands.sanitized(f"  Native output-consumer receipts: {directory}"), flush=True)
+        self.test("culprit-engine", POSTGRES_OUTPUT_CONSUMER_TEST, library=True,
+                  test_features=("postgres-native-tests",),
+                  environment={"CULPRIT_NATIVE_SAFETY_RECEIPT_DIR": directory})
+
+
 class MySqlAcceptanceDatabase(Database):
     """One supervisor for the explicit automatic and deep native library policies."""
     RECEIPT_ENV = "CULPRIT_NATIVE_SAFETY_RECEIPT_DIR"
@@ -613,7 +663,12 @@ class MySqlAcceptanceDatabase(Database):
                       output, indent=2)
             output.write("\n")
         print(self.commands.sanitized(f"  Native safety receipts: {directory}"), flush=True)
-        return {self.RECEIPT_ENV: directory}
+        environment = {self.RECEIPT_ENV: directory}
+        if self.policy.expected_slow_query_log is not None:
+            if self.policy.expected_slow_query_log not in ("OFF", "ON"):
+                raise RuntimeError("Settings acceptance requires an explicit OFF/ON startup expectation")
+            environment["CULPRIT_NATIVE_MYSQL_SETTINGS_EXPECTED_SLOW_QUERY_LOG"] = self.policy.expected_slow_query_log
+        return environment
 
     def verify(self, selected_tests=None):
         if self.fixture.name not in ("mysql", "mariadb-11.8"):
@@ -668,6 +723,7 @@ def selected_mssql_cases(selected_tests, selectors):
 
 MSSQL_DEDICATED_CASES = {
     "mssql-empty-catalog": (EmptyCatalogDatabase, (MSSQL_EMPTY_CATALOG_TEST,)),
+    "mssql-database-counters": (Database, (MSSQL_DATABASE_COUNTER_TEST,)),
     "mssql-fulltext": (FullTextDatabase, MSSQL_FULL_TEXT_TESTS),
 }
 
@@ -889,7 +945,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("fixtures", nargs="+", choices=[f.name for f in FIXTURES + REPLICATION_FIXTURES]
                         + list(POSTGRES_REPLICATION_IMAGES) + list(MYSQL_ACCEPTANCE_CASES) + list(MSSQL_DEDICATED_CASES)
-                        + ["postgres-readable-secondary", "mariadb-galera", "mssql-agent", "mssql-hadr", "mssql-replication", "mysql-moving-replication", "mysql-group-replication", "yugabyte-cluster", "ssh", "all"])
+                        + ["postgres-readable-secondary", "postgres-output-consumer", "mariadb-galera", "mssql-agent", "mssql-hadr", "mssql-replication", "mysql-moving-replication", "mysql-group-replication", "yugabyte-cluster", "ssh", "all"])
     parser.add_argument("--test", nargs=2, action="append", metavar=("CRATE", "FILTER"),
                         help="run only this live test selection; repeat for multiple commands in the same fixture")
     args = parser.parse_args()
@@ -932,6 +988,12 @@ def main():
             with PostgresReplication(primary, standby, OWNER_LABEL) as database:
                 database.verify(args.test)
             count += 1
+    if "postgres-output-consumer" in args.fixtures:
+        fixture = next(fixture for fixture in FIXTURES if fixture.name == "postgres")
+        with PostgresOutputConsumerDatabase(fixture) as database:
+            database.seed()
+            database.verify(args.test)
+        count += 1
     if "postgres-readable-secondary" in args.fixtures:
         primary = Database(Fixture("pg-recovery-primary", "postgres:18.6", "postgres", 5432, "culprit_replication", "postgres"))
         standby = Database(Fixture("pg-recovery-standby", "postgres:18.6", "postgres", 5432, "culprit_replication", "postgres"))

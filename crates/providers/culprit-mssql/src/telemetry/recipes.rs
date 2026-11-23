@@ -373,7 +373,7 @@ const REGISTRATIONS: &[Registration] = &[
     .bounded(backup_history::bounded_budget)
     .on_editions(&[2, 3, 4, 5, 8])
     .version(3),
-    state!("mssql.operational", Operational).baseline().on_editions(&[2, 3, 4, 5, 8]).version(11),
+    state!("mssql.operational", Operational).baseline().on_editions(&[2, 3, 4, 5, 8]).version(12),
     state!("mssql.process-cpu", ProcessCpu)
         .shared(&[RecipeSubject::Shared(SharedResourceKind::Instance)])
         .on_editions(&[2, 3, 4])
@@ -386,7 +386,8 @@ const REGISTRATIONS: &[Registration] = &[
         .baseline()
         .shared(&[RecipeSubject::Shared(SharedResourceKind::Pool)])
         .on_editions(&[crate::probe::ENGINE_EDITION_AZURE_SQL_DATABASE])
-        .bounded(state::pool_operational_budget),
+        .bounded(state::pool_operational_budget)
+        .version(2),
     state!("mssql.shared-operational", Operational)
         .shared(&[RecipeSubject::Shared(SharedResourceKind::Instance)])
         .baseline()
@@ -409,6 +410,11 @@ const REGISTRATIONS: &[Registration] = &[
         .on_editions(&[crate::probe::ENGINE_EDITION_AZURE_SQL_DATABASE])
         .bounded(state::pool_current_budget),
     state!("mssql.wait-counters", WaitCounters).baseline().version(2),
+    state!("mssql.instance-wait-counters", WaitCounters)
+        .shared(&[RecipeSubject::Shared(SharedResourceKind::Instance)])
+        .on_editions(crate::instance::SUPPORTED_EDITIONS)
+        .bounded(state::wait_counter_budget)
+        .baseline(),
     Registration::database(
         "mssql.replication",
         RecipeSelector::Collection(TelemetryCollection::Snapshot(SnapshotDataset::Replication)),
@@ -417,7 +423,7 @@ const REGISTRATIONS: &[Registration] = &[
     .bounded(replication::bounded_budget)
     .baseline()
     .version(4),
-    state!("mssql.settings", Settings).bounded(state::settings_budget).baseline().version(7),
+    state!("mssql.settings", Settings).bounded(state::settings_budget).baseline().version(8),
     Registration::database(
         "mssql.resource-pool-settings",
         RecipeSelector::ResourcePoolSettings,

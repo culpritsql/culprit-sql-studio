@@ -9,6 +9,9 @@ pub(crate) fn policy(
 ) -> Option<BuiltinRecipeSafety> {
     let purpose = match (recipe_id, selector) {
         ("postgres.activity", RecipeSelector::Collection(TelemetryCollection::Activity)) => RecipePurpose::Baseline,
+        ("postgres.settings", RecipeSelector::Collection(TelemetryCollection::Snapshot(SnapshotDataset::Settings))) => {
+            RecipePurpose::Baseline
+        }
         ("postgres.blocking", RecipeSelector::FocusedBlocking) => RecipePurpose::Investigation,
         (
             "postgres.readable-secondary-recovery",
@@ -48,6 +51,23 @@ fn template_fingerprint() -> String {
         include_str!("read/owned.rs"),
         include_str!("read/response.rs"),
         include_str!("rows.rs"),
+        include_str!("telemetry/mod.rs"),
+        include_str!("telemetry/recipes.rs"),
+        include_str!("telemetry/settings_profile.rs"),
+        include_str!("telemetry/statement_profile.rs"),
+        include_str!("native/statements.rs"),
+        include_str!("../../../culprit-core/src/telemetry/statement_counters.rs"),
+        include_str!("telemetry/snapshot_io.rs"),
+        include_str!("native/settings.rs"),
+        include_str!("../../../culprit-read/src/snapshot.rs"),
+        include_str!("../../../culprit-read/src/profile.rs"),
+        include_str!("../../../culprit-core/src/telemetry/snapshot_acquisition.rs"),
+        include_str!("../../../culprit-core/src/telemetry/settings.rs"),
+        include_str!("../../../culprit-core/src/telemetry/settings/context.rs"),
+        include_str!("../../../culprit-core/src/telemetry/settings/mysql.rs"),
+        include_str!("../../../culprit-core/src/telemetry/observation.rs"),
+        include_str!("../../../culprit-core/src/telemetry/source_partition.rs"),
+        include_str!("../../../culprit-core/src/telemetry/native_read_context.rs"),
         include_str!("telemetry/activity.rs"),
         include_str!("telemetry/blocking.rs"),
         include_str!("telemetry/readable_secondary_recovery.rs"),
@@ -95,13 +115,16 @@ mod tests {
                 _ => None,
             })
             .collect::<Vec<_>>();
-        assert_eq!(policies.len(), 3);
+        assert_eq!(policies.len(), 4);
         for (recipe, policy) in policies {
             assert!(recipe.is_valid());
             assert!(verify(policy).unwrap());
             assert!(matches!(
                 recipe.id.as_str(),
-                "postgres.activity" | "postgres.blocking" | "postgres.readable-secondary-recovery"
+                "postgres.activity"
+                    | "postgres.blocking"
+                    | "postgres.readable-secondary-recovery"
+                    | "postgres.settings"
             ));
             assert!(verify_native(policy, 180006).is_ok());
             for version in [170009, 190000] {
@@ -126,7 +149,10 @@ mod tests {
                 .iter()
                 .filter(|recipe| !matches!(
                     recipe.id.as_str(),
-                    "postgres.activity" | "postgres.blocking" | "postgres.readable-secondary-recovery"
+                    "postgres.activity"
+                        | "postgres.blocking"
+                        | "postgres.readable-secondary-recovery"
+                        | "postgres.settings"
                 ))
                 .all(|recipe| matches!(recipe.admission, RecipeAdmission::Unqualified))
         );

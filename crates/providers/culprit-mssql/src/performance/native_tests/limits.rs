@@ -80,6 +80,7 @@ async fn bounded(
     } else {
         None
     };
+    let metrics_after_refusal = reader.read_metrics();
     let settlement = settle(&mut reader).await;
     let stop = result.as_ref().err().map(CollectionStop::from_error);
     let mut receipt = settlement.receipt();
@@ -120,7 +121,7 @@ async fn bounded(
         result?;
         let repeated = repeat.expect("the genuine first read must precede query-budget refusal");
         assert_eq!(CollectionStop::from_error(&repeated.expect_err("query limit refusal")), CollectionStop::QueryLimit);
-        assert_eq!(metrics_before_refusal, settlement.metrics, "refused admission does not change native metrics");
+        assert_eq!(metrics_before_refusal, metrics_after_refusal, "refused admission does not change native metrics");
         assert_eq!(settlement.queries, 1);
     } else if matches!(case, Case::RowCeiling) {
         assert!(matches!(stop, Some(CollectionStop::RowLimit | CollectionStop::CancellationUnconfirmed)));

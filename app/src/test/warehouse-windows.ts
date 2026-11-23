@@ -26,7 +26,7 @@ export function warehouseWindowCase(request: WarehouseWindowQuery, marker = "win
       recorded_at: request.as_of, observed_from: request.window.from, observed_until: request.window.until,
       inputs: [{ capture: original, role: "observation", catalog: null }], origin: "retained-input", input_read_complete: false,
       counts: { incidents: 0, findings: 1, changes: 1 }, output_coverage: { incidents: { state: "context-unavailable", reason: "no-diagnostic-revisions" }, findings: { state: "evaluated" }, changes: { state: "evaluated" } },
-      finding_evaluations: { checks: [], populations: [], population_count: 0, omitted_populations: 0 }, change_evaluations: [], context_issues: [] } },
+      finding_evaluations: { checks: [], assessments: [], assessment_count: 0, omitted_assessments: 0 }, change_evaluations: [], context_issues: [] } },
       limitations: ["Original schema context unavailable"], copies: [gold], native_clock: { kind: "unknown" }, native_window_qualified: false,
       rules: { kind: "other-rules", expected: "current rules" }, read_complete: false,
       findings: [{ finding: { analysis_id: "d".repeat(64), database: request.resource.database,

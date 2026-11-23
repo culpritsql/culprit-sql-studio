@@ -459,7 +459,7 @@ async fn settings_use_one_point_profile_with_source_coverage_and_stable_capture_
     let mut source = StateSource::with_io(FakeRead::new(replies), &request, "fixture.invalid".into(), 1433).unwrap();
     let description = source.describe().await.unwrap();
     let snapshot = description.observation.snapshot().unwrap();
-    assert_eq!(snapshot.records, 30);
+    assert_eq!(snapshot.records, 46);
     assert_eq!(snapshot.sources.len(), 4);
     assert_eq!(
         snapshot.sources.iter().find(|row| row.source == Kind::Server.source().name).unwrap().state,
@@ -487,8 +487,22 @@ async fn settings_use_one_point_profile_with_source_coverage_and_stable_capture_
         .iter()
         .map(|record| ExportedRecord::new(&description, &capture, record.clone()).unwrap().record_id.unwrap())
         .collect::<std::collections::BTreeSet<_>>();
-    assert_eq!(ids.len(), 30);
+    assert_eq!(ids.len(), 46);
+    let options = records
+        .iter()
+        .filter_map(|record| match record {
+            TelemetryRecord::Setting(value) if value.source == Kind::QueryStore.source().name => {
+                assert_eq!(value.namespace, Kind::QueryStore.namespace());
+                assert_eq!(value.scope, Kind::QueryStore.scope());
+                Some((value.name.as_str(), value.nature))
+            }
+            _ => None,
+        })
+        .collect::<std::collections::BTreeMap<_, _>>();
+    assert_eq!(options.len(), 21);
+    assert_eq!(options, crate::query_store::options::fields().collect::<std::collections::BTreeMap<_, _>>());
     assert_eq!(source.finish().await.unwrap(), culprit_core::telemetry::SourceCompletion::Verified);
+    assert_eq!(source.query_count(), 11, "the expanded option roster shares the same native dispatch");
     assert_eq!(source.close().await, SourceShutdown::Quiescent);
 }
 #[tokio::test]

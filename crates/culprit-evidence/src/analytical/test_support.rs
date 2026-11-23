@@ -80,6 +80,7 @@ pub use compilation_intervals::compilation_interval_evidence;
 mod diagnostics;
 mod query_compilation_followup;
 mod transaction_metadata;
+mod transaction_metadata_xmin;
 pub use diagnostics::{assert_diagnostic_capture, diagnostic_evidence_cases};
 pub use query_compilation_followup::{
     QueryCompilationFollowupCase, QueryCompilationOriginal, assert_query_compilation_followup_capture,
@@ -92,6 +93,7 @@ pub use transaction_metadata::{
     transaction_metadata_original, transaction_metadata_original_at, transaction_metadata_result,
     transaction_metadata_result_at, transaction_metadata_slru_original, transaction_metadata_slru_pair,
 };
+pub use transaction_metadata_xmin::{TransactionMetadataXminCase, transaction_metadata_xmin_result};
 mod source_overhead;
 pub use source_overhead::{
     SOURCE_OVERHEAD_QUERY_COUNT, assert_native_source_overhead_summary, connection_source_overhead_read_metrics,
@@ -192,7 +194,9 @@ pub use current_request_work::{
     mssql_current_work_evidence, mssql_current_work_evidence_cases, mssql_current_work_tamper_cases,
     postgres_copy_evidence_cases,
 };
+mod settings_findings;
 mod statement_work;
+pub use settings_findings::{SettingsFindingCase, settings_finding_evidence};
 pub use statement_work::{
     node_statement_work_evidence_cases, statement_outcome_evidence_cases, statement_work_evidence_cases,
 };
@@ -1145,3 +1149,6 @@ pub use readable_secondary_recovery::{
 
 mod readable_resource_history;
 pub use readable_resource_history::readable_resource_history_case;
+
+mod global_settings_findings;
+pub use global_settings_findings::{GlobalSettingsFindingCase, global_settings_finding_evidence};

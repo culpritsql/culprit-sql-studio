@@ -6,9 +6,11 @@ use crate::{
     rows::iso,
 };
 use culprit_core::i18n::{Message, MessageValue};
-use culprit_core::{
-    Engine, PlanKind, QueryFamily, QueryStat, Result, Setting, SnapshotOptions, Spread, WaitStat, Workload, t,
+use culprit_core::telemetry::{
+    CollectionStop, MeasurementValue, RuntimeMetric, RuntimeMetricKey, RuntimeMetricUnit, StatementCounter,
+    StatementQueryMetrics,
 };
+use culprit_core::{Engine, PlanKind, QueryFamily, QueryStat, Result, Setting, SnapshotOptions, WaitStat, Workload, t};
 
 pub(crate) struct CollectedWorkload {
     pub(crate) workload: Workload,
@@ -20,6 +22,54 @@ pub(crate) struct CollectedWorkload {
     pub(crate) status: Vec<Setting>,
     /// Disk read/write time across all statements (zero unless track_io_timing is on).
     pub(crate) io_ms: f64,
+}
+
+/// Native columns retain their source units; the common projection owns exact-count and QueryStat policy.
+fn query_stat(row: &crate::rows::Row) -> Result<QueryStat> {
+    let mut counters = Vec::new();
+    for (column, key, unit) in [
+        ("calls", RuntimeMetricKey::Executions, RuntimeMetricUnit::Count),
+        ("total_ms", RuntimeMetricKey::Duration, RuntimeMetricUnit::Milliseconds),
+        ("rows", RuntimeMetricKey::Rows, RuntimeMetricUnit::Count),
+        ("reads", RuntimeMetricKey::LogicalReads, RuntimeMetricUnit::Count),
+        ("phys", RuntimeMetricKey::PhysicalReads, RuntimeMetricUnit::Count),
+    ] {
+        let total = if unit == RuntimeMetricUnit::Count {
+            row.text(column).map(MeasurementValue::Integer)
+        } else {
+            row.number(column).map(MeasurementValue::Real)
+        };
+        if let Some(total) = total {
+            counters.push(StatementCounter { key, unit, total });
+        }
+    }
+    let distribution = RuntimeMetric {
+        key: RuntimeMetricKey::Duration,
+        unit: RuntimeMetricUnit::Milliseconds,
+        average: row.number("mean_ms"),
+        minimum: row.number("min_ms").map(MeasurementValue::Real),
+        maximum: row.number("max_ms").map(MeasurementValue::Real),
+        last: None,
+        standard_deviation: row.number("stddev_ms"),
+    };
+    // This scan query computes one native aggregate. It does not claim a reset-qualified retained entry.
+    let metrics = StatementQueryMetrics::from_counters(&counters, Some(&distribution))?
+        .ok_or_else(|| CollectionStop::InvalidPage.error())?;
+    let mut query = metrics.into_query(row.string("id"), row.string("query"));
+    query.temporary_work = crate::native::statements::temporary_work(row)?;
+    query.native_identity = Some(crate::native::statements::scan_identity(row)?);
+    // stats_since is the counter lifetime, not the first execution of this SQL.
+    // Disk time is the only part of a statement's time PostgreSQL measures per statement.
+    if let Some(ms) = row.number("io_ms").filter(|ms| *ms > 0.0) {
+        query.waits.push(WaitStat {
+            mechanism: None,
+            category: "IO".into(),
+            wait_type: Some(t!("provider.postgres.wait.data_files")),
+            wait_ms: ms,
+            tasks: None,
+        });
+    }
+    Ok(query)
 }
 
 pub(crate) async fn collect_workload(
@@ -80,59 +130,7 @@ async fn collect_with_base(
         limit = options.top_queries.max(1)
     );
     let rows = query(client, &top_sql).await?;
-    let mut queries: Vec<QueryStat> = rows
-        .iter()
-        .map(|r| {
-            Ok(QueryStat {
-                native_identity: None,
-                native_plan_identity: None,
-                plan_history: None,
-                variant_family: None,
-                resolved_write_target: None,
-                requests: None,
-                id: r.string("id"),
-                query_hash: None,
-                text: r.string("query"),
-                parameters: None,
-                object_name: None,
-                executions: r.number("calls").unwrap_or(0.0),
-                total_time_ms: r.number("total_ms").unwrap_or(0.0),
-                mean_time_ms: r.number("mean_ms").unwrap_or(0.0),
-                max_time_ms: r.number("max_ms"),
-                stddev_time_ms: r.number("stddev_ms"),
-                cpu_time_ms: None,
-                rows: r.number("rows"),
-                logical_reads: r.number("reads"),
-                physical_reads: r.number("phys"),
-                temporary_work: crate::native::statements::temporary_work(r)?,
-                first_seen: r.text("first_seen"),
-                last_seen: None,
-                plans: Vec::new(),
-                plan: None,
-                // Disk time is the only part of a statement's time PostgreSQL measures per statement.
-                waits: r
-                    .number("io_ms")
-                    .filter(|ms| *ms > 0.0)
-                    .map(|ms| {
-                        vec![WaitStat {
-                            mechanism: None,
-                            category: "IO".into(),
-                            wait_type: Some(t!("provider.postgres.wait.data_files")),
-                            wait_ms: ms,
-                            tasks: None,
-                        }]
-                    })
-                    .unwrap_or_default(),
-                waits_coverage: None,
-                trend: None,
-                spread: r.number("min_ms").map(|min_ms| Spread { min_ms: Some(min_ms), ..Default::default() }),
-                costs: None,
-                // PostgreSQL's `rows` counts rows returned and rows changed alike.
-                rows_affected: None,
-                plan_id: None,
-            })
-        })
-        .collect::<Result<_>>()?;
+    let mut queries = rows.iter().map(query_stat).collect::<Result<Vec<_>>>()?;
     // The text of each statement as this login ran it, when it did: the only text an elevated login plans, so what is
     // planned is what passed that check, never another role's copy of the same statement.
     let own: std::collections::HashMap<String, String> =
@@ -465,9 +463,9 @@ mod tests {
     }
 
     #[test]
-    fn one_row_per_statement_whichever_roles_ran_it() {
+    fn one_row_per_native_entry_keeps_roles_and_lifetimes_separate() {
         let base = statements_base("public.pg_stat_statements", 160_000);
-        assert!(base.contains("GROUP BY queryid"), "{base}");
+        assert!(base.contains("GROUP BY queryid, userid, dbid, toplevel"), "{base}");
         assert!(base.contains("sum(calls) AS calls") && base.contains("sum(total_exec_time) AS total_ms"));
         assert!(base.contains("max(max_exec_time) AS max_ms") && base.contains("min(min_exec_time) AS min_ms"));
         // Pooled spread: each entry's own and how far its mean sits from the statement's.
@@ -485,9 +483,12 @@ mod tests {
         assert!(!base.contains("regrole"), "{base}");
         let old = statements_base("public.pg_stat_statements", 120_000);
         assert!(
-            old.contains("sum(total_time)") && !old.contains("toplevel") && old.contains("NULL::text AS first_seen")
+            old.contains("sum(total_time)") && !old.contains("toplevel") && old.contains("NULL::text AS stats_since")
         );
-        assert!(statements_base("s.pg_stat_statements", 170_000).contains("min(stats_since)"));
+        let recent = statements_base("s.pg_stat_statements", 170_000);
+        assert!(recent.contains("GROUP BY queryid, userid, dbid, toplevel, stats_since"));
+        assert!(recent.contains("bool_and(minmax_stats_since = stats_since)"));
+        assert!(!recent.contains("AS first_seen"));
         assert!(statements_base_legacy("s.pg_stat_statements").contains("GROUP BY queryid"));
     }
 
@@ -513,3 +514,11 @@ mod tests {
         assert_eq!(plan_notes(3, 5, 2).map(|note| note.render()), Some(format!("{failed} {others}")));
     }
 }
+
+#[cfg(test)]
+#[path = "workload/query_metrics_tests.rs"]
+mod query_metrics_tests;
+
+#[cfg(test)]
+#[path = "workload/entry_identity_tests.rs"]
+mod entry_identity_tests;

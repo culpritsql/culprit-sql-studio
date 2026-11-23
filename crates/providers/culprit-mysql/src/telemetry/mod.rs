@@ -9,6 +9,8 @@ mod recipes;
 mod resources;
 mod runtime_distributions;
 mod session_memory;
+mod settings_profile;
+mod snapshot_io;
 use crate::{
     connect::{Connector, Scope},
     native::{
@@ -19,7 +21,8 @@ use crate::{
     rows::Rec,
     vars::VariableSet,
 };
-use culprit_core::{Error, ErrorCode, MeasurementScope, Result, telemetry::*};
+use culprit_core::MeasurementScope;
+use culprit_core::{Error, ErrorCode, Result, telemetry::*};
 use culprit_read::{ReadBatch, SnapshotReader, SnapshotRecheck, SnapshotRecord, SnapshotScope, SnapshotSource};
 use std::{
     collections::{BTreeMap, BTreeSet, VecDeque},
@@ -62,9 +65,7 @@ impl Recipe {
         budget: &CollectionBudget,
     ) -> Result<String> {
         match self {
-            Self::Settings => {
-                Ok(VariableSet::Configuration.query(&crate::catalog::settings_names(meta.connection.flavor)))
-            }
+            Self::Settings => native::settings::query(meta.connection.flavor),
             Self::Replication => {
                 Ok(native::replication::query(meta.connection.flavor, &meta.connection.version).into())
             }
@@ -112,23 +113,7 @@ impl Recipe {
                     budget.max_sql_bytes as usize,
                 )?)),
             )?)),
-            Self::Settings => Ok(TelemetryRecord::Setting(SettingObservation {
-                source: self.source().into(),
-                namespace: "global".into(),
-                name: native::text(row, "variable_name")?.to_ascii_lowercase(),
-                scope: MeasurementScope::Server,
-                nature: SettingNature::Configuration,
-                value: None,
-                value_in_use: row.native_text("value")?,
-                value_for_secondary: None,
-                unit: None,
-                native_context: Some("global".into()),
-                native_source: None,
-                pending_restart: None,
-                native_is_default: None,
-                default_value: None,
-                default_source: SettingDefaultSource::Unknown,
-            })),
+            Self::Settings => native::settings::decode(row, meta.connection.flavor).map(TelemetryRecord::Setting),
         }
     }
 }
@@ -145,10 +130,16 @@ pub(crate) fn safety_source(
         RecipeSelector::Collection(TelemetryCollection::Activity) => {
             activity::profile_source(connector, request, profile)
         }
+        RecipeSelector::Collection(TelemetryCollection::Snapshot(SnapshotDataset::Settings)) => {
+            settings_profile::source(connector, request, profile)
+        }
         RecipeSelector::FocusedBlocking => blocking::profile_source(connector, request, profile),
         RecipeSelector::FocusedMetadataLocks => blocking::metadata_profile_source(connector, request, profile),
         _ => Err(native::invalid()),
     }
+}
+pub(crate) fn profile_selectors() -> Vec<RecipeSelector> {
+    recipes::profile_selectors()
 }
 pub(crate) fn recipes() -> Vec<RecipeDescriptor> {
     recipes::declarations()
@@ -179,6 +170,7 @@ fn snapshot_source(
         metadata: None,
         layout: None,
         budget: request.budget.clone(),
+        generation: None,
     };
     Ok(Box::new(SnapshotSource::new(reader, request)?))
 }
@@ -195,8 +187,8 @@ fn shared_instance(request: &CollectionRequest, dataset: SnapshotDataset) -> Res
 }
 
 pub(crate) use resources::discover;
-struct MysqlSnapshotReader {
-    io: ReadSession,
+struct MysqlSnapshotReader<R = ReadSession> {
+    io: R,
     connector: Arc<Connector>,
     declared: Vec<Recipe>,
     pending: VecDeque<Recipe>,
@@ -207,12 +199,60 @@ struct MysqlSnapshotReader {
     metadata: Option<Metadata>,
     layout: Option<native::statements::Layout>,
     budget: CollectionBudget,
+    generation: Option<u64>,
+}
+impl<R: snapshot_io::SnapshotIo> MysqlSnapshotReader<R> {
+    fn check_held_profile(&self) -> Result<()> {
+        self.connector.check_profile()?;
+        if let Some(profile) = self.connector.profile() {
+            let generation = self.io.snapshot_generation();
+            if self.generation.is_some_and(|original| generation != Some(original)) {
+                return Err(CollectionStop::SourceChanged.error());
+            }
+            profile.check_connection(generation)?;
+        }
+        Ok(())
+    }
 }
 #[async_trait::async_trait]
-impl SnapshotReader for MysqlSnapshotReader {
+impl<R: snapshot_io::SnapshotIo> SnapshotReader for MysqlSnapshotReader<R> {
     type Row = Rec;
+    fn check_lifetime(&self) -> Result<()> {
+        self.check_held_profile()
+    }
     async fn describe(&mut self, _: &CollectionRequest) -> Result<CollectionDescription> {
-        let meta = metadata::read(&mut self.io, &self.connector).await?;
+        self.check_held_profile()?;
+        let opening = self.io.connection_generation();
+        let acquired = self.connector.profile().is_some();
+        let meta = if acquired {
+            metadata::settings(&mut self.io, &self.connector).await?
+        } else {
+            metadata::read(&mut self.io, &self.connector).await?
+        };
+        let execution = if acquired {
+            if !matches!(self.declared.as_slice(), [Recipe::Settings]) {
+                return Err(native::invalid());
+            }
+            settings_profile::verify_metadata(&meta, self.connector.profile())?;
+            let generation = self
+                .io
+                .connection_generation()
+                .filter(|generation| *generation > 0)
+                .ok_or_else(|| CollectionStop::SourceChanged.error())?;
+            if opening.is_some_and(|original| original != generation) {
+                return Err(CollectionStop::SourceChanged.error());
+            }
+            let context = meta.activity_context(&meta)?;
+            if !context.has_qualified_local_owner() {
+                return Err(CollectionStop::SourceUnavailable.error());
+            }
+            self.connector.profile().ok_or_else(native::invalid)?.bind_native(&context, Some(generation))?;
+            self.generation = Some(generation);
+            self.check_held_profile()?;
+            Some(context)
+        } else {
+            None
+        };
         if self.declared.iter().any(|recipe| matches!(recipe, Recipe::Statements | Recipe::Definitions)) {
             if !meta.connection.performance_schema {
                 return Err(Error::new(ErrorCode::Unsupported, culprit_core::t!("collection.unsupported")));
@@ -226,16 +266,30 @@ impl SnapshotReader for MysqlSnapshotReader {
             target: meta.connection.database.clone().into(),
             source: format!("mysql-{}", self.declared[0].source()),
             continuity: SourceContinuity::Unverified,
-            observation: SourceObservation::PagedSnapshot(PagedSnapshotDescription {
-                dataset: self.declared[0].dataset(),
-                observed_from: meta.connection.at.clone(),
-                sources: self.declared.iter().map(|recipe| recipe.source().into()).collect(),
-            }),
+            observation: {
+                let snapshot = PagedSnapshotDescription {
+                    dataset: self.declared[0].dataset(),
+                    observed_from: meta.connection.at.clone(),
+                    sources: self.declared.iter().map(|recipe| recipe.source().into()).collect(),
+                };
+                match execution {
+                    Some(execution) => SourceObservation::PagedSnapshotAcquisition {
+                        snapshot,
+                        execution: Box::new(execution),
+                        settings_context: Some(NativeSettingsContext {
+                            format: meta.connection.flavor.settings_format(),
+                            version: meta.connection.version.clone(),
+                        }),
+                    },
+                    None => SourceObservation::PagedSnapshot(snapshot),
+                }
+            },
         };
         self.metadata = Some(meta);
         Ok(description)
     }
     async fn begin(&mut self, _: &CollectionRequest) -> Result<()> {
+        self.check_held_profile()?;
         let meta = self.metadata.as_ref().ok_or_else(native::invalid)?;
         for &recipe in &self.declared {
             if matches!(recipe, Recipe::Catalog(native::catalog::Kind::Histograms))
@@ -253,6 +307,7 @@ impl SnapshotReader for MysqlSnapshotReader {
         Ok(())
     }
     async fn next_batch(&mut self) -> Result<ReadBatch<Rec>> {
+        self.check_held_profile()?;
         loop {
             if !self.reading {
                 let recipe = self.pending.pop_front().ok_or_else(native::invalid)?;
@@ -298,6 +353,7 @@ impl SnapshotReader for MysqlSnapshotReader {
                     batch.complete = false;
                 }
             }
+            self.check_held_profile()?;
             return Ok(batch);
         }
     }
@@ -311,8 +367,25 @@ impl SnapshotReader for MysqlSnapshotReader {
         })
     }
     async fn recheck(&mut self, _: &CollectionDescription) -> Result<SnapshotRecheck> {
-        let after = metadata::read(&mut self.io, &self.connector).await?;
+        self.check_held_profile()?;
+        let acquired = self.connector.profile().is_some();
+        let after = if acquired {
+            metadata::settings(&mut self.io, &self.connector).await?
+        } else {
+            metadata::read(&mut self.io, &self.connector).await?
+        };
+        self.check_held_profile()?;
         let before = self.metadata.as_ref().ok_or_else(native::invalid)?;
+        let execution = if acquired {
+            let context = before.activity_context(&after)?;
+            self.connector
+                .profile()
+                .ok_or_else(native::invalid)?
+                .verify_final(&context, self.io.connection_generation())?;
+            Some(Box::new(context))
+        } else {
+            None
+        };
         let layout_after =
             if self.layout.is_some() { Some(native::statements::Layout::read(&mut self.io).await?) } else { None };
         let compatible_layout = self.layout.as_ref().zip(layout_after.as_ref()).is_none_or(|(a, b)| {
@@ -321,7 +394,11 @@ impl SnapshotReader for MysqlSnapshotReader {
         let complete = self.layout.as_ref().is_none_or(|layout| layout.overflow_calls == 0)
             && layout_after.as_ref().is_none_or(|layout| layout.overflow_calls == 0);
         Ok(SnapshotRecheck {
-            execution: None,
+            settings_context: acquired.then(|| NativeSettingsContext {
+                format: after.connection.flavor.settings_format(),
+                version: after.connection.version.clone(),
+            }),
+            execution,
             unchanged: before.same_source(&after) && compatible_layout,
             observed_until: after.connection.at,
             scopes: self

@@ -20,26 +20,22 @@ fn actual_episode_and_waiter_keep_owned_native_results_off_the_poll_stack() {
     });
     assert_owned_phase(
         "concrete native waiter observation body",
-        |(fixture, owner, submitting, actor, statement, holder, source): (
+        |(fixture, owner, submitting, basis, native_work): (
             &'static mut Fixture,
             &'static mut OwnedCaptures,
             &'static Notify,
-            &'static probe::Actor,
-            &'static CachedStatementContext,
-            &'static ExecutionGrantObservation,
-            &'static CollectionDescription,
-        )| { capture_waiter(fixture, owner, submitting, actor, statement, holder, source) },
+            WaiterBasis<'static>,
+            &'static probe::NativeWork,
+        )| { capture_waiter(fixture, owner, submitting, basis, native_work) },
     );
     assert_owned_phase(
         "waiter capture and original-holder release",
-        |(fixture, owner, submitting, actor, statement, holder, source): (
+        |(fixture, owner, submitting, basis, native_work): (
             &'static mut Fixture,
             &'static mut OwnedCaptures,
             &'static Notify,
-            &'static probe::Actor,
-            &'static CachedStatementContext,
-            &'static ExecutionGrantObservation,
-            &'static CollectionDescription,
-        )| { capture_waiter_and_release(fixture, owner, submitting, actor, statement, holder, source) },
+            WaiterBasis<'static>,
+            &'static probe::NativeWork,
+        )| { capture_waiter_and_release(fixture, owner, submitting, basis, native_work) },
     );
 }

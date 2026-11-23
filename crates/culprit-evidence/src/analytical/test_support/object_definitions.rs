@@ -82,6 +82,15 @@ pub fn object_definition_evidence_cases() -> Vec<(CollectionDescription, Vec<Tel
     for state in [SourceState::Empty, SourceState::Unavailable] {
         cases.push(case(Engine::Mssql, SnapshotDataset::CachedDefinitions, vec![], state));
     }
+    for engine in [Engine::Postgres, Engine::Mysql] {
+        for (state, reason) in [
+            (SourceState::Collected, None),
+            (SourceState::Partial, Some(PayloadUnavailable::Missing)),
+            (SourceState::Partial, Some(PayloadUnavailable::Oversized)),
+        ] {
+            cases.push(statement_definition_case(engine, state, reason));
+        }
+    }
     cases
 }
 
@@ -340,6 +349,41 @@ fn case(
     (source, records)
 }
 
+fn statement_definition_case(
+    engine: Engine,
+    state: SourceState,
+    unavailable: Option<PayloadUnavailable>,
+) -> (CollectionDescription, Vec<TelemetryRecord>) {
+    let source = source(engine, SnapshotDataset::StatementDefinitions, 1, state);
+    let identity = NativeQueryIdentity {
+        query_id: "native-statement-42".into(),
+        qualifiers: [("generation".into(), "native-entry-a".into())].into(),
+    };
+    let sql = "SELECT value FROM items WHERE id = 9264";
+    let definition = QueryDefinition {
+        id: identity.definition_id(&source).unwrap(),
+        identity,
+        origin: StatementOrigin::Unknown,
+        monitoring_template_id: None,
+        variant_family: None,
+        context: Default::default(),
+        context_available: false,
+        source_text_bytes: unavailable.map_or(Some(sql.len().to_string()), |reason| {
+            (reason == PayloadUnavailable::Oversized).then(|| "1000000".into())
+        }),
+        sql: unavailable
+            .map_or_else(|| DefinitionPayload::sql(sql, engine), |reason| DefinitionPayload::Unavailable { reason }),
+    };
+    let record = TelemetryRecord::ObjectDefinition(
+        ObjectDefinitionRecord::new(
+            "native-object-definitions".into(),
+            ObjectDefinitionFact::Statement(Box::new(definition)),
+        )
+        .unwrap(),
+    );
+    (source, vec![record])
+}
+
 fn generic_case(engine: Engine) -> (CollectionDescription, Vec<TelemetryRecord>) {
     let source = source(engine, SnapshotDataset::CachedDefinitions, 3, SourceState::Collected);
     let query = NativeQueryIdentity {
@@ -434,6 +478,9 @@ pub fn assert_object_definition_capture(
         let TelemetryRecord::ObjectDefinition(row) = &verified.row().record else { panic!("exact native definition") };
         assert!(row.is_valid());
         assert_eq!(row.version, digest(&serde_json::to_vec(&row.fact).unwrap()));
+        if let ObjectDefinitionFact::Statement(statement) = &row.fact {
+            assert_eq!(statement.id, statement.identity.definition_id(source).unwrap());
+        }
     }
 }
 

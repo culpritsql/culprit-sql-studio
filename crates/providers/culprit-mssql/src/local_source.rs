@@ -165,6 +165,14 @@ impl Context {
     pub(crate) fn connection_generation(&self) -> Option<u64> {
         self.connection_generation
     }
+
+    /// Only the currently held lease can continue this original local acquisition; retired None is not reuse.
+    pub(crate) fn check_transport(&self, current: Option<u64>) -> Result<()> {
+        if self.connection_generation.is_none_or(|generation| generation == 0 || current != Some(generation)) {
+            return Err(CollectionStop::SourceChanged.error());
+        }
+        Ok(())
+    }
 }
 
 #[derive(Clone, Copy)]

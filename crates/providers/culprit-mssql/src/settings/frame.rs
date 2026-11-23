@@ -28,10 +28,10 @@ pub(super) async fn read<R: NativeRead>(reader: &mut R, sql: &str, limit: usize,
     if !owner.is_qualified() || owner.connection_generation().is_none() {
         return Err(CollectionStop::SourceUnavailable.error());
     }
-    require_connection(reader, owner)?;
+    owner.check_transport(reader.connection_generation())?;
     let batch = format!("{FRAME}\n{sql}");
     let mut rows = reader.query(&batch, vec![], limit).await.map_err(ReadError::into_error)?;
-    require_connection(reader, owner)?;
+    owner.check_transport(reader.connection_generation())?;
     if rows.is_empty() {
         return Err(CollectionStop::SourceUnavailable.error());
     }
@@ -59,14 +59,6 @@ fn require_frame(row: &Rec, owner: &Context) -> Result<()> {
         return Err(CollectionStop::SourceChanged.error());
     }
     Ok(())
-}
-
-fn require_connection(reader: &impl NativeRead, owner: &Context) -> Result<()> {
-    if reader.connection_generation() != owner.connection_generation() {
-        Err(CollectionStop::SourceChanged.error())
-    } else {
-        Ok(())
-    }
 }
 
 #[cfg(test)]

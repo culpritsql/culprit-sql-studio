@@ -20,6 +20,10 @@ pub enum IndexUsageScope {
 #[derive(Serialize, Deserialize, TS, Clone, Debug, Default)]
 #[ts(export)]
 pub struct OperationalStats {
+    /// Raw settings and the actual held acquisition, separate from independent display/statistics values.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub postgres_settings: Option<Box<crate::telemetry::PostgresSettingsRead>>,
     /// Current native indexed-view indexes from the same combined Indexes read. Never a base-table or query owner.
     pub indexed_views: Option<Box<crate::telemetry::MssqlIndexedViewCatalog>>,
     pub indexed_view_originals: Vec<crate::telemetry::RecordedOperationalRead>,
@@ -217,6 +221,7 @@ impl OperationalStats {
             cluster: &'a Option<ClusterHealth>,
         }
         let Self {
+            postgres_settings: _,
             indexed_views: _,
             indexed_view_originals: _,
             source_acquisitions: _,

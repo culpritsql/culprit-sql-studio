@@ -64,8 +64,9 @@ pub fn explain_source(
     {
         return Err(invalid());
     }
-    if source.observation.snapshot().is_none_or(|header| !header.sources.contains(coverage))
-        || pool.is_some_and(|authority| observations.iter().any(|row| !authority.accepts_operational(row)))
+    let snapshot = source.observation.snapshot().ok_or_else(invalid)?;
+    if !snapshot.sources.contains(coverage)
+        || pool.is_some_and(|authority| observations.iter().any(|row| !authority.accepts_operational(snapshot, row)))
     {
         return Err(invalid());
     }

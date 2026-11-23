@@ -1,6 +1,7 @@
 //! What the config check says, word for word, per engine and per setting: its messages come from locales/en.json.
 
 use crate::pins::{fixture, info, pin, pin_text, run, set};
+use crate::postgres_settings_fixture::record_settings_acquisition;
 use culprit_core::{
     Deadlock, DeadlockFix, DeadlockReport, Platform, Pressure, Signal, SignalScope, SignalUnit, Snapshot, WaitStat,
 };
@@ -608,6 +609,7 @@ fn postgres_settings_say_what_they_cost() {
     set(&mut s, "track_io_timing", "off");
     set(&mut s, "autovacuum", "off");
     set(&mut s, "pg_stat_statements.track", "none");
+    record_settings_acquisition(&mut s, true);
     pin(
         "config_postgres_off",
         &config(&s),
@@ -672,6 +674,7 @@ fn autovacuum_scale_names_the_biggest_table() {
     for big in [1, 7] {
         let mut s = fixture("postgres-demo.json");
         set(&mut s, "autovacuum_vacuum_scale_factor", "0.2");
+        record_settings_acquisition(&mut s, true);
         for (i, t) in s.tables.iter_mut().enumerate() {
             t.rows = Some(if i < big { 20_000_000.0 + i as f64 * 1_000_000.0 } else { 1_000.0 });
             (t.updates, t.deletes) = (Some(2_000_000.0), None);
