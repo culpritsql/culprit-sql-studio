@@ -90,16 +90,17 @@ async fn actual_local_database_recovery_epoch_and_readonly_ag_redo_bind_the_read
     assert_eq!(point.native_blocking_readers().len(), 1);
     assert_eq!(point.native_blocking_readers()[0].session, point.focus.original.key.session);
     assert_eq!(reader.query_count(), 14);
-    let calls = reader.io.trace.calls.lock().unwrap();
-    assert_eq!(calls.iter().filter(|sql| sql.contains("drs.is_local=1")).count(), 2);
-    assert_eq!(calls.iter().filter(|sql| sql.contains("native.command IN")).count(), 2);
-    assert!(
-        calls
-            .iter()
-            .filter(|sql| sql.contains("native.command IN"))
-            .all(|sql| sql.contains("native.database_id=DB_ID()") && sql.contains("s.is_user_process=0"))
-    );
-    drop(calls);
+    {
+        let calls = reader.io.trace.calls.lock().unwrap();
+        assert_eq!(calls.iter().filter(|sql| sql.contains("drs.is_local=1")).count(), 2);
+        assert_eq!(calls.iter().filter(|sql| sql.contains("native.command IN")).count(), 2);
+        assert!(
+            calls
+                .iter()
+                .filter(|sql| sql.contains("native.command IN"))
+                .all(|sql| sql.contains("native.database_id=DB_ID()") && sql.contains("s.is_user_process=0"))
+        );
+    }
     assert_eq!(reader.close().await, SourceShutdown::Quiescent);
 }
 #[tokio::test]

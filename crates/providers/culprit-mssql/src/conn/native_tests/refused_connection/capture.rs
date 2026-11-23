@@ -56,7 +56,7 @@ pub(super) async fn attempt(
     };
     let expected_failure =
         outcome == (CollectorCaptureOutcome::Failed { code: culprit_core::ErrorCode::ConnectionFailed });
-    lease.finish_observed(outcome.clone(), started.elapsed().as_secs_f64() * 1000.0).await?;
+    lease.finish_observed(outcome, started.elapsed().as_secs_f64() * 1000.0).await?;
     let receipt = outbox.attempt_receipt(&identity, None).await?;
     let manifest = Box::new(
         Outbox::inspect_manifest(&root.join("outbox"), &identity.observation_id).await?.ok_or_else(invalid_data)?,

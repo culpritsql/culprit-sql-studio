@@ -135,7 +135,7 @@ async fn discover(
     if shutdown != SourceShutdown::Quiescent {
         return Err(CollectionStop::CancellationUnconfirmed.error());
     }
-    if reader.queries() > INSTANCE_DISCOVERY_QUERIES || !matches!(native.engine_edition(), 2 | 3 | 4) {
+    if reader.queries() > INSTANCE_DISCOVERY_QUERIES || !matches!(native.engine_edition(), 2..=4) {
         return Err(invalid_data());
     }
     Ok(Box::new(native))

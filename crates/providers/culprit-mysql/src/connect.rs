@@ -590,7 +590,9 @@ mod tests {
                 active.store(false, Ordering::SeqCst);
             }
             // Endpoint would return loopback, but retirement refuses before Conn::new can make any native attempt.
-            let error = connector.connect_unconfigured().await.err().expect("retired source policy must refuse");
+            let Err(error) = connector.connect_unconfigured().await else {
+                panic!("retired source policy must refuse");
+            };
             assert_eq!(CollectionStop::from_error(&error), CollectionStop::SourceChanged);
             assert_eq!(calls.load(Ordering::SeqCst), usize::from(!retired_before_route));
             assert!(connector.connect_unconfigured().await.is_err());

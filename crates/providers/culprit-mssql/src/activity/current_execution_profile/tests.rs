@@ -144,20 +144,15 @@ async fn exact_held_request_threads_and_selected_parser_context_reuse_native_own
     for writable in [true, false] {
         let focus = current::focus_for_role(writable).await;
         let mut native = replies();
-        for response in &mut native {
-            if let Ok(rows) = response {
-                for row in rows {
-                    *row = replace(
-                        row,
-                        &[
-                            ("updateability", Val::Text(if writable { "READ_WRITE" } else { "READ_ONLY" }.into())),
-                            (
-                                "database_updateability",
-                                Val::Text(if writable { "READ_WRITE" } else { "READ_ONLY" }.into()),
-                            ),
-                        ],
-                    );
-                }
+        for rows in native.iter_mut().flatten() {
+            for row in rows {
+                *row = replace(
+                    row,
+                    &[
+                        ("updateability", Val::Text(if writable { "READ_WRITE" } else { "READ_ONLY" }.into())),
+                        ("database_updateability", Val::Text(if writable { "READ_WRITE" } else { "READ_ONLY" }.into())),
+                    ],
+                );
             }
         }
         let mut reader = reader(current::io(native));

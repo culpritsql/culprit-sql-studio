@@ -95,7 +95,6 @@ async fn constructing_shared_oom_and_pool_operational_profiles_is_read_free_with
         max_plan_bytes: 1024,
         statement_timeout_ms: 20,
         total_timeout_ms: 40,
-        ..other.budget
     };
     other.budget.validate().unwrap();
     let bounded = native_budget(&other);

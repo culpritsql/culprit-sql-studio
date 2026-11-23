@@ -386,7 +386,7 @@ async fn actual_selected_reader_binds_native_index_keys_and_withholds_owner_sql_
         assert_eq!(native.io.queries.len(), 15);
         let selected = if version.contains("MariaDB") { Value::UInt(1) } else { Value::UInt(101) };
         for index in [6, 9] {
-            assert_eq!(native.io.queries[index].1, [selected.clone()]);
+            assert_eq!(native.io.queries[index].1.as_slice(), std::slice::from_ref(&selected));
         }
         for index in [7, 10] {
             assert_eq!(native.io.queries[index].1, [Value::UInt(101)]);
