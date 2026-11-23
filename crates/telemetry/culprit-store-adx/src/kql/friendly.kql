@@ -76,10 +76,11 @@ Rows | join kind=leftsemi ($NConsistentOriginalKeys(Rows)) on ResourceId,TargetI
 .create-or-alter function $NHeadBasis(asof:datetime) {
 let OriginalRows=materialize($NIncidentRows(asof));
 let CompleteResources=$NIncidentCompletenessFromRows(OriginalRows,asof) | summarize Missing=countif(not(IncidentRowsComplete)) by ResourceId | where Missing == 0;
-let Rows=materialize(OriginalRows | join kind=leftsemi CompleteResources on ResourceId);
+let Rows=OriginalRows;
 let Versions=Rows | summarize Revision=max(Revision) by ResourceId,TargetId,OriginalScopeId,OriginalSource,EpisodeId,ControllerVersion;
 Rows | join kind=leftsemi ($NConsistentOriginalKeys(Rows)) on ResourceId,TargetId,OriginalScopeId,OriginalSource,EpisodeId,ControllerVersion,Revision
 | join kind=leftsemi Versions on ResourceId,TargetId,OriginalScopeId,OriginalSource,EpisodeId,ControllerVersion,Revision
+| join kind=leftsemi CompleteResources on ResourceId
 }
 
 .create-or-alter function $NHeads(asof:datetime) {

@@ -465,3 +465,22 @@ fn latest_interpretation_census_precedes_latest_timestamp_and_conflict_refusal_w
         }
     }
 }
+
+#[test]
+fn head_basis_applies_one_whole_resource_veto_after_original_consistency_and_raw_revision_selection() {
+    let assets = configured(binding()).unwrap();
+    let basis = assets
+        .commands
+        .iter()
+        .find(|command| command.starts_with(".create-or-alter function PilotHeadBasis("))
+        .unwrap();
+    let maximum = basis.find("Revision=max(Revision) by ResourceId,").unwrap();
+    let consistency = basis.find("PilotConsistentOriginalKeys(Rows)").unwrap();
+    let raw_head = basis.find("| join kind=leftsemi Versions on ResourceId,").unwrap();
+    let complete = basis.find("| join kind=leftsemi CompleteResources on ResourceId").unwrap();
+    assert!(maximum < raw_head && consistency < raw_head && raw_head < complete);
+    assert_eq!(basis.matches("CompleteResources on ResourceId").count(), 1);
+    assert!(basis.contains("let Rows=OriginalRows;"));
+    assert!(basis.trim_end().ends_with("| join kind=leftsemi CompleteResources on ResourceId\n}"));
+    assert!(!basis.contains("RulesVersion") && !basis.contains("Analyzer"));
+}

@@ -333,6 +333,11 @@ pub(super) async fn run(emulator: &Arc<Emulator>, catalog: &SchemaCatalog) {
         emulator.ingest("CulpritIncidentsV1", &serde_json::to_vec(&row).unwrap());
     }
     assert_eq!(count(emulator, &new_call).await, 0);
+    assert_eq!(
+        count(emulator, &format!("FriendlySmokeHeadBasis(datetime({after}))")).await,
+        0,
+        "an incomplete publication vetoes every raw head for the resource, including older complete captures"
+    );
     let state = emulator
         .values(
             format!("FriendlySmokeStatus({label},datetime({after}),3650d) | project State"),

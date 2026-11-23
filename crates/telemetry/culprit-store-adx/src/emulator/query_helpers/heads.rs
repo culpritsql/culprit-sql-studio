@@ -56,12 +56,12 @@ fn head(commands: &[String], name: &str, input: &str) -> String {
 }
 async fn newer_unpinned_revision(emulator: &Emulator, commands: &[String]) {
     let mut basis = matrix::copied(commands, "FriendlySmokeHeadBasis", "FriendlySmokeHeadRawRevisionBasis");
-    let original = "let Rows=materialize(OriginalRows | join kind=leftsemi CompleteResources on ResourceId);";
+    let original = "let Rows=OriginalRows;";
     assert_eq!(basis.matches(original).count(), 1);
     // Keep the real eligibility/completeness proof. Only this synthetic census's rows gain a newer raw
     // revision, whose foreign rules cannot be accepted by the configured interpretation policy.
     basis = basis.replacen(original,
-        "let Rows=materialize(OriginalRows | join kind=leftsemi CompleteResources on ResourceId | mv-expand CulpritHeadRevision=dynamic([0,1]) to typeof(long) | extend Revision=Revision+todecimal(CulpritHeadRevision),RulesVersion=iff(CulpritHeadRevision == 1,\"not-the-configured-rules\",RulesVersion) | project-away CulpritHeadRevision);", 1);
+        "let Rows=OriginalRows | mv-expand CulpritHeadRevision=dynamic([0,1]) to typeof(long) | extend Revision=Revision+todecimal(CulpritHeadRevision),RulesVersion=iff(CulpritHeadRevision == 1,\"not-the-configured-rules\",RulesVersion) | project-away CulpritHeadRevision;", 1);
     emulator.management(true, &basis);
     let head = head(commands, "FriendlySmokeHeadUnpinnedRawRevision", "FriendlySmokeHeadRawRevisionBasis(asof)");
     emulator.management(true, &head);
