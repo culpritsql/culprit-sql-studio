@@ -2,6 +2,7 @@ mod deployment;
 mod eligibility;
 mod heads;
 mod matrix;
+mod status;
 use super::*;
 use culprit_evidence::analytical::query_helpers::{QueryHelperBinding, QueryHelperPolicy};
 use culprit_evidence::analytical::test_support;
@@ -170,6 +171,7 @@ pub(super) async fn run(emulator: &Arc<Emulator>, catalog: &SchemaCatalog) {
         )
         .await;
     assert_eq!(provenance, vec![vec![json!(false)]]);
+    status::assert_census(emulator, &commands, &label, &after).await;
     let unknown = emulator
         .values(
             "FriendlySmokeStatusNow(\"not-observed\",30m) | project State,PublicationTimeKnown".into(),
@@ -393,4 +395,36 @@ pub(super) async fn run(emulator: &Arc<Emulator>, catalog: &SchemaCatalog) {
         "conflicting first receipts cannot be collapsed into a known onset"
     );
     assert_first_unavailable(emulator, &reference_label, &after).await;
+    let (ambiguous_source, ambiguous_output) = test_support::derived_diagnosis_output(true, false);
+    assert_eq!(ambiguous_output.description.display.connection_alias, output.description.display.connection_alias);
+    let ambiguous = Scenario::new(
+        Recovery::capture(
+            "adx:test",
+            catalog.digest(),
+            ambiguous_source,
+            ambiguous_output.into_records().collect(),
+            6_108,
+        ),
+        emulator.clone(),
+    )
+    .await;
+    assert_ne!(
+        ambiguous.range.manifest().source.target.telemetry_id().unwrap(),
+        first.range.manifest().source.target.telemetry_id().unwrap(),
+        "the ambiguity control publishes a genuinely distinct resource target"
+    );
+    ambiguous.dispatch(emulator).await;
+    ambiguous.publish(emulator).await;
+    let state = emulator
+        .values(
+            format!("FriendlySmokeStatus({label},datetime({after}),3650d) | project State"),
+            BTreeMap::new(),
+            vec![Column { column_name: "State".into(), column_type: "string".into() }],
+        )
+        .await;
+    assert_eq!(
+        state,
+        vec![vec![json!("ambiguous-label")]],
+        "two published native resource targets cannot be selected by one shared display label"
+    );
 }

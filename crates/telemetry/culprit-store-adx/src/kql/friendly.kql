@@ -168,14 +168,12 @@ let Headers=materialize($NCompleteness(asof));
 let Times=Headers | summarize CollectedUntil=max(CollectedUntil) by ResourceId,SourceId,LogicalSourceId;
 let Latest=Headers | join kind=leftsemi Times on ResourceId,SourceId,LogicalSourceId,CollectedUntil;
 let OriginalCounts=$NIncidentRows(asof) | distinct ResourceId,TargetId,OriginalScopeId,OriginalSource,EpisodeId,ControllerVersion | summarize OriginalHeadCount=count() by ResourceId;
-let Selected=materialize($NHeads(asof));
-let SelectedCounts=Selected | summarize SelectedHeadCount=count() by ResourceId;
-let First=$NConsistentOriginals(asof) | where Revision == todecimal(1) | distinct ResourceId,TargetId,OriginalScopeId,OriginalSource,EpisodeId,ControllerVersion;
-let FirstCounts=Selected | join kind=leftanti First on ResourceId,TargetId,OriginalScopeId,OriginalSource,EpisodeId,ControllerVersion | summarize UnavailableFirstCount=count() by ResourceId;
+let First=$NConsistentOriginals(asof) | where Revision == todecimal(1) | distinct ResourceId,TargetId,OriginalScopeId,OriginalSource,EpisodeId,ControllerVersion | extend HasFirstOriginal=true;
+let SelectedCounts=$NHeads(asof) | join kind=leftouter First on ResourceId,TargetId,OriginalScopeId,OriginalSource,EpisodeId,ControllerVersion
+    | summarize SelectedHeadCount=count(),UnavailableFirstCount=countif(isnull(HasFirstOriginal)) by ResourceId;
 Latest
 | join kind=leftouter OriginalCounts on ResourceId
 | join kind=leftouter SelectedCounts on ResourceId
-| join kind=leftouter FirstCounts on ResourceId
 | extend UnselectedHeads=coalesce(OriginalHeadCount,0)-coalesce(SelectedHeadCount,0),UnavailableFirst=coalesce(UnavailableFirstCount,0)
 | project ResourceId,SourceId,LogicalSourceId,Alias,DatabaseName,DatabaseNameKnown=isnotnull(Header.display.database_name),CollectedFrom,CollectedUntil,OriginalObservedFrom=todatetime(Header.observed_from),OriginalObservedUntil=todatetime(Header.observed_until),
     State=case(max_age <= 0s,"invalid-max-age",isnull(todatetime(Header.observed_until)),"unknown-clock",todatetime(Header.observed_until) > asof,"clock-boundary",todatetime(Header.observed_until) < asof-max_age,"stale",not($HEADER_ANALYZER_MATCH) or tostring(Header.rules_version) != $RULES,"rules-unavailable",not(OutputRowsComplete),"incomplete-output",not(tobool(Header.input_read_complete)) or array_length(Header.context_issues)>0 or tostring(Header.output_coverage.incidents.state) != "evaluated" or tostring(Header.output_coverage.findings.state) != "evaluated" or tostring(Header.output_coverage.changes.state) != "evaluated","partial",UnselectedHeads > 0,"head-interpretation-unavailable",UnavailableFirst > 0,"first-observation-unavailable","observed"),

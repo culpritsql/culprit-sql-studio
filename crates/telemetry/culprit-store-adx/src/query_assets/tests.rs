@@ -484,3 +484,30 @@ fn head_basis_applies_one_whole_resource_veto_after_original_consistency_and_raw
     assert!(basis.trim_end().ends_with("| join kind=leftsemi CompleteResources on ResourceId\n}"));
     assert!(!basis.contains("RulesVersion") && !basis.contains("Analyzer"));
 }
+
+#[test]
+fn status_counts_selected_heads_and_missing_first_keys_in_one_census_without_collapsing_latest_header_ties() {
+    let assets = configured(binding()).unwrap();
+    let status = assets
+        .commands
+        .iter()
+        .find(|command| command.starts_with(".create-or-alter function PilotStatusRows("))
+        .unwrap();
+    assert_eq!(status.matches("PilotHeads(asof)").count(), 1);
+    assert!(!status.contains("FirstCounts") && !status.contains("let Selected="));
+    assert!(status.contains("distinct ResourceId,TargetId,OriginalScopeId,OriginalSource,EpisodeId,ControllerVersion | extend HasFirstOriginal=true"));
+    assert!(status.contains("PilotHeads(asof) | join kind=leftouter First on ResourceId,TargetId,OriginalScopeId,OriginalSource,EpisodeId,ControllerVersion"));
+    assert!(
+        status.contains(
+            "SelectedHeadCount=count(),UnavailableFirstCount=countif(isnull(HasFirstOriginal)) by ResourceId"
+        )
+    );
+    assert!(status.contains("let Headers=materialize(PilotCompleteness(asof));"));
+    assert!(status.contains(
+        "let Times=Headers | summarize CollectedUntil=max(CollectedUntil) by ResourceId,SourceId,LogicalSourceId;"
+    ));
+    assert!(status.contains(
+        "let Latest=Headers | join kind=leftsemi Times on ResourceId,SourceId,LogicalSourceId,CollectedUntil;"
+    ));
+    assert!(!status.contains("arg_max"));
+}
