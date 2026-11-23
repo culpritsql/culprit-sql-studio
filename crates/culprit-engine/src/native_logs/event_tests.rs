@@ -103,3 +103,31 @@ fn caller_drop_expiry_and_mid_read_cancellation_stop_the_existing_bounded_owner_
     assert!(read_bounded(&mut reader, 8192, &operation).is_err());
     assert_eq!(reader.reads, 1);
 }
+
+#[test]
+fn supplied_xml_uses_the_original_callers_cancel_deadline_and_input_bounds() {
+    let input = xml("2020-01-01T12:00:00Z");
+    let guard = OperationGuard::new(LOG_IMPORT_TIMEOUT).unwrap();
+    let operation = guard.handle();
+    let actual =
+        analyze_bytes_with(input.as_bytes(), NativeLogFormat::MssqlExtendedEventsXml, Default::default(), &operation)
+            .unwrap();
+    let expected = analyze(&input);
+    assert_eq!(actual.input, expected.input);
+    assert_eq!(actual.report, expected.report);
+    assert_eq!(actual.native_events, expected.native_events);
+    drop(guard);
+    let error =
+        analyze_bytes_with(input.as_bytes(), NativeLogFormat::MssqlExtendedEventsXml, Default::default(), &operation)
+            .unwrap_err();
+    assert_eq!(error.detail, Some(culprit_core::ErrorDetail::CollectionStopped(CollectionStop::Cancelled)));
+    let expired = OperationGuard::new(std::time::Duration::ZERO).unwrap();
+    let error = analyze_bytes_with(
+        input.as_bytes(),
+        NativeLogFormat::MssqlExtendedEventsXml,
+        Default::default(),
+        &expired.handle(),
+    )
+    .unwrap_err();
+    assert_eq!(error.detail, Some(culprit_core::ErrorDetail::CollectionStopped(CollectionStop::TimedOut)));
+}

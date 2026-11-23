@@ -1,6 +1,7 @@
 import { Braces, ClipboardCopy, ClipboardPaste, Copy, FileCode, FileDown, FileUp, GitCompareArrows, Trash2, TriangleAlert, X } from "lucide-react";
 import { useRef, useState, type DragEvent } from "react";
 import { ShareMenu } from "../components/ShareMenu";
+import { NativeEventsImport } from "../components/NativeEvents";
 import { PlanCatalog } from "../components/PlanCatalog";
 import { PlanCompare } from "./PlanCompare";
 import { LookToggle as PlanLookToggle, PlanSurface, rememberLook, rememberedLook as rememberedPlanLook, type PlanLook } from "../components/PlanSurface";
@@ -133,6 +134,7 @@ export function Plans() {
                 <PlanRow key={item.id} item={item} active={mode === "single" && item.id === current?.id} />
               ))}
             </div>
+            <NativeEventsImport />
             <div className="plans-hint">{t("ui.plans.drop_hint")}</div>
           </aside>
           <section className="plans-main">{mode === "compare" ? <PlanCompare /> : current && <Single item={current} />}</section>
@@ -165,6 +167,7 @@ function Welcome({ busy, error, onOpen, onPaste }: { busy: boolean; error: ApiEr
         )}
         {error && <ErrorNote error={error} onDismiss={dismissError} />}
         <PlanCatalog onSample={(product) => void trySample(product)} />
+        <NativeEventsImport />
         <p className="muted small">{t("ui.plans.welcome.from_queries")}</p>
       </div>
     </div>

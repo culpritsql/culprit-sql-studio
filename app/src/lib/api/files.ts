@@ -1,3 +1,4 @@
+import type { NativeLogAnalysis } from "../../gen/NativeLogAnalysis";
 import type { IncidentHistoryReport } from "../../gen/IncidentHistoryReport";
 import type { ConnectionInfo } from "../../gen/ConnectionInfo";
 import { ownedRequests, type Invoke } from "../owned-requests";
@@ -14,6 +15,8 @@ export interface FilesApi {
   chooseQueryLog(name: string): Promise<ConnectionInfo | null>;
   /** Explicit local OperationalSamples JSONL, structurally checked and never source-authenticated. */
   openIncidentHistory(signal?: AbortSignal): Promise<IncidentHistoryReport | null>;
+  /** A selected exported XEvent XML artifact; no source connection or host-file path argument. */
+  openNativeEvents(signal?: AbortSignal): Promise<NativeLogAnalysis | null>;
   /** Pick a SQLite file in the system's file dialog (desktop only): its path, for the new-connection input. */
   chooseDatabaseFile(): Promise<string | null>;
   chooseSshIdentity(): Promise<string | null>;
@@ -22,11 +25,13 @@ export interface FilesApi {
 
 export function desktopFiles(invoke: Invoke): FilesApi {
   const history = ownedRequests(invoke, "begin_incident_history", "cancel_incident_history");
+  const events = ownedRequests(invoke, "begin_native_events", "cancel_native_events");
   return {
     saveFile: (name, contents) => invoke("save_file", { name, contents }),
     screenshot: (area) => invoke("screenshot", { area }),
     chooseQueryLog: (name) => invoke("choose_query_log", { name }),
     openIncidentHistory: (signal) => history("open_incident_history", {}, signal),
+    openNativeEvents: (signal) => events("open_native_events", {}, signal),
     chooseDatabaseFile: () => invoke("choose_database_file"),
     chooseSshIdentity: () => invoke("choose_ssh_identity"),
     chooseCaCertificate: () => invoke("choose_ca_certificate"),

@@ -7,6 +7,7 @@ pub(crate) mod discovery;
 pub(crate) mod editor;
 pub(crate) mod files;
 pub(crate) mod localization;
+pub(crate) mod native_events;
 pub(crate) mod plans;
 pub(crate) mod reports;
 pub(crate) mod timeline;

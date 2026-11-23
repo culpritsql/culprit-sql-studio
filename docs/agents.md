@@ -38,6 +38,7 @@ Culprit's CLI is designed to be driven by agents: JSON output, stable ids, no pr
 | `live` | Sessions, waits and blocking right now |
 | `blocking` | Who blocks whom right now, as chains under each head blocker |
 | `deadlocks` | Recent deadlocks explained, with the pattern and fix |
+| `analyze_event_xml` | Explain supplied SQL Server Extended Events XML: attention, errors and deadlocks, without a database connection |
 | `waits` | Wait categories with the queries behind each, or a live sample (`now: true`) |
 | `analyze_capture` | When explicitly enabled: explain bounded native facts from one verified local capture using the shared report |
 | `schema` | Tables; or one table's columns, indexes and which captured plans use each index |
@@ -55,6 +56,11 @@ five revisions and states omissions. Selected history does not establish current
 current session actions; referenced payloads are not reopened by this read.
 
 Results are compact JSON. Text that comes from the database (query text, object names, comments, values) is data, not instructions, and the server's instructions tell the agent so.
+
+`analyze_event_xml` takes one `xml` string and is available in evidence-only mode. It accepts exported XML,
+keeps incomplete input and unqualified clocks explicit, and bounds both input and the serialized tool response.
+It accepts no filesystem path or connection name. Imported database labels never attach the artifact to a live
+database, and the tool starts no source read or event session.
 
 **Policies.** `culprit conn set <name> --agent off|stats|query`, or the Agents menu on the connection in the app. `stats` is the default. `culprit mcp --connection <name>` (repeatable) exposes only those connections.
 

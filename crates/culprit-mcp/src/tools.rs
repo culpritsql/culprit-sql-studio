@@ -15,6 +15,8 @@ use crate::view;
 mod artifacts;
 mod incidents;
 mod local_captures;
+mod native_events;
+pub(crate) use native_events::NATIVE_EVENTS_TOOL;
 mod resources;
 mod response;
 mod warehouse;
@@ -290,6 +292,7 @@ fn tool<T: JsonSchema + 'static>(name: &'static str, title: &'static str, descri
 
 pub fn definitions(mode: crate::ToolMode, local_captures: bool, warehouse: bool) -> Vec<Tool> {
     let mut tools = if mode == crate::ToolMode::Standard { native_definitions() } else { vec![] };
+    tools.push(native_events::definition());
     if local_captures {
         tools.push(local_captures::definition());
     }
@@ -609,6 +612,7 @@ impl CulpritMcp {
             INCIDENT_TOOL => tool_task(move || self.incident(value, warehouse_cancellation)),
             RESOURCES_TOOL => tool_task(move || self.resources(value, warehouse_cancellation)),
             LOCAL_CAPTURE_TOOL => tool_task(move || self.analyze_capture(value, operation)),
+            NATIVE_EVENTS_TOOL => tool_task(move || self.analyze_event_xml(value, operation)),
             "scan" => provider_task(move || async move {
                 let a: ScanArgs = args(value)?;
                 self.allowed(&a.connection)?;
@@ -996,7 +1000,8 @@ mod tests {
                 "export_finding",
                 "lint_sql",
                 "drift",
-                "run_query"
+                "run_query",
+                "analyze_event_xml"
             ]
         );
         for t in &tools {

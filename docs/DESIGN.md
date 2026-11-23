@@ -211,6 +211,7 @@ operational evidence, labeled with database/server scope and each counter's own 
 ### Plan viewer
 
 - Accepted formats and product labels come from the core product catalog. Every product has a captured comparison sample, available in desktop builds and the browser demo. Samples load only when requested. Catalog and parser tests require coverage for new products.
+- **Open events XML** is available before and after loading a plan. A selected local SQL Server event export opens in its own dialog, with folded attention/error records and deadlock graphs. Original clock limits and incomplete input stay visible. The artifact is independent of the selected database and its health; closing, replacing, leaving or changing language retires its owned read.
 
 An indented tree, read top-down like a profiler call tree, instead of a box-and-arrow graph. It scales to large plans and is scannable.
 

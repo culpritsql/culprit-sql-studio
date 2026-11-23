@@ -228,6 +228,12 @@ qualification remain required before scheduling production polling. See the [nat
 
 ### Azure SQL deadlock events
 
+For offline analysis, use **Plans → Open events XML** in the desktop app, or supply exported XML to the MCP
+`analyze_event_xml` tool. Both use the same bounded parser and explanations for attention, errors and deadlocks.
+Native UTC and offset-free timestamps remain distinct; a captured request's SQL does not prove which statement
+acquired its locks. This intake reads exported XML, requires no database credentials and does not decode binary
+`.xel` files or start a server event session.
+
 Culprit never reads Azure SQL's internal `dl` event session. Microsoft [advises against reading that session](https://learn.microsoft.com/en-us/azure/azure-sql/database/xevent-db-diff-from-svr#best-practices) because reading its retained events can affect database availability.
 
 An administrator can explicitly create this database-scoped session in the database being monitored. Scans and unattended collection only read its configuration and target; they never create, start or alter it.

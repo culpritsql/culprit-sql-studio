@@ -38,13 +38,23 @@ pub async fn open_selected_file(
 }
 
 pub fn analyze_bytes(input: &[u8], format: NativeLogFormat, limits: NativeLogLimits) -> Result<NativeLogAnalysis> {
-    validate_limits(limits)?;
     let guard = OperationGuard::new(LOG_IMPORT_TIMEOUT)?;
-    let operation = guard.handle();
+    analyze_bytes_with(input, format, limits, &guard.handle())
+}
+
+/// Supplied text uses the caller's existing deadline and cancellation owner; it never opens a path or connection.
+pub fn analyze_bytes_with(
+    input: &[u8],
+    format: NativeLogFormat,
+    limits: NativeLogLimits,
+    operation: &OperationHandle,
+) -> Result<NativeLogAnalysis> {
+    validate_limits(limits)?;
+    check(operation)?;
     let started = utc_now();
     let prefix = &input[..input.len().min(limits.input_bytes)];
     let result = analyze(prefix, format, limits, started, input.len() <= limits.input_bytes, None)?;
-    check(&operation)?;
+    check(operation)?;
     Ok(result)
 }
 

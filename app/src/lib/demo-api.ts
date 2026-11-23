@@ -713,6 +713,7 @@ export async function demoApi(): Promise<Api> {
       connections = connections.map((c) => (c.name === name ? updated : c));
       return updated;
     },
+    openNativeEvents: () => desktopOnly(t("native_events.import.open")),
     openIncidentHistory: async (signal) => {
       if (!import.meta.env.DEV) return unsupported();
       if (signal?.aborted) throw new DOMException("Request canceled", "AbortError");

@@ -23,6 +23,7 @@ pub fn run_app() -> std::result::Result<(), Box<dyn std::error::Error>> {
         .manage(commands::updates::PendingUpdate::default())
         .manage(commands::discovery::DiscoveryRequests::default())
         .manage(incident_history::HistoryImports::default())
+        .manage(commands::native_events::EventImports::default())
         .manage(commands::editor::PreviewRequests::default())
         .manage(commands::connections::ConnectionTests::default())
         .manage(commands::warehouses::WarehouseRequests::default())
@@ -30,6 +31,7 @@ pub fn run_app() -> std::result::Result<(), Box<dyn std::error::Error>> {
             if matches!(event, tauri::WindowEvent::Destroyed) {
                 window.state::<commands::discovery::DiscoveryRequests>().close(window.label());
                 window.state::<incident_history::HistoryImports>().0.close(window.label());
+                window.state::<commands::native_events::EventImports>().0.close(window.label());
                 window.state::<commands::editor::PreviewRequests>().close(window.label());
                 window.state::<commands::connections::ConnectionTests>().close(window.label());
                 window.state::<commands::warehouses::WarehouseRequests>().close(window.label());
@@ -47,6 +49,7 @@ pub fn run_app() -> std::result::Result<(), Box<dyn std::error::Error>> {
             if payload.event() != PageLoadEvent::Finished {
                 webview.state::<commands::discovery::DiscoveryRequests>().close(webview.label());
                 webview.state::<incident_history::HistoryImports>().0.close(webview.label());
+                webview.state::<commands::native_events::EventImports>().0.close(webview.label());
                 webview.state::<commands::editor::PreviewRequests>().close(webview.label());
                 webview.state::<commands::connections::ConnectionTests>().close(webview.label());
                 webview.state::<commands::warehouses::WarehouseRequests>().close(webview.label());
@@ -123,6 +126,9 @@ pub fn run_app() -> std::result::Result<(), Box<dyn std::error::Error>> {
             commands::activity::waits,
             commands::activity::wait_sample,
             commands::editor::run_sql,
+            commands::native_events::begin_native_events,
+            commands::native_events::cancel_native_events,
+            commands::native_events::open_native_events,
             incident_history::begin_incident_history,
             incident_history::cancel_incident_history,
             incident_history::open_incident_history,
