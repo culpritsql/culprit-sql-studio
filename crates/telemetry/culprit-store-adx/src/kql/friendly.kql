@@ -113,11 +113,19 @@ Rows | join kind=leftsemi ($NConsistentOriginalKeys(Rows)) on ResourceId,TargetI
 .create-or-alter function $NHeads(asof:datetime) {
 $NHeadBasis(asof) | where $NConfiguredInterpretation(Analyzer,RulesVersion) and isnotnull(RecordedAt)
 | extend InterpretationSignature=$NInterpretationSignature(AnalysisId,DetailSha256,InputReadComplete,OutputCoverage,OutputLimitations,FindingEvaluations,ChangeEvaluations,ContextIssues,OriginalObservedFrom,OriginalObservedUntil,InputReferences,AnalysisOrigin,Language)
-| summarize take_any(*) by ResourceId,TargetId,OriginalScopeId,OriginalSource,EpisodeId,ControllerVersion,RecordedAt,InterpretationSignature
-| summarize Variants=count(),take_any(*) by ResourceId,TargetId,OriginalScopeId,OriginalSource,EpisodeId,ControllerVersion,RecordedAt
-| summarize arg_max(RecordedAt,*) by ResourceId,TargetId,OriginalScopeId,OriginalSource,EpisodeId,ControllerVersion
-| where Variants == 1
-| project-away Variants,InterpretationSignature
+| order by ResourceId asc,TargetId asc,OriginalScopeId asc,OriginalSource asc,EpisodeId asc,ControllerVersion asc,RecordedAt desc
+| extend CulpritHeadRow=row_number()
+| extend CulpritEpStart=CulpritHeadRow == 1 or ResourceId != prev(ResourceId) or TargetId != prev(TargetId) or OriginalScopeId != prev(OriginalScopeId) or OriginalSource != prev(OriginalSource) or EpisodeId != prev(EpisodeId) or ControllerVersion != prev(ControllerVersion)
+| extend CulpritNotLatest=row_cumsum(iff(not(CulpritEpStart) and RecordedAt != prev(RecordedAt),1,0),CulpritEpStart)
+| where CulpritNotLatest == 0
+| extend CulpritEpOrd=row_number(1,CulpritEpStart),
+    CulpritSigConflict=iff(isempty(InterpretationSignature) or (not(CulpritEpStart) and InterpretationSignature != prev(InterpretationSignature)),1,0)
+| order by ResourceId desc,TargetId desc,OriginalScopeId desc,OriginalSource desc,EpisodeId desc,ControllerVersion desc,CulpritEpOrd desc
+| extend CulpritRevRow=row_number()
+| extend CulpritEpEnd=CulpritRevRow == 1 or ResourceId != prev(ResourceId) or TargetId != prev(TargetId) or OriginalScopeId != prev(OriginalScopeId) or OriginalSource != prev(OriginalSource) or EpisodeId != prev(EpisodeId) or ControllerVersion != prev(ControllerVersion)
+| extend CulpritConflicts=row_cumsum(CulpritSigConflict,CulpritEpEnd)
+| where CulpritEpOrd == 1 and CulpritConflicts == 0
+| project-away InterpretationSignature,CulpritHeadRow,CulpritEpStart,CulpritNotLatest,CulpritEpOrd,CulpritSigConflict,CulpritRevRow,CulpritEpEnd,CulpritConflicts
 }
 
 .create-or-alter function $NIncidentWindow(window_from:datetime,window_until:datetime,asof:datetime) {
@@ -192,8 +200,14 @@ $NNewIncidentWindow(window_from,window_until,asof) | join kind=leftsemi Matches 
 
 .create-or-alter function $NStatusRows(asof:datetime,max_age:timespan) {
 let Headers=materialize($NCompleteness(asof));
-let Times=Headers | summarize CollectedUntil=max(CollectedUntil) by ResourceId,SourceId,LogicalSourceId;
-let Latest=Headers | join kind=leftsemi Times on ResourceId,SourceId,LogicalSourceId,CollectedUntil;
+let Latest=Headers
+    | where isnotnull(CollectedUntil)
+    | order by ResourceId asc,SourceId asc,LogicalSourceId asc,CollectedUntil desc
+    | extend CulpritHdrRow=row_number()
+    | extend CulpritHdrStart=CulpritHdrRow == 1 or ResourceId != prev(ResourceId) or SourceId != prev(SourceId) or LogicalSourceId != prev(LogicalSourceId)
+    | extend CulpritNotLatest=row_cumsum(iff(not(CulpritHdrStart) and CollectedUntil != prev(CollectedUntil),1,0),CulpritHdrStart)
+    | where CulpritNotLatest == 0
+    | project-away CulpritHdrRow,CulpritHdrStart,CulpritNotLatest;
 let Rows=materialize($NIncidentRows(asof));
 let ResourceCompleteness=$NIncidentCompletenessFromRows(Rows,asof) | summarize Missing=countif(not(IncidentRowsComplete)) by ResourceId;
 let Counts=$NEpisodeCensus(Rows) | join kind=leftouter ResourceCompleteness on ResourceId

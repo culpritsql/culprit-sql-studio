@@ -444,25 +444,25 @@ fn latest_interpretation_census_precedes_latest_timestamp_and_conflict_refusal_w
     let assets = configured(binding()).unwrap();
     let heads =
         assets.commands.iter().find(|command| command.starts_with(".create-or-alter function PilotHeads(")).unwrap();
-    let census = heads.find("Variants=count()").unwrap();
-    let latest = heads.find("arg_max(RecordedAt,*").unwrap();
-    let accepted = heads.find("| where Variants == 1").unwrap();
+    let latest_order = heads.find("RecordedAt desc").unwrap();
+    let latest_gate = heads.find("| where CulpritNotLatest == 0").unwrap();
+    let census = heads.find("CulpritSigConflict=").unwrap();
+    let accepted = heads.find("| where CulpritEpOrd == 1 and CulpritConflicts == 0").unwrap();
     assert!(
-        census < latest && latest < accepted,
+        latest_order < latest_gate && latest_gate < census && census < accepted,
         "a conflicting latest timestamp must not revive an older unique interpretation"
     );
     assert!(
         heads.contains("isnotnull(RecordedAt)"),
-        "arg_max must not return a row from an entirely unknown clock population"
+        "head selection must not return a row from an entirely unknown clock population"
     );
     assert_eq!(heads.matches("PilotHeadBasis(asof)").count(), 1);
-    assert!(heads.contains("RecordedAt,InterpretationSignature"));
     assert!(heads.contains("PilotInterpretationSignature(AnalysisId,DetailSha256,"));
     assert!(heads.contains("PilotConfiguredInterpretation(Analyzer,RulesVersion)"));
-    assert!(heads.contains("| project-away Variants,InterpretationSignature"));
-    assert_eq!(heads.matches("take_any(*)").count(), 2, "each census chooses one complete row");
+    assert!(heads.contains("| project-away InterpretationSignature,"));
+    assert!(!heads.contains("take_any(*)") && !heads.contains("arg_max("));
     for command in &assets.commands {
-        if command != heads && !command.starts_with(".create-or-alter function PilotEpisodeCensus(") {
+        if !command.starts_with(".create-or-alter function PilotEpisodeCensus(") {
             assert!(
                 !command.contains("arg_max("),
                 "native revision, publication and time guards retain their original owner"
@@ -509,12 +509,8 @@ fn status_uses_one_compact_episode_census_without_collapsing_latest_header_ties(
     assert!(status.contains("SelectedInterpretation and coalesce(Missing == 0,false)"));
     assert!(status.contains("OriginalHeadCount=count(),SelectedHeadCount=countif(SelectedHead),UnavailableFirstCount=countif(SelectedHead and not(HasFirstOriginal)) by ResourceId"));
     assert!(status.contains("let Headers=materialize(PilotCompleteness(asof));"));
-    assert!(status.contains(
-        "let Times=Headers | summarize CollectedUntil=max(CollectedUntil) by ResourceId,SourceId,LogicalSourceId;"
-    ));
-    assert!(status.contains(
-        "let Latest=Headers | join kind=leftsemi Times on ResourceId,SourceId,LogicalSourceId,CollectedUntil;"
-    ));
+    assert!(status.contains("order by ResourceId asc,SourceId asc,LogicalSourceId asc,CollectedUntil desc"));
+    assert!(status.contains("where CulpritNotLatest == 0"));
     assert!(!status.contains("arg_max"));
 }
 
@@ -558,7 +554,7 @@ fn bounded_signature_sets_keep_unknown_classes_and_raw_revision_selection_in_the
 }
 
 #[test]
-fn publication_and_eligibility_avoid_nested_materialize_boundaries_and_alerts_materialize_before_projection() {
+fn publication_and_eligibility_are_single_pass_without_self_joins_and_alerts_materialize_before_projection() {
     let assets = configured(binding()).unwrap();
     let published = assets
         .commands
@@ -577,12 +573,9 @@ fn publication_and_eligibility_avoid_nested_materialize_boundaries_and_alerts_ma
             .iter()
             .find(|command| command.starts_with(&format!(".create-or-alter function {schema}NamespaceEligible(")))
             .unwrap();
-        assert_eq!(
-            eligible.matches("materialize(").count(),
-            1,
-            "nested materialize inside eligibility forces Kusto to inline Candidates across batches"
-        );
-        assert!(eligible.contains("let Candidates=materialize("));
+        assert!(!eligible.contains("materialize(") && !eligible.contains("take_any(*)"));
+        assert!(!eligible.contains("join kind=leftsemi") && !eligible.contains("join kind=leftanti"));
+        assert!(eligible.contains("PresentRows == ExpectedRows") && eligible.contains("Variants != 1"));
     }
     let alert_wrapper = assets
         .commands
