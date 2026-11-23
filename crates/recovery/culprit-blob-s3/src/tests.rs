@@ -149,14 +149,26 @@ async fn owned_transport(settings: S3Config) -> Arc<S3Transport> {
     let endpoint = settings.endpoint().unwrap();
     let keys = Keys.access_keys().await.unwrap();
     let path = format!("/{}", settings.bucket);
-    let headers =
-        signing::sign("PUT", &path, &endpoint, &keys, &signing::sha256(b""), None, chrono::Utc::now()).unwrap();
     tokio::task::spawn_blocking(move || {
-        let mut request = agent(false).put(format!("{}{path}", endpoint.origin));
-        for (key, value) in &headers.headers {
-            request = request.header(key, value.as_str());
+        // RustFS answers /health before its S3 bucket metadata layer finishes initializing (HTTP 503).
+        let deadline = std::time::Instant::now() + Duration::from_secs(30);
+        loop {
+            let headers =
+                signing::sign("PUT", &path, &endpoint, &keys, &signing::sha256(b""), None, chrono::Utc::now()).unwrap();
+            let mut request = agent(false).put(format!("{}{path}", endpoint.origin));
+            for (key, value) in &headers.headers {
+                request = request.header(key, value.as_str());
+            }
+            let status = request.send_empty().unwrap().status().as_u16();
+            if status == 200 {
+                break;
+            }
+            assert!(
+                status == 503 && std::time::Instant::now() < deadline,
+                "owned S3 fixture bucket creation failed with HTTP {status}"
+            );
+            std::thread::sleep(Duration::from_millis(200));
         }
-        assert_eq!(request.send_empty().unwrap().status().as_u16(), 200);
     })
     .await
     .unwrap();
