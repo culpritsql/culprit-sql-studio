@@ -21,7 +21,7 @@ mod incidents;
 mod queries;
 
 // Advance this policy when retained interpretation changes, including builds sharing a package version.
-pub(crate) const BUILTIN_RULES_VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "/retained-diagnosis-7");
+pub(crate) const BUILTIN_RULES_VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "/retained-diagnosis-8");
 
 pub struct ChecksSynthesizer {
     pipeline: Arc<culprit_checks::Pipeline>,

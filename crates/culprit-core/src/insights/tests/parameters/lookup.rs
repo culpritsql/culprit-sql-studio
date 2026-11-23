@@ -331,3 +331,67 @@ fn original_parameter_lookup_evidence_survives_redaction_and_a_saved_plan_roundt
     // A missing later actor does not replace this original plan. Its retained observation remains interpretable.
     assert_eq!(lookup_insight(&restored).nodes, vec![2, 1, 0]);
 }
+
+#[test]
+fn retained_parameter_mechanism_distinguishes_cached_lookup_underestimated_seek_selective_scan_and_healthy_controls() {
+    use crate::insights::{RetainedParameterMechanism, retained_parameter_mechanism};
+
+    let lookup = lookup_plan();
+    assert_eq!(
+        retained_parameter_mechanism(&lookup),
+        Some(RetainedParameterMechanism::CachedLookup { lookup_nodes: [2].into() })
+    );
+
+    let mut equal_int = lookup.clone();
+    equal_int.facts_mut().parameter_context.as_mut().unwrap().parameters[0].integer_values_equal = Some(true);
+    assert_eq!(retained_parameter_mechanism(&equal_int), None);
+
+    let seek = parameterized_seek();
+    assert_eq!(
+        retained_parameter_mechanism(&seek),
+        Some(RetainedParameterMechanism::UnderestimatedSeek { seek_nodes: [0].into() })
+    );
+
+    let mut healthy_seek = seek.clone();
+    healthy_seek.root.est_rows = 10_000.0;
+    healthy_seek.root.facts_mut().access_rows.as_mut().unwrap().estimated_per_execution = Some(10_000.0);
+    assert_eq!(retained_parameter_mechanism(&healthy_seek), None);
+
+    let mut scan_node = measured(4, "Clustered Index Scan", NodeKind::Scan, 50_000.0, 1.0, 1.0);
+    scan_node.predicate = Some("[dbo].[orders].[customer]=[@customer]".into());
+    scan_node.facts_mut().parallel_operator = Some(false);
+    scan_node.facts_mut().serial_execution_count = Some("1".into());
+    let mut rows = seek.root.facts().access_rows.unwrap();
+    rows.estimated_per_execution = Some(50_000.0);
+    rows.actual_total = Some(50_000.0);
+    scan_node.facts_mut().access_rows = Some(rows);
+    let mut selective_scan = actual(Engine::Mssql, scan_node, 400.0);
+    selective_scan.facts_mut().parameter_context = Some(PlanParameterContext {
+        retrieved_from_cache: Some(true),
+        parameters: vec![PlanParameter { integer_values_equal: Some(false), ..parameter("@customer") }],
+        uses: vec![],
+        issues: vec![PlanParameterIssue::UnsupportedUse],
+    });
+    assert_eq!(
+        retained_parameter_mechanism(&selective_scan),
+        Some(RetainedParameterMechanism::CachedSelectiveScan { scan_nodes: [4].into() })
+    );
+
+    for control in ["not-cached", "equal-int", "prefix-collision", "parallel", "row-goal", "estimated"] {
+        let mut changed = selective_scan.clone();
+        match control {
+            "not-cached" => changed.facts_mut().parameter_context.as_mut().unwrap().retrieved_from_cache = Some(false),
+            "equal-int" => {
+                changed.facts_mut().parameter_context.as_mut().unwrap().parameters[0].integer_values_equal = Some(true)
+            }
+            "prefix-collision" => {
+                changed.root.predicate = Some("[dbo].[orders].[customer]=[@customer_extra]".into());
+            }
+            "parallel" => changed.root.facts_mut().parallel_operator = Some(true),
+            "row-goal" => changed.root.facts_mut().estimated_rows_without_goal = Some(50_000.0),
+            "estimated" => changed.kind = PlanKind::Estimated,
+            _ => unreachable!(),
+        }
+        assert_eq!(retained_parameter_mechanism(&changed), None, "{control}");
+    }
+}

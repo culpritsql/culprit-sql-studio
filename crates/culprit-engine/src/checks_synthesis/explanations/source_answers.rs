@@ -3,6 +3,7 @@ use super::*;
 mod execution_profiles;
 mod metadata_locks;
 mod output_grant;
+mod query_compilation;
 mod readable_secondary_recovery;
 mod relational_inputs;
 mod transaction_metadata;
@@ -34,8 +35,7 @@ pub(super) fn append(
             SourceReadAnswer::CurrentExecutionProfile(answer) => {
                 execution_profiles::append(originals, answer, &mut followup)
             }
-            // Compilation totals do not identify a historical execution's caller, runtime inputs or harmful reuse.
-            SourceReadAnswer::QueryCompilation(_) => Ok(()),
+            SourceReadAnswer::QueryCompilation(answer) => query_compilation::append(originals, answer, &mut followup),
         }?;
         explanation.merge_followup(followup);
     }

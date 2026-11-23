@@ -59,9 +59,9 @@ pub(crate) fn lookup_read_comparison(reused: &Plan, counterpart: &Plan) -> Optio
 }
 
 pub(in crate::insights) struct LookupWork<'a> {
-    parameter: &'a PlanParameter,
+    pub(super) parameter: &'a PlanParameter,
     join: &'a PlanNode,
-    lookup: &'a PlanNode,
+    pub(super) lookup: &'a PlanNode,
     estimated: f64,
     actual: f64,
     executions: f64,

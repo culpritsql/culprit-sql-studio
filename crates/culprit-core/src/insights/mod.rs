@@ -51,6 +51,7 @@ use index::*;
 use memory::*;
 use parallelism::*;
 pub(crate) use parameters::{LookupReadComparison, lookup_read_comparison};
+pub use parameters::{RetainedParameterMechanism, retained_parameter_mechanism};
 use predicates::*;
 pub use predicates::{
     MismatchAdvice, condition_count, converts_column, current_conversions, mismatch_fix, mysql_guessed_filtered,

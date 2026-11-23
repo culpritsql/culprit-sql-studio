@@ -7,6 +7,105 @@ mod lookup;
 pub(super) use lookup::LookupWork;
 pub(crate) use lookup::{LookupReadComparison, lookup_read_comparison};
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum RetainedParameterMechanism {
+    CachedLookup { lookup_nodes: std::collections::BTreeSet<u32> },
+    UnderestimatedSeek { seek_nodes: std::collections::BTreeSet<u32> },
+    CachedSelectiveScan { scan_nodes: std::collections::BTreeSet<u32> },
+}
+
+/// Qualified operator-work mismatch on an actual plan whose recorded runtime parameters differ from compilation.
+/// Healthy variants, formatting-only differences for equal integers, and unused parameters return `None`.
+pub fn retained_parameter_mechanism(plan: &Plan) -> Option<RetainedParameterMechanism> {
+    if plan.kind != PlanKind::Actual {
+        return None;
+    }
+    let context = plan.facts().parameter_context.as_ref().filter(|context| context.is_valid())?;
+    let cx = Cx::new(plan);
+    if !cx.node_ids_unique || !has_runtime_evidence(&cx) {
+        return None;
+    }
+    let lookup_nodes: std::collections::BTreeSet<u32> = cx
+        .nodes
+        .iter()
+        .filter_map(|node| LookupWork::from_plan(&cx, node))
+        .filter(|work| work.parameter.integer_values_equal == Some(false))
+        .map(|work| work.lookup.id)
+        .collect();
+    if !lookup_nodes.is_empty() {
+        return Some(RetainedParameterMechanism::CachedLookup { lookup_nodes });
+    }
+    let seek_nodes: std::collections::BTreeSet<u32> =
+        cx.nodes.iter().filter_map(|node| access_mismatch(&cx, node).map(|_| node.id)).collect();
+    if !seek_nodes.is_empty() {
+        return Some(RetainedParameterMechanism::UnderestimatedSeek { seek_nodes });
+    }
+    if context.retrieved_from_cache != Some(true)
+        || context.issues.iter().any(|issue| {
+            matches!(
+                issue,
+                crate::plan_facts::PlanParameterIssue::AmbiguousUse
+                    | crate::plan_facts::PlanParameterIssue::DuplicateName
+                    | crate::plan_facts::PlanParameterIssue::InvalidMetadata
+                    | crate::plan_facts::PlanParameterIssue::UnboundStatement
+            )
+        })
+    {
+        return None;
+    }
+    let scan_nodes: std::collections::BTreeSet<u32> =
+        cx.nodes.iter().filter(|node| cached_selective_scan(node, context)).map(|node| node.id).collect();
+    (!scan_nodes.is_empty()).then_some(RetainedParameterMechanism::CachedSelectiveScan { scan_nodes })
+}
+
+fn cached_selective_scan(node: &PlanNode, context: &crate::plan_facts::PlanParameterContext) -> bool {
+    if node.kind != NodeKind::Scan
+        || !node.children.is_empty()
+        || node.facts().relational_input.is_some()
+        || node.facts().parallel_operator == Some(true)
+        || node.facts().estimated_rows_without_goal.is_some()
+        || serial_executions(node) != Some(1.0)
+    {
+        return false;
+    }
+    let Some(predicate) = node.predicate.as_deref() else { return false };
+    let bound_different_integer = context.parameters.iter().any(|parameter| {
+        parameter.comparison == PlanParameterComparison::DifferentRepresentation
+            && parameter.integer_values_equal == Some(false)
+            && parameter.name.as_deref().is_some_and(|name| predicate_mentions_parameter(predicate, name))
+    });
+    if !bound_different_integer {
+        return false;
+    }
+    let Some(actual_accessed) = node.facts().access_rows.and_then(|rows| rows.actual_total).filter(|v| exact_count(*v))
+    else {
+        return false;
+    };
+    let Some(actual_output) = node.act_rows.filter(|v| exact_count(*v)) else { return false };
+    actual_accessed >= MANY_RUNS
+        && actual_accessed >= MISESTIMATE_FACTOR * actual_output.max(1.0)
+        && node.est_rows.is_finite()
+        && node.est_rows >= MISESTIMATE_FACTOR * actual_output.max(1.0)
+}
+
+fn predicate_mentions_parameter(predicate: &str, parameter_name: &str) -> bool {
+    if parameter_name.is_empty() {
+        return false;
+    }
+    let bytes = predicate.as_bytes();
+    let needle = parameter_name.as_bytes();
+    predicate.match_indices(parameter_name).any(|(start, _)| {
+        let before_ok = start == 0 || !is_ident_char(bytes[start - 1]);
+        let end = start + needle.len();
+        let after_ok = end == bytes.len() || !is_ident_char(bytes[end]);
+        before_ok && after_ok
+    })
+}
+
+fn is_ident_char(byte: u8) -> bool {
+    byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'@' | b'#' | b'$')
+}
+
 const MAX_PARAMETER_EXAMPLES: usize = 4;
 
 pub(super) fn context(cx: &Cx) -> Vec<Draft> {

@@ -1,4 +1,5 @@
 //! Real canonical warehouse originals enter the same pure analyzer with the Collector feature disabled.
+mod parameter_sensitivity;
 mod relational_inputs;
 use super::test_support::CaptureFinding;
 use super::*;
