@@ -551,4 +551,45 @@ fn bounded_signature_sets_keep_unknown_classes_and_raw_revision_selection_in_the
         census.contains("PilotInterpretationSignature(AnalysisId,DetailSha256,")
             && census.contains("PilotConfiguredInterpretation(Analyzer,RulesVersion)")
     );
+    let consistent = definition("ConsistentOriginals");
+    assert_eq!(consistent.matches("PilotIncidentRows(asof)").count(), 1);
+    assert!(consistent.contains("PilotOriginalRevisionCensus(PilotIncidentRows(asof))"));
+    assert!(!consistent.contains("join"));
+}
+
+#[test]
+fn publication_and_eligibility_avoid_nested_materialize_boundaries_and_alerts_materialize_before_projection() {
+    let assets = configured(binding()).unwrap();
+    let published = assets
+        .commands
+        .iter()
+        .find(|command| command.starts_with(".create-or-alter function CulpritPublishedNamespaceV1("))
+        .unwrap();
+    assert!(!published.contains("materialize(") && !published.contains("join"));
+    assert!(
+        published.contains("summarize Variants=count(),take_any(*) by RangeId")
+            && published.contains("| where Variants == 1")
+    );
+    for stream in NAMESPACE_QUERY_STREAMS {
+        let schema = SchemaCatalog::new().unwrap().get(stream).unwrap().table().to_owned();
+        let eligible = assets
+            .commands
+            .iter()
+            .find(|command| command.starts_with(&format!(".create-or-alter function {schema}NamespaceEligible(")))
+            .unwrap();
+        assert_eq!(
+            eligible.matches("materialize(").count(),
+            1,
+            "nested materialize inside eligibility forces Kusto to inline Candidates across batches"
+        );
+        assert!(eligible.contains("let Candidates=materialize("));
+    }
+    let alert_wrapper = assets
+        .commands
+        .iter()
+        .find(|command| command.starts_with(".create-or-alter function PilotRecordedIncidentAlertsDuring("))
+        .unwrap();
+    assert!(
+        alert_wrapper.contains("let Selected=materialize(PilotNewIncidents(resource,window_from,window_until,now()));")
+    );
 }

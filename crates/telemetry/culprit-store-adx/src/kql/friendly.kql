@@ -73,8 +73,8 @@ tostring(pack_array(AnalysisId,DetailSha256,InputReadComplete,OutputCoverage,Out
 .create-or-alter function $NOriginalRevisionCensus(Rows:(ResourceId:string,TargetId:string,OriginalScopeId:string,OriginalSource:string,EpisodeId:string,ControllerVersion:long,Revision:decimal,RevisionId:string,OriginalRecordedAt:datetime,Lifecycle:string,OriginalReference:dynamic)) {
 Rows | extend OriginalReference=tostring(OriginalReference)
 | extend OriginalSignature=$NOriginalSignature(RevisionId,OriginalRecordedAt,Lifecycle,OriginalReference),OriginalKnown=isnotempty(RevisionId) and isnotnull(OriginalRecordedAt) and Lifecycle in ("active","resolved","uncertain") and isnotnull(OriginalReference) and isnotempty(OriginalReference) and OriginalReference !in ("null","{}")
-| summarize OriginalSignatures=make_set(OriginalSignature,2),UnknownOriginals=countif(not(OriginalKnown)),UnknownSignatures=countif(isempty(OriginalSignature)) by ResourceId,TargetId,OriginalScopeId,OriginalSource,EpisodeId,ControllerVersion,Revision
-| project ResourceId,TargetId,OriginalScopeId,OriginalSource,EpisodeId,ControllerVersion,Revision,OriginalValid=array_length(OriginalSignatures) == 1 and UnknownOriginals == 0 and UnknownSignatures == 0
+| summarize OriginalSignatures=make_set(OriginalSignature,2),UnknownOriginals=countif(not(OriginalKnown)),UnknownSignatures=countif(isempty(OriginalSignature)),OriginalRecordedAt=take_any(OriginalRecordedAt) by ResourceId,TargetId,OriginalScopeId,OriginalSource,EpisodeId,ControllerVersion,Revision
+| project ResourceId,TargetId,OriginalScopeId,OriginalSource,EpisodeId,ControllerVersion,Revision,OriginalRecordedAt,OriginalValid=array_length(OriginalSignatures) == 1 and UnknownOriginals == 0 and UnknownSignatures == 0
 }
 
 .create-or-alter function $NConsistentOriginalKeys(Rows:(ResourceId:string,TargetId:string,OriginalScopeId:string,OriginalSource:string,EpisodeId:string,ControllerVersion:long,Revision:decimal,RevisionId:string,OriginalRecordedAt:datetime,Lifecycle:string,OriginalReference:dynamic)) {
@@ -95,8 +95,9 @@ $NOriginalRevisionCensus(Rows)
 }
 
 .create-or-alter function $NConsistentOriginals(asof:datetime) {
-let Rows=materialize($NIncidentRows(asof));
-Rows | join kind=leftsemi ($NConsistentOriginalKeys(Rows)) on ResourceId,TargetId,OriginalScopeId,OriginalSource,EpisodeId,ControllerVersion,Revision
+$NOriginalRevisionCensus($NIncidentRows(asof))
+| where OriginalValid
+| project ResourceId,TargetId,OriginalScopeId,OriginalSource,EpisodeId,ControllerVersion,Revision,OriginalRecordedAt
 }
 
 .create-or-alter function $NHeadBasis(asof:datetime) {
@@ -222,22 +223,26 @@ Selected
 }
 
 .create-or-alter function $NFindingsDuring(resource:string,window_from:datetime,window_until:datetime) {
-$NFindings(resource,window_from,window_until,now())
+let Selected=materialize($NFindings(resource,window_from,window_until,now()));
+Selected
 | extend PublicationTimeKnown=false
 }
 
 .create-or-alter function $NChangesDuring(resource:string,window_from:datetime,window_until:datetime) {
-$NChanges(resource,window_from,window_until,now())
+let Selected=materialize($NChanges(resource,window_from,window_until,now()));
+Selected
 | extend PublicationTimeKnown=false
 }
 
 .create-or-alter function $NRecordedIncidentAlertsDuring(resource:string,window_from:datetime,window_until:datetime) {
-$NNewIncidents(resource,window_from,window_until,now())
+let Selected=materialize($NNewIncidents(resource,window_from,window_until,now()));
+Selected
 | extend PublicationTimeKnown=false
 }
 
 .create-or-alter function $NStatusNow(resource:string,max_age:timespan) {
-$NStatus(resource,now(),max_age)
+let Selected=materialize($NStatus(resource,now(),max_age));
+Selected
 | extend PublicationTimeKnown=false
 }
 

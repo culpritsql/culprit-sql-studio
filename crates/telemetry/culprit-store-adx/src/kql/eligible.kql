@@ -1,10 +1,10 @@
 .create function $TABLE$SCOPEEligible(contract:string,store:string,$RESOURCE_ARGcaptured_from:datetime,asof:datetime) {
-let Membership=materialize(CulpritPublished$SCOPEV1(contract,store,$RESOURCE_VALUEcaptured_from,asof)
+let Membership=CulpritPublished$SCOPEV1(contract,store,$RESOURCE_VALUEcaptured_from,asof)
     | mv-expand Batch=Batches
     | where tostring(Batch.table) == "$TABLE" and tobool(Batch.delivery_required)
     | project RangeId,$RESOURCE_MEMBERSHIP BatchId=tostring(Batch.batch_id), ExpectedRows=tolong(Batch.rows),
         PublishedKind=ResourceKind, PublishedManifest=ManifestSha256, PublishedSchema=SchemaDigest, PublishedOutbox=OutboxId,
-        PublishedEpoch=OwnerEpoch, PublishedSequence=CaptureSequence, PublishedReferencesComplete=ReferencesComplete);
+        PublishedEpoch=OwnerEpoch, PublishedSequence=CaptureSequence, PublishedReferencesComplete=ReferencesComplete;
 let Candidates=materialize(
     $TABLE
     | where ContractId == contract and $RESOURCE_FILTER
@@ -13,7 +13,7 @@ let Candidates=materialize(
     | distinct $COLUMNS
     | join kind=leftouter Membership on RangeId, BatchId
 );
-let Batches=materialize(Candidates
+let Batches=Candidates
     | summarize Variants=count(),InvalidRows=countif(
         isnull(ExpectedRows) or isnull(RowOrdinal) or RowOrdinal <= 0 or RowOrdinal > ExpectedRows
         or ResourceKind != PublishedKind or ManifestSha256 != PublishedManifest or SchemaDigest != PublishedSchema
@@ -21,7 +21,7 @@ let Batches=materialize(Candidates
         or ReferencesComplete != PublishedReferencesComplete$RESOURCE_MISMATCH),
         ExpectedRows=take_any(ExpectedRows) by RangeId, BatchId, RowOrdinal
     | summarize PresentRows=count(),InvalidOrdinals=countif(Variants != 1 or InvalidRows > 0),
-        ExpectedRows=take_any(ExpectedRows) by RangeId, BatchId);
+        ExpectedRows=take_any(ExpectedRows) by RangeId, BatchId;
 let InvalidRanges=Batches | where InvalidOrdinals > 0 | project RangeId;
 let Complete=Batches
     | join kind=leftanti InvalidRanges on RangeId

@@ -169,5 +169,39 @@ pub(super) async fn assert_published_counts(emulator: &Emulator, asof: &str) {
         vec![vec![json!(originals), json!(heads), json!(missing)]],
         "compact census must match genuine published heads and first-original keys"
     );
+    let first_columns: Vec<Column> = [
+        ("ResourceId", "string"),
+        ("TargetId", "string"),
+        ("OriginalScopeId", "string"),
+        ("OriginalSource", "string"),
+        ("EpisodeId", "string"),
+        ("ControllerVersion", "long"),
+        ("OriginalRecordedAt", "datetime"),
+    ]
+    .into_iter()
+    .map(|(name, kind)| Column { column_name: name.into(), column_type: kind.into() })
+    .collect();
+    let consistent_first = emulator
+        .values(
+            format!(
+                "FriendlySmokeConsistentOriginals(datetime({asof})) | where Revision == todecimal(1) | project ResourceId,TargetId,OriginalScopeId,OriginalSource,EpisodeId,ControllerVersion,OriginalRecordedAt | sort by ResourceId asc,TargetId asc,OriginalScopeId asc,OriginalSource asc,EpisodeId asc,ControllerVersion asc"
+            ),
+            BTreeMap::new(),
+            first_columns.clone(),
+        )
+        .await;
+    let legacy_first = emulator
+        .values(
+            format!(
+                "let Rows=materialize(FriendlySmokeIncidentRows(datetime({asof})));Rows | join kind=leftsemi (FriendlySmokeConsistentOriginalKeys(Rows)) on ResourceId,TargetId,OriginalScopeId,OriginalSource,EpisodeId,ControllerVersion,Revision | where Revision == todecimal(1) | distinct ResourceId,TargetId,OriginalScopeId,OriginalSource,EpisodeId,ControllerVersion,OriginalRecordedAt | sort by ResourceId asc,TargetId asc,OriginalScopeId asc,OriginalSource asc,EpisodeId asc,ControllerVersion asc"
+            ),
+            BTreeMap::new(),
+            first_columns,
+        )
+        .await;
+    assert_eq!(
+        consistent_first, legacy_first,
+        "single-pass ConsistentOriginals must preserve exact first-observation clocks"
+    );
     eprintln!("Owned emulator compact census matched genuine published head/first counts");
 }
