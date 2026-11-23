@@ -1,6 +1,6 @@
-import enginesJson from "../../../app/src/gen/engines.json";
-import cardinalsJson from "../../../locales/.cldr/cardinals.json";
-import englishJson from "../../../locales/en.json";
+import enginesJson from "../../../app/src/gen/engines.json" with { type: "json" };
+import cardinalsJson from "../../../locales/.cldr/cardinals.json" with { type: "json" };
+import englishJson from "../../../locales/en.json" with { type: "json" };
 import type { Engine, EngineFacts } from "./types.js";
 
 export type ViewerEngineSpec = {

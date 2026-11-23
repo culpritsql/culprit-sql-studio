@@ -5,7 +5,7 @@ import type { EngineFacts } from "../gen/EngineFacts";
 import type { Plan } from "../gen/Plan";
 import type { SessionAction } from "../gen/SessionAction";
 import type { NativeActivityIdentity } from "../gen/NativeActivityIdentity";
-import engines from "../gen/engines.json";
+import engines from "../gen/engines.json" with { type: "json" };
 import { t } from "./i18n";
 
 /** Everything the app knows about each engine without a connection: its label, what it can answer, its session

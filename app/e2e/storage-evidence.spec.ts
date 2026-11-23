@@ -31,7 +31,16 @@ test("Rust storage evidence stays folded and exposes exact native values without
   await region.getByText(english["ui.retained_failures.observations"], { exact: true }).click();
   await expect(region.locator("article")).toHaveCount(2);
   await expect(region.getByText("9007199254740993", { exact: true })).toBeVisible();
-  await expect(region.getByText("0", { exact: true }).first()).toBeVisible();
+  const filegroup = region.locator("article").filter({
+    has: page.getByRole("heading", { name: "PRIMARY", exact: true }),
+  });
+  const usedBytes = filegroup.locator("dl > div").filter({
+    has: page.getByText(english["view.storage.field.used_bytes"], { exact: true }),
+  });
+  await expect(filegroup).toHaveCount(1);
+  await expect(usedBytes.locator("dd")).toHaveText("0");
+  await expect(usedBytes.locator("dd")).toBeVisible();
+  await expect(region.locator("details.storage-file-census")).not.toHaveAttribute("open");
   await expect(region.locator("article").last()).toContainText("sample-data");
   await expect(region.locator("img,script,a")).toHaveCount(0);
   await page.setViewportSize({ width: 520, height: 900 });
