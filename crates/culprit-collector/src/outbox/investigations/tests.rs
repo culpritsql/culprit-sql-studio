@@ -17,7 +17,7 @@ use crate::{
 };
 use std::sync::Arc;
 
-fn activity(id: &str) -> ActivityObservation {
+pub(super) fn activity(id: &str) -> ActivityObservation {
     ActivityObservation {
         session_context: None,
         key: ActivityKey {
@@ -45,7 +45,12 @@ fn activity(id: &str) -> ActivityObservation {
         waiting_on_lock: None,
     }
 }
-fn baseline(files: &mut Files, rows: Vec<ActivityObservation>, complete: bool, second: u32) -> CaptureIdentity {
+pub(super) fn baseline(
+    files: &mut Files,
+    rows: Vec<ActivityObservation>,
+    complete: bool,
+    second: u32,
+) -> CaptureIdentity {
     let request = CollectionRequest {
         subject: CollectionSubject::Database,
         selection: CollectionSelection::Activity,

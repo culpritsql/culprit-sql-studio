@@ -14,33 +14,58 @@ struct DiagnosticRows {
     selected: bool,
     focus: Option<SourceReadFocus>,
 }
-impl VerificationObserver for DiagnosticRows {
-    fn manifest(&mut self, manifest: &CollectionManifest) -> Result<()> {
-        let source = manifest.description.as_ref().ok_or_else(integrity)?;
+impl DiagnosticRows {
+    fn select(
+        &mut self,
+        source: &CollectionDescription,
+        investigation: Option<&DiagnosticInvestigationLineage>,
+    ) -> Result<()> {
         self.selected = match self.selection {
             RowSelection::All => true,
             RowSelection::Diagnostic => {
-                !source.observation.is_source_read_result()
-                    || source_read_retains_rows(source, manifest.investigation.as_ref())?
+                !source.observation.is_source_read_result() || source_read_retains_rows(source, investigation)?
             }
             RowSelection::SharedOwner => shared_owner_source(source),
         };
         self.focus = if matches!(self.selection, RowSelection::Diagnostic) && self.selected {
-            source_read_result_focus(source, manifest.investigation.as_ref())?.cloned()
+            source_read_result_focus(source, investigation)?.cloned()
         } else {
             None
         };
         Ok(())
     }
+
+    fn retains(&self, row: &ExportedRecord) -> bool {
+        self.selected && self.focus.as_ref().is_none_or(|focus| focus.retains_result_record(&row.record))
+    }
+}
+
+impl VerificationObserver for DiagnosticRows {
+    fn manifest(&mut self, manifest: &CollectionManifest) -> Result<()> {
+        self.select(manifest.description.as_ref().ok_or_else(integrity)?, manifest.investigation.as_ref())
+    }
+
     fn row(&mut self, row: &ExportedRecord, ordinal: u32) -> Result<()> {
-        if self.selected
-            && self.focus.as_ref().is_none_or(|focus| focus.retains_result_record(&row.record))
-            && !self.rows.retain(row, ordinal)
-        {
+        if self.retains(row) && !self.rows.retain(row, ordinal) {
             return Err(integrity());
         }
         Ok(())
     }
+}
+
+pub(super) fn select_diagnostic_references(
+    source: &CollectionDescription,
+    investigation: Option<&DiagnosticInvestigationLineage>,
+    rows: &[DiagnosticInputRow],
+) -> Result<Vec<DiagnosticInputRow>> {
+    let mut selection = DiagnosticRows {
+        rows: CanonicalRows::new(MAX_CANONICAL_ROWS),
+        selection: RowSelection::Diagnostic,
+        selected: false,
+        focus: None,
+    };
+    selection.select(source, investigation)?;
+    Ok(rows.iter().filter(|row| selection.retains(&row.row)).cloned().collect())
 }
 
 impl Files {

@@ -49,6 +49,7 @@ struct DiagnosticInputContents {
 pub(super) struct DiagnosticReferenceRows {
     pub(super) parent: DiagnosticCaptureRef,
     pub(super) source: CollectionDescription,
+    pub(super) investigation: Option<DiagnosticInvestigationLineage>,
     pub(super) rows: Vec<DiagnosticInputRow>,
 }
 
@@ -80,7 +81,9 @@ impl Files {
                 investigation: row.get(5)?,
             }),
         ).optional().map_err(storage)?;
-        let Some(stored) = stored else { return Ok(DiagnosticInputState::Missing) };
+        let Some(stored) = stored else {
+            return Ok(DiagnosticInputState::Missing);
+        };
         let parent: DiagnosticCaptureRef = decode(&stored.parent)?;
         let source: CollectionDescription = decode(&stored.source)?;
         let investigation = decode_investigation(stored.investigation.as_deref())?;
@@ -111,7 +114,26 @@ impl Files {
         id.map(|id| self.diagnostic_input(&id, controller_version)).transpose()
     }
     pub(in crate::outbox) fn diagnostic_input(&mut self, id: &str, controller_version: u32) -> Result<DiagnosticInput> {
-        let mut input = self.diagnostic_input_base(id, controller_version)?;
+        let input = self.diagnostic_input_base(id, controller_version)?;
+        self.populate_original_history(input)
+    }
+
+    // Only a view returned by the canonical/restored body owner may supply these rows. The serialized
+    // commit still reloads its journal metadata/head and authenticates the complete historical priors.
+    pub(super) fn diagnostic_input_from_reference_rows(
+        &mut self,
+        original: &DiagnosticReferenceRows,
+        controller_version: u32,
+    ) -> Result<DiagnosticInput> {
+        let input = self.diagnostic_input_base_with_rows(
+            &original.parent.capture.observation_id,
+            controller_version,
+            Some(original),
+        )?;
+        self.populate_original_history(input)
+    }
+
+    fn populate_original_history(&mut self, mut input: DiagnosticInput) -> Result<DiagnosticInput> {
         input.historical_episodes =
             self.original_history_episodes(&input.source, &input.parent, &input.rows, input.original_history.as_ref())?;
         input.historical_episodes.retain(|episode| {
@@ -124,6 +146,15 @@ impl Files {
     }
 
     pub(super) fn diagnostic_input_base(&mut self, id: &str, controller_version: u32) -> Result<DiagnosticInput> {
+        self.diagnostic_input_base_with_rows(id, controller_version, None)
+    }
+
+    fn diagnostic_input_base_with_rows(
+        &mut self,
+        id: &str,
+        controller_version: u32,
+        original: Option<&DiagnosticReferenceRows>,
+    ) -> Result<DiagnosticInput> {
         let stored = self.journal.conn.query_row(
             "SELECT parent_json,source_json,connection,controller_version,restored_json,restored_sha,lineage_json,original_history_json FROM diagnostic_inputs WHERE observation_id=?1",
             [id], |row| Ok(DiagnosticInputContents {
@@ -141,7 +172,16 @@ impl Files {
         {
             return Err(integrity());
         }
-        let rows = if let Some(restored) = stored.restored {
+        let rows = if let Some(original) = original {
+            if original.parent != parent
+                || original.source != source
+                || encode_investigation(original.investigation.as_ref())?
+                    != encode_investigation(investigation.as_ref())?
+            {
+                return Err(integrity());
+            }
+            rows::select_diagnostic_references(&source, investigation.as_ref(), &original.rows)?
+        } else if let Some(restored) = stored.restored {
             if restored.len() > MAX_RESTORED_INPUT_BYTES
                 || stored.checksum.as_deref()
                     != Some(restored_checksum(&parent, &source, investigation.as_ref(), &restored)?.as_str())
@@ -211,18 +251,22 @@ impl Files {
         if !reference.is_valid() {
             return Err(integrity());
         }
-        let DiagnosticReferenceRows { parent, source, rows } =
+        let DiagnosticReferenceRows { parent, source, rows, .. } =
             self.diagnostic_reference_rows(&reference.capture.observation_id)?;
         if parent != reference.capture_ref() {
             return Err(integrity());
         }
         let position = rows.iter().position(|row| row.reference == *reference).ok_or_else(integrity)?;
         if matches!(purpose, ReferenceUse::ActivityAuthority) {
-            let NativeRecordIdentity::Activity(key) = &reference.native_key else { return Err(integrity()) };
+            let NativeRecordIdentity::Activity(key) = &reference.native_key else {
+                return Err(integrity());
+            };
             let original = rows
                 .iter()
                 .map(|row| {
-                    let TelemetryRecord::Activity(observation) = &row.row.record else { return Err(integrity()) };
+                    let TelemetryRecord::Activity(observation) = &row.row.record else {
+                        return Err(integrity());
+                    };
                     Ok(ActivityFrameRow { observation, reference: Some(&row.reference) })
                 })
                 .collect::<Result<Vec<_>>>()?;
@@ -248,27 +292,28 @@ impl Files {
             )
             .optional()
             .map_err(storage)?;
-        let (parent, source, rows) = if let Some(stored) = restored.filter(|stored| stored.restored.is_some()) {
-            #[cfg(test)]
-            {
-                REFERENCE_BODY_READS.set(REFERENCE_BODY_READS.get() + 1);
-            }
-            let restored = stored.restored.as_deref().ok_or_else(integrity)?;
-            let parent = decode::<DiagnosticCaptureRef>(&stored.parent)?;
-            let source = decode::<CollectionDescription>(&stored.source)?;
-            let investigation = decode_investigation(stored.investigation.as_deref())?;
-            if restored.len() > MAX_RESTORED_INPUT_BYTES
-                || stored.checksum.as_deref()
-                    != Some(restored_checksum(&parent, &source, investigation.as_ref(), restored)?.as_str())
-            {
-                return Err(integrity());
-            }
-            let rows = positioned_references(&parent, &source, decode(restored)?, investigation.as_ref())?;
-            (parent, source, rows)
-        } else {
-            return self.canonical_diagnostic_reference_rows(id);
-        };
-        Ok(DiagnosticReferenceRows { parent, source, rows })
+        let (parent, source, investigation, rows) =
+            if let Some(stored) = restored.filter(|stored| stored.restored.is_some()) {
+                #[cfg(test)]
+                {
+                    REFERENCE_BODY_READS.set(REFERENCE_BODY_READS.get() + 1);
+                }
+                let restored = stored.restored.as_deref().ok_or_else(integrity)?;
+                let parent = decode::<DiagnosticCaptureRef>(&stored.parent)?;
+                let source = decode::<CollectionDescription>(&stored.source)?;
+                let investigation = decode_investigation(stored.investigation.as_deref())?;
+                if restored.len() > MAX_RESTORED_INPUT_BYTES
+                    || stored.checksum.as_deref()
+                        != Some(restored_checksum(&parent, &source, investigation.as_ref(), restored)?.as_str())
+                {
+                    return Err(integrity());
+                }
+                let rows = positioned_references(&parent, &source, decode(restored)?, investigation.as_ref())?;
+                (parent, source, investigation, rows)
+            } else {
+                return self.canonical_diagnostic_reference_rows(id);
+            };
+        Ok(DiagnosticReferenceRows { parent, source, investigation, rows })
     }
 
     pub(super) fn canonical_diagnostic_reference_rows(&mut self, id: &str) -> Result<DiagnosticReferenceRows> {
@@ -283,8 +328,9 @@ impl Files {
             source_scope_id: validated.range()?.scope_id,
         };
         let source = validated.manifest.description.ok_or_else(integrity)?;
+        let investigation = validated.manifest.investigation;
         let rows = referenced_rows(&parent, &source, rows, None)?;
-        Ok(DiagnosticReferenceRows { parent, source, rows })
+        Ok(DiagnosticReferenceRows { parent, source, investigation, rows })
     }
 
     pub(in crate::outbox) fn verify_focus_parent(&mut self, focus: &ActivityRequestFocus) -> Result<()> {
@@ -404,7 +450,9 @@ impl Files {
         if !focus.matches_basis(&source, &row, execution) {
             return Err(integrity());
         }
-        let Some(prerequisite) = focus.prerequisite.observation() else { return Ok(()) };
+        let Some(prerequisite) = focus.prerequisite.observation() else {
+            return Ok(());
+        };
         let context = self.diagnostic_input(&prerequisite.capture.observation_id, DIAGNOSTIC_CONTROLLER_VERSION)?;
         if let Some(participant) = focus.prerequisite.activity_participant(&context.source).map_err(|_| integrity())? {
             self.verify_focus_parent(participant)?;
@@ -485,7 +533,9 @@ impl Files {
         };
         let rows = referenced_rows(&parent, &source, rows, None)?;
         Ok(rows.into_iter().find_map(|row| {
-            let TelemetryRecord::Operational(observation) = &row.row.record else { return None };
+            let TelemetryRecord::Operational(observation) = &row.row.record else {
+                return None;
+            };
             let positive = source.observation.snapshot()?.sources.iter().any(|coverage| {
                 coverage.source == observation.source
                     && coverage.records > 0

@@ -1,5 +1,7 @@
 use super::*;
 use crate::collection_files::ObservationFiles;
+mod originals;
+use originals::CommitOriginals;
 
 // A revision retains the raw roster both as report references and as its immutable input inventory.
 const DIAGNOSTIC_PAGE_BYTES: u32 = 512 * 1024;
@@ -76,7 +78,9 @@ impl Files {
         let request = CollectionRequest {
             subject: match &controller_target {
                 CollectionTarget::Database(_) => CollectionSubject::Database,
-                CollectionTarget::ConfiguredConnection(_) => return Err(DeliveryProblem::UnsupportedSchema.error()),
+                CollectionTarget::ConfiguredConnection(_) => {
+                    return Err(DeliveryProblem::UnsupportedSchema.error());
+                }
                 CollectionTarget::Shared(resource) => CollectionSubject::Shared { resource: resource.clone() },
             },
             selection: CollectionSelection::Diagnostics {
@@ -151,7 +155,10 @@ impl Files {
     }
 
     fn validate_diagnostic_update(&mut self, input: &DiagnosticInput, update: &DiagnosticUpdate) -> Result<()> {
-        let current = self.diagnostic_input(&input.parent.capture.observation_id, input.controller_version)?;
+        let mut originals = CommitOriginals::new(
+            self.diagnostic_input(&input.parent.capture.observation_id, input.controller_version)?,
+        )?;
+        let current = originals.current();
         if current.parent != input.parent
             || current.source != input.source
             || current.expected_head != input.expected_head
@@ -250,7 +257,7 @@ impl Files {
             }
             for reference in &revision.inputs {
                 if !known.contains(&reference.key()?) {
-                    let (source, row) = self.diagnostic_reference(reference)?;
+                    let (source, row) = originals.reference(self, reference)?;
                     let shared_intent =
                         revision.investigation.as_ref().map(|event| event.intent.as_ref()).or(intent.as_ref());
                     let shared_owner = shared_intent.is_some_and(|intent| {
@@ -278,7 +285,7 @@ impl Files {
                     .and_then(|checkpoint| checkpoint.episodes.iter().find(|episode| episode.id == revision.episode.id))
                     .and_then(|episode| episode.report.as_ref());
                 if previous_report != Some(report) {
-                    let (source, row) = self.diagnostic_reference(report.evidence())?;
+                    let (source, row) = originals.reference(self, report.evidence())?;
                     if !report.matches_observation(&revision.episode, &source, &row) {
                         return Err(integrity());
                     }
@@ -298,7 +305,7 @@ impl Files {
                         }
                     }
                     let report_input =
-                        self.diagnostic_input(&report.evidence().capture.observation_id, input.controller_version)?;
+                        originals.input(self, &report.evidence().capture_ref(), input.controller_version)?;
                     let report_intent = report_input.investigation_intent()?;
                     if report_input.parent != report.evidence().capture_ref()
                         || report_input.source != source
