@@ -180,7 +180,18 @@ pub(crate) fn query(
         .limit(byte_limit as u64)
         .read_to_vec()
         .map_err(|_| DeliveryProblem::Transport.error())?;
-    response::parse(&bytes, columns, row_limit, byte_limit)
+    let result = response::parse(&bytes, columns, row_limit, byte_limit);
+    #[cfg(test)]
+    if result.is_err() && origin.starts_with("http://127.0.0.1:") {
+        // Only this test-only loopback transport can receive owned synthetic fixture data.
+        // Reuse the already bounded reply; never make a second diagnostic request.
+        const DIAGNOSTIC_CHARS: usize = 4096;
+        eprintln!(
+            "Owned emulator query HTTP 200 failed response validation: {}",
+            String::from_utf8_lossy(&bytes).chars().take(DIAGNOSTIC_CHARS).collect::<String>()
+        );
+    }
+    result
 }
 pub(crate) fn agent(origin: &str) -> &'static ureq::Agent {
     static CLOUD: OnceLock<ureq::Agent> = OnceLock::new();
