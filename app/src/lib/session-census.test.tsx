@@ -196,7 +196,7 @@ test("recent clients use the same native session dedup while MARS request tokens
     }
     const html = renderToStaticMarkup(<SessionCensus report={report} />);
     expect(html).toContain(recent.groups.title);
-    expect(html).toContain(renderToStaticMarkup(<>{recent.groups.summary}</>));
+    expect(html).toContain(renderToStaticMarkup(recent.groups.summary));
     expect(html).toContain("9007199254740993");
     expect(html).not.toContain("<details open");
     expect(html).not.toContain("sig-dot");
@@ -216,9 +216,9 @@ test("recent exclusions unknown eligibility and partial or empty subsets remain 
     const { report } = sessionCensusCase(name);
     expect(report.recent_clients.coverage).not.toBe("complete-original-census");
     const html = renderToStaticMarkup(<SessionCensus report={report} />);
-    expect(html).toContain(renderToStaticMarkup(<>{report.recent_clients.groups.summary}</>));
+    expect(html).toContain(renderToStaticMarkup(report.recent_clients.groups.summary));
     for (const limitation of report.recent_clients.groups.limitations) {
-      expect(html).toContain(renderToStaticMarkup(<>{limitation}</>));
+      expect(html).toContain(renderToStaticMarkup(limitation));
     }
     expect(html).not.toContain("sig-dot");
   }
