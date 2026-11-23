@@ -42,6 +42,7 @@ jobs:
         working-directory: _blog_src
         run: |
           bun install --frozen-lockfile
+          bun update --no-cache @culpritsql/plans @culpritsql/plan-viewer
           bun test
           bun run build
       - name: Assemble the site

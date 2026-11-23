@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from stage_wasm_repo import has_meaningful_changes, has_pkg_changes, stage_repository
+from stage_wasm_repo import has_meaningful_changes, has_pkg_changes, resolve_next_version, stage_repository
 
 
 class StageWasmRepoTests(unittest.TestCase):
@@ -135,6 +135,15 @@ class StageWasmRepoTests(unittest.TestCase):
         wasm.write_bytes(wasm.read_bytes() + b"\x00")
         with self.assertRaisesRegex(RuntimeError, "executable digest mismatch"):
             stage_repository(self.out, root=self.root)
+
+    def test_monotonic_version_resolution_across_patches_and_minor_trains(self) -> None:
+        self.assertEqual(resolve_next_version("0.5.6", [], pkg_changed=True), ("0.5.6", True))
+        self.assertEqual(resolve_next_version("0.5.6", ["v0.5.6", "v0.5.8"], pkg_changed=False), ("0.5.8", False))
+        self.assertEqual(resolve_next_version("0.5.6", ["v0.5.6", "v0.5.8"], pkg_changed=True), ("0.5.9", True))
+        # Studio patch bump (0.5.7) never collides or downgrades a library already at 0.5.8
+        self.assertEqual(resolve_next_version("0.5.7", ["v0.5.6", "v0.5.8"], pkg_changed=True), ("0.5.9", True))
+        # Studio minor bump (0.6.0) advances the library onto the 0.6.0 minor train
+        self.assertEqual(resolve_next_version("0.6.0", ["v0.5.6", "v0.5.8"], pkg_changed=True), ("0.6.0", True))
 
 
 if __name__ == "__main__":

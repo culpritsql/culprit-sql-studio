@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from stage_plan_viewer_repo import has_meaningful_changes, has_pkg_changes, stage_repository
+from stage_plan_viewer_repo import has_meaningful_changes, has_pkg_changes, resolve_next_version, stage_repository
 
 
 class StagePlanViewerRepoTests(unittest.TestCase):
@@ -130,6 +130,13 @@ class StagePlanViewerRepoTests(unittest.TestCase):
         css.write_bytes(css.read_bytes() + b"\n")
         with self.assertRaisesRegex(RuntimeError, "artifact digest mismatch"):
             stage_repository(self.out, root=self.root)
+
+    def test_monotonic_version_resolution_across_patches_and_minor_trains(self) -> None:
+        self.assertEqual(resolve_next_version("0.5.6", [], pkg_changed=True), ("0.5.6", True))
+        self.assertEqual(resolve_next_version("0.5.6", ["v0.5.6", "v0.5.8"], pkg_changed=False), ("0.5.8", False))
+        self.assertEqual(resolve_next_version("0.5.6", ["v0.5.6", "v0.5.8"], pkg_changed=True), ("0.5.9", True))
+        self.assertEqual(resolve_next_version("0.5.7", ["v0.5.6", "v0.5.8"], pkg_changed=True), ("0.5.9", True))
+        self.assertEqual(resolve_next_version("0.6.0", ["v0.5.6", "v0.5.8"], pkg_changed=True), ("0.6.0", True))
 
 
 if __name__ == "__main__":

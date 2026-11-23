@@ -8,9 +8,13 @@ import json
 from pathlib import Path
 import re
 import shutil
+import subprocess
+import tempfile
+import tomllib
 
 ROOT = Path(__file__).resolve().parents[2]
 SEMVER_RE = re.compile(r"^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$")
+STRICT_TAG_RE = re.compile(r"^v(\d+)\.(\d+)\.(\d+)$")
 DESCRIPTION = (
     "Portable WebAssembly execution plan parser, comparator, deadlock parser, and exporter "
     "for SQL Server, PostgreSQL, MySQL, MariaDB, YugabyteDB, and SQLite."
@@ -160,6 +164,77 @@ def has_pkg_changes(staged_dir: Path, previous_release_dir: Path) -> bool:
     return meaningful_digests(staged_dir, pkg_only=True) != meaningful_digests(previous_release_dir, pkg_only=True)
 
 
+def parse_xyz(version: str) -> tuple[int, int, int]:
+    match = re.match(r"^(\d+)\.(\d+)\.(\d+)", version.strip())
+    if not match:
+        raise RuntimeError(f"invalid X.Y.Z semver: {version!r}")
+    return int(match.group(1)), int(match.group(2)), int(match.group(3))
+
+
+def resolve_next_version(
+    studio_version: str,
+    existing_tags: list[str],
+    *,
+    pkg_changed: bool,
+) -> tuple[str, bool]:
+    """Compute monotonic package version using Studio major.minor as floor and auto-incrementing patch on pkg/ changes."""
+    s_maj, s_min, s_patch = parse_xyz(studio_version)
+    parsed: list[tuple[int, int, int]] = []
+    for tag in existing_tags:
+        match = STRICT_TAG_RE.fullmatch(tag.strip())
+        if match:
+            parsed.append((int(match.group(1)), int(match.group(2)), int(match.group(3))))
+    if not parsed:
+        return f"{s_maj}.{s_min}.{s_patch}", True
+
+    t_maj, t_min, t_patch = max(parsed)
+    if not pkg_changed:
+        return f"{t_maj}.{t_min}.{t_patch}", False
+
+    if (s_maj, s_min) > (t_maj, t_min):
+        return f"{s_maj}.{s_min}.{s_patch}", True
+    next_patch = max(t_patch + 1, s_patch) if (s_maj, s_min) == (t_maj, t_min) else t_patch + 1
+    return f"{t_maj}.{t_min}.{next_patch}", True
+
+
+def resolve_staged_release(staged_dir: Path, target_repo_dir: Path, *, root: Path = ROOT) -> dict[str, object]:
+    cargo_toml = tomllib.loads((root / "Cargo.toml").read_text())
+    studio_version = str(cargo_toml["workspace"]["package"]["version"])
+    raw_tags = subprocess.check_output(
+        ["git", "-C", str(target_repo_dir), "tag", "-l", "v*"],
+        text=True,
+    ).splitlines()
+    parsed_tags = [
+        (int(m.group(1)), int(m.group(2)), int(m.group(3)), tag.strip())
+        for tag in raw_tags
+        if (m := STRICT_TAG_RE.fullmatch(tag.strip()))
+    ]
+    prev_tag = max(parsed_tags)[3] if parsed_tags else None
+    if prev_tag is None:
+        pkg_changed = True
+    else:
+        with tempfile.TemporaryDirectory() as tmp:
+            wt = Path(tmp) / "prev"
+            subprocess.run(
+                ["git", "-C", str(target_repo_dir), "worktree", "add", "--quiet", "--detach", str(wt), prev_tag],
+                check=True,
+            )
+            try:
+                pkg_changed = has_pkg_changes(staged_dir, wt)
+            finally:
+                subprocess.run(
+                    ["git", "-C", str(target_repo_dir), "worktree", "remove", "--force", str(wt)],
+                    check=False,
+                )
+
+    version, should_tag = resolve_next_version(studio_version, raw_tags, pkg_changed=pkg_changed)
+    manifest_path = staged_dir / "package.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["version"] = version
+    manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
+    return {"version": version, "should_tag": should_tag, "prev_tag": prev_tag}
+
+
 def stage_repository(destination: Path, *, root: Path = ROOT, include_pkg: bool = True, include_workflows: bool = True) -> dict[str, object]:
     package_dir = root / "packages/culprit-wasm"
     template_dir = root / ".github/wasm-repo"
@@ -209,7 +284,11 @@ def main() -> None:
     parser.add_argument("--omit-workflows", action="store_true", help="Omit .github/workflows when syncing via token")
     parser.add_argument("--compare-sync", type=Path, help="Compare staged dir against target checkout (ignores build-report.json)")
     parser.add_argument("--compare-pkg", type=Path, help="Compare staged pkg/ against previous release checkout")
+    parser.add_argument("--resolve-release", type=Path, help="Resolve monotonic version against target git repo tags and update staged package.json")
     args = parser.parse_args()
+    if args.resolve_release is not None:
+        print(json.dumps(resolve_staged_release(args.destination, args.resolve_release)))
+        return
     if args.compare_sync is not None:
         print("true" if has_meaningful_changes(args.destination, args.compare_sync) else "false")
         return
