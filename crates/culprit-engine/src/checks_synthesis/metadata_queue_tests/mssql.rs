@@ -119,3 +119,124 @@ fn actual_native_database_resource_namespace_and_both_endpoint_clocks_are_part_o
         assert!(ExportedRecord::new(&source, &capture, row).is_err(), "{fault}");
     }
 }
+
+#[tokio::test]
+async fn azure_mi_readonly_permission_and_non_escalated_object_locks_preserve_exact_boundaries() {
+    // 1. Azure SQL Database (with logical incarnation), Managed Instance, and ReadScale (database_writable = false)
+    // preserve exact NativePendingRelationLockGatekeeper + NativeGrantedRelationLockHolder culprits without inventing escalation.
+    for (label, incarnation, kind, writable) in [
+        ("azure-sql-db", Some("azure-logical-db-guid"), SharedResourceKind::Node, Some(true)),
+        ("managed-instance", None, SharedResourceKind::Instance, Some(true)),
+        ("read-scale-secondary", Some("azure-logical-db-guid"), SharedResourceKind::Node, Some(false)),
+    ] {
+        let (mut source, records) = mssql_metadata_queue_evidence(Case::Observed);
+        if let CollectionTarget::Database(db) = &mut source.target {
+            db.incarnation = incarnation.map(str::to_owned);
+        }
+        if let SourcePartition::InstanceLocal { member: Some(member), .. } = &mut source.partition {
+            member.kind = kind;
+        }
+        if let SourceObservation::FocusedBlocking { snapshot, result } = &mut source.observation {
+            snapshot.database_writable = writable;
+            result.focus.target = source.target.clone();
+            result.focus.partition = source.partition.clone();
+            result.focus.database_writable = writable;
+        }
+        let fixture = Fixture::new(source.clone(), records).await;
+        let capture = fixture.read_families(&[EvidenceFamily::ActivityObservations]).await;
+        let report = crate::collected_resources::blocking(&capture).unwrap().report;
+        assert_eq!(report.metadata_queue.evidence.status, MetadataQueueStatus::Observed, "{label}");
+        let original = capture.verified_original().unwrap();
+        let explanation = explanations::blocking(&original).unwrap();
+        assert_eq!(explanation.attribution_status(), DerivedAttributionStatus::Established, "{label}");
+        assert_eq!(explanation.culprits.len(), 2, "{label}");
+        assert!(
+            !explanation.mechanism.as_deref().unwrap_or_default().to_ascii_lowercase().contains("escalat"),
+            "{label}: an object lock queue must not claim lock escalation without native proof"
+        );
+    }
+
+    // 2. PermissionDenied (missing VIEW DATABASE/SERVER PERFORMANCE STATE) never fabricates healthy absence or a queue.
+    let (denied_source, denied_records) = mssql_metadata_queue_evidence(Case::PermissionDenied);
+    let denied_fixture = Fixture::new(denied_source, denied_records).await;
+    let denied_capture = denied_fixture.read_families(&[EvidenceFamily::ActivityObservations]).await;
+    let denied_report = crate::collected_resources::blocking(&denied_capture).unwrap().report;
+    assert_eq!(denied_report.metadata_queue.evidence.status, MetadataQueueStatus::Unavailable);
+    assert!(denied_report.metadata_queue.evidence.cascades.is_empty());
+    assert!(!denied_report.metadata_queue.evidence.issues.is_empty());
+
+    // 3. A single granted object-level X lock blocking a reader (without a pending Sch-M gatekeeper waiting on an earlier holder)
+    // attributes only NativeBlockingOwner and never claims lock escalation or a metadata-lock queue.
+    let (mut two_actor_source, mut two_actor_records) = mssql_metadata_queue_evidence(Case::Observed);
+    let holder = two_actor_records.remove(2);
+    two_actor_records.truncate(1);
+    {
+        let TelemetryRecord::Activity(victim) = &mut two_actor_records[0] else { panic!() };
+        let TelemetryRecord::Activity(holder_obs) = &holder else { panic!() };
+        let holder_owner = ActivityWaitOwner::Session {
+            id: holder_obs.key.session.id.clone(),
+            generation: Some(holder_obs.key.session.generation.clone()),
+        };
+        victim.wait.as_mut().unwrap().owners = vec![holder_owner.clone()];
+        let NativeLockEvidence::MssqlObject(point) =
+            victim.wait.as_mut().unwrap().resources.as_mut().unwrap()[0].native.as_deref_mut().unwrap()
+        else {
+            panic!()
+        };
+        point.blockers[0].context.owner = holder_owner;
+        point.blockers[0].context.actor = None;
+        point.blockers[0].context.statement = None;
+        point.blockers[0].context.native_wait = None;
+        point.blockers[0].context.wait_ms = None;
+        point.blockers[0].context.current_requests = Some("0".into());
+        point.blockers[0].granted_modes = vec![culprit_core::blocking::MssqlObjectLockMode::from_native("X")];
+        point.blockers[0].waiting_mode = None;
+        point.blockers[0].waiting_status = None;
+    }
+    two_actor_records.push(holder);
+    let mut parent_source = two_actor_source.clone();
+    {
+        let SourceObservation::FocusedBlocking { snapshot, result } = &mut two_actor_source.observation else {
+            panic!()
+        };
+        snapshot.native_rows = 2;
+        snapshot.observations = 2;
+        snapshot.coverage.records = 2;
+        let TelemetryRecord::Activity(victim_after) = &two_actor_records[0] else { panic!() };
+        result.focus.original = (**victim_after).clone();
+        let parent_capture = result.focus.parent.capture.clone();
+        parent_source.source = culprit_core::source_id::SESSIONS.into();
+        parent_source.observation = SourceObservation::Activity(ActivitySnapshotDescription {
+            epoch: snapshot.epoch.clone(),
+            database_writable: snapshot.database_writable,
+            observed_from: "2020-01-01T12:00:00Z".into(),
+            at: "2020-01-01T12:00:00Z".into(),
+            observed_until: "2020-01-01T12:00:00Z".into(),
+            scope: culprit_core::MeasurementScope::Database,
+            population: ActivityPopulation::ActiveRequestsOpenTransactionsAndBlockers,
+            native_rows: 1,
+            observations: 1,
+            coverage: StateSourceCoverage::collected(culprit_core::source_id::SESSIONS.into(), 1),
+        });
+        let mut parent_victim = two_actor_records[0].clone();
+        if let TelemetryRecord::Activity(obs) = &mut parent_victim {
+            obs.wait.as_mut().unwrap().resources = None;
+        }
+        let exported = ExportedRecord::new(&parent_source, &parent_capture, parent_victim).unwrap();
+        result.focus.parent =
+            DiagnosticEvidenceRef::from_export(&parent_source, &digest(b"mssql-two-actor-parent"), &exported, 0)
+                .unwrap();
+    }
+    let obj_fixture = Fixture::new(two_actor_source, two_actor_records).await;
+    let obj_capture = obj_fixture.read_families(&[EvidenceFamily::ActivityObservations]).await;
+    let obj_report = crate::collected_resources::blocking(&obj_capture).unwrap().report;
+    assert_eq!(obj_report.metadata_queue.evidence.status, MetadataQueueStatus::Unavailable);
+    assert!(obj_report.metadata_queue.evidence.cascades.is_empty());
+    let obj_original = obj_capture.verified_original().unwrap();
+    let obj_explanation = explanations::blocking(&obj_original).unwrap();
+    assert_eq!(obj_explanation.culprits.len(), 1);
+    assert_eq!(
+        obj_explanation.culprits[0].causal_role.as_ref().unwrap().kind,
+        DerivedCausalRoleKind::NativeBlockingOwner
+    );
+}

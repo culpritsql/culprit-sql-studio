@@ -10,6 +10,8 @@ pub(crate) mod fixture;
 mod focused;
 #[cfg(test)]
 mod holders;
+#[cfg(feature = "native-test-support")]
+pub(crate) mod output_retention;
 #[cfg(test)]
 mod schema_queue;
 #[cfg(feature = "native-test-support")]

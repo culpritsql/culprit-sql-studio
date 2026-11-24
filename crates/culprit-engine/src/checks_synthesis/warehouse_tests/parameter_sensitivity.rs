@@ -430,7 +430,7 @@ async fn small_to_large_and_large_to_small_cached_scalar_plans_reach_gold_as_can
     assert!(candidate.causal_role.is_none());
     let mech = incident.mechanism.as_deref().expect("parameterized lookup mechanism");
     assert!(mech.contains(&t!("insight.parameter_lookup.limit")));
-    assert!(incident.developer_action.contains(&t!("insight.parameter_lookup.verify")) == false);
+    assert!(!incident.developer_action.contains(&t!("insight.parameter_lookup.verify")));
     assert!(incident.verification.contains(&t!("insight.parameter_lookup.verify")));
     assert!(incident.entry.reasons.contains(&t!("view.relational_input_question.execution_limit")));
     let encoded = serde_json::to_string(&lookup_out).unwrap();

@@ -347,3 +347,109 @@ async fn a_reservation_roster_at_the_combined_gold_boundary_keeps_all_details_wi
     let omitted = t!("view.synthesis.limit.query_details", affected = "0", culprits = "0", candidates = "0");
     assert!(!incident.entry.reasons.contains(&omitted));
 }
+
+#[tokio::test]
+async fn drain_resolution_cancelled_followup_and_zero_client_inference_hold_in_gold() {
+    // 1. Answered output-grant episode that subsequently drains and resolves preserves historical grant retention
+    // mechanism, affected query, and caller context while marking lifecycle Resolved.
+    let (basis, result, answered_ep, _) = scenario(Case::Held, 925_000).await;
+    let answered_hist = history(answered_ep.clone(), 925_002).await;
+    let mut empty_src = basis.source().clone();
+    {
+        let SourceObservation::Activity(frame) = &mut empty_src.observation else { panic!() };
+        frame.at = "2020-01-01T12:00:15Z".into();
+        frame.observed_from = frame.at.clone();
+        frame.observed_until = frame.at.clone();
+        frame.native_rows = 0;
+        frame.observations = 0;
+        frame.coverage = StateSourceCoverage::collected(empty_src.source.clone(), 0);
+    }
+    let empty_cap = retained(empty_src, vec![], 925_003).await;
+    let empty_orig = empty_cap.verified_original().unwrap();
+    let prev = DiagnosticCheckpoint {
+        controller_version: DIAGNOSTIC_CONTROLLER_VERSION,
+        target: basis.source().target.clone(),
+        input: answered_ep.latest.capture_ref(),
+        episodes: vec![answered_ep.clone()],
+    };
+    let update = observe_diagnostic_activity(
+        empty_orig.source(),
+        empty_orig.original(),
+        &[],
+        Some(&prev),
+        &ActivityPolicy::default(),
+        "2020-01-01T12:00:16Z",
+    )
+    .unwrap();
+    let resolved_rev = update
+        .revisions
+        .into_iter()
+        .find(|r| r.episode.id == answered_ep.id && r.episode.lifecycle == DiagnosticLifecycle::Resolved)
+        .unwrap();
+    let resolved_hist = history_revision(resolved_rev, 925_004).await;
+    let resolved_out = project(&[&resolved_hist, &answered_hist, &basis, &result, &empty_cap], vec![]).unwrap();
+    resolved_out.validate().unwrap();
+    let resolved_inc =
+        resolved_out.incidents.iter().find(|i| i.entry.lifecycle == DiagnosticLifecycle::Resolved).unwrap();
+    assert_eq!(resolved_inc.affected_queries.len(), 1);
+    assert!(resolved_inc.culprit_queries.is_empty());
+    assert!(resolved_inc.mechanism.is_some());
+    let prose = format!(
+        "{}\n{}\n{}",
+        resolved_inc.mechanism.as_deref().unwrap_or_default(),
+        resolved_inc.developer_action,
+        resolved_inc.verification
+    )
+    .to_ascii_lowercase();
+    for forbidden in ["http", "microservice", "packet loss", "nic ", "buffer every"] {
+        assert!(!prose.contains(forbidden), "forbidden client/network inference: {forbidden}");
+    }
+
+    // 2. Cancelled / failed follow-up stage retains the active symptom without manufacturing healthy absence or recovery.
+    let input = output_grant_original();
+    let failed_basis = retained(input.source, vec![input.original.record], 925_020).await;
+    let failed_orig = failed_basis.verified_original().unwrap();
+    let failed_ref = failed_orig.reference(0).unwrap();
+    let TelemetryRecord::Activity(failed_actor) = &failed_basis.records()[0].row().record else { panic!() };
+    let failed_update = observe_diagnostic_activity(
+        failed_basis.source(),
+        failed_orig.original(),
+        &[DiagnosticActivityRow { reference: &failed_ref, observation: failed_actor }],
+        None,
+        &ActivityPolicy::default(),
+        "2020-01-01T12:00:01Z",
+    )
+    .unwrap();
+    let base_ep = failed_update
+        .checkpoint
+        .episodes
+        .into_iter()
+        .find(|ep| matches!(ep.signal, DiagnosticSignal::ClientResultOutput { .. }))
+        .unwrap();
+    let failed_focus = SourceReadFocus::from_followup_input(
+        SourceReadQuestion::OutputGrantRetention,
+        &base_ep,
+        failed_basis.source(),
+        &failed_ref,
+        failed_basis.records()[0].row(),
+    )
+    .unwrap()
+    .unwrap();
+    let failed_ep = base_ep
+        .enroll_source_read(failed_focus.clone())
+        .unwrap()
+        .transition_source_read(&failed_focus, SourceReadStageState::Collecting)
+        .unwrap()
+        .transition_source_read(
+            &failed_focus,
+            SourceReadStageState::Stopped { issue: DiagnosticAnalysisIssue::EvidenceUnavailable },
+        )
+        .unwrap();
+    let failed_hist = history(failed_ep, 925_022).await;
+    let failed_out = project(&[&failed_hist, &failed_basis], vec![]).unwrap();
+    failed_out.validate().unwrap();
+    let [failed_inc] = failed_out.incidents.as_slice() else { panic!() };
+    assert_ne!(failed_inc.entry.lifecycle, DiagnosticLifecycle::Resolved);
+    assert_eq!(failed_inc.affected_queries.len(), 1);
+    assert!(failed_inc.culprit_queries.is_empty());
+}

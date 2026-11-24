@@ -172,5 +172,67 @@ async fn a_recorded_answer_without_its_selected_native_cohort_keeps_history_and_
     );
 }
 
+#[tokio::test]
+async fn mysql_and_mariadb_permission_unavailable_and_three_ticket_cohorts_never_manufacture_a_proved_queue() {
+    // Even with three same-table tickets across both MySQL and MariaDB flavors, the absent pending-blocker edge
+    // keeps culprits empty (CandidatesOnly) and never claims a proved three-actor sandwich or lock escalation.
+    for (idx, case) in [Case::Mysql, Case::Mariadb].into_iter().enumerate() {
+        let (basis, result, episode, answer) = scenario(case, 985_000 + (idx as u64) * 10).await;
+        let history = history(episode.clone(), 985_002 + (idx as u64) * 10).await;
+        let output = project(&[&history, &basis, &result], vec![]).unwrap();
+        let [incident] = output.incidents.as_slice() else { panic!() };
+        assert!(incident.culprit_queries.is_empty());
+        assert_eq!(incident.attribution_status, DerivedAttributionStatus::CandidatesOnly);
+        assert!(answer.evidence.issues.contains(&culprit_core::blocking::MetadataQueueIssue::PendingBlockerNotExposed));
+        assert!(!incident.mechanism.as_deref().unwrap_or_default().to_ascii_lowercase().contains("escalat"));
+    }
+
+    // Deferred / permission-denied Performance Schema metadata_locks stage retains the victim without healthy absence.
+    let input = metadata_lock_original();
+    let basis = retained(input.source, vec![input.original.record], 985_040).await;
+    let original = basis.verified_original().unwrap();
+    let reference = original.reference(0).unwrap();
+    let TelemetryRecord::Activity(actor) = &basis.records()[0].row().record else { panic!() };
+    let update = observe_diagnostic_activity(
+        basis.source(),
+        original.original(),
+        &[DiagnosticActivityRow { reference: &reference, observation: actor }],
+        None,
+        &ActivityPolicy::default(),
+        "2020-01-01T12:00:01Z",
+    )
+    .unwrap();
+    let episode = update
+        .checkpoint
+        .episodes
+        .into_iter()
+        .find(|ep| matches!(ep.signal, DiagnosticSignal::LockWait { .. }))
+        .unwrap();
+    let focus = SourceReadFocus::from_followup_input(
+        SourceReadQuestion::MetadataLockContext,
+        &episode,
+        basis.source(),
+        &reference,
+        basis.records()[0].row(),
+    )
+    .unwrap()
+    .unwrap();
+    let deferred = episode
+        .enroll_source_read(focus.clone())
+        .unwrap()
+        .transition_source_read(
+            &focus,
+            SourceReadStageState::Deferred { issue: DiagnosticAnalysisIssue::EvidenceUnavailable },
+        )
+        .unwrap();
+    let deferred_hist = history(deferred, 985_042).await;
+    let deferred_out = project(&[&deferred_hist, &basis], vec![]).unwrap();
+    let [deferred_inc] = deferred_out.incidents.as_slice() else { panic!() };
+    assert_eq!(deferred_inc.affected_queries.len(), 1);
+    assert!(deferred_inc.culprit_queries.is_empty());
+    assert!(deferred_inc.candidate_queries.is_empty());
+    assert_eq!(deferred_inc.attribution_status, DerivedAttributionStatus::Unestablished);
+}
+
 #[cfg(all(feature = "collector", feature = "mysql-native-tests"))]
 mod native;

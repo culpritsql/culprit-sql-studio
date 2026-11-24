@@ -208,3 +208,28 @@ async fn resolution_retires_work_but_preserves_the_exact_historical_output_depen
     assert!(!current.culprit_queries.is_empty());
     assert!(current.entry.reasons.contains(&t!("view.output_blocking.limit.point")));
 }
+
+#[tokio::test]
+async fn output_blocking_never_infers_http_loops_network_faults_or_sustained_duration() {
+    for (idx, case) in [Case::Mssql, Case::PgRelation].into_iter().enumerate() {
+        let (basis, result, revision) = scenario(case, 952_000 + (idx as u64) * 10).await;
+        let hist = history_revision(revision, 952_002 + (idx as u64) * 10).await;
+        let diagnosis = project(&[&hist, &basis, &result], vec![]).unwrap();
+        let [incident] = diagnosis.incidents.as_slice() else { panic!() };
+        let combined = format!(
+            "{}\n{}\n{}",
+            incident.mechanism.as_deref().unwrap_or_default(),
+            incident.developer_action,
+            incident.verification
+        )
+        .to_ascii_lowercase();
+        for forbidden in ["http", "microservice", "packet loss", "nic ", "buffer every"] {
+            assert!(
+                !combined.contains(forbidden),
+                "{case:?} contained forbidden client/network inference: {forbidden}"
+            );
+        }
+        assert!(incident.entry.reasons.contains(&t!("view.output_blocking.limit.point")));
+        assert!(incident.entry.reasons.contains(&t!("view.output_blocking.limit.cause")));
+    }
+}

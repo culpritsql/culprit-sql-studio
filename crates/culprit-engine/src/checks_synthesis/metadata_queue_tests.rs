@@ -174,4 +174,39 @@ fn native_lock_points_cannot_be_published_as_baseline_or_beyond_their_original_s
     assert!(ExportedRecord::new(&source, &capture, later).is_err());
 }
 
+#[tokio::test]
+async fn pg_cloud_standby_permission_and_single_object_lock_never_invent_escalation_or_healthy_absence() {
+    // 1. Hot-standby / managed cloud read-replica scope preserves exact relation-lock queue actors when observed.
+    let (mut standby_source, standby_records) = test_support::metadata_queue_evidence(MetadataQueueCase::Observed);
+    if let SourceObservation::FocusedBlocking { snapshot, result } = &mut standby_source.observation {
+        snapshot.database_writable = Some(false);
+        result.focus.database_writable = Some(false);
+    }
+    let standby_fixture = Fixture::new(standby_source, standby_records).await;
+    let standby_capture = standby_fixture.read_families(&[EvidenceFamily::ActivityObservations]).await;
+    let standby_report = crate::collected_resources::blocking(&standby_capture).unwrap().report;
+    assert_eq!(standby_report.metadata_queue.evidence.status, MetadataQueueStatus::Observed);
+    let standby_original = standby_capture.verified_original().unwrap();
+    let standby_explanation = explanations::blocking(&standby_original).unwrap();
+    assert_eq!(standby_explanation.culprits.len(), 2);
+    assert!(!standby_explanation.mechanism.as_deref().unwrap_or_default().to_ascii_lowercase().contains("escalat"));
+
+    // 2. Direct two-actor relation lock without a pending AccessExclusive gatekeeper keeps MetadataQueueStatus::Unavailable
+    // and attributes only NativeBlockingOwner.
+    let (direct_source, direct_records) = test_support::blocking_evidence(test_support::BlockingCase::Matched);
+    let direct_fixture = Fixture::new(direct_source, direct_records).await;
+    let direct_capture = direct_fixture.read_families(&[EvidenceFamily::ActivityObservations]).await;
+    let direct_report = crate::collected_resources::blocking(&direct_capture).unwrap().report;
+    assert_eq!(direct_report.metadata_queue.evidence.status, MetadataQueueStatus::Unavailable);
+    assert!(direct_report.metadata_queue.evidence.cascades.is_empty());
+    let direct_original = direct_capture.verified_original().unwrap();
+    let direct_explanation = explanations::blocking(&direct_original).unwrap();
+    assert!(
+        direct_explanation
+            .culprits
+            .iter()
+            .all(|q| { q.causal_role.as_ref().is_none_or(|r| r.kind == DerivedCausalRoleKind::NativeBlockingOwner) })
+    );
+}
+
 mod mssql;

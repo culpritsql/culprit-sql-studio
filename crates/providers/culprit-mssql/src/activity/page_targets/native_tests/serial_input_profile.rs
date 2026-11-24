@@ -38,12 +38,20 @@ pub struct SourceEndpoint {
     port: u16,
 }
 impl SourceEndpoint {
+    pub(super) fn from_fixture(fixture: &Fixture) -> Result<Self> {
+        Ok(Self {
+            pool: fixture.pool.as_ref().ok_or_else(|| invalid("owned source pool absent"))?.clone(),
+            port: fixture.port,
+        })
+    }
     pub fn request(&self, selection: CollectionSelection) -> Result<CollectionRequest> {
         let request =
             CollectionRequest { subject: CollectionSubject::Database, selection, budget: CollectionBudget::default() };
         let recipe = crate::telemetry::recipes()
             .into_iter()
-            .find(|recipe| recipe.selector.matches(&request))
+            .find(|recipe| {
+                recipe.selector.matches(&request) && recipe.subjects.iter().any(|s| s.accepts(&request.subject))
+            })
             .ok_or_else(|| invalid("owned native selection has no declared provider recipe"))?;
         Ok(CollectionRequest { budget: request.budget.intersection(&recipe.budget), ..request })
     }

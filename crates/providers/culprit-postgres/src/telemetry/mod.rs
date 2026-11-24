@@ -440,6 +440,8 @@ impl<R: SnapshotIo> SnapshotReader for PostgresSnapshotReader<R> {
         let description = CollectionDescription {
             partition: if matches!(self.recipe, Recipe::Statements | Recipe::Definitions) {
                 execution.as_ref().map_or(SourcePartition::Target, |execution| execution.partition.clone())
+            } else if let Some(owner) = &instance {
+                SourcePartition::InstanceLocal { member: Some(owner.clone()), epoch: Some(meta.activity_epoch()) }
             } else {
                 SourcePartition::Target
             },

@@ -337,6 +337,198 @@ async fn resolved_log_incident_retains_the_original_wait_and_candidates_without_
     assert!(incident.culprit_queries.is_empty());
 }
 
+#[tokio::test]
+async fn all_commit_pipeline_hops_downstream_context_and_instant_init_growth_boundaries_reach_gold_honestly() {
+    // 1. Every MSSQL commit-stage hop produces its exact per-hop Gold mechanism & action without inventing culprits
+    // or diagnosing a zero-initialization freeze from <= 64 MiB log allocation growth.
+    for (idx, (native_wait, wait_class, expected_stage, expected_mech_key, expected_action_key)) in [
+        (
+            "LOGBUFFER",
+            None,
+            CommitPipelineStage::LogBufferSpace,
+            key!("view.commit_pipeline.stage.buffer"),
+            key!("view.commit_pipeline.action.local"),
+        ),
+        (
+            "WRITELOG",
+            None,
+            CommitPipelineStage::LocalLogFlush,
+            key!("view.commit_pipeline.stage.flush"),
+            key!("view.commit_pipeline.action.local"),
+        ),
+        (
+            "LOGMGR_RESERVE_APPEND",
+            None,
+            CommitPipelineStage::LogSpaceReuse,
+            key!("view.commit_pipeline.stage.reuse"),
+            key!("view.commit_pipeline.action.reuse"),
+        ),
+        (
+            "HADR_SYNC_COMMIT",
+            None,
+            CommitPipelineStage::SynchronousHardeningAcknowledgement,
+            key!("view.commit_pipeline.stage.remote_hardening"),
+            key!("view.commit_pipeline.action.remote"),
+        ),
+        (
+            "LOG_RATE_GOVERNOR",
+            Some(ActivityWaitClass::LogRateGovernance),
+            CommitPipelineStage::RateGovernance { component: None },
+            key!("view.commit_pipeline.stage.governance"),
+            key!("view.commit_pipeline.action.governance"),
+        ),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let mut fixture = commit_pipeline_fixture(Case::Exact);
+        {
+            let TelemetryRecord::Activity(actor) = &mut fixture.originals[0].records[0] else { panic!() };
+            let wait = actor.wait.as_mut().unwrap();
+            wait.native_type = Some(native_wait.into());
+            wait.class = wait_class;
+        }
+        let primary_target = fixture.originals[0].source.target.clone();
+        let primary_partition = fixture.originals[0].source.partition.clone();
+        let primary_incarnation = primary_target.database().unwrap().incarnation.clone().unwrap();
+
+        // Attach same-owner FileIo (log stall), ConfiguredLogRateLimits, and HyperscaleLogComponent context captures
+        // to prove downstream context enriches reasons without turning correlated points into culprit queries.
+        let (mut io_src, mut io_rows) = test_support::file_io_evidence_cases().remove(0);
+        io_src.target = primary_target.clone();
+        io_src.partition = primary_partition.clone();
+        io_rows.retain(|r| matches!(r, TelemetryRecord::Operational(op) if matches!(&op.fact, OperationalFact::FileIo(f) if f.kind == culprit_core::FileKind::Log)));
+        if let SourceObservation::Snapshot(hdr) = &mut io_src.observation {
+            hdr.records = io_rows.len() as u32;
+            hdr.sources[0] = StateSourceCoverage::collected(hdr.sources[0].source.clone(), io_rows.len() as u32);
+        }
+
+        let (mut rate_src, mut rate_rows) = test_support::configured_log_rate_evidence_cases().remove(0);
+        rate_src.target = primary_target.clone();
+        rate_src.partition = primary_partition.clone();
+        rate_rows.retain(|r| matches!(r, TelemetryRecord::Operational(op) if matches!(&op.fact, OperationalFact::ConfiguredLogRateLimits(_))));
+        for rec in &mut rate_rows {
+            if let TelemetryRecord::Operational(op) = rec
+                && let OperationalFact::ConfiguredLogRateLimits(point) = &mut op.fact
+            {
+                point.database_incarnation = primary_incarnation.clone();
+                op.key = point.key().unwrap();
+            }
+        }
+        if let SourceObservation::Snapshot(hdr) = &mut rate_src.observation {
+            hdr.records = rate_rows.len() as u32;
+            hdr.sources =
+                vec![StateSourceCoverage::observed(CONFIGURED_LOG_RATES_SOURCE.into(), rate_rows.len() as u32, false)];
+        }
+
+        let (mut hs_src, mut hs_rows) = test_support::hyperscale_log_component_evidence_cases().remove(0);
+        hs_src.target = primary_target;
+        hs_src.partition = primary_partition;
+        for rec in &mut hs_rows {
+            if let TelemetryRecord::Operational(op) = rec
+                && let OperationalFact::HyperscaleLogComponent(point) = &mut op.fact
+            {
+                point.database_incarnation = primary_incarnation.clone();
+                op.key = point.key().unwrap();
+            }
+        }
+
+        fixture.originals.push(test_support::CommitPipelineOriginalFixture { source: io_src, records: io_rows });
+        fixture.originals.push(test_support::CommitPipelineOriginalFixture { source: rate_src, records: rate_rows });
+        fixture.originals.push(test_support::CommitPipelineOriginalFixture { source: hs_src, records: hs_rows });
+
+        let seq_base = 1_190_000 + (idx as u64) * 20;
+        let mut caps = Vec::new();
+        for (offset, orig) in fixture.originals.into_iter().enumerate() {
+            caps.push(Box::pin(retained(orig.source, orig.records, seq_base + offset as u64)).await);
+        }
+        let report = explain(&caps);
+        assert_eq!(report.stage, Some(expected_stage), "{native_wait}");
+        let rev = history(log_episode(&observe(&caps[0], None)), seq_base + 15).await;
+        let mut selected = vec![&rev];
+        selected.extend(caps.iter());
+        let out = project(&selected, vec![]).unwrap();
+        out.validate().unwrap();
+        let [inc] = out.incidents.as_slice() else { panic!() };
+        assert!(inc.culprit_queries.is_empty(), "{native_wait}");
+        assert!(
+            inc.mechanism.as_deref().unwrap().contains(&culprit_core::i18n::t(expected_mech_key, &[])),
+            "{native_wait}"
+        );
+        assert!(inc.developer_action.contains(&culprit_core::i18n::t(expected_action_key, &[])), "{native_wait}");
+        assert!(inc.entry.reasons.contains(&t!("view.commit_pipeline.limit.io")));
+        assert!(inc.entry.reasons.contains(&t!("view.commit_pipeline.limit.configuration")));
+        assert!(inc.entry.reasons.contains(&t!("view.commit_pipeline.context.hyperscale")));
+        // Instant log initialization boundary: <= 64 MiB growth (131,072 bytes here) never diagnoses a zero-init freeze.
+        assert!(inc.entry.reasons.contains(&t!("view.commit_pipeline.limit.growth")));
+        assert!(!inc.mechanism.as_deref().unwrap().to_ascii_lowercase().contains("zero-init"));
+    }
+
+    // 2. Every PostgreSQL commit-stage hop (WALWrite, WALSync, WALInitWrite, WALInitSync, IPC: SyncRep)
+    // maps to its distinct Gold stage mechanism and action while keeping culprits empty.
+    for (idx, (native_wait, expected_stage, expected_mech_key, expected_action_key)) in [
+        (
+            "IO: WALWrite",
+            CommitPipelineStage::LocalLogWrite,
+            key!("view.commit_pipeline.stage.write"),
+            key!("view.commit_pipeline.action.local"),
+        ),
+        (
+            "IO: WALSync",
+            CommitPipelineStage::LocalLogSync,
+            key!("view.commit_pipeline.stage.sync"),
+            key!("view.commit_pipeline.action.local"),
+        ),
+        (
+            "IO: WALInitWrite",
+            CommitPipelineStage::SegmentInitializationWrite,
+            key!("view.commit_pipeline.stage.initialization"),
+            key!("view.commit_pipeline.action.initialization"),
+        ),
+        (
+            "IO: WALInitSync",
+            CommitPipelineStage::SegmentInitializationSync,
+            key!("view.commit_pipeline.stage.initialization"),
+            key!("view.commit_pipeline.action.initialization"),
+        ),
+        (
+            "IPC: SyncRep",
+            CommitPipelineStage::SynchronousAcknowledgement,
+            key!("view.commit_pipeline.stage.remote"),
+            key!("view.commit_pipeline.action.remote"),
+        ),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let mut fixture = commit_pipeline_fixture(Case::Postgres18);
+        {
+            let TelemetryRecord::Activity(actor) = &mut fixture.originals[0].records[0] else { panic!() };
+            actor.elapsed_ms = Some("100000".into());
+            actor.wait.as_mut().unwrap().native_type = Some(native_wait.into());
+        }
+        let seq_base = 1_191_000 + (idx as u64) * 10;
+        let mut caps = Vec::new();
+        for (offset, orig) in fixture.originals.into_iter().enumerate() {
+            caps.push(Box::pin(retained(orig.source, orig.records, seq_base + offset as u64)).await);
+        }
+        let report = explain(&caps);
+        assert_eq!(report.stage, Some(expected_stage), "{native_wait}");
+        let rev = history(log_episode(&observe(&caps[0], None)), seq_base + 5).await;
+        let mut selected = vec![&rev];
+        selected.extend(caps.iter());
+        let out = project(&selected, vec![]).unwrap();
+        out.validate().unwrap();
+        let [inc] = out.incidents.as_slice() else { panic!() };
+        assert!(inc.culprit_queries.is_empty(), "{native_wait}");
+        assert!(
+            inc.mechanism.as_deref().unwrap().contains(&culprit_core::i18n::t(expected_mech_key, &[])),
+            "{native_wait}"
+        );
+        assert!(inc.developer_action.contains(&culprit_core::i18n::t(expected_action_key, &[])), "{native_wait}");
+    }
+}
+
 #[cfg(feature = "collector")]
 mod automatic_context;
 
