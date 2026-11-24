@@ -80,17 +80,39 @@ pub(super) fn append(
     let mut verifies = Vec::new();
 
     if !qualified_relational.is_empty() {
-        let details = plan
-            .insights
-            .as_ref()
-            .into_iter()
-            .flat_map(|insights| &insights.items)
+        let all_items = plan.insights.as_ref().map(|insights| insights.items.as_slice()).unwrap_or(&[]);
+        let relational_insights = all_items
+            .iter()
             .filter(|insight| insight.nodes.iter().any(|node| qualified_relational.contains(node)))
+            .collect::<Vec<_>>();
+        let competing_insights = all_items
+            .iter()
+            .filter(|insight| {
+                !insight.nodes.iter().any(|node| qualified_relational.contains(node))
+                    && matches!(
+                        insight.rule.as_str(),
+                        "implicit-conversion"
+                            | "spill"
+                            | "memory-grant"
+                            | "memory-grant-feedback"
+                            | "misestimate"
+                            | "nested-loops"
+                    )
+            })
+            .collect::<Vec<_>>();
+        let details = relational_insights
+            .iter()
+            .chain(&competing_insights)
             .map(|insight| insight.detail.as_str())
             .collect::<Vec<_>>();
         let context = t!("view.relational_input_question.retained_context");
         mechanisms.push(if details.is_empty() { context } else { format!("{context} {}", details.join(" ")) });
-        actions.push(t!("view.relational_input_question.action"));
+        push_once(&mut actions, t!("view.relational_input_question.action"));
+        for insight in relational_insights.into_iter().chain(competing_insights) {
+            if !insight.fix.is_empty() {
+                push_once(&mut actions, insight.fix.clone());
+            }
+        }
         verifies.push(t!("view.relational_input_question.verify"));
     }
 
