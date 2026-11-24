@@ -50,9 +50,6 @@ fn temporary(
     if !answer.is_valid() {
         return Err(invalid());
     }
-    if answer.checked_task_contexts.is_empty() {
-        return Ok(());
-    }
     let Some(original) = originals.iter().copied().find(|original| original.capture() == &answer.result.capture) else {
         return Ok(());
     };
@@ -75,6 +72,37 @@ fn temporary(
         // The answer's checked-context claim must still match the shared interpreter over the full raw roster.
         let candidate = task_space_request(selected, position, entry)?.ok_or_else(invalid)?;
         explanation.candidates.push(candidate);
+    }
+    let mut mechanisms = Vec::new();
+    let mut actions = Vec::new();
+    for entry in report
+        .entries
+        .iter()
+        .filter(|entry| {
+            matches!(
+                entry.activity,
+                culprit_core::TaskAllocationActivity::UserObjects
+                    | culprit_core::TaskAllocationActivity::InternalObjects
+                    | culprit_core::TaskAllocationActivity::Mixed
+            ) || entry.current_request.is_some()
+        })
+        .take(8)
+    {
+        if !mechanisms.contains(&entry.explanation) {
+            mechanisms.push(entry.explanation.clone());
+        }
+        if !actions.contains(&entry.investigation) {
+            actions.push(entry.investigation.clone());
+        }
+    }
+    if mechanisms.is_empty() && report.entries.is_empty() && answer.source_state != SourceState::Collected {
+        mechanisms.push(report.summary.clone());
+    }
+    if !mechanisms.is_empty() {
+        explanation.mechanism = Some(mechanisms.join("\n\n"));
+    }
+    if !actions.is_empty() {
+        explanation.action = Some(actions.join("\n\n"));
     }
     for limitation in report.limitations {
         if !explanation.limitations.contains(&limitation) {

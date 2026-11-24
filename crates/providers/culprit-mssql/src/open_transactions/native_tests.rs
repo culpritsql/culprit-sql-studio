@@ -117,3 +117,105 @@ async fn native_cleanup_horizon_distinguishes_read_only_logged_and_snapshot_work
     drop(pool);
     batch(&mut admin, &format!("DROP DATABASE [{database}];DROP DATABASE [{other}]")).await;
 }
+
+#[tokio::test]
+#[ignore = "requires disposable loopback SQL Server and CULPRIT_MSSQL_SOURCE_TEST_PORT / CULPRIT_MSSQL_SOURCE_TEST_PASSWORD"]
+async fn native_tempdb_comparable_interventions_distinguish_internal_sort_user_temp_later_waitfor_and_snapshot_retention()
+ {
+    let port = std::env::var("CULPRIT_MSSQL_SOURCE_TEST_PORT").unwrap().parse::<u16>().unwrap();
+    let password = std::env::var("CULPRIT_MSSQL_SOURCE_TEST_PASSWORD").unwrap();
+    let database = format!("culprit_tempdb_ab_{}_{}", std::process::id(), chrono::Utc::now().timestamp_millis());
+    let mut admin =
+        crate::test_support::connect(&config(port, "master", &password, "culprit-tempdb-ab-admin"), SessionKind::User)
+            .await
+            .unwrap();
+    batch(
+        &mut admin,
+        &format!("CREATE DATABASE [{database}];ALTER DATABASE [{database}] SET ALLOW_SNAPSHOT_ISOLATION ON"),
+    )
+    .await;
+    batch(
+        &mut admin,
+        &format!(
+            "USE [{database}];CREATE TABLE dbo.versioned_rows(id int PRIMARY KEY, payload char(500) NOT NULL);
+             WITH n AS (SELECT TOP (256) ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) AS id FROM sys.all_objects)
+             INSERT dbo.versioned_rows(id, payload) SELECT id, REPLICATE('a', 500) FROM n;
+             UPDATE STATISTICS dbo.versioned_rows WITH FULLSCAN;
+             USE master"
+        ),
+    )
+    .await;
+
+    let pool = Arc::new(Pool::new(config(port, &database, &password, "culprit"), None));
+    let mut reader = ReadSession::new(pool.clone(), CollectionBudget::default());
+
+    // Round A: Open SNAPSHOT transaction retains version-store horizon while 256 rows are updated.
+    let mut protector = crate::test_support::connect(
+        &config(port, &database, &password, "tempdb-snapshot-protector"),
+        SessionKind::User,
+    )
+    .await
+    .unwrap();
+    let protector_spid = session_id(&mut protector).await;
+    batch(
+        &mut protector,
+        "SET TRANSACTION ISOLATION LEVEL SNAPSHOT;BEGIN TRAN;SELECT COUNT_BIG(*) FROM dbo.versioned_rows",
+    )
+    .await;
+    let mut updater =
+        crate::test_support::connect(&config(port, &database, &password, "tempdb-version-updater"), SessionKind::User)
+            .await
+            .unwrap();
+    batch(&mut updater, "UPDATE dbo.versioned_rows SET payload = REPLICATE('b', 500)").await;
+
+    let retained_horizon = read(&mut reader, Selection::Application).await.unwrap();
+    assert_eq!(retained_horizon.oldest_confirmed.as_ref().unwrap().session.id, protector_spid);
+    assert_eq!(retained_horizon.oldest_confirmed.as_ref().unwrap().snapshot_isolation, Some(true));
+    let retained_vs_kb =
+        crate::version_store::read(&mut reader).await.unwrap().value.integer().expect("version store gauge");
+    assert!(retained_vs_kb > 0, "snapshot protector under comparable updates retains tempdb version store space");
+
+    // Round B (intervention): Commit the long snapshot protector; horizon clears immediately under the same reader.
+    batch(&mut protector, "COMMIT").await;
+    let cleared_horizon = read(&mut reader, Selection::Application).await.unwrap();
+    assert!(
+        cleared_horizon.oldest_confirmed.is_none(),
+        "committing the snapshot protector clears the retention horizon"
+    );
+
+    // Later WAITFOR after earlier #temp user-object allocation preserves session/task user pages without blaming WAITFOR.
+    let mut temp_actor =
+        crate::test_support::connect(&config(port, &database, &password, "tempdb-user-waitfor"), SessionKind::User)
+            .await
+            .unwrap();
+    let temp_spid = session_id(&mut temp_actor).await;
+    batch(
+        &mut temp_actor,
+        "CREATE TABLE #staged(id int NOT NULL, payload char(500) NOT NULL);
+         INSERT #staged SELECT id, payload FROM dbo.versioned_rows",
+    )
+    .await;
+    let wait_handle = tokio::spawn(async move {
+        batch(&mut temp_actor, "WAITFOR DELAY '00:00:02';DROP TABLE #staged").await;
+        temp_actor
+    });
+    tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+    let (task_snap, _) = crate::task_space::collect(pool.clone(), true, "127.0.0.1".into(), port).await;
+    let snap = task_snap.expect("bounded task space snapshot");
+    if let Some(obs) = snap.observations.iter().find(|row| row.task.session_id == temp_spid) {
+        assert_eq!(obs.request_context(), TaskRequestContext::CheckedAtBounds);
+        let DefinitionPayload::Available { text, .. } = &obs.request.as_ref().unwrap().statement else {
+            panic!("checked WAITFOR statement")
+        };
+        assert!(text.to_ascii_uppercase().contains("WAITFOR"));
+    }
+    let temp_actor = wait_handle.await.unwrap();
+
+    assert_eq!(reader.close().await, SourceShutdown::Quiescent);
+    drop(reader);
+    drop(temp_actor);
+    drop(updater);
+    drop(protector);
+    drop(pool);
+    batch(&mut admin, &format!("DROP DATABASE [{database}]")).await;
+}
