@@ -1,4 +1,5 @@
 //! Real canonical warehouse originals enter the same pure analyzer with the Collector feature disabled.
+mod page_latches;
 mod parameter_sensitivity;
 mod relational_inputs;
 mod tempdb_resources;

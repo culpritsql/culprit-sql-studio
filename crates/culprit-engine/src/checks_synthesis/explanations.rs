@@ -234,8 +234,26 @@ fn writers(original: &dyn OriginalProjection, position: usize) -> Result<Explana
     let OperationalFact::PageWaitWriters(observation) = &point.fact else { return Err(invalid()) };
     let outcome = source(&read, &point.source)?;
     let report = culprit_checks::page_waits::explain_writers(focus, &context, Some(observation), Some(&outcome))?;
+    let mut mechanisms = vec![report.summary.clone(), mapped_target_detail(&report.original_target)];
+    for entry in report.entries.iter().take(8) {
+        push_unique(&mut mechanisms, entry.explanation.clone());
+    }
+    let has_target_writer = report.entries.iter().any(|entry| entry.relation == PageWriterRelation::TargetObjectWrite);
+    let mut actions = Vec::new();
+    let mut verifies = Vec::new();
+    for entry in report
+        .entries
+        .iter()
+        .filter(|entry| !has_target_writer || entry.relation == PageWriterRelation::TargetObjectWrite)
+        .take(8)
+    {
+        push_unique(&mut actions, entry.investigation.clone());
+        push_unique(&mut verifies, entry.verify.clone());
+    }
     let mut explanation = Explanation {
-        mechanism: Some(report.summary.clone()),
+        mechanism: Some(mechanisms.join("\n\n")),
+        action: (!actions.is_empty()).then(|| actions.join("\n\n")),
+        verify: (!verifies.is_empty()).then(|| verifies.join("\n\n")),
         limitations: report.limitations.clone(),
         ..Default::default()
     };
@@ -256,11 +274,6 @@ fn writers(original: &dyn OriginalProjection, position: usize) -> Result<Explana
         }
     }
     explanation.candidates = super::incidents::distinct(explanation.candidates)?;
-    if report.entries.len() == 1 {
-        let entry = &report.entries[0];
-        explanation.action = Some(entry.investigation.clone());
-        explanation.verify = Some(entry.verify.clone());
-    }
     Ok(explanation)
 }
 pub(super) fn holders(original: &dyn OriginalProjection, position: usize) -> Result<Explanation> {
@@ -276,8 +289,26 @@ pub(super) fn holders(original: &dyn OriginalProjection, position: usize) -> Res
     let OperationalFact::PageTaskHolders(observation) = &point.fact else { return Err(invalid()) };
     let outcome = source(&read, &point.source)?;
     let report = culprit_checks::page_waits::explain_task_holders(focus, &context, Some(observation), Some(&outcome))?;
+    let mut mechanisms = vec![report.summary.clone(), mapped_target_detail(&focus.target)];
+    for entry in &report.entries {
+        push_unique(&mut mechanisms, entry.explanation.clone());
+    }
+    let is_qualified = |entry: &culprit_core::page_wait_report::PageTaskHolderExplanation| {
+        entry.request_state == PageWaitRequestState::SameStatement
+            && entry.wait_state == PageWaitRelation::OriginalObserved
+            && entry.relation == PageTaskHolderRelation::QualifiedRequest
+    };
+    let has_qualified = report.entries.iter().any(&is_qualified);
+    let mut actions = Vec::new();
+    let mut verifies = Vec::new();
+    for entry in report.entries.iter().filter(|entry| !has_qualified || is_qualified(entry)) {
+        push_unique(&mut actions, entry.investigation.clone());
+        push_unique(&mut verifies, entry.verify.clone());
+    }
     let mut explanation = Explanation {
-        mechanism: Some(report.summary.clone()),
+        mechanism: Some(mechanisms.join("\n\n")),
+        action: (!actions.is_empty()).then(|| actions.join("\n\n")),
+        verify: (!verifies.is_empty()).then(|| verifies.join("\n\n")),
         limitations: report.limitations.clone(),
         ..Default::default()
     };
@@ -305,6 +336,43 @@ pub(super) fn holders(original: &dyn OriginalProjection, position: usize) -> Res
     explanation.candidates = super::incidents::distinct(explanation.candidates)?;
     explanation.culprits = super::incidents::distinct(explanation.culprits)?;
     Ok(explanation)
+}
+
+fn mapped_target_detail(target: &MappedPageTarget) -> String {
+    let kind = match target.kind {
+        PageWaitTargetKind::IndexLeaf => key!("view.page_waits.kind.leaf"),
+        PageWaitTargetKind::IndexBranch => key!("view.page_waits.kind.branch"),
+        PageWaitTargetKind::HeapData => key!("view.page_waits.kind.heap"),
+        PageWaitTargetKind::Pfs => key!("view.page_waits.kind.pfs"),
+        PageWaitTargetKind::Gam => key!("view.page_waits.kind.gam"),
+        PageWaitTargetKind::Sgam => key!("view.page_waits.kind.sgam"),
+        PageWaitTargetKind::Iam => key!("view.page_waits.kind.iam"),
+        PageWaitTargetKind::Unclassified => key!("view.page_waits.kind.unclassified"),
+    };
+    let kind_text = culprit_core::i18n::t(kind, &[]);
+    match &target.object {
+        Some(object) => {
+            let object_text = match &object.index_name {
+                Some(index) => t!(
+                    "view.page_waits.target.index",
+                    schema = object.schema.as_str(),
+                    object = object.name.as_str(),
+                    index = index.as_str()
+                ),
+                None => {
+                    t!("view.page_waits.target.object", schema = object.schema.as_str(), object = object.name.as_str())
+                }
+            };
+            format!("{kind_text} {object_text}")
+        }
+        None => kind_text,
+    }
+}
+
+fn push_unique(values: &mut Vec<String>, value: String) {
+    if !value.is_empty() && !values.contains(&value) {
+        values.push(value);
+    }
 }
 pub(super) fn blocking(original: &dyn OriginalProjection) -> Result<Explanation> {
     let rows = original
