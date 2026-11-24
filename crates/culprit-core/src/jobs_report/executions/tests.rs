@@ -15,6 +15,7 @@ fn assessment() -> JobExecutionAssessment {
         step_records: 0,
         error_records: 0,
         last_start_records: 0,
+        active_window_records: 0,
         utc_placed_records: 1,
         unplaced_records: 0,
         omitted_entries: 0,

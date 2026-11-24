@@ -83,6 +83,12 @@ fn append_caller(output: &mut String, caller: Option<&DerivedCaller>) {
         return;
     };
     append(output, request_labels::client(caller.client.as_ref()));
+    if let Some(step) = caller.reported_mssql_agent_step() {
+        append(
+            output,
+            t!("incident.cli.caller_agent_step", job = preview(&step.job_id), step = preview(&step.step_id)),
+        );
+    }
     let session = caller.session_context.as_deref();
     append(
         output,
@@ -132,5 +138,51 @@ mod tests {
         let mut output = String::new();
         append_query(&mut output, "query".into(), &query);
         assert!(output.contains(&t!("view.synthesis.shared_database_unknown")));
+    }
+
+    #[test]
+    fn sql_agent_tsql_step_caller_renders_qualified_step_label_only_when_reported() {
+        let actor = ActivityKey {
+            session: NativeActivityIdentity { id: "55".into(), generation: "native-login".into() },
+            request: Some(NativeActivityIdentity { id: "0".into(), generation: "native-request".into() }),
+            transaction: None,
+        };
+        let evidence = DiagnosticEvidenceRef {
+            capture: CaptureIdentity { observation_id: "obs-1".into(), revision: None },
+            manifest_sha256: digest(b"manifest"),
+            source_scope_id: digest(b"scope"),
+            stream: TelemetryStream::ActivityObservations,
+            native_key: NativeRecordIdentity::Activity(actor.clone()),
+            batch_id: batch_id("obs-1", TelemetryStream::ActivityObservations).unwrap(),
+            record_id: digest(b"record"),
+            payload_sha256: digest(b"payload"),
+            representation_version: 1,
+            row_ordinal: 0,
+        };
+        let mut query = DerivedIncidentQuery {
+            causal_role: None,
+            identity: Some(culprit_core::DerivedQueryIdentity::Activity { actor, statement: None }),
+            sql: DefinitionPayload::Unavailable { reason: PayloadUnavailable::Missing },
+            caller: Some(DerivedCaller {
+                client: Some(ActivityClient {
+                    application: Some(
+                        "SQLAgent - TSQL JobStep (Job 0x13121110212031304041505152535455, Step 3)".into(),
+                    ),
+                    user: Some("sa".into()),
+                    host: None,
+                }),
+                session_context: None,
+                evidence,
+            }),
+            evidence: vec![],
+        };
+        let mut output = String::new();
+        append_query(&mut output, "culprit".into(), &query);
+        assert!(output.contains("10111213-2021-3031-4041-505152535455"), "{output}");
+        assert!(output.contains("step 3"), "{output}");
+        query.caller.as_mut().unwrap().client.as_mut().unwrap().application = Some("app-worker".into());
+        let mut ordinary = String::new();
+        append_query(&mut ordinary, "culprit".into(), &query);
+        assert!(!ordinary.contains("10111213-2021-3031-4041-505152535455"));
     }
 }

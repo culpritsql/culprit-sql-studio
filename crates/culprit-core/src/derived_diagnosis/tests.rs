@@ -562,6 +562,7 @@ fn zero_job_events_keep_the_single_original_assessment_and_cannot_impersonate_a_
         step_records: 0,
         error_records: 0,
         last_start_records: 0,
+        active_window_records: 0,
         utc_placed_records: 0,
         unplaced_records: 0,
         omitted_entries: 0,
@@ -683,4 +684,42 @@ fn statement_counter_assessment_binds_observation_input_without_claiming_query_h
     header.finding_evaluations.assessments[0].input = 1;
     header.analysis_id = header.expected_analysis_id().unwrap();
     assert!(!header.is_valid(), "an assessment cannot outlive or invent its original capture input");
+}
+
+#[test]
+fn sql_agent_tsql_step_program_name_decodes_mixed_endian_guid_and_refuses_malformed_or_zero_steps() {
+    let client = ActivityClient {
+        application: Some("SQLAgent - TSQL JobStep (Job 0x13121110212031304041505152535455, Step 2)   ".into()),
+        user: Some("sa".into()),
+        host: None,
+    };
+    assert_eq!(
+        client.mssql_agent_tsql_step(),
+        Some(ReportedMssqlAgentStep { job_id: "10111213-2021-3031-4041-505152535455".into(), step_id: "2".into() })
+    );
+    let actor = ActivityKey {
+        session: NativeActivityIdentity { id: "55".into(), generation: "login-1".into() },
+        request: Some(NativeActivityIdentity { id: "0".into(), generation: "req-1".into() }),
+        transaction: None,
+    };
+    let mut reference = reference("original");
+    reference.stream = TelemetryStream::ActivityObservations;
+    reference.batch_id = batch_id("original", TelemetryStream::ActivityObservations).unwrap();
+    reference.native_key = NativeRecordIdentity::Activity(actor);
+    let caller = DerivedCaller { client: Some(client), session_context: None, evidence: reference };
+    assert!(caller.is_valid());
+    assert_eq!(
+        caller.reported_mssql_agent_step(),
+        Some(ReportedMssqlAgentStep { job_id: "10111213-2021-3031-4041-505152535455".into(), step_id: "2".into() })
+    );
+    for invalid in [
+        "Microsoft SQL Server Management Studio - Query",
+        "SQLAgent - TSQL JobStep (Job 0x131211102120313040415051525354, Step 1)",
+        "SQLAgent - TSQL JobStep (Job 0x13121110212031304041505152535455, Step 0)",
+        "SQLAgent - TSQL JobStep (Job 0x13121110212031304041505152535455, Step 01)",
+        "SQLAgent - TSQL JobStep (Job 0xZZZZ1110212031304041505152535455, Step 1)",
+    ] {
+        let client = ActivityClient { application: Some(invalid.into()), user: None, host: None };
+        assert_eq!(client.mssql_agent_tsql_step(), None, "{invalid}");
+    }
 }

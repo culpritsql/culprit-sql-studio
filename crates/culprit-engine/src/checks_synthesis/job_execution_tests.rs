@@ -271,3 +271,95 @@ async fn missing_retained_history_body_does_not_become_zero_jobs_or_complete_nat
     assert!(!output.description.limitations().is_empty());
     output.validate().unwrap();
 }
+
+#[tokio::test]
+async fn source_qualified_agent_active_windows_publish_bounded_utc_changes_and_withhold_unconfirmed_sessions() {
+    let capture = read_case(Case::AgentActiveWindow).await;
+    let output = policy().synthesize_captures(&capture, &[], "2026-11-22T10:01:00Z", &display()).unwrap();
+    let DerivedChangeEvaluation::JobExecutions { assessment, .. } = &output.description.change_evaluations[0] else {
+        panic!("job scope");
+    };
+    assert_eq!(assessment.active_window_records, 1);
+    assert_eq!(assessment.step_records, 1);
+    assert_eq!(assessment.utc_placed_records, 1);
+    assert_eq!(assessment.unplaced_records, 1);
+    assert_eq!(output.changes.len(), 1);
+    let change = &output.changes[0].change;
+    assert_eq!(change.at, "2026-11-15T12:00:00.000000001Z");
+    assert_eq!(change.until.as_deref(), Some("2026-11-15T12:00:01.000000009Z"));
+    let job = change.job_execution.as_ref().unwrap();
+    assert_eq!(job.status, JobExecutionStatus::InProgress);
+    assert_eq!(
+        job.reference.native,
+        JobExecutionIdentity::MssqlAgentActive {
+            job_id: "aaaaaaaa-1111-2222-3333-bbbbbbbbbbbb".into(),
+            agent_session_id: "2147483647".into(),
+            started_without_offset: "2026-11-15T13:59:00.000".into(),
+        }
+    );
+    assert!(!serde_json::to_string(&output).unwrap().contains("2026-11-15T13:59:00.000Z"));
+    for unconfirmed in [Case::AgentRestart, Case::AgentActiveUnconfirmedService, Case::AgentActiveChangedLayout] {
+        let capture = read_case(unconfirmed).await;
+        let report = crate::collected_resources::jobs(&capture).unwrap().report;
+        let active = report
+            .executions
+            .entries
+            .iter()
+            .find(|entry| matches!(entry.reference.native, JobExecutionIdentity::MssqlAgentActive { .. }))
+            .unwrap();
+        assert_eq!(active.placement, JobExecutionPlacement::NativeLocal, "{unconfirmed:?}");
+        assert!(
+            matches!(
+                &active.time,
+                JobExecutionTime::MssqlAgentActive { observed_from: None, observed_until: None, .. }
+            ),
+            "{unconfirmed:?}"
+        );
+        let output = policy().synthesize_captures(&capture, &[], "2026-11-22T10:01:00Z", &display()).unwrap();
+        assert!(output.changes.is_empty(), "{unconfirmed:?}");
+    }
+}
+
+#[tokio::test]
+async fn sql_agent_tsql_step_caller_correlates_blocking_query_without_blaming_unrelated_concurrent_job_or_agent_session_id()
+ {
+    let (source, mut records) = test_support::blocking_evidence(test_support::BlockingCase::Matched);
+    for record in &mut records {
+        if let TelemetryRecord::Activity(point) = record
+            && point.key.session.id == "43"
+        {
+            point.scope = ActivityScopeBasis::OtherDatabase;
+            point.database = Some("msdb".into());
+            point.client = Some(ActivityClient {
+                application: Some("SQLAgent - TSQL JobStep (Job 0x13121110212031304041505152535455, Step 2)".into()),
+                user: Some("sa".into()),
+                host: Some("agent-worker".into()),
+            });
+        }
+    }
+    let blocking_fixture = Fixture::new(source, records).await;
+    let blocking_capture = blocking_fixture.read_families(&[EvidenceFamily::ActivityObservations]).await;
+    let original = blocking_capture.verified_original().unwrap();
+    let explanation = explanations::blocking(&original).unwrap();
+    assert_eq!(explanation.attribution_status(), DerivedAttributionStatus::Established);
+    assert_eq!(explanation.culprits.len(), 1);
+    let culprit = &explanation.culprits[0];
+    assert_eq!(
+        culprit.caller.as_ref().and_then(DerivedCaller::reported_mssql_agent_step),
+        Some(ReportedMssqlAgentStep { job_id: "10111213-2021-3031-4041-505152535455".into(), step_id: "2".into() })
+    );
+    assert!(
+        matches!(&culprit.identity, Some(DerivedQueryIdentity::NativeWaitOwner(ActivityWaitOwner::Session { id, .. })) if id == "43" && id != "2147483647")
+    );
+
+    // An unrelated concurrent active Agent job (`aaaaaaaa-1111-2222-3333-bbbbbbbbbbbb` != `10111213-...`) stays a
+    // source-qualified timeline window in Changes and never becomes a culprit query.
+    let concurrent_job = read_case(Case::AgentActiveWindow).await;
+    let job_output = policy().synthesize_captures(&concurrent_job, &[], "2026-11-22T10:01:00Z", &display()).unwrap();
+    assert!(job_output.incidents.is_empty());
+    assert_eq!(job_output.changes.len(), 1);
+    assert_eq!(
+        job_output.changes[0].change.job_execution.as_ref().unwrap().reference.native.job_id(),
+        "aaaaaaaa-1111-2222-3333-bbbbbbbbbbbb"
+    );
+}

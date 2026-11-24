@@ -5,4 +5,4 @@ export type JobExecutionAssessment = { read_complete: boolean, sources: Array<Jo
 /**
  * Native record categories, never unique lifetime executions or scheduler totals.
  */
-run_records: number, step_records: number, error_records: number, last_start_records: number, utc_placed_records: number, unplaced_records: number, omitted_entries: number, };
+run_records: number, step_records: number, error_records: number, last_start_records: number, active_window_records: number, utc_placed_records: number, unplaced_records: number, omitted_entries: number, };

@@ -186,6 +186,10 @@ impl DerivedCaller {
             evidence: reference.clone(),
         }))
     }
+
+    pub fn reported_mssql_agent_step(&self) -> Option<ReportedMssqlAgentStep> {
+        self.client.as_ref()?.mssql_agent_tsql_step()
+    }
 }
 
 /// The established native role is narrower than an exclusive cause or the statement that acquired a resource.

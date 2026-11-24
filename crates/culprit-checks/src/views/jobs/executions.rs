@@ -16,10 +16,16 @@ fn invalid() -> Error {
 
 pub(super) fn project(read: &JobsSnapshot, maximum: usize) -> Result<JobExecutionProjection> {
     let acquisition = acquisition(read)?;
+    let qualified_agent_window = match read {
+        JobsSnapshot::MssqlAgent { snapshot, read_complete } => {
+            agent::qualified_active_bounds(snapshot, *read_complete)
+        }
+        _ => None,
+    };
     let mut entries = Vec::new();
     for row in read.observations() {
         let entry = match read {
-            JobsSnapshot::MssqlAgent { .. } => agent::entry(row, &acquisition),
+            JobsSnapshot::MssqlAgent { .. } => agent::entry(row, &acquisition, qualified_agent_window.as_ref()),
             JobsSnapshot::Timescale { .. } => timescale::entry(row, &acquisition),
             JobsSnapshot::MysqlEvents { snapshot, .. } => {
                 mysql::entry(row, &acquisition, snapshot.metadata.session_time_zone.as_deref())
@@ -59,6 +65,7 @@ pub(super) fn project(read: &JobsSnapshot, maximum: usize) -> Result<JobExecutio
         step_records: 0,
         error_records: 0,
         last_start_records: 0,
+        active_window_records: 0,
         utc_placed_records: events.len() as u32,
         unplaced_records: (entries.len() - events.len()) as u32,
         omitted_entries: entries.len().saturating_sub(maximum.min(MAX_JOB_EXECUTION_ENTRIES)) as u32,
@@ -69,6 +76,7 @@ pub(super) fn project(read: &JobsSnapshot, maximum: usize) -> Result<JobExecutio
             JobExecutionKind::Step => assessment.step_records += 1,
             JobExecutionKind::ErrorRecord => assessment.error_records += 1,
             JobExecutionKind::LastStart => assessment.last_start_records += 1,
+            JobExecutionKind::ActiveWindow => assessment.active_window_records += 1,
         }
     }
     entries.truncate(maximum.min(MAX_JOB_EXECUTION_ENTRIES));
@@ -123,33 +131,61 @@ fn reference(
     }
 }
 fn event(entry: &JobExecution) -> Option<Result<ChangeEvent>> {
-    if entry.placement != JobExecutionPlacement::Utc {
-        return None;
+    match entry.placement {
+        JobExecutionPlacement::Utc => {
+            let JobExecutionTime::Utc { started_at, reported_until } = &entry.time else {
+                return Some(Err(invalid()));
+            };
+            Some((|| {
+                let subject = entry.reference.key()?;
+                let job = entry.reference.native.job_id();
+                let status = match entry.status {
+                    JobExecutionStatus::Failed => "failed",
+                    JobExecutionStatus::Succeeded => "succeeded",
+                    _ => "unknown",
+                };
+                let mut event = ChangeEvent::new(
+                    EventKind::JobExecution,
+                    EventSource::Database,
+                    &subject,
+                    &canonical_time(started_at)?,
+                    culprit_core::message!("view.jobs.execution.event.title", job = &job, status = status),
+                )
+                .detail(culprit_core::message!("view.jobs.execution.event.detail"));
+                event.until = reported_until.as_deref().map(canonical_time).transpose()?;
+                event.job_execution =
+                    Some(culprit_core::JobExecutionEvent { reference: entry.reference.clone(), status: entry.status });
+                Ok(event)
+            })())
+        }
+        JobExecutionPlacement::SourceQualifiedWindow => {
+            let JobExecutionTime::MssqlAgentActive {
+                observed_from: Some(observed_from),
+                observed_until: Some(observed_until),
+                ..
+            } = &entry.time
+            else {
+                return Some(Err(invalid()));
+            };
+            Some((|| {
+                let subject = entry.reference.key()?;
+                let job = entry.reference.native.job_id();
+                let mut event = ChangeEvent::new(
+                    EventKind::JobExecution,
+                    EventSource::Database,
+                    &subject,
+                    &canonical_time(observed_from)?,
+                    culprit_core::message!("view.jobs.execution.event.active_title", job = &job),
+                )
+                .detail(culprit_core::message!("view.jobs.execution.event.active_detail"))
+                .until(&canonical_time(observed_until)?);
+                event.job_execution =
+                    Some(culprit_core::JobExecutionEvent { reference: entry.reference.clone(), status: entry.status });
+                Ok(event)
+            })())
+        }
+        _ => None,
     }
-    let JobExecutionTime::Utc { started_at, reported_until } = &entry.time else {
-        return Some(Err(invalid()));
-    };
-    Some((|| {
-        let subject = entry.reference.key()?;
-        let job = entry.reference.native.job_id();
-        let status = match entry.status {
-            JobExecutionStatus::Failed => "failed",
-            JobExecutionStatus::Succeeded => "succeeded",
-            _ => "unknown",
-        };
-        let mut event = ChangeEvent::new(
-            EventKind::JobExecution,
-            EventSource::Database,
-            &subject,
-            &canonical_time(started_at)?,
-            culprit_core::message!("view.jobs.execution.event.title", job = &job, status = status),
-        )
-        .detail(culprit_core::message!("view.jobs.execution.event.detail"));
-        event.until = reported_until.as_deref().map(canonical_time).transpose()?;
-        event.job_execution =
-            Some(culprit_core::JobExecutionEvent { reference: entry.reference.clone(), status: entry.status });
-        Ok(event)
-    })())
 }
 pub(super) fn agent_status(native: i32) -> JobExecutionStatus {
     match native {

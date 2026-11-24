@@ -8,6 +8,9 @@ pub enum JobExecutionCase {
     AgentZeroDate,
     AgentUnknownStatus,
     AgentRestart,
+    AgentActiveWindow,
+    AgentActiveUnconfirmedService,
+    AgentActiveChangedLayout,
     TimescaleFailed,
     TimescaleSucceeded,
     TimescaleUnfinished,
@@ -25,6 +28,9 @@ impl JobExecutionCase {
         Self::AgentZeroDate,
         Self::AgentUnknownStatus,
         Self::AgentRestart,
+        Self::AgentActiveWindow,
+        Self::AgentActiveUnconfirmedService,
+        Self::AgentActiveChangedLayout,
         Self::TimescaleFailed,
         Self::TimescaleSucceeded,
         Self::TimescaleUnfinished,
@@ -38,6 +44,11 @@ impl JobExecutionCase {
 pub fn job_execution_evidence(case: JobExecutionCase) -> (CollectionDescription, Vec<TelemetryRecord>) {
     let (mut source, mut records) = match case {
         JobExecutionCase::AgentRestart => mssql_agent_jobs_evidence(MssqlAgentJobsCase::AgentRestart),
+        JobExecutionCase::AgentActiveWindow => mssql_agent_jobs_evidence(MssqlAgentJobsCase::InProgress),
+        JobExecutionCase::AgentActiveUnconfirmedService => {
+            mssql_agent_jobs_evidence(MssqlAgentJobsCase::NullServiceStatus)
+        }
+        JobExecutionCase::AgentActiveChangedLayout => mssql_agent_jobs_evidence(MssqlAgentJobsCase::ChangedLayout),
         JobExecutionCase::AgentSummaryAndRetries
         | JobExecutionCase::AgentEditedDefinition
         | JobExecutionCase::AgentDst
@@ -50,6 +61,16 @@ pub fn job_execution_evidence(case: JobExecutionCase) -> (CollectionDescription,
         JobExecutionCase::MysqlLastStart => mysql_events_evidence(MysqlEventsCase::Enabled),
         _ => jobs_evidence(JobsCase::Failed),
     };
+    if matches!(
+        case,
+        JobExecutionCase::AgentSummaryAndRetries
+            | JobExecutionCase::AgentEditedDefinition
+            | JobExecutionCase::AgentDst
+            | JobExecutionCase::AgentZeroDate
+            | JobExecutionCase::AgentUnknownStatus
+    ) {
+        mark_agent_activity_stopped(&mut records);
+    }
     match case {
         JobExecutionCase::AgentSummaryAndRetries => add_summary_and_retry(&mut records),
         JobExecutionCase::TimescaleDuplicateRun => duplicate_run(&mut records),
@@ -80,6 +101,16 @@ pub fn job_execution_evidence(case: JobExecutionCase) -> (CollectionDescription,
         .collect();
     assert!(JobsSnapshot::from_source(&source, rows, true).unwrap().is_valid());
     (source, records)
+}
+fn mark_agent_activity_stopped(records: &mut [TelemetryRecord]) {
+    for record in records {
+        let TelemetryRecord::Operational(row) = record else { unreachable!() };
+        if let OperationalFact::MssqlAgentJob(point) = &mut row.fact
+            && let Some(activity) = &mut point.activity
+        {
+            activity.stopped_without_offset = Some("2026-11-15T14:00:00.000".into());
+        }
+    }
 }
 fn add_summary_and_retry(records: &mut Vec<TelemetryRecord>) {
     let original = records

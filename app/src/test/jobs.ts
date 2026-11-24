@@ -68,7 +68,7 @@ export function mysqlEventsReport(evidence = mysqlEventEvidence()): JobsReport {
 }
 
 function noExecutions(evidence: JobsSnapshot): JobExecutionProjection {
-  return { assessment: { read_complete: evidence.read_complete, sources: evidence.snapshot.sources.map((source) => ({ source: source.source, state: source.state, complete_scope: source.complete_scope, native_rows: source.records, observed_rows: evidence.snapshot.observations.filter((row) => row.source === source.source).length, stopped: source.stopped, error_code: source.error_code })), run_records: 0, step_records: 0, error_records: 0, last_start_records: 0, utc_placed_records: 0, unplaced_records: 0, omitted_entries: 0 }, entries: [], events: [] };
+  return { assessment: { read_complete: evidence.read_complete, sources: evidence.snapshot.sources.map((source) => ({ source: source.source, state: source.state, complete_scope: source.complete_scope, native_rows: source.records, observed_rows: evidence.snapshot.observations.filter((row) => row.source === source.source).length, stopped: source.stopped, error_code: source.error_code })), run_records: 0, step_records: 0, error_records: 0, last_start_records: 0, active_window_records: 0, utc_placed_records: 0, unplaced_records: 0, omitted_entries: 0 }, entries: [], events: [] };
 }
 function agentExecutions(evidence: JobsSnapshot): JobExecutionProjection {
   const projection = noExecutions(evidence);

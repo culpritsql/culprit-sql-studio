@@ -42,10 +42,17 @@ function ExecutionFields({ entry }: { entry: JobExecution }) {
   const time = entry.time;
   return <details><summary>{t("ui.jobs.execution.inspect")}</summary>
     <p>{t("ui.jobs.execution.status", { status: entry.status === "in-progress" ? "progress" : entry.status })}</p>
-    <p>{t("ui.jobs.execution.placement", { placement: entry.placement === "native-local" ? "local" : entry.placement === "no-native-run-identity" ? "unidentified" : entry.placement === "ambiguous-native-identity" ? "ambiguous" : "utc" })}</p>
+    <p>{entry.placement === "source-qualified-window" ? t("ui.jobs.execution.window_placement") : t("ui.jobs.execution.placement", { placement: entry.placement === "native-local" ? "local" : entry.placement === "no-native-run-identity" ? "unidentified" : entry.placement === "ambiguous-native-identity" ? "ambiguous" : "utc" })}</p>
     <dl>{time.kind === "utc" ? <>
       <NativeValue label={t("view.jobs.metric.started_at")} value={time.started_at} />
       <NativeValue label={t("view.jobs.metric.finished_at")} value={time.reported_until ?? t("view.mysql_events.unknown")} />
+    </> : time.kind === "mssql-agent-active" ? <>
+      {time.observed_from && <NativeValue label={t("ui.jobs.execution.observed_from")} value={time.observed_from} />}
+      {time.observed_until && <NativeValue label={t("ui.jobs.execution.observed_until")} value={time.observed_until} />}
+      <NativeValue label={t("view.mssql_agent_jobs.field.observed_at")} value={time.observed_at} />
+      <NativeValue label={t("view.mssql_agent_jobs.field.started")} value={time.started_without_offset} />
+      {time.last_executed_step_id && <NativeValue label={t("view.mssql_agent_jobs.field.last_step")} value={time.last_executed_step_id} />}
+      {time.last_executed_step_without_offset && <NativeValue label={t("view.mssql_agent_jobs.field.last_step_time")} value={time.last_executed_step_without_offset} />}
     </> : time.kind === "mssql-local" ? <>
       <NativeValue label={t("view.mssql_agent_jobs.field.run_date")} value={time.run_date} />
       <NativeValue label={t("view.mssql_agent_jobs.field.run_time")} value={time.run_time} />

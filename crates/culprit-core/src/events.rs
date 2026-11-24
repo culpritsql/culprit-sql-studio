@@ -208,27 +208,44 @@ impl ChangeEvent {
         self.until.as_deref().and_then(epoch).or_else(|| epoch(&self.at)).unwrap_or(0.0)
     }
 
-    /// Native job timeline identity is a recorded UTC history slot, never a current action/worker authority.
+    /// Native job timeline identity is a recorded UTC history slot or source-qualified active window, never a current action/worker authority.
     pub fn job_execution_is_valid(&self) -> bool {
         let Some(job) = &self.job_execution else {
             return self.kind != EventKind::JobExecution;
         };
-        let crate::JobExecutionIdentity::TimescaleHistory { started_at, .. } = &job.reference.native else {
+        if self.kind != EventKind::JobExecution
+            || self.source != EventSource::Database
+            || !job.reference.is_valid()
+            || self.after.is_some()
+            || self.action.is_some()
+            || self.table.is_some()
+            || self.object.is_some()
+            || !job.reference.key().is_ok_and(|key| self.id == format!("job-execution:{key}:{}", self.at))
+        {
             return false;
-        };
-        self.kind == EventKind::JobExecution
-            && self.source == EventSource::Database
-            && job.reference.is_valid()
-            && self.after.is_none()
-            && self.action.is_none()
-            && self.table.is_none()
-            && self.object.is_none()
-            && crate::telemetry::canonical_time(&self.at).ok() == crate::telemetry::canonical_time(started_at).ok()
-            && self
-                .until
-                .as_deref()
-                .is_none_or(|until| crate::telemetry::ObservationBounds::new(&self.at, until).is_some())
-            && job.reference.key().is_ok_and(|key| self.id == format!("job-execution:{key}:{}", self.at))
+        }
+        match &job.reference.native {
+            crate::JobExecutionIdentity::TimescaleHistory { started_at, .. } => {
+                crate::telemetry::canonical_time(&self.at).ok() == crate::telemetry::canonical_time(started_at).ok()
+                    && self
+                        .until
+                        .as_deref()
+                        .is_none_or(|until| crate::telemetry::ObservationBounds::new(&self.at, until).is_some())
+            }
+            crate::JobExecutionIdentity::MssqlAgentActive { started_without_offset, .. } => {
+                let Some(until) = self.until.as_deref() else {
+                    return false;
+                };
+                job.status == crate::JobExecutionStatus::InProgress
+                    && chrono::DateTime::parse_from_rfc3339(started_without_offset).is_err()
+                    && crate::telemetry::ObservationBounds::new(&self.at, until).is_some()
+                    && crate::telemetry::ObservationBounds::new(&job.reference.acquisition.observed_from, &self.at)
+                        .is_some()
+                    && crate::telemetry::ObservationBounds::new(until, &job.reference.acquisition.observed_until)
+                        .is_some()
+            }
+            _ => false,
+        }
     }
 
     /// "at Tue 14:05 UTC", "between the Tue 13:00 and 14:00 UTC scans", "from Tue 14:02 to 15:10 UTC". Agents and the

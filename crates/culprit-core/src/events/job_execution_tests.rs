@@ -83,9 +83,32 @@ fn local_history_cannot_impersonate_a_utc_event_or_acquire_current_table_authori
     let mut named = original.clone();
     named.table = Some("public.orders".into());
     assert!(!named.job_execution_is_valid());
-    let mut no_metadata = original;
+    let mut no_metadata = original.clone();
     no_metadata.job_execution = None;
     assert!(!no_metadata.job_execution_is_valid());
+    let mut active = original;
+    active.at = "2026-10-11T14:00:00Z".into();
+    active.until = Some("2026-10-11T14:00:01Z".into());
+    active.job_execution.as_mut().unwrap().status = JobExecutionStatus::InProgress;
+    active.job_execution.as_mut().unwrap().reference.source = "mssql-agent-jobs".into();
+    active.job_execution.as_mut().unwrap().reference.native = JobExecutionIdentity::MssqlAgentActive {
+        job_id: "aaaaaaaa-1111-2222-3333-bbbbbbbbbbbb".into(),
+        agent_session_id: "2147483647".into(),
+        started_without_offset: "2026-10-11T16:59:00.000".into(),
+    };
+    active.id =
+        format!("job-execution:{}:{}", active.job_execution.as_ref().unwrap().reference.key().unwrap(), active.at);
+    assert!(active.job_execution_is_valid());
+    let mut missing_until = active.clone();
+    missing_until.until = None;
+    assert!(!missing_until.job_execution_is_valid());
+    let mut fake_utc_start = active;
+    fake_utc_start.job_execution.as_mut().unwrap().reference.native = JobExecutionIdentity::MssqlAgentActive {
+        job_id: "aaaaaaaa-1111-2222-3333-bbbbbbbbbbbb".into(),
+        agent_session_id: "2147483647".into(),
+        started_without_offset: "2026-10-11T16:59:00.000Z".into(),
+    };
+    assert!(!fake_utc_start.job_execution_is_valid());
 }
 #[test]
 fn overlap_is_a_weak_context_link_even_for_a_matching_current_procedure() {

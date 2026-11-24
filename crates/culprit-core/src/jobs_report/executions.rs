@@ -43,6 +43,11 @@ pub enum JobExecutionIdentity {
         run_date: String,
         run_time: String,
     },
+    MssqlAgentActive {
+        job_id: String,
+        agent_session_id: String,
+        started_without_offset: String,
+    },
     TimescaleHistory {
         job_id: String,
         run_id: String,
@@ -70,12 +75,14 @@ pub enum JobExecutionKind {
     Step,
     ErrorRecord,
     LastStart,
+    ActiveWindow,
 }
 impl JobExecutionIdentity {
     pub fn kind(&self) -> JobExecutionKind {
         match self {
             Self::MssqlAgentHistory { step_id, .. } if step_id == "0" => JobExecutionKind::Summary,
             Self::MssqlAgentHistory { .. } => JobExecutionKind::Step,
+            Self::MssqlAgentActive { .. } => JobExecutionKind::ActiveWindow,
             Self::TimescaleHistory { .. } => JobExecutionKind::Run,
             Self::TimescaleError { .. } => JobExecutionKind::ErrorRecord,
             Self::MysqlLastStart { .. } => JobExecutionKind::LastStart,
@@ -84,6 +91,7 @@ impl JobExecutionIdentity {
     pub fn job_id(&self) -> String {
         match self {
             Self::MssqlAgentHistory { job_id, .. }
+            | Self::MssqlAgentActive { job_id, .. }
             | Self::TimescaleHistory { job_id, .. }
             | Self::TimescaleError { job_id, .. } => job_id.clone(),
             Self::MysqlLastStart { schema, name, .. } => format!("{schema}.{name}"),
@@ -94,6 +102,10 @@ impl JobExecutionIdentity {
         match self {
             Self::MssqlAgentHistory { job_id, history_id, step_id, run_date, run_time } => {
                 [job_id, history_id, step_id, run_date, run_time].into_iter().all(|value| text(value))
+            }
+            Self::MssqlAgentActive { job_id, agent_session_id, started_without_offset } => {
+                [job_id, agent_session_id, started_without_offset].into_iter().all(|value| text(value))
+                    && chrono::DateTime::parse_from_rfc3339(started_without_offset).is_err()
             }
             Self::TimescaleHistory { job_id, run_id, started_at } => {
                 text(job_id) && text(run_id) && canonical_time(started_at).is_ok()
@@ -192,6 +204,14 @@ pub enum JobExecutionTime {
         started_at: String,
         reported_until: Option<String>,
     },
+    MssqlAgentActive {
+        observed_from: Option<String>,
+        observed_at: String,
+        observed_until: Option<String>,
+        started_without_offset: String,
+        last_executed_step_id: Option<String>,
+        last_executed_step_without_offset: Option<String>,
+    },
     MssqlLocal {
         run_date: String,
         run_time: String,
@@ -219,6 +239,7 @@ pub enum JobExecutionDiagnostics {
 #[ts(export)]
 pub enum JobExecutionPlacement {
     Utc,
+    SourceQualifiedWindow,
     NativeLocal,
     NoNativeRunIdentity,
     AmbiguousNativeIdentity,
@@ -257,6 +278,7 @@ pub struct JobExecutionAssessment {
     pub step_records: u32,
     pub error_records: u32,
     pub last_start_records: u32,
+    pub active_window_records: u32,
     pub utc_placed_records: u32,
     pub unplaced_records: u32,
     pub omitted_entries: u32,
@@ -266,7 +288,8 @@ impl JobExecutionAssessment {
         self.run_records
             .checked_add(self.step_records)?
             .checked_add(self.error_records)?
-            .checked_add(self.last_start_records)
+            .checked_add(self.last_start_records)?
+            .checked_add(self.active_window_records)
     }
     pub fn is_valid(&self) -> bool {
         let mut sources = std::collections::BTreeSet::new();

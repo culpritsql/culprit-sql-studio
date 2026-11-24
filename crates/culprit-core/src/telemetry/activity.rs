@@ -184,6 +184,14 @@ pub struct ActivityWait {
     pub resources: Option<Vec<crate::LockWait>>,
 }
 
+#[derive(Serialize, Deserialize, TS, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[serde(deny_unknown_fields)]
+#[ts(export)]
+pub struct ReportedMssqlAgentStep {
+    pub job_id: String,
+    pub step_id: String,
+}
+
 #[derive(Serialize, Deserialize, TS, Clone, Debug, PartialEq, Eq)]
 #[ts(export)]
 pub struct ActivityClient {
@@ -196,6 +204,46 @@ impl ActivityClient {
         [&self.application, &self.user, &self.host]
             .into_iter()
             .all(|value| value.as_deref().is_none_or(|value| value.len() <= 512))
+    }
+
+    /// Decode SQL Server Agent's client `program_name` convention (`SQLAgent - TSQL JobStep (Job 0x..., Step N)`).
+    /// Any SQL client may supply `Application Name`, so this remains DB-reported client metadata rather than verified scheduler ownership.
+    pub fn mssql_agent_tsql_step(&self) -> Option<ReportedMssqlAgentStep> {
+        let raw = self.application.as_deref()?.trim();
+        let rest = raw.strip_prefix("SQLAgent - TSQL JobStep (Job 0x")?.strip_suffix(')')?;
+        let (hex_job, step_id) = rest.split_once(", Step ")?;
+        if hex_job.len() != 32
+            || step_id.is_empty()
+            || step_id.starts_with('0')
+            || !step_id.bytes().all(|byte| byte.is_ascii_digit())
+            || !step_id.parse::<i32>().is_ok_and(|step| step > 0)
+        {
+            return None;
+        }
+        let mut bytes = [0u8; 16];
+        for (index, slot) in bytes.iter_mut().enumerate() {
+            *slot = u8::from_str_radix(&hex_job[index * 2..index * 2 + 2], 16).ok()?;
+        }
+        let job_id = format!(
+            "{:02x}{:02x}{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
+            bytes[3],
+            bytes[2],
+            bytes[1],
+            bytes[0],
+            bytes[5],
+            bytes[4],
+            bytes[7],
+            bytes[6],
+            bytes[8],
+            bytes[9],
+            bytes[10],
+            bytes[11],
+            bytes[12],
+            bytes[13],
+            bytes[14],
+            bytes[15]
+        );
+        Some(ReportedMssqlAgentStep { job_id, step_id: step_id.to_owned() })
     }
 }
 

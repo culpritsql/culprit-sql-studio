@@ -242,3 +242,92 @@ test("complete zero-unplaced records do not duplicate UTC job markers or create 
   expect(renderToStaticMarkup(<JobComparisonContext evidence={evidence} report={report} />)).toBe("");
   expect(renderToStaticMarkup(<JobComparisonContext evidence={evidence} report={null} />)).toBe("");
 });
+
+test("source-qualified active Agent job renders bounded UTC window without adding a fake offset to local start", () => {
+  const evidence = agentJobEvidence();
+  evidence.snapshot.observations = [{
+    source: "mssql-agent-jobs",
+    key: "original-agent-job",
+    fact: {
+      kind: "mssql-agent-job",
+      data: {
+        observed_at: "2026-11-15T12:00:00.500000Z",
+        job_id: "aaaaaaaa-1111-2222-3333-bbbbbbbbbbbb",
+        name: "Nightly <script>active-canary</script>",
+        enabled: true,
+        start_step_id: "1",
+        version_number: "77",
+        created_without_offset: "2026-10-15T12:00:00.000",
+        modified_without_offset: "2026-11-15T12:00:00.000",
+        activity: {
+          agent_session_id: "2147483647",
+          requested_without_offset: null,
+          request_source: "4",
+          queued_without_offset: null,
+          started_without_offset: "2026-11-15T13:59:00.000",
+          stopped_without_offset: null,
+          last_executed_step_id: "2",
+          last_executed_step_without_offset: "2026-11-15T13:59:30.000",
+          next_scheduled_without_offset: null,
+        },
+      },
+    },
+  }];
+  const report = agentJobsReport(agentJobEvidence());
+  report.context = evidence.snapshot.context;
+  report.entries = [{
+    source: "mssql-agent-jobs",
+    observation_key: "original-agent-job",
+    job_id: "aaaaaaaa-1111-2222-3333-bbbbbbbbbbbb",
+    kind: "state",
+    title: "Active job",
+    explanation: "Reported active during this read.",
+    metrics: [],
+    investigation: "Inspect current activity.",
+    verify: "Re-read supported Agent views.",
+  }];
+  report.executions.assessment.step_records = 0;
+  report.executions.assessment.active_window_records = 1;
+  report.executions.assessment.utc_placed_records = 1;
+  report.executions.assessment.unplaced_records = 0;
+  report.executions.entries = [{
+    reference: {
+      source: "mssql-agent-jobs",
+      observation_key: "original-agent-job",
+      acquisition: {
+        target_id: "a".repeat(64),
+        member_id: "b".repeat(64),
+        process_generation: "c".repeat(64),
+        namespace: "d".repeat(64),
+        observed_from: evidence.snapshot.context.observed_from,
+        observed_until: evidence.snapshot.context.observed_until,
+      },
+      native: {
+        kind: "mssql-agent-active",
+        job_id: "aaaaaaaa-1111-2222-3333-bbbbbbbbbbbb",
+        agent_session_id: "2147483647",
+        started_without_offset: "2026-11-15T13:59:00.000",
+      },
+    },
+    status: "in-progress",
+    label: { text: "Nightly <script>active-canary</script>", origin: "current-definition" },
+    time: {
+      kind: "mssql-agent-active",
+      observed_from: evidence.snapshot.context.observed_from,
+      observed_at: "2026-11-15T12:00:00.500000Z",
+      observed_until: evidence.snapshot.context.observed_until,
+      started_without_offset: "2026-11-15T13:59:00.000",
+      last_executed_step_id: "2",
+      last_executed_step_without_offset: "2026-11-15T13:59:30.000",
+    },
+    diagnostics: { kind: "unavailable" },
+    placement: "source-qualified-window",
+  }];
+  const html = renderToStaticMarkup(<Jobs evidence={evidence} report={report} />);
+  expect(html).toContain(t("ui.jobs.execution.window_placement").replaceAll("'", "&#x27;"));
+  expect(html).toContain(t("ui.jobs.execution.observed_from"));
+  expect(html).toContain(t("ui.jobs.execution.observed_until"));
+  expect(html).toContain("2026-11-15T13:59:00.000");
+  expect(html).not.toContain("2026-11-15T13:59:00.000Z");
+  expect(html).not.toContain("<script>");
+});
