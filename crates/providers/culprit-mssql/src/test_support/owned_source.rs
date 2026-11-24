@@ -1,14 +1,14 @@
 //! Read-only admission to an explicitly selected nonce-owned loopback smoke database.
-#[cfg(test)]
+#[cfg(any(test, feature = "native-test-support"))]
 use super::{config, connect};
-#[cfg(test)]
+#[cfg(any(test, feature = "native-test-support"))]
 use crate::conn::{Pool, SessionKind};
 use crate::{
     conn::{MsClient, map_error},
     read::{invalid_data, text},
     value::Rec,
 };
-#[cfg(test)]
+#[cfg(any(test, feature = "native-test-support"))]
 use std::{sync::Arc, time::Instant};
 
 const OWNER_BYTES: usize = 24;
@@ -81,19 +81,23 @@ fn valid_owner(value: &str) -> bool {
     value.len() == OWNER_BYTES && value.bytes().all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "native-test-support"))]
 pub(crate) struct OwnedSourceFixture {
     pub(crate) port: u16,
     pub(crate) database: String,
     pub(crate) pool: Arc<Pool>,
+    #[cfg(test)]
     pub(crate) admission_elapsed_ms: f64,
     password: String,
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "native-test-support"))]
 impl OwnedSourceFixture {
     pub(crate) async fn open(application: &str) -> culprit_core::Result<Self> {
+        #[cfg(test)]
         let started = Instant::now();
+        #[cfg(not(test))]
+        let _ = Instant::now();
         let authorized = OwnedSourceAdmission::from_environment()?;
         let port = std::env::var("CULPRIT_MSSQL_SOURCE_TEST_PORT").expect("owned loopback port").parse().unwrap();
         let password = std::env::var("CULPRIT_MSSQL_SOURCE_TEST_PASSWORD").expect("owned source password");
@@ -106,6 +110,7 @@ impl OwnedSourceFixture {
             port,
             database,
             password,
+            #[cfg(test)]
             admission_elapsed_ms: started.elapsed().as_secs_f64() * 1000.0,
         })
     }

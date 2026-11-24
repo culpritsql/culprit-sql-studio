@@ -1,4 +1,6 @@
 //! Native qualification only on owned loopback databases. Workloads exist solely inside nonce fixture databases.
+#[cfg(feature = "native-test-support")]
+pub(crate) mod ag_redo_blocking;
 #[cfg(test)]
 mod contention;
 #[cfg(test)]

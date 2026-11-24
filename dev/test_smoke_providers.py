@@ -550,6 +550,9 @@ class MssqlFixtureIdentity(unittest.TestCase):
         self.assertEqual(topology.database_name, expected)
         self.assertEqual(primary.fixture.database, expected)
         self.assertEqual(secondary.fixture.database, expected)
+        self.assertEqual(primary.fixture.image, smoke.SqlServerReplication.__module__ and
+                         sys.modules["mssql_replication_fixture"].SQL_SERVER_AG_IMAGE)
+        self.assertEqual(secondary.fixture.image, sys.modules["mssql_replication_fixture"].SQL_SERVER_AG_IMAGE)
         self.assertEqual(topology.name, "culprit_ag_" + primary.owner)
 
 

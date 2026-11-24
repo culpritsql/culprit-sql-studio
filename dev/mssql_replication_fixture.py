@@ -22,6 +22,13 @@ from replication_fixtures import OwnedNetwork
 
 
 SQL_SERVER_IMAGE = "mcr.microsoft.com/mssql/server:2022-latest"
+# SQL Server 2022 CU28 (16.0.4325.4, published to 2022-latest on 2026-11-12) spins in user space on Linux during
+# CLUSTER_TYPE=NONE ALTER AVAILABILITY GROUP ... JOIN; pin the last verified 2022 CU27 build for the 2-node AG pair
+# while single-instance fixtures continue exercising 2022-latest.
+SQL_SERVER_AG_IMAGE = (
+    "mcr.microsoft.com/mssql/server:2022-CU27-ubuntu-22.04"
+    "@sha256:4402d880dd4c34bfa7d8705e56a86cd6c88da80a1f6bbbe741f999e76264a090"
+)
 DATABASE_NAME = "culprit_smoke"
 ENDPOINT_NAME = "culprit_ag_endpoint"
 ENDPOINT_PORT = 5022
@@ -57,7 +64,7 @@ def prefixed_values(output, prefix):
 
 def require_unstarted_member(database):
     fixture = database.fixture
-    if (fixture.engine != "mssql" or fixture.image != SQL_SERVER_IMAGE
+    if (fixture.engine != "mssql" or fixture.image not in (SQL_SERVER_IMAGE, SQL_SERVER_AG_IMAGE)
             or fixture.database != f"{DATABASE_NAME}_{database.owner}" or fixture.user != "sa"
             or fixture.platform != "linux/amd64" or database.port is not None
             or database.container_options or database.options or database.published_ports() != (1433,)
@@ -96,7 +103,7 @@ class SqlServerReplication:
             # nonces in the native database name; the Rust admission checks that native ownership proof.
             prefix = {"primary": "p", "secondary": "s"}[role]
             database.hostname = prefix + database.owner[:14]
-            database.fixture = replace(database.fixture, database=self.database_name)
+            database.fixture = replace(database.fixture, image=SQL_SERVER_AG_IMAGE, database=self.database_name)
             enable_hadr(database, self.network)
 
     def __enter__(self):

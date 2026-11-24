@@ -8,6 +8,7 @@ mod maintenance;
 mod output_consumer;
 pub use output_consumer::OutputConsumerFixture;
 mod readable_secondary;
+mod txmeta_interventions;
 use crate::{
     connect::Connector,
     read::{NativeRead, QueryRead, ReadSession},
@@ -17,6 +18,9 @@ pub use maintenance::{
     AutomaticCase, MaintenanceFixture, RelationQueueCase, RelationQueueRole, TransactionMetadataRole,
 };
 pub use readable_secondary::ReadableSecondaryFixture;
+pub use txmeta_interventions::{
+    MULTIXACT_ROWS, TXMETA_FOCUS_APP, TXMETA_OVERFLOW_APP, TXMETA_RETAINER_APP, TransactionMetadataInterventionFixture,
+};
 
 pub fn connection_spec() -> ConnectionSpec {
     let database = std::env::var("CULPRIT_PREVIEW_PG_DATABASE").unwrap();

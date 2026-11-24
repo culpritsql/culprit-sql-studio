@@ -173,3 +173,106 @@ async fn public_projection_withholds_native_authority_and_only_paid_exact_eof_re
         assert!(fixture.recovery_object_reads() > opens);
     }
 }
+
+#[tokio::test]
+async fn topology_failover_writable_promotion_and_member_mismatch_refuse_mixed_role_join_and_preserve_resolved_history()
+{
+    for (idx, case) in [Case::PostgresRelation, Case::MssqlRedo].into_iter().enumerate() {
+        let seq = 953_000 + idx as u64 * 20;
+        let (basis, result, episode) = scenario(case, seq).await;
+        let focus = episode.source_reads.iter().next().unwrap().focus.clone();
+
+        // Writable promotion / member-epoch failover on result must be refused by ReadableSecondaryRecoveryAnswer.
+        let mut promoted_src = result.source().clone();
+        if let SourceObservation::SourceRead { execution, .. } = &mut promoted_src.observation {
+            execution.database_writable = Some(true);
+        }
+        let cur = result.verified_original().unwrap();
+        let cur_ref = cur.reference(0).unwrap();
+        assert!(
+            ReadableSecondaryRecoveryAnswer::from_originals(
+                &focus,
+                basis.source(),
+                basis.records()[0].row(),
+                &promoted_src,
+                cur.original(),
+                &[(&cur_ref, result.records()[0].row())],
+            )
+            .is_err(),
+            "writable promotion cannot attach primary evidence to a readable-secondary episode"
+        );
+
+        let mut failover_src = result.source().clone();
+        if let SourceObservation::SourceRead { execution, .. } = &mut failover_src.observation
+            && let SourcePartition::InstanceLocal { member: Some(member), .. } = &mut execution.partition
+        {
+            member.native = NativeIdentity::new("promoted-other-replica");
+        }
+        assert!(
+            ReadableSecondaryRecoveryAnswer::from_originals(
+                &focus,
+                basis.source(),
+                basis.records()[0].row(),
+                &failover_src,
+                cur.original(),
+                &[(&cur_ref, result.records()[0].row())],
+            )
+            .is_err(),
+            "replica failover member change cannot satisfy the original secondary scope"
+        );
+
+        // CompleteScope recovery on the same secondary member resolves the incident while retaining the native culprit.
+        let mut empty_src = basis.source().clone();
+        let SourceObservation::Activity(frame) = &mut empty_src.observation else { panic!() };
+        frame.at = "2020-01-01T12:05:00Z".into();
+        frame.observed_from = frame.at.clone();
+        frame.observed_until = frame.at.clone();
+        frame.native_rows = 0;
+        frame.observations = 0;
+        frame.coverage = StateSourceCoverage::collected(empty_src.source.clone(), 0);
+        let empty = retained(empty_src, vec![], seq + 3).await;
+        let prev = DiagnosticCheckpoint {
+            controller_version: DIAGNOSTIC_CONTROLLER_VERSION,
+            target: episode.scope.target.clone(),
+            input: episode.latest.capture_ref(),
+            episodes: vec![episode.clone()],
+        };
+        let update = observe_diagnostic_activity(
+            empty.source(),
+            empty.verified_original().unwrap().original(),
+            &[],
+            Some(&prev),
+            &ActivityPolicy::default(),
+            "2020-01-01T12:05:01Z",
+        )
+        .unwrap();
+        let recovered = update.revisions.into_iter().find(|r| r.episode.id == episode.id).unwrap();
+        assert_eq!(recovered.episode.lifecycle, DiagnosticLifecycle::Resolved);
+        let active_hist = history(episode, seq + 4).await;
+        let resolved_hist = history_revision(recovered, seq + 5).await;
+        let out = project_at(&[&resolved_hist, &active_hist, &basis, &result, &empty], vec![], "2020-01-01T12:06:00Z")
+            .unwrap();
+        out.validate().unwrap();
+        let [incident] = out.incidents.as_slice() else { panic!() };
+        assert_eq!(incident.entry.lifecycle, DiagnosticLifecycle::Resolved);
+        assert_eq!(incident.attribution_status, DerivedAttributionStatus::Established);
+        assert_eq!(incident.culprit_queries.len(), 1);
+        assert!(!incident.culprit_queries[0].sql.is_available());
+    }
+}
+
+#[tokio::test]
+async fn long_running_secondary_load_without_startup_or_redo_wait_keeps_current_sql_candidate_only_without_culprit() {
+    for (idx, case) in [Case::PostgresNoStartup, Case::MssqlNoRedo].into_iter().enumerate() {
+        let seq = 953_100 + idx as u64 * 10;
+        let (basis, result, episode) = scenario(case, seq).await;
+        let revisions = history(episode, seq + 2).await;
+        let output = project(&[&revisions, &basis, &result], vec![]).unwrap();
+        output.validate().unwrap();
+        let [incident] = output.incidents.as_slice() else { panic!() };
+        assert!(incident.culprit_queries.is_empty());
+        assert_eq!(incident.attribution_status, DerivedAttributionStatus::CandidatesOnly);
+        assert_eq!(incident.candidate_queries.len(), 1);
+        assert!(incident.entry.reasons.contains(&t!("view.secondary_recovery.limit.owner")));
+    }
+}

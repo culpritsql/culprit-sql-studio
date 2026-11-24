@@ -22,7 +22,7 @@ pub(crate) use actual_plans::{actual_plan_capture, actual_plan_capture_admitted,
 #[cfg(test)]
 pub(crate) mod owned_captures;
 pub(crate) use cost_receipts::{receipt_directory, save_cost_receipt};
-#[cfg(test)]
+#[cfg(any(test, feature = "native-test-support"))]
 pub(crate) use owned_source::OwnedSourceFixture;
 pub(crate) use owned_source::verify_owned_source;
 
@@ -55,7 +55,7 @@ pub(crate) async fn measured_read(
     crate::read::measurement::MeasuredRead::open(pool, "127.0.0.1", port, observer, budget).await
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "native-test-support"))]
 pub(crate) async fn batch(client: &mut MsClient, sql: &str) {
     client.simple_query(sql).await.unwrap().into_results().await.unwrap();
 }

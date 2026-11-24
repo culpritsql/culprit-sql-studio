@@ -406,3 +406,320 @@ async fn a_reused_retainer_pid_keeps_its_own_backend_generation_and_never_borrow
     assert!(candidates.iter().any(|query| query.sql.is_available()));
     assert!(incident.culprit_queries.is_empty());
 }
+
+#[tokio::test]
+async fn live_wait_family_discrimination_separates_subtransaction_multixact_and_ordinary_transaction_locks_through_gold()
+ {
+    for (idx, (mechanism, native_wait, expected_mech, expected_action)) in [
+        (
+            TransactionMetadataWait::Subtransaction,
+            "LWLock: SubtransBuffer",
+            t!("view.transaction_metadata.subtransaction.mechanism"),
+            t!("view.transaction_metadata.subtransaction.action"),
+        ),
+        (
+            TransactionMetadataWait::MultiXact,
+            "LWLock: MultiXactOffsetSLRU",
+            t!("view.transaction_metadata.multixact.mechanism"),
+            t!("view.transaction_metadata.multixact.action"),
+        ),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let seq = 945_300 + idx as u64 * 20;
+        let mut input = transaction_metadata_original(mechanism);
+        let TelemetryRecord::Activity(actor) = &mut input.original.record else { panic!() };
+        actor.wait.as_mut().unwrap().native_type = Some(native_wait.into());
+        let basis = retained(input.source, vec![input.original.record], seq).await;
+        let orig = basis.verified_original().unwrap();
+        let first_ref = orig.reference(0).unwrap();
+        let TelemetryRecord::Activity(obs) = &basis.records()[0].row().record else { panic!() };
+        let update = observe_diagnostic_activity(
+            basis.source(),
+            orig.original(),
+            &[DiagnosticActivityRow { reference: &first_ref, observation: obs }],
+            None,
+            &ActivityPolicy::default(),
+            "2020-01-01T12:00:02Z",
+        )
+        .unwrap();
+        let episode = update
+            .checkpoint
+            .episodes
+            .into_iter()
+            .find(|ep| matches!(ep.signal, DiagnosticSignal::TransactionMetadataWait { .. }))
+            .expect("metadata LWLock wait starts a TransactionMetadataWait episode");
+        assert!(matches!(
+            episode.signal,
+            DiagnosticSignal::TransactionMetadataWait { mechanism: actual, .. } if actual == mechanism
+        ));
+        let focus = episode.source_read_focus(SourceReadQuestion::TransactionMetadata).unwrap().unwrap();
+        let execution =
+            SourceReadExecutionScope::from_context(focus.question, &focus.original_context(basis.source()).unwrap())
+                .unwrap();
+        let case = if mechanism == TransactionMetadataWait::MultiXact { Case::MultiXact } else { Case::Overflow };
+        let (res_src, res_rows) = transaction_metadata_result(&focus, &execution, case);
+        let result = retained(res_src, res_rows, seq + 1).await;
+        let cur = result.verified_original().unwrap();
+        let refs = (0..result.records().len()).map(|i| cur.reference(i).unwrap()).collect::<Vec<_>>();
+        let pairs = refs.iter().zip(result.records()).map(|(r, row)| (r, row.row())).collect::<Vec<_>>();
+        let answer = TransactionMetadataAnswer::from_originals(
+            &focus,
+            basis.source(),
+            basis.records()[0].row(),
+            result.source(),
+            cur.original(),
+            &pairs,
+        )
+        .unwrap();
+        let answered = episode
+            .enroll_source_read(focus.clone())
+            .unwrap()
+            .transition_source_read(&focus, SourceReadStageState::Collecting)
+            .unwrap()
+            .transition_source_read(
+                &focus,
+                SourceReadStageState::Answered {
+                    answer: Box::new(SourceReadAnswer::TransactionMetadata(Box::new(answer))),
+                },
+            )
+            .unwrap();
+        let revisions = history(answered, seq + 2).await;
+        let output = project(&[&revisions, &basis, &result], vec![]).unwrap();
+        output.validate().unwrap();
+        let [incident] = output.incidents.as_slice() else { panic!() };
+        assert!(incident.mechanism.as_deref().unwrap().contains(&expected_mech));
+        assert!(incident.developer_action.contains(&expected_action));
+        assert!(incident.culprit_queries.is_empty());
+    }
+
+    // Competing ordinary transactionid / tuple / ProcArray waits never start a TransactionMetadataWait episode.
+    for (idx, (native_wait, lock_wait)) in
+        [("Lock: transactionid", true), ("Lock: tuple", true), ("LWLock: ProcArray", false), ("IO: SLRURead", false)]
+            .into_iter()
+            .enumerate()
+    {
+        let mut input = transaction_metadata_original(TransactionMetadataWait::Subtransaction);
+        let TelemetryRecord::Activity(actor) = &mut input.original.record else { panic!() };
+        actor.wait = Some(ActivityWait {
+            class: None,
+            native_type: Some(native_wait.into()),
+            elapsed_ms: Some("65000".into()),
+            owners: vec![],
+            resources: None,
+            identified_resources: vec![],
+        });
+        actor.waiting_on_lock = Some(lock_wait);
+        actor.blocking_status = ActivityBlockingStatus::Unknown;
+        let basis = retained(input.source, vec![input.original.record], 945_400 + idx as u64 * 5).await;
+        let orig = basis.verified_original().unwrap();
+        let first_ref = orig.reference(0).unwrap();
+        let TelemetryRecord::Activity(obs) = &basis.records()[0].row().record else { panic!() };
+        let update = observe_diagnostic_activity(
+            basis.source(),
+            orig.original(),
+            &[DiagnosticActivityRow { reference: &first_ref, observation: obs }],
+            None,
+            &ActivityPolicy::default(),
+            "2020-01-01T12:00:02Z",
+        )
+        .unwrap();
+        assert!(
+            !update
+                .checkpoint
+                .episodes
+                .iter()
+                .any(|ep| matches!(ep.signal, DiagnosticSignal::TransactionMetadataWait { .. })),
+            "competing {native_wait} must never start a TransactionMetadataWait episode"
+        );
+    }
+}
+
+#[tokio::test]
+async fn competing_prepared_slot_and_xmin_session_retainers_select_the_actual_oldest_data_horizon_and_preserve_resolved_gold()
+ {
+    // 1. Prepared transaction holds older Data XID (distance 9000) than backend_xmin session 77 (distance 500)
+    //    and replication slot (distance 400): Gold records pg_prepared_xacts without blaming session 77.
+    // 2. Prepared transaction removed, replication slot holds catalog_xmin only (distance 9500, Catalog-only!)
+    //    while session 77 holds backend_xmin (distance 500, Data): Gold selects session 77 as session-only
+    //    candidate with xmin_session.action and preserves it after episode recovery.
+    for (arm, seq) in [("prepared-oldest", 945_500_u64), ("session-oldest-despite-older-catalog-slot", 945_520_u64)] {
+        let input = transaction_metadata_original(TransactionMetadataWait::Subtransaction);
+        let basis = retained(input.source, vec![input.original.record], seq).await;
+        let orig = basis.verified_original().unwrap();
+        let first_ref = orig.reference(0).unwrap();
+        let TelemetryRecord::Activity(actor) = &basis.records()[0].row().record else { panic!() };
+        let episode = DiagnosticEpisode::start(
+            DiagnosticScope::from_source(basis.source()).unwrap(),
+            DiagnosticSignal::TransactionMetadataWait {
+                key: actor.key.clone(),
+                statement_identity: actor.statement_identity.clone(),
+                mechanism: TransactionMetadataWait::Subtransaction,
+            },
+            basis.source().observation.activity().unwrap().at.clone(),
+            first_ref,
+        )
+        .unwrap();
+        let focus = episode.source_read_focus(SourceReadQuestion::TransactionMetadata).unwrap().unwrap();
+        let execution =
+            SourceReadExecutionScope::from_context(focus.question, &focus.original_context(basis.source()).unwrap())
+                .unwrap();
+        let (res_src, mut res_rows) = test_support::transaction_metadata_xmin_result(
+            &focus,
+            &execution,
+            test_support::TransactionMetadataXminCase::Session,
+        );
+        let TelemetryRecord::Operational(op_row) = &mut res_rows[0] else { panic!() };
+        let OperationalFact::PostgresTransactionMetadata(point) = &mut op_row.fact else { panic!() };
+        let observed_at = point.retention.holders[0].observed_at.clone();
+        let db_name = point.database.clone();
+
+        // Slot holder: in arm 1 holds a newer Data xmin (distance 400); in arm 2 holds only Catalog xmin (distance 9500).
+        point.retention.holders[0].horizons = if arm == "prepared-oldest" {
+            vec![RetentionHorizon {
+                protects: vec![CleanupHorizon::Data, CleanupHorizon::Catalog, CleanupHorizon::SharedCatalog],
+                native_name: "xmin".into(),
+                native_value: "1600".into(),
+                transactions_behind: Some("400".into()),
+            }]
+        } else {
+            vec![RetentionHorizon {
+                protects: vec![CleanupHorizon::Catalog, CleanupHorizon::SharedCatalog],
+                native_name: "catalog_xmin".into(),
+                native_value: "500".into(),
+                transactions_behind: Some("9500".into()),
+            }]
+        };
+        // Session 77 holder: Data backend_xmin (distance 500).
+        point.retention.holders[1].horizons = vec![RetentionHorizon {
+            protects: vec![CleanupHorizon::Data, CleanupHorizon::Catalog, CleanupHorizon::SharedCatalog],
+            native_name: "backend_xmin".into(),
+            native_value: "1500".into(),
+            transactions_behind: Some("500".into()),
+        }];
+
+        if arm == "prepared-oldest" {
+            point.retention.holders.push(RetentionObservation {
+                source: "pg_prepared_xacts".into(),
+                identity: NativeIdentity::new("pg_prepared_xacts").qualified("native_id", "1000"),
+                observed_at,
+                scope: culprit_core::MeasurementScope::Database,
+                holder: culprit_core::CleanupHolder::PreparedTransaction,
+                name: "1000".into(),
+                horizons: vec![RetentionHorizon {
+                    protects: vec![CleanupHorizon::Data, CleanupHorizon::Catalog, CleanupHorizon::SharedCatalog],
+                    native_name: "transaction".into(),
+                    native_value: "1000".into(),
+                    transactions_behind: Some("9000".into()),
+                }],
+                session: None,
+                unresolved_session_id: None,
+                transaction: Some(RetentionTransactionContext {
+                    native_id: Some("1000".into()),
+                    started_at: None,
+                    prepared_at: Some("2020-01-01T11:50:00Z".into()),
+                }),
+                query: None,
+                client: Some(ActivityClient { application: None, user: Some("postgres".into()), host: None }),
+                activity: culprit_core::TransactionActivity::Prepared,
+                native_state: None,
+                age_seconds: Some(600.0),
+                database: Some(db_name),
+                code_ownership: PayloadUnavailable::NotCollected,
+            });
+            for src in &mut point.retention.sources {
+                if src.source == "pg_prepared_xacts" {
+                    src.state = SourceState::Collected;
+                }
+            }
+        }
+        point.retainer_rows = point.retention.holders.len() as u32;
+        op_row.key = point.key().unwrap();
+        assert!(point.fits_source_scope(&res_src));
+
+        let result = retained(res_src, res_rows, seq + 1).await;
+        let cur = result.verified_original().unwrap();
+        let cur_ref = cur.reference(0).unwrap();
+        let answer = TransactionMetadataAnswer::from_originals(
+            &focus,
+            basis.source(),
+            basis.records()[0].row(),
+            result.source(),
+            cur.original(),
+            &[(&cur_ref, result.records()[0].row())],
+        )
+        .unwrap();
+        let answered = episode
+            .enroll_source_read(focus.clone())
+            .unwrap()
+            .transition_source_read(&focus, SourceReadStageState::Collecting)
+            .unwrap()
+            .transition_source_read(
+                &focus,
+                SourceReadStageState::Answered {
+                    answer: Box::new(SourceReadAnswer::TransactionMetadata(Box::new(answer))),
+                },
+            )
+            .unwrap();
+        let revisions = history(answered.clone(), seq + 2).await;
+        let output = project(&[&revisions, &basis, &result], vec![]).unwrap();
+        output.validate().unwrap();
+        let [incident] = output.incidents.as_slice() else { panic!() };
+        assert!(incident.culprit_queries.is_empty());
+
+        if arm == "prepared-oldest" {
+            assert!(
+                incident.candidate_queries.is_empty(),
+                "newer session 77 must not be blamed when prepared xact is older"
+            );
+            assert_eq!(incident.attribution_status, DerivedAttributionStatus::Unestablished);
+            assert!(!incident.developer_action.contains(&t!("view.transaction_metadata.xmin_session.action")));
+            assert!(incident.entry.reasons.iter().any(|r| r.contains("pg_prepared_xacts") && r.contains("1000")));
+        } else {
+            assert_eq!(incident.attribution_status, DerivedAttributionStatus::CandidatesOnly);
+            assert_eq!(incident.candidate_queries.len(), 1);
+            assert!(matches!(
+                &incident.candidate_queries[0].identity,
+                Some(DerivedQueryIdentity::Activity { actor, .. }) if actor.session.id == "77" && actor.request.is_none()
+            ));
+            assert!(incident.developer_action.contains(&t!("view.transaction_metadata.xmin_session.action")));
+
+            // Verify recovery preserves the session-only candidate and conditional lifetime action in Gold.
+            let mut empty_src = basis.source().clone();
+            let SourceObservation::Activity(frame) = &mut empty_src.observation else { panic!() };
+            frame.at = "2020-01-01T12:03:00Z".into();
+            frame.observed_from = frame.at.clone();
+            frame.observed_until = frame.at.clone();
+            frame.native_rows = 0;
+            frame.observations = 0;
+            frame.coverage = StateSourceCoverage::collected(empty_src.source.clone(), 0);
+            let empty_cap = retained(empty_src, vec![], seq + 3).await;
+            let prev = DiagnosticCheckpoint {
+                controller_version: DIAGNOSTIC_CONTROLLER_VERSION,
+                target: answered.scope.target.clone(),
+                input: answered.latest.capture_ref(),
+                episodes: vec![answered],
+            };
+            let rec_update = observe_diagnostic_activity(
+                empty_cap.source(),
+                empty_cap.verified_original().unwrap().original(),
+                &[],
+                Some(&prev),
+                &ActivityPolicy::default(),
+                "2020-01-01T12:03:01Z",
+            )
+            .unwrap();
+            let rec_rev = rec_update.revisions.into_iter().next().unwrap();
+            assert_eq!(rec_rev.episode.lifecycle, DiagnosticLifecycle::Resolved);
+            let rec_hist = history_revision(rec_rev, seq + 4).await;
+            let resolved_out =
+                project_at(&[&rec_hist, &revisions, &basis, &result, &empty_cap], vec![], "2020-01-01T12:04:00Z")
+                    .unwrap();
+            resolved_out.validate().unwrap();
+            assert_eq!(resolved_out.incidents[0].entry.lifecycle, DiagnosticLifecycle::Resolved);
+            assert_eq!(resolved_out.incidents[0].candidate_queries.len(), 1);
+            assert!(resolved_out.incidents[0].culprit_queries.is_empty());
+        }
+    }
+}

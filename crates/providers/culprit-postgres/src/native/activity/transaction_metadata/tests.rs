@@ -155,7 +155,18 @@ async fn malformed_status_duplicate_backend_and_recycled_database_refuse_while_n
 fn generic_slru_io_extension_or_lock_counts_do_not_select_a_transaction_metadata_question() {
     for (kind, event, expected) in [
         ("LWLock", "SubtransSLRU", Some(ActivityWaitClass::SubtransactionMetadata)),
+        ("LWLock", "SubtransBuffer", Some(ActivityWaitClass::SubtransactionMetadata)),
+        ("LWLock", "MultiXactMemberSLRU", Some(ActivityWaitClass::MultiTransactionMetadata)),
+        ("LWLock", "MultiXactMemberBuffer", Some(ActivityWaitClass::MultiTransactionMetadata)),
+        ("LWLock", "MultiXactOffsetSLRU", Some(ActivityWaitClass::MultiTransactionMetadata)),
+        ("LWLock", "MultiXactOffsetBuffer", Some(ActivityWaitClass::MultiTransactionMetadata)),
         ("LWLock", "MultiXactGen", Some(ActivityWaitClass::MultiTransactionMetadata)),
+        ("LWLock", "MultiXactTruncation", Some(ActivityWaitClass::MultiTransactionMetadata)),
+        ("Lock", "transactionid", None),
+        ("Lock", "tuple", None),
+        ("Lock", "relation", None),
+        ("LWLock", "XactSLRU", None),
+        ("LWLock", "CommitTsSLRU", None),
         ("IO", "SLRURead", None),
         ("IO", "SLRUWrite", None),
         ("LWLock", "ProcArray", None),

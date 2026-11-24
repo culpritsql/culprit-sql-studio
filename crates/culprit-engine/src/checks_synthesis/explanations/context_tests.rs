@@ -454,6 +454,8 @@ mod output_grant;
 #[cfg(feature = "mssql-native-tests")]
 mod native_mssql_output_retention;
 #[cfg(feature = "mssql-native-tests")]
+mod native_mssql_readable_secondary;
+#[cfg(feature = "mssql-native-tests")]
 mod native_parallel_operator;
 #[cfg(feature = "mssql-native-tests")]
 mod native_serial_tvp;
@@ -466,3 +468,5 @@ mod mysql_metadata_context;
 mod native_commit_pipeline;
 #[cfg(feature = "postgres-native-tests")]
 mod native_output_blocking;
+#[cfg(feature = "postgres-native-tests")]
+mod native_transaction_metadata;

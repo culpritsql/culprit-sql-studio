@@ -44,6 +44,9 @@ impl SourceEndpoint {
             port: fixture.port,
         })
     }
+    pub(super) fn from_pool(pool: Arc<Pool>, port: u16) -> Self {
+        Self { pool, port }
+    }
     pub fn request(&self, selection: CollectionSelection) -> Result<CollectionRequest> {
         self.request_for_subject(CollectionSubject::Database, selection)
     }
