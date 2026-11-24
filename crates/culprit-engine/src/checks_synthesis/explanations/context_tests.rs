@@ -454,7 +454,11 @@ mod output_grant;
 #[cfg(feature = "mssql-native-tests")]
 mod native_mssql_output_retention;
 #[cfg(feature = "mssql-native-tests")]
+mod native_parallel_operator;
+#[cfg(feature = "mssql-native-tests")]
 mod native_serial_tvp;
+#[cfg(feature = "mssql-native-tests")]
+mod native_worker_starvation;
 
 mod mysql_metadata_context;
 

@@ -149,6 +149,7 @@ impl<R: NativeRead> ActivityReader<R> {
         }
         let mut tasks = Vec::new();
         let mut waits = Vec::new();
+        let mut seen_wait_tasks = BTreeSet::new();
         let mut requests = BTreeMap::<ActivityKey, ActivityRecord>::new();
         let mut task_rows = 0;
         let mut wait_rows = 0;
@@ -187,7 +188,11 @@ impl<R: NativeRead> ActivityReader<R> {
                 }
             }
             tasks.extend(row.task);
-            waits.extend(row.wait);
+            if let Some(wait) = row.wait
+                && seen_wait_tasks.insert(wait.task_address.clone())
+            {
+                waits.push(wait);
+            }
         }
         let frame = ActivityFrame { context: context.clone(), records: requests.into_values().collect() };
         ActivityEvidence::validate(&frame.observations())?;

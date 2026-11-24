@@ -126,6 +126,10 @@ impl Fixture {
         crate::test_support::connect(&config(self.port, &self.name, &self.password, application), SessionKind::User)
             .await
     }
+    #[cfg(feature = "native-test-support")]
+    pub(super) fn isolated_pool(&self, application: &str) -> Arc<Pool> {
+        Arc::new(Pool::new(config(self.port, &self.name, &self.password, application), None))
+    }
     pub(super) async fn execute(&mut self, sql: &str) -> Result<()> {
         let mut admin = self.admin.take().ok_or_else(|| invalid("owned fixture admin connection was retired"))?;
         let result = execute(&mut admin, sql).await;

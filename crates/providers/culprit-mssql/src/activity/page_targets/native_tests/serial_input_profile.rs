@@ -45,8 +45,14 @@ impl SourceEndpoint {
         })
     }
     pub fn request(&self, selection: CollectionSelection) -> Result<CollectionRequest> {
-        let request =
-            CollectionRequest { subject: CollectionSubject::Database, selection, budget: CollectionBudget::default() };
+        self.request_for_subject(CollectionSubject::Database, selection)
+    }
+    pub fn request_for_subject(
+        &self,
+        subject: CollectionSubject,
+        selection: CollectionSelection,
+    ) -> Result<CollectionRequest> {
+        let request = CollectionRequest { subject, selection, budget: CollectionBudget::default() };
         let recipe = crate::telemetry::recipes()
             .into_iter()
             .find(|recipe| {

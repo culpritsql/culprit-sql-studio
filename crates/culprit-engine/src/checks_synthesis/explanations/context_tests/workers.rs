@@ -269,3 +269,191 @@ async fn a_parallel_tasks_foreign_blocker_cannot_be_rebound_to_the_request_coord
         query.causal_role.as_ref().is_some_and(|role| role.kind == DerivedCausalRoleKind::AssignedWorkerContributor)
     }));
 }
+
+#[tokio::test]
+async fn unavailable_diagnostic_worker_preserves_starvation_episode_without_false_recovery_or_culprit() {
+    for (idx, (shared, issue, expected_reason)) in [
+        (false, DiagnosticAnalysisIssue::BudgetExhausted, "budget"),
+        (
+            false,
+            DiagnosticAnalysisIssue::SourceUnavailable {
+                code: Some(ErrorCode::Timeout),
+                stopped: Some(CollectionStop::TimedOut),
+            },
+            "source",
+        ),
+        (true, DiagnosticAnalysisIssue::EvidenceUnavailable, "evidence"),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let seq = 870_100 + idx as u64 * 10;
+        let (original, episode) = basis(shared, seq).await;
+        let focus = episode.source_read_focus(SourceReadQuestion::WorkerStarvation).unwrap().unwrap();
+        let stopped = episode
+            .enroll_source_read(focus.clone())
+            .unwrap()
+            .transition_source_read(&focus, SourceReadStageState::Collecting)
+            .unwrap()
+            .transition_source_read(&focus, SourceReadStageState::Stopped { issue })
+            .unwrap();
+        let rev = history(stopped, seq + 1).await;
+        let diagnosis = project(&[&rev, &original], vec![]).unwrap();
+        diagnosis.validate().unwrap();
+        let [incident] = diagnosis.incidents.as_slice() else { panic!() };
+        assert_eq!(
+            incident.entry.lifecycle,
+            if shared { DiagnosticLifecycle::Uncertain } else { DiagnosticLifecycle::Active }
+        );
+        assert_eq!(incident.affected_queries.len(), usize::from(!shared));
+        assert!(incident.culprit_queries.is_empty() && incident.candidate_queries.is_empty());
+        assert_eq!(incident.attribution_status, DerivedAttributionStatus::Unestablished);
+        assert!(incident.entry.reasons.contains(&t!("view.incident_history.source_stage", state = "stopped")));
+        assert!(incident.entry.reasons.contains(&t!("view.worker_starvation.question")));
+        assert!(incident.entry.reasons.contains(&t!("view.incident_history.issue", reason = expected_reason)));
+    }
+}
+
+#[tokio::test]
+async fn competing_blocking_parallel_and_preemptive_mechanisms_and_resolved_recovery_hold_in_gold() {
+    // 1. Pure lock-waiting worker occupation: NativeBlockingOwner only, no AssignedWorkerContributor.
+    let (b_orig, b_res, b_hist) = answered(false, 870_200, |point| {
+        point.tasks.retain(|t| matches!(t.session_id, Some(61 | 62)));
+        let db = point.requests[0].observation.database.clone();
+        for r in &mut point.requests {
+            if r.observation.key.session.id == "63" {
+                r.observation.scope = ActivityScopeBasis::RequestDatabase;
+                r.observation.database = db.clone();
+            }
+        }
+    })
+    .await;
+    let b_gold = project(&[&b_hist, &b_orig, &b_res], vec![]).unwrap();
+    b_gold.validate().unwrap();
+    let b_inc = &b_gold.incidents[0];
+    assert!(
+        b_inc
+            .culprit_queries
+            .iter()
+            .all(|q| { q.causal_role.as_ref().is_some_and(|r| r.kind == DerivedCausalRoleKind::NativeBlockingOwner) })
+    );
+    assert!(!b_inc.culprit_queries.is_empty());
+    assert!(b_inc.mechanism.as_ref().unwrap().contains(&t!(
+        "view.worker_starvation.mechanism",
+        kind = "blocked",
+        count = "1"
+    )));
+
+    // 2. Pure parallel worker occupation: AssignedWorkerContributor only, task-vs-DOP disclaimer explicit.
+    let (p_orig, p_res, p_hist) = answered(false, 870_210, |point| {
+        point.tasks.retain(|t| t.session_id != Some(62));
+        point.requests.retain(|r| r.observation.key.session.id != "62");
+        for t in &mut point.tasks {
+            if let Some(w) = &mut t.worker {
+                w.is_preemptive = Some(false);
+            }
+        }
+    })
+    .await;
+    let p_gold = project(&[&p_hist, &p_orig, &p_res], vec![]).unwrap();
+    p_gold.validate().unwrap();
+    let p_inc = &p_gold.incidents[0];
+    assert!(p_inc.culprit_queries.iter().all(|q| {
+        q.causal_role.as_ref().is_some_and(|r| r.kind == DerivedCausalRoleKind::AssignedWorkerContributor)
+    }));
+    assert!(!p_inc.culprit_queries.is_empty());
+    assert!(p_inc.mechanism.as_ref().unwrap().contains(&t!(
+        "view.worker_starvation.mechanism",
+        kind = "parallel",
+        count = "2"
+    )));
+    assert!(p_inc.entry.reasons.contains(&t!("view.worker_starvation.units")));
+
+    // 3. Pure preemptive external wait occupation: AssignedWorkerContributor with "preemptive" mechanism.
+    let (e_orig, e_res, e_hist) = answered(false, 870_220, |point| {
+        point.tasks.retain(|t| t.session_id != Some(62));
+        point.requests.retain(|r| r.observation.key.session.id != "62");
+        for t in &mut point.tasks {
+            if t.session_id == Some(63) {
+                t.execution_context_id = Some(0);
+                if let Some(wait) = &mut t.wait {
+                    wait.execution_context_id = Some(0);
+                }
+                if let Some(w) = &mut t.worker {
+                    w.is_preemptive = Some(true);
+                }
+            }
+        }
+        // Keep unique (session_id, request_id, execution_context_id) by retaining one preemptive task for session 63.
+        let mut seen = false;
+        point.tasks.retain(|t| {
+            if t.session_id == Some(63) {
+                if seen {
+                    return false;
+                }
+                seen = true;
+            }
+            true
+        });
+    })
+    .await;
+    let e_gold = project(&[&e_hist, &e_orig, &e_res], vec![]).unwrap();
+    e_gold.validate().unwrap();
+    let e_inc = &e_gold.incidents[0];
+    assert!(e_inc.mechanism.as_ref().unwrap().contains(&t!(
+        "view.worker_starvation.mechanism",
+        kind = "preemptive",
+        count = "1"
+    )));
+    assert!(e_inc.culprit_queries.iter().any(|q| {
+        q.causal_role.as_ref().is_some_and(|r| r.kind == DerivedCausalRoleKind::AssignedWorkerContributor)
+    }));
+
+    // 4. Resolved lifecycle retains the answered worker starvation culprits, mechanism, and caller.
+    let raw_hist = p_hist.verified_original().unwrap();
+    let TelemetryRecord::Operational(OperationalObservation {
+        fact: OperationalFact::DiagnosticRevision(active_rev),
+        ..
+    }) = &raw_hist.records()[0].row().record
+    else {
+        panic!()
+    };
+    let mut empty_act = p_orig.verified_original().unwrap().source().clone();
+    let SourceObservation::Activity(header) = &mut empty_act.observation else { panic!() };
+    header.at = "2020-01-01T12:00:30Z".into();
+    header.observed_from = header.at.clone();
+    header.observed_until = header.at.clone();
+    header.observations = 0;
+    header.native_rows = 0;
+    header.coverage = StateSourceCoverage::collected(empty_act.source.clone(), 0);
+    let recovered = retained(empty_act, vec![], 870_230).await;
+    let rec_orig = recovered.verified_original().unwrap();
+    let prev = DiagnosticCheckpoint {
+        controller_version: DIAGNOSTIC_CONTROLLER_VERSION,
+        target: active_rev.episode.scope.target.clone(),
+        input: active_rev.episode.latest.capture_ref(),
+        episodes: vec![active_rev.episode.clone()],
+    };
+    let resolved_rev = observe_diagnostic_activity(
+        rec_orig.source(),
+        rec_orig.original(),
+        &[],
+        Some(&prev),
+        &ActivityPolicy::default(),
+        "2020-01-01T12:00:31Z",
+    )
+    .unwrap()
+    .revisions
+    .into_iter()
+    .find(|r| r.episode.lifecycle == DiagnosticLifecycle::Resolved)
+    .unwrap();
+    drop(raw_hist);
+    drop(rec_orig);
+    let res_hist = history_revision(resolved_rev, 870_231).await;
+    let res_gold = project(&[&res_hist, &p_orig, &p_res, &recovered], vec![]).unwrap();
+    res_gold.validate().unwrap();
+    let [res_inc] = res_gold.incidents.as_slice() else { panic!() };
+    assert_eq!(res_inc.entry.lifecycle, DiagnosticLifecycle::Resolved);
+    assert_eq!(res_inc.culprit_queries, p_inc.culprit_queries);
+    assert_eq!(res_inc.mechanism, p_inc.mechanism);
+}

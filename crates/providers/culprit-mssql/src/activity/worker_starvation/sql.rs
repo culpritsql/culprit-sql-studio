@@ -56,9 +56,11 @@ pub(super) fn observation_for(
        FROM sys.dm_os_tasks WHERE @worker_visibility=1 AND (session_id IS NULL OR session_id<>@@SPID){task_filter}) task
  LEFT JOIN sys.dm_os_workers worker ON worker.worker_address=task.worker_address
  LEFT JOIN sys.dm_os_schedulers node ON node.scheduler_id=task.scheduler_id
- LEFT JOIN sys.dm_os_waiting_tasks waiter ON waiter.waiting_task_address=task.task_address
-   AND (waiter.session_id=task.session_id OR waiter.session_id IS NULL AND task.session_id IS NULL)
-   AND waiter.exec_context_id=task.exec_context_id
+ OUTER APPLY (SELECT TOP(1) w.waiting_task_address,w.session_id,w.exec_context_id,w.wait_type,w.wait_duration_ms,
+       w.blocking_task_address,w.blocking_session_id,w.blocking_exec_context_id
+       FROM sys.dm_os_waiting_tasks w WHERE w.waiting_task_address=task.task_address
+       AND (w.session_id=task.session_id OR w.session_id IS NULL AND task.session_id IS NULL)
+       AND w.exec_context_id=task.exec_context_id) waiter
  {REQUEST_JOIN}
  UNION ALL
  SELECT 2 AS worker_row_kind,{EMPTY_TASK_COLUMNS},{WAIT_COLUMNS},{requests}

@@ -243,3 +243,17 @@ async fn unknown_role_unsupported_layout_and_native_denial_refuse_without_follow
     assert_eq!(reader.query_count(), 4);
     assert_eq!(reader.close().await, SourceShutdown::Quiescent);
 }
+
+#[test]
+fn task_wait_projection_bounds_multi_edge_parallel_waiting_rows_to_one_row_per_task_address() {
+    let query = sql::observation_for(
+        super::super::IdentityDetail::Endpoint,
+        crate::activity::page_server_reads::Availability::NotApplicable,
+        sql::WorkerSelection::Request,
+    );
+    assert!(
+        query.contains("OUTER APPLY (SELECT TOP(1) w.waiting_task_address"),
+        "parallel exchange coordinators emit multiple sys.dm_os_waiting_tasks rows for one task_address"
+    );
+    assert!(!query.contains("LEFT JOIN sys.dm_os_waiting_tasks"));
+}

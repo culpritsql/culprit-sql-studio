@@ -12,6 +12,8 @@ mod focused;
 mod holders;
 #[cfg(feature = "native-test-support")]
 pub(crate) mod output_retention;
+#[cfg(feature = "native-test-support")]
+pub(crate) mod parallel_operator_profile;
 #[cfg(test)]
 mod schema_queue;
 #[cfg(feature = "native-test-support")]
@@ -20,6 +22,8 @@ pub(crate) mod serial_input_profile;
 mod shared_tempdb;
 #[cfg(test)]
 mod topology;
+#[cfg(feature = "native-test-support")]
+pub(crate) mod worker_starvation_native;
 pub(crate) mod workload;
 #[cfg(test)]
 mod writers;
