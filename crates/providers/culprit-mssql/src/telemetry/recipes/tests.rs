@@ -427,6 +427,7 @@ async fn native_resource_discovery_derives_its_routes_from_registrations_and_obs
             expected.insert(1, TelemetryCollection::ResourceHistory);
             expected.push(TelemetryCollection::Snapshot(SnapshotDataset::MemoryFailures));
         }
+        expected.push(TelemetryCollection::Snapshot(SnapshotDataset::NativeFailures));
         expected.push(TelemetryCollection::Snapshot(SnapshotDataset::WaitCounters));
         assert_eq!(collections, expected, "native edition {edition}");
         for collection in collections {

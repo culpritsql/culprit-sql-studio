@@ -67,6 +67,8 @@ fn qualified_positive_source_conditions_keep_exact_originals_without_creating_a_
         (Case::Memory, 2),
         (Case::MysqlError, 4),
         (Case::PostgresFailure, 2),
+        (Case::MssqlExtendedEvent, 3),
+        (Case::MssqlDatabaseExtendedEvent, 3),
         (Case::Cleanup, 1),
         (Case::Temporary, 2),
         (Case::HistoryException, 1),
@@ -99,6 +101,7 @@ fn genuine_zero_unknown_usage_native_regular_or_unknown_outcome_and_explicit_neg
     for case in [
         Case::MemoryEmpty,
         Case::MysqlWarning,
+        Case::MssqlRoutineError,
         Case::CleanupEmpty,
         Case::CleanupDenied,
         Case::TemporaryZero,

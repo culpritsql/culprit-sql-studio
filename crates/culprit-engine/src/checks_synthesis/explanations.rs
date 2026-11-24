@@ -422,8 +422,68 @@ pub(super) fn original_observation(original: &dyn OriginalProjection, position: 
     match header.dataset {
         SnapshotDataset::TaskSpace => task_space_observation(original, position),
         SnapshotDataset::Cleanup => cleanup_observation(original, position),
+        SnapshotDataset::MemoryFailures => memory_failure_observation(original, position),
+        SnapshotDataset::NativeFailures => native_failure_observation(original, position),
         _ => Ok(Explanation::default()),
     }
+}
+
+fn memory_failure_observation(original: &dyn OriginalProjection, position: usize) -> Result<Explanation> {
+    let OperationalFact::MssqlOutOfMemory(failure) =
+        &match &original.records().get(position).ok_or_else(invalid)?.row().record {
+            TelemetryRecord::Operational(point) => point,
+            _ => return Err(invalid()),
+        }
+        .fact
+    else {
+        return Err(invalid());
+    };
+    let report = crate::collected_resources::memory_failures_from_original(original)?;
+    let Some(entry) = report.entries.iter().find(|entry| entry.position == failure.position) else {
+        return Ok(Explanation::default());
+    };
+    let mut explanation = Explanation::words(&entry.explanation, &entry.investigation, &entry.verify);
+    explanation.victim_summary = Some(entry.title.clone());
+    explanation.limitations = report.limitations;
+    Ok(explanation)
+}
+
+fn native_failure_observation(original: &dyn OriginalProjection, position: usize) -> Result<Explanation> {
+    let point = match &original.records().get(position).ok_or_else(invalid)?.row().record {
+        TelemetryRecord::Operational(point) => point,
+        _ => return Err(invalid()),
+    };
+    let (row_position, candidate_sql, candidate_client) = match &point.fact {
+        OperationalFact::MysqlErrorLog(row) => {
+            (row.position, DefinitionPayload::Unavailable { reason: PayloadUnavailable::NotCollected }, None)
+        }
+        OperationalFact::PostgresLog(row) => (row.position, row.statement.clone(), None),
+        OperationalFact::MssqlExtendedEvent(row) => (row.position, row.statement.clone(), row.client.clone()),
+        _ => return Err(invalid()),
+    };
+    let report = crate::collected_resources::native_failures_from_original(original)?;
+    let Some(entry) = report.entries.iter().find(|entry| entry.position == row_position) else {
+        return Ok(Explanation::default());
+    };
+    let mut explanation = Explanation::words(&entry.explanation, &entry.investigation, &entry.verify);
+    explanation.victim_summary = Some(entry.title.clone());
+    explanation.limitations = report.limitations;
+    if candidate_sql.is_available() || candidate_client.is_some() {
+        let reference = original.reference(position)?;
+        let caller = candidate_client
+            .filter(|client| client.application.is_some() || client.user.is_some() || client.host.is_some())
+            .map(|client| DerivedCaller { client: Some(client), session_context: None, evidence: reference.clone() });
+        if candidate_sql.is_available() || caller.is_some() {
+            explanation.candidates.push(DerivedIncidentQuery {
+                causal_role: None,
+                identity: None,
+                sql: candidate_sql,
+                caller,
+                evidence: vec![reference],
+            });
+        }
+    }
+    Ok(explanation)
 }
 
 fn task_space_observation(original: &dyn OriginalProjection, position: usize) -> Result<Explanation> {

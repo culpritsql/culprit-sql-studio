@@ -62,6 +62,8 @@ pub enum DiagnosticOriginalCondition {
     MssqlWorkerQueue,
     MysqlError,
     PostgresFailure,
+    /// Qualified failure, deadlock or client-attention Extended Event; routine handled user errors are excluded.
+    MssqlExtendedEvent,
     MssqlCleanupBoundary {
         session: NativeActivityIdentity,
         transaction: NativeActivityIdentity,
@@ -84,7 +86,7 @@ impl DiagnosticOriginalCondition {
         match self {
             Self::MssqlOutOfMemory => DiagnosticSourceKind::MemoryFailures,
             Self::MssqlWorkerQueue => DiagnosticSourceKind::WorkerQueues,
-            Self::MysqlError | Self::PostgresFailure => DiagnosticSourceKind::NativeFailures,
+            Self::MysqlError | Self::PostgresFailure | Self::MssqlExtendedEvent => DiagnosticSourceKind::NativeFailures,
             Self::MssqlCleanupBoundary { .. } => DiagnosticSourceKind::Cleanup,
             Self::MssqlTemporarySpace { .. } => DiagnosticSourceKind::TaskSpace,
             Self::MssqlQueryHistory { .. } => DiagnosticSourceKind::QueryHistory,
@@ -113,7 +115,11 @@ impl DiagnosticOriginalCondition {
                     && cohort.is_valid()
                     && cohort.qualifiers.get("execution_type") == Some(&execution_type.to_string())
             }
-            Self::MssqlOutOfMemory | Self::MssqlWorkerQueue | Self::MysqlError | Self::PostgresFailure => true,
+            Self::MssqlOutOfMemory
+            | Self::MssqlWorkerQueue
+            | Self::MysqlError
+            | Self::PostgresFailure
+            | Self::MssqlExtendedEvent => true,
         }
     }
     pub(super) fn accepts_identity(&self, key: &NativeRecordIdentity) -> bool {
@@ -131,6 +137,7 @@ impl DiagnosticOriginalCondition {
                 | Self::MssqlWorkerQueue
                 | Self::MysqlError
                 | Self::PostgresFailure
+                | Self::MssqlExtendedEvent
                 | Self::MssqlCleanupBoundary { .. }
                 | Self::MssqlTemporarySpace { .. },
                 NativeRecordIdentity::Operational { .. },
@@ -167,6 +174,15 @@ impl DiagnosticOriginalCondition {
                 DiagnosticSourceKind::NativeFailures,
                 TelemetryRecord::Operational(OperationalObservation { fact: OperationalFact::PostgresLog(_), .. }),
             ) if source.target.engine() == crate::Engine::Postgres => Self::PostgresFailure,
+            (
+                DiagnosticSourceKind::NativeFailures,
+                TelemetryRecord::Operational(OperationalObservation {
+                    fact: OperationalFact::MssqlExtendedEvent(row),
+                    ..
+                }),
+            ) if source.target.engine() == crate::Engine::Mssql && mssql_event_is_incident_condition(row) => {
+                Self::MssqlExtendedEvent
+            }
             (
                 DiagnosticSourceKind::Cleanup,
                 TelemetryRecord::Operational(OperationalObservation {
@@ -235,6 +251,23 @@ fn retained_temporary_pages(row: &TaskSpaceObservation) -> Option<u64> {
         .checked_add(remaining(&row.internal_allocated_pages, &row.internal_deallocated_pages)?)
 }
 
+/// Distinguish observed resource/deadlock/cancellation events from informational or routine handled user errors.
+pub fn mssql_event_is_incident_condition(row: &MssqlExtendedEventObservation) -> bool {
+    match row.kind {
+        MssqlExtendedEventKind::Attention { .. } | MssqlExtendedEventKind::DeadlockReport { .. } => true,
+        MssqlExtendedEventKind::ErrorReported { number, severity, intercepted, .. } => {
+            if intercepted == Some(true) && severity <= 16 {
+                return false;
+            }
+            severity >= 17
+                || matches!(
+                    number,
+                    701 | 802 | 1101 | 1105 | 1204 | 1205 | 1222 | 3960 | 3961 | 8628 | 8645 | 8651 | 9002
+                )
+        }
+    }
+}
+
 /// One native acquisition owner is necessary; a name or ordinary target-only snapshot is insufficient.
 /// The target identifies the original database route, not ownership of shared error-log/OOM resources.
 pub fn diagnostic_original_source_kind(source: &CollectionDescription) -> Option<DiagnosticSourceKind> {
@@ -247,10 +280,14 @@ pub(super) fn scope(source: &CollectionDescription) -> Result<DiagnosticScope> {
         partition: source.partition.clone(),
         source: source.source.clone(),
         population: DiagnosticPopulation::Source { source: kind, range: source.observation.range()?.canonical()? },
-        measurement_scope: match kind {
-            DiagnosticSourceKind::MemoryFailures
-            | DiagnosticSourceKind::NativeFailures
-            | DiagnosticSourceKind::WorkerQueues => crate::MeasurementScope::Server,
+        measurement_scope: match (&source.target, kind) {
+            (CollectionTarget::Database(_), DiagnosticSourceKind::NativeFailures) => crate::MeasurementScope::Database,
+            (
+                _,
+                DiagnosticSourceKind::MemoryFailures
+                | DiagnosticSourceKind::NativeFailures
+                | DiagnosticSourceKind::WorkerQueues,
+            ) => crate::MeasurementScope::Server,
             _ => crate::MeasurementScope::Database,
         },
         // Query history remains in its data namespace. The present acquisition process is not a historical executor.
@@ -314,6 +351,16 @@ impl DiagnosticEpisode {
                             || condition.source_kind() == DiagnosticSourceKind::WorkerQueues
                                 && owner.kind == SharedResourceKind::Node)
                         && self.scope.measurement_scope == crate::MeasurementScope::Server
+                }
+                (
+                    CollectionTarget::Database(db),
+                    SourcePartition::InstanceLocal { member: None, epoch: Some(_) },
+                    DiagnosticSourceKind::NativeFailures,
+                ) => {
+                    db.engine == crate::Engine::Mssql
+                        && self.scope.source == MSSQL_DATABASE_EVENTS_SOURCE
+                        && db.incarnation.is_some()
+                        && self.scope.measurement_scope == crate::MeasurementScope::Database
                 }
                 (
                     CollectionTarget::Database(_),

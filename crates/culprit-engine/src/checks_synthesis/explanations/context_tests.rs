@@ -1,6 +1,7 @@
 mod cleanup;
 mod commit_log;
 mod readable_secondary_recovery;
+mod retained_failures;
 mod transaction_metadata;
 use super::*;
 use crate::collected_evidence::RetainedEvidenceFixture as Fixture;

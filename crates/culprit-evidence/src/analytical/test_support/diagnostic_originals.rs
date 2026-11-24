@@ -10,6 +10,9 @@ pub enum DiagnosticOriginalCase {
     MysqlError,
     MysqlWarning,
     PostgresFailure,
+    MssqlExtendedEvent,
+    MssqlRoutineError,
+    MssqlDatabaseExtendedEvent,
     Cleanup,
     CleanupEmpty,
     CleanupPartial,
@@ -31,21 +34,79 @@ pub enum DiagnosticOriginalCase {
 pub fn diagnostic_original_evidence(case: DiagnosticOriginalCase) -> (CollectionDescription, Vec<TelemetryRecord>) {
     use DiagnosticOriginalCase::*;
     let (qualified, _) = cleanup_evidence(CleanupCase::LocalSnapshotProtector);
-    if matches!(case, MysqlError | MysqlWarning | PostgresFailure) {
-        let engine = if case == PostgresFailure { culprit_core::Engine::Postgres } else { culprit_core::Engine::Mysql };
+    if matches!(
+        case,
+        MysqlError
+            | MysqlWarning
+            | PostgresFailure
+            | MssqlExtendedEvent
+            | MssqlRoutineError
+            | MssqlDatabaseExtendedEvent
+    ) {
+        let engine = match case {
+            PostgresFailure => culprit_core::Engine::Postgres,
+            MssqlExtendedEvent | MssqlRoutineError | MssqlDatabaseExtendedEvent => culprit_core::Engine::Mssql,
+            _ => culprit_core::Engine::Mysql,
+        };
         let (mut source, mut rows) =
             native_failure_evidence_cases().into_iter().find(|(source, _)| source.target.engine() == engine).unwrap();
-        let CollectionTarget::Shared(owner) = &source.target else { unreachable!() };
-        source.partition = SourcePartition::InstanceLocal {
-            member: Some(owner.clone()),
-            epoch: Some(digest(b"controlled-native-error-process")),
-        };
+        if case == MssqlDatabaseExtendedEvent {
+            let mut database = culprit_core::DatabaseIdentity::server(
+                culprit_core::Engine::Mssql,
+                "azure-events-db",
+                "azure-events.database.windows.net",
+                1433,
+                None,
+            );
+            database.incarnation = Some("00000000-0000-0000-0000-000000000042".into());
+            source.target = CollectionTarget::Database(database);
+            source.source = MSSQL_DATABASE_EVENTS_SOURCE.into();
+            source.partition = SourcePartition::InstanceLocal {
+                member: None,
+                epoch: Some(digest(b"controlled-database-xe-session-epoch")),
+            };
+        } else {
+            let CollectionTarget::Shared(owner) = &source.target else { unreachable!() };
+            source.partition = SourcePartition::InstanceLocal {
+                member: Some(owner.clone()),
+                epoch: Some(digest(b"controlled-native-error-process")),
+            };
+        }
         if case == MysqlWarning {
             for row in &mut rows {
                 let TelemetryRecord::Operational(row) = row else { unreachable!() };
                 let OperationalFact::MysqlErrorLog(row) = &mut row.fact else { unreachable!() };
                 row.priority = "Warning".into();
             }
+        }
+        if case == MssqlRoutineError {
+            rows.truncate(2);
+            for (index, row) in rows.iter_mut().enumerate() {
+                let TelemetryRecord::Operational(row) = row else { unreachable!() };
+                let OperationalFact::MssqlExtendedEvent(event) = &mut row.fact else { unreachable!() };
+                event.position = index as u32;
+                event.kind = if index == 0 {
+                    MssqlExtendedEventKind::ErrorReported {
+                        number: 2627,
+                        severity: 14,
+                        state: 1,
+                        intercepted: Some(false),
+                        user_defined: Some(false),
+                    }
+                } else {
+                    MssqlExtendedEventKind::ErrorReported {
+                        number: 1205,
+                        severity: 13,
+                        state: 51,
+                        intercepted: Some(true),
+                        user_defined: Some(false),
+                    }
+                };
+                row.key = event.key().unwrap();
+            }
+            let SourceObservation::Snapshot(snapshot) = &mut source.observation else { unreachable!() };
+            snapshot.records = rows.len() as u32;
+            snapshot.sources[0].records = rows.len() as u32;
         }
         assert!(source.partition_is_consistent());
         assert!(rows.iter().all(TelemetryRecord::is_valid));

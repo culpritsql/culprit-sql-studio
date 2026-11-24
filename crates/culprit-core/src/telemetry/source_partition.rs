@@ -304,6 +304,18 @@ impl CollectionDescription {
         if self.is_partition_qualified() {
             return true;
         }
+        if self.observation.collection() == TelemetryCollection::Snapshot(SnapshotDataset::NativeFailures)
+            && self.source == MSSQL_DATABASE_EVENTS_SOURCE
+            && matches!(
+                (&self.target, &self.partition),
+                (
+                    CollectionTarget::Database(database),
+                    SourcePartition::InstanceLocal { member: None, epoch: Some(_) }
+                ) if database.engine == crate::Engine::Mssql && database.incarnation.is_some()
+            )
+        {
+            return true;
+        }
         let partial = |coverage: &StateSourceCoverage| {
             !coverage.complete_scope
                 && matches!(

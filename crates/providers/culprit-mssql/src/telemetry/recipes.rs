@@ -398,6 +398,21 @@ const REGISTRATIONS: &[Registration] = &[
         .on_editions(&[crate::probe::ENGINE_EDITION_AZURE_SQL_DATABASE, crate::probe::ENGINE_EDITION_MANAGED_INSTANCE])
         .baseline()
         .version(2),
+    Registration::database(
+        "mssql.native-failures",
+        RecipeSelector::Collection(TelemetryCollection::Snapshot(SnapshotDataset::NativeFailures)),
+        crate::native_failures::source,
+    )
+    .shared(&[RecipeSubject::Shared(SharedResourceKind::Instance)])
+    .on_editions(crate::instance::SUPPORTED_EDITIONS)
+    .bounded(crate::native_failures::collection_budget),
+    Registration::database(
+        "mssql.database-native-failures",
+        RecipeSelector::Collection(TelemetryCollection::Snapshot(SnapshotDataset::NativeFailures)),
+        crate::native_failures::source,
+    )
+    .on_editions(&[crate::probe::ENGINE_EDITION_AZURE_SQL_DATABASE])
+    .bounded(crate::native_failures::collection_budget),
     state!("mssql.plan-cache-summary", PlanCacheSummary).baseline().version(2),
     state!("mssql.missing-indexes", MissingIndexes)
         .baseline()

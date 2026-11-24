@@ -88,7 +88,10 @@ fn qualify(source: &CollectionDescription) -> std::result::Result<DiagnosticSour
             DiagnosticSourceKind::MemoryFailures
         }
         SnapshotDataset::NativeFailures
-            if matches!(source.target.engine(), crate::Engine::Mysql | crate::Engine::Postgres) =>
+            if matches!(
+                source.target.engine(),
+                crate::Engine::Mysql | crate::Engine::Postgres | crate::Engine::Mssql
+            ) =>
         {
             DiagnosticSourceKind::NativeFailures
         }
@@ -136,6 +139,19 @@ fn qualify(source: &CollectionDescription) -> std::result::Result<DiagnosticSour
             {
                 return Err(Issue::DatabaseReadOwnerUnavailable);
             }
+            if epoch.is_none() {
+                return Err(Issue::NativeEpochUnavailable);
+            }
+        }
+        (CollectionTarget::Database(database), DiagnosticSourceKind::NativeFailures)
+            if database.engine == crate::Engine::Mssql && source.source == MSSQL_DATABASE_EVENTS_SOURCE =>
+        {
+            if database.incarnation.is_none() {
+                return Err(Issue::DatabaseReadOwnerUnavailable);
+            }
+            let SourcePartition::InstanceLocal { member: None, epoch } = &source.partition else {
+                return Err(Issue::DatabaseReadOwnerUnavailable);
+            };
             if epoch.is_none() {
                 return Err(Issue::NativeEpochUnavailable);
             }

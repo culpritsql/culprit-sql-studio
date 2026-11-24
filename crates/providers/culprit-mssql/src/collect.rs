@@ -686,6 +686,13 @@ async fn acquire(
     if options.collect_native_failures {
         crate::jobs::collect(provider.pool.clone(), &provider.endpoint_host, provider.endpoint_port, &mut snapshot)
             .await;
+        crate::native_failures::collect(
+            provider.pool.clone(),
+            &provider.endpoint_host,
+            provider.endpoint_port,
+            &mut snapshot,
+        )
+        .await;
     }
     provider.pool.ensure_available()?;
     let identity =

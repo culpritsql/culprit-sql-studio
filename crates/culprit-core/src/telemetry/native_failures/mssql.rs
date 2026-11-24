@@ -1,6 +1,9 @@
 //! Extended Events fields describe the supplied native event, never current request or database authority.
 use super::*;
 
+pub const MSSQL_SYSTEM_HEALTH_EVENTS_SOURCE: &str = "mssql-system-health-events";
+pub const MSSQL_DATABASE_EVENTS_SOURCE: &str = "mssql-database-events";
+
 #[derive(Serialize, Deserialize, TS, Clone, Debug, PartialEq, Eq)]
 #[serde(tag = "event", rename_all = "kebab-case")]
 #[ts(export)]

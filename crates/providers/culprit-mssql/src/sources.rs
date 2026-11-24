@@ -224,6 +224,11 @@ pub const MEMORY_FAILURES: Source = Source {
     reads: culprit_core::key!("provider.mssql.source.memory_failures"),
     delivers: &[],
 };
+pub const NATIVE_FAILURES: Source = Source {
+    name: source_id::NATIVE_FAILURES,
+    reads: culprit_core::key!("provider.mssql.source.native_failures"),
+    delivers: &[],
+};
 /// Manual node-profile sources do not expand ordinary snapshot acquisition.
 pub const CPU_NODES: Source = Source {
     name: culprit_core::telemetry::MSSQL_CPU_NODES_SOURCE,
@@ -514,6 +519,7 @@ pub const ALL: &[Source] = &[
     HYPERSCALE_LOG_COMPONENTS,
     CONFIGURED_LOG_RATES,
     MEMORY_FAILURES,
+    NATIVE_FAILURES,
     CURRENT_REQUEST_MEMORY,
     CURRENT_REQUEST_WORK,
     CACHE_ENTRY_MEMORY,

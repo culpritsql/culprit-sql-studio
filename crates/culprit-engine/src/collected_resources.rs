@@ -115,67 +115,142 @@ pub use runtime_distributions::runtime_distributions;
 /// Positions identify captured rows, never incidents across observations. Native offset-free event time remains
 /// distinct from UTC capture and delivery clocks.
 pub fn memory_failures(capture: &EvidenceCapture) -> Result<CollectedRetainedFailureAnalysis> {
-    let input = CapturedState::new(capture, SnapshotDataset::MemoryFailures)?;
-    let resource = input.shared(&[SharedResourceKind::Instance, SharedResourceKind::Pool])?;
-    if resource.engine != Engine::Mssql {
+    if !capture.families().contains(&EvidenceFamily::OperationalSamples) {
         return Err(DeliveryProblem::UnsupportedSchema.error());
     }
-    let mut observations = input
-        .rows()?
-        .into_iter()
-        .map(|observation| {
-            let OperationalFact::MssqlOutOfMemory(failure) = &observation.fact else {
-                return Err(invalid());
-            };
-            Ok(failure.as_ref().clone())
-        })
-        .collect::<Result<Vec<_>>>()?;
-    observations.sort_by_key(|observation| observation.position);
-    let source = input.outcome(observations.len())?;
-    let mut report = {
-        let evidence = MemoryFailureSnapshot {
-            source: input.coverage.source.clone(),
-            observed_from: input.native.observed_from.clone(),
-            observed_until: input.native.observed_until.clone(),
-            scope: capture.source().target.measurement_scope(),
-            resource: Some(resource.clone()),
-            observations,
-        };
-        culprit_checks::memory_failures::explain(&evidence, Some(&source))?
-    };
-    report.qualify_incident_input(capture.source());
+    let original = capture.verified_original()?;
+    let report = memory_failures_from_original(&original)?;
     Ok(CollectedRetainedFailureAnalysis { context: crate::collected_context::from_capture(capture), report })
 }
 
-/// Only exact declared operational rows from this authenticated shared capture are admitted. Current sessions and
-/// neighboring captures are never consulted to fill missing query, resource-owner or native-clock information.
-pub fn native_failures(capture: &EvidenceCapture) -> Result<CollectedRetainedFailureAnalysis> {
-    let input = CapturedState::new(capture, SnapshotDataset::NativeFailures)?;
-    let resource = input.shared(&[SharedResourceKind::Instance])?;
-    let mut observations = input
-        .rows()?
-        .into_iter()
-        .map(|observation| match &observation.fact {
-            OperationalFact::MysqlErrorLog(row) => Ok(NativeFailureRecord::MysqlErrorLog(row.as_ref().clone())),
-            OperationalFact::PostgresLog(row) => Ok(NativeFailureRecord::PostgresLog(row.clone())),
-            OperationalFact::MssqlExtendedEvent(row) => Ok(NativeFailureRecord::MssqlExtendedEvent(row.clone())),
-            _ => Err(invalid()),
-        })
-        .collect::<Result<Vec<_>>>()?;
-    observations.sort_by_key(NativeFailureRecord::position);
-    let source = input.outcome(observations.len())?;
-    let mut report = {
-        let evidence = NativeFailureSnapshot {
-            source: input.coverage.source.clone(),
-            observed_from: input.native.observed_from.clone(),
-            observed_until: input.native.observed_until.clone(),
+pub(crate) fn memory_failures_from_original(
+    original: &dyn culprit_evidence::original_projection::OriginalProjection,
+) -> Result<culprit_core::RetainedFailureReport> {
+    let source = original.source();
+    let native = source.observation.snapshot().ok_or_else(|| DeliveryProblem::UnsupportedSchema.error())?;
+    if native.dataset != SnapshotDataset::MemoryFailures
+        || native.dataset.stream() != TelemetryStream::OperationalSamples
+        || !original.selected_streams().any(|stream| stream == TelemetryStream::OperationalSamples)
+    {
+        return Err(DeliveryProblem::UnsupportedSchema.error());
+    }
+    if !source.target.is_valid() || !native.is_valid() {
+        return Err(invalid());
+    }
+    let [coverage] = native.sources.as_slice() else {
+        return Err(invalid());
+    };
+    let CollectionTarget::Shared(resource) = &source.target else {
+        return Err(DeliveryProblem::UnsupportedSchema.error());
+    };
+    if !matches!(resource.kind, SharedResourceKind::Instance | SharedResourceKind::Pool)
+        || resource.engine != Engine::Mssql
+    {
+        return Err(DeliveryProblem::UnsupportedSchema.error());
+    }
+    let mut observations = Vec::new();
+    for record in original.records() {
+        let TelemetryRecord::Operational(observation) = &record.row().record else {
+            return Err(invalid());
+        };
+        if !observation.is_valid() || !native.sources.iter().any(|entry| entry.source == observation.source) {
+            return Err(invalid());
+        }
+        if observation.source != coverage.source {
+            continue;
+        }
+        let OperationalFact::MssqlOutOfMemory(failure) = &observation.fact else {
+            return Err(invalid());
+        };
+        observations.push(failure.as_ref().clone());
+    }
+    observations.sort_by_key(|observation| observation.position);
+    let source_outcome = read_outcome(coverage, observations.len(), original.is_read_complete())?;
+    let mut report = culprit_checks::memory_failures::explain(
+        &MemoryFailureSnapshot {
+            source: coverage.source.clone(),
+            observed_from: native.observed_from.clone(),
+            observed_until: native.observed_until.clone(),
+            scope: source.target.measurement_scope(),
             resource: Some(resource.clone()),
             observations,
-        };
-        culprit_checks::native_failures::explain(&evidence, Some(&source))?
-    };
-    report.qualify_incident_input(capture.source());
+        },
+        Some(&source_outcome),
+    )?;
+    report.qualify_incident_input(source);
+    Ok(report)
+}
+
+/// Only exact declared operational rows from this authenticated capture are admitted. Current sessions and
+/// neighboring captures are never consulted to fill missing query, resource-owner or native-clock information.
+pub fn native_failures(capture: &EvidenceCapture) -> Result<CollectedRetainedFailureAnalysis> {
+    if !capture.families().contains(&EvidenceFamily::OperationalSamples) {
+        return Err(DeliveryProblem::UnsupportedSchema.error());
+    }
+    let original = capture.verified_original()?;
+    let report = native_failures_from_original(&original)?;
     Ok(CollectedRetainedFailureAnalysis { context: crate::collected_context::from_capture(capture), report })
+}
+
+pub(crate) fn native_failures_from_original(
+    original: &dyn culprit_evidence::original_projection::OriginalProjection,
+) -> Result<culprit_core::RetainedFailureReport> {
+    let source = original.source();
+    let native = source.observation.snapshot().ok_or_else(|| DeliveryProblem::UnsupportedSchema.error())?;
+    if native.dataset != SnapshotDataset::NativeFailures
+        || native.dataset.stream() != TelemetryStream::OperationalSamples
+        || !original.selected_streams().any(|stream| stream == TelemetryStream::OperationalSamples)
+    {
+        return Err(DeliveryProblem::UnsupportedSchema.error());
+    }
+    if !source.target.is_valid() || !native.is_valid() {
+        return Err(invalid());
+    }
+    let [coverage] = native.sources.as_slice() else {
+        return Err(invalid());
+    };
+    let resource = match &source.target {
+        CollectionTarget::Shared(resource) if resource.kind == SharedResourceKind::Instance => Some(resource.clone()),
+        CollectionTarget::Database(database)
+            if database.engine == Engine::Mssql && source.source == MSSQL_DATABASE_EVENTS_SOURCE =>
+        {
+            None
+        }
+        _ => return Err(DeliveryProblem::UnsupportedSchema.error()),
+    };
+    let mut observations = Vec::new();
+    for record in original.records() {
+        let TelemetryRecord::Operational(observation) = &record.row().record else {
+            return Err(invalid());
+        };
+        if !observation.is_valid() || !native.sources.iter().any(|entry| entry.source == observation.source) {
+            return Err(invalid());
+        }
+        if observation.source != coverage.source {
+            continue;
+        }
+        let failure = match &observation.fact {
+            OperationalFact::MysqlErrorLog(row) => NativeFailureRecord::MysqlErrorLog(row.as_ref().clone()),
+            OperationalFact::PostgresLog(row) => NativeFailureRecord::PostgresLog(row.clone()),
+            OperationalFact::MssqlExtendedEvent(row) => NativeFailureRecord::MssqlExtendedEvent(row.clone()),
+            _ => return Err(invalid()),
+        };
+        observations.push(failure);
+    }
+    observations.sort_by_key(NativeFailureRecord::position);
+    let source_outcome = read_outcome(coverage, observations.len(), original.is_read_complete())?;
+    let mut report = culprit_checks::native_failures::explain(
+        &NativeFailureSnapshot {
+            source: coverage.source.clone(),
+            observed_from: native.observed_from.clone(),
+            observed_until: native.observed_until.clone(),
+            resource,
+            observations,
+        },
+        Some(&source_outcome),
+    )?;
+    report.qualify_incident_input(source);
+    Ok(report)
 }
 
 fn invalid() -> culprit_core::Error {
