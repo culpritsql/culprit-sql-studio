@@ -25,6 +25,9 @@ async fn full_scan_uses_bounded_readers_and_retains_schema_and_workload() {
     crate::test_support::query_store_ready(&mut app).await;
     batch(&mut app, "SELECT SUM(id) AS scan_workload_canary FROM dbo.scan_fixture; EXEC sys.sp_query_store_flush_db;")
         .await;
+    // Verify the cached and retained statement projections before catalog seeding and full-scan queries populate
+    // the database plan cache with dozens of large catalog showplans.
+    verify_cached_definitions(&pool).await;
     seed_catalog(&mut app).await;
     let provider = MssqlProvider {
         endpoint_host: "127.0.0.1".into(),
@@ -44,7 +47,6 @@ async fn full_scan_uses_bounded_readers_and_retains_schema_and_workload() {
     verify_object_metadata(&pool).await;
     verify_trigger_metadata(&pool, &result).await;
     verify_partition_boundaries(&pool, &result).await;
-    verify_cached_definitions(&pool).await;
     assert_eq!(provider.source_shutdown(), culprit_core::telemetry::SourceShutdown::Quiescent);
     drop(app);
     drop(provider);

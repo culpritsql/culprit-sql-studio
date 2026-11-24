@@ -683,11 +683,26 @@ class MySqlAcceptanceDatabase(Database):
 
 FULL_TEXT_INSTALL_BUDGET = 300
 FULL_TEXT_INSTALL = r"""set -eu
-server_version=$(dpkg-query -W -f='${Version}' mssql-server)
+server_version="$1"
+test -n "$server_version"
+binary_sha=$(sha256sum /opt/mssql/bin/sqlservr)
+sed 's|/prod|/mssql-server-2022|' /etc/apt/sources.list.d/microsoft-prod.list > /etc/apt/sources.list.d/mssql-server-2022.list
 apt-get update
-DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends --no-remove --no-upgrade "mssql-server-fts=$server_version"
-test "$(dpkg-query -W -f='${Version}' mssql-server)" = "$server_version"
-test "$(dpkg-query -W -f='${Version}' mssql-server-fts)" = "$server_version"
+tmpdir=$(mktemp -d)
+chmod 0755 "$tmpdir"
+trap 'rm -rf "$tmpdir"' EXIT
+cd "$tmpdir"
+apt-get download "mssql-server-fts=${server_version}-*"
+deb=$(ls mssql-server-fts_*.deb)
+pkg_version=$(dpkg-deb -f "$deb" Version)
+case "$pkg_version" in
+  "${server_version}-"*) ;;
+  *) echo "unexpected FTS package version: $pkg_version (expected ${server_version}-*)" >&2; exit 1 ;;
+esac
+dpkg-deb -x "$deb" /
+chmod 0644 /opt/mssql/lib/sqlservr.fts.sfp
+test -s /opt/mssql/lib/sqlservr.fts.sfp
+test "$(sha256sum /opt/mssql/bin/sqlservr)" = "$binary_sha"
 """
 
 
@@ -703,11 +718,23 @@ class FullTextDatabase(Database):
         if not self.owns_container():
             raise RuntimeError("the exact owned SQL fixture disappeared before its optional FTS installation")
         # This is an explicit disposable fixture prerequisite, never a provider operation. Match the installed
-        # server package so native FTS support cannot silently replace the tested engine build.
-        self.commands.run(["docker", "exec", "--user", "0", "-i", self.name, "sh", "-ec", FULL_TEXT_INSTALL],
-                          timeout=FULL_TEXT_INSTALL_BUDGET)
+        # server build so native FTS support cannot silently replace the tested engine binary.
+        _, raw_version = self.sql(
+            "/* culprit fixture */ SET NOCOUNT ON; SELECT CONVERT(varchar(64), SERVERPROPERTY('ProductVersion'));",
+            database="master",
+            timeout=5,
+        )
+        versions = [line.strip() for line in raw_version.splitlines() if re.fullmatch(r"\d+(?:\.\d+){2,3}", line.strip())]
+        if len(versions) != 1:
+            raise RuntimeError(f"could not determine exact native SQL Server version: {raw_version!r}")
+        server_version = versions[0]
+        self.commands.run(
+            ["docker", "exec", "--user", "0", "-i", self.name, "sh", "-ec", FULL_TEXT_INSTALL, "fts-install", server_version],
+            timeout=FULL_TEXT_INSTALL_BUDGET,
+        )
         self.restart()
-        self.sql("/* culprit fixture */ IF FULLTEXTSERVICEPROPERTY('IsFullTextInstalled') IS NULL "
+        self.sql(f"/* culprit fixture */ IF CONVERT(varchar(64),SERVERPROPERTY('ProductVersion'))<>N'{server_version}' "
+                 "OR FULLTEXTSERVICEPROPERTY('IsFullTextInstalled') IS NULL "
                  "OR FULLTEXTSERVICEPROPERTY('IsFullTextInstalled')<>1 "
                  "THROW 51000,N'Owned FTS installation did not establish its native prerequisite.',1; SELECT 1;",
                  database="master", timeout=5)

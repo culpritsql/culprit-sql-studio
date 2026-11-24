@@ -25,7 +25,7 @@ async fn native_channel_facts_obey_page_byte_limits_without_replacing_the_origin
     let fixture = Fixture::open().await;
     let mut budget = budget();
     budget.page_bytes = 1024;
-    let captured = capture::collect(&fixture, Login::Monitor, budget).await;
+    let captured = capture::stopped(&fixture, Login::Monitor, budget, CollectionStop::ByteLimit).await;
     assert_eq!(captured.manifest.status, CollectionStatus::Incomplete(CollectionStop::ByteLimit));
     assert!(captured.manifest.files.iter().all(|file| file.rows == 0 && file.status != CollectionStatus::Complete));
     capture::show_work(

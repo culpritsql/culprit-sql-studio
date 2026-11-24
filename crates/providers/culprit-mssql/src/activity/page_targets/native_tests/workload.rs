@@ -82,15 +82,21 @@ impl Fixture {
     async fn start_workers(&mut self, workers: Vec<WorkerStatement>) -> Result<Instant> {
         self.require_idle_workload()?;
         // Establish every connection before starting the comparable native work window.
-        let mut clients = Vec::new();
-        for worker in workers {
-            let application = match worker.pattern {
-                1 => WRITER_APPLICATIONS[0],
-                2 => WRITER_APPLICATIONS[1],
-                _ => "page-fixture-unrelated-select",
-            };
-            clients.push((self.client(application).await?, worker.pattern, worker.sql));
-        }
+        let fixture: &Self = &*self;
+        let clients =
+            futures_util::future::try_join_all(
+                workers.into_iter().map(|worker| {
+                    let application = match worker.pattern {
+                        1 => WRITER_APPLICATIONS[0],
+                        2 => WRITER_APPLICATIONS[1],
+                        _ => "page-fixture-unrelated-select",
+                    };
+                    async move {
+                        Ok::<_, culprit_core::Error>((fixture.client(application).await?, worker.pattern, worker.sql))
+                    }
+                }),
+            )
+            .await?;
         actors::start(&mut self.workers, clients, |pattern, row| {
             Ok(CompletedWorker { pattern, inserts: actors::completion_count(row, "completed")? })
         })

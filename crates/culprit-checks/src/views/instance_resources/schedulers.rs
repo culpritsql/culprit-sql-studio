@@ -104,13 +104,20 @@ fn render(samples: &[&NativeCounterSet], state: SourceState) -> Result<Scheduler
     }
     let mut keys = BTreeSet::new();
     // Validate ALL retained rows before presentation; an invalid/duplicate tail cannot hide beyond the cap.
-    let points = samples.iter().map(|sample| MssqlSchedulerPoint::from_sample(sample)).collect::<Result<Vec<_>>>()?;
-    for point in &points {
-        if !keys.insert(point.sample().key()?) {
+    let mut keyed_points = Vec::with_capacity(samples.len());
+    for sample in samples {
+        let point = MssqlSchedulerPoint::from_sample(sample)?;
+        let key = point.sample().key()?;
+        if !keys.insert(key.clone()) {
             return Err(invalid());
         }
+        keyed_points.push((point, key));
     }
-    let entries = points.iter().take(MAX_PRESENTED_SCHEDULERS).map(entry).collect::<Result<Vec<_>>>()?;
+    let entries = keyed_points
+        .into_iter()
+        .take(MAX_PRESENTED_SCHEDULERS)
+        .map(|(point, key)| entry(&point, key))
+        .collect::<Result<Vec<_>>>()?;
     let mut report = empty(state);
     report.observed_rows = samples.len() as u32;
     report.presented_rows = entries.len() as u32;
@@ -144,7 +151,7 @@ fn empty(state: SourceState) -> SchedulerReport {
         entries: vec![],
     }
 }
-fn entry(point: &MssqlSchedulerPoint<'_>) -> Result<SchedulerEntry> {
+fn entry(point: &MssqlSchedulerPoint<'_>, observation_key: String) -> Result<SchedulerEntry> {
     let mut fields = Vec::with_capacity(MSSQL_SCHEDULER_FIELDS.len() - 1);
     for field in MSSQL_SCHEDULER_FIELDS.iter().filter(|field| !matches!(field.kind, MssqlNativeFieldKind::Identity)) {
         let (value, unqualified, availability) = match point.field(field)? {
@@ -183,7 +190,7 @@ fn entry(point: &MssqlSchedulerPoint<'_>) -> Result<SchedulerEntry> {
         });
     }
     Ok(SchedulerEntry {
-        observation_key: point.sample().key()?,
+        observation_key,
         scheduler_id: point.scheduler_id().into(),
         title: t!("view.schedulers.entry", id = format::digits(point.scheduler_id().into())),
         fields,

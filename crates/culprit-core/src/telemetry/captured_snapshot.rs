@@ -135,14 +135,39 @@ fn reference(
     record: &TelemetryRecord,
     position: &CapturedSnapshotPosition,
 ) -> Result<DiagnosticEvidenceRef> {
-    let exported = ExportedRecord::new(source, &capture.capture, record.clone())?;
-    if exported.payload_sha256()? != position.payload_sha256 {
+    if !record.is_valid() {
         return Err(invalid());
     }
-    let reference =
-        DiagnosticEvidenceRef::from_export(source, &capture.manifest_sha256, &exported, position.row_ordinal)?;
-    reference.validate_canonical_record(source, record)?;
-    Ok(reference)
+    let exported = ExportedRecord::new(source, &capture.capture, record.clone())?;
+    if record != &exported.record {
+        return Err(invalid());
+    }
+    let exported_bytes = serde_json::to_vec(&exported).map_err(|_| invalid())?;
+    let record_bytes = serde_json::to_vec(record).map_err(|_| invalid())?;
+    if !exported_bytes_end_with_record(&exported_bytes, &record_bytes) {
+        return Err(invalid());
+    }
+    let payload_sha256 = digest(&exported_bytes);
+    if payload_sha256 != position.payload_sha256 {
+        return Err(invalid());
+    }
+    DiagnosticEvidenceRef::from_verified_export(
+        source,
+        &capture.source_scope_id,
+        &capture.manifest_sha256,
+        &exported,
+        payload_sha256,
+        position.row_ordinal,
+    )
+}
+pub(super) fn exported_bytes_end_with_record(exported_bytes: &[u8], record_bytes: &[u8]) -> bool {
+    const FIELD_PREFIX: &[u8] = b",\"record\":";
+    let suffix_len = FIELD_PREFIX.len() + record_bytes.len() + 1;
+    exported_bytes.len() > suffix_len
+        && exported_bytes.last() == Some(&b'}')
+        && &exported_bytes[exported_bytes.len() - suffix_len..exported_bytes.len() - record_bytes.len() - 1]
+            == FIELD_PREFIX
+        && &exported_bytes[exported_bytes.len() - record_bytes.len() - 1..exported_bytes.len() - 1] == record_bytes
 }
 fn invalid() -> Error {
     CollectionStop::InvalidPage.error()

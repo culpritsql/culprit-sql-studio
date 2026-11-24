@@ -20,6 +20,32 @@ pub(super) async fn collect(fixture: &Fixture, login: Login, budget: CollectionB
     read_capture(manifest, &budget, &output)
 }
 
+pub(super) async fn stopped(
+    fixture: &Fixture,
+    login: Login,
+    budget: CollectionBudget,
+    expected: CollectionStop,
+) -> Capture {
+    let directory = tempfile::tempdir().expect("private stopped native conformance artifacts");
+    let output = directory.path().join("replication");
+    let result = attempt(fixture, login, &budget, &output).await;
+    let error = match result {
+        Err(error) => error,
+        Ok(_) => panic!("stopped SHOW must preserve its original stop error instead of returning an empty capture"),
+    };
+    assert_eq!(CollectionStop::from_error(&error), expected);
+    let manifest: CollectionManifest = serde_json::from_slice(
+        &std::fs::read(output.join("manifest.json")).expect("controller's stopped capture artifact"),
+    )
+    .expect("original stopped native manifest");
+    assert_eq!(manifest.status, CollectionStatus::Incomplete(expected));
+    assert!(
+        manifest.description.as_ref().is_none_or(|source| source.observation.snapshot().is_none()),
+        "a stopped native page cannot certify a completed snapshot header"
+    );
+    read_capture(manifest, &budget, &output)
+}
+
 pub(super) async fn denied(fixture: &Fixture) -> Capture {
     let directory = tempfile::tempdir().expect("private denied native conformance artifacts");
     let output = directory.path().join("replication");

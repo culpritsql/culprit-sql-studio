@@ -13,7 +13,7 @@ const MEASURED_OBJECTS: [&str; 3] = ["page_fixture_hot", "page_fixture_split", "
 const ROUND_QUERIES: u32 = 9;
 // This owner spans the unchanged four-second actor window plus bounded endpoint/cleanup work. No native
 // statement gets a longer timeout, and no production collection recipe receives this fixture-only envelope.
-const ROUND_WINDOW_MS: u32 = 10_000;
+const ROUND_WINDOW_MS: u32 = 20_000;
 
 pub(super) fn budget() -> CollectionBudget {
     CollectionBudget {

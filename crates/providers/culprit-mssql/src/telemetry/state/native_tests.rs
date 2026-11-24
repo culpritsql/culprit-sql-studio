@@ -39,6 +39,7 @@ async fn instance(provider: &MssqlProvider) -> SharedResourceIdentity {
             TelemetryCollection::Snapshot(SnapshotDataset::ProcessCpu),
             TelemetryCollection::Snapshot(SnapshotDataset::NumaNodes),
             TelemetryCollection::Snapshot(SnapshotDataset::Operational),
+            TelemetryCollection::Snapshot(SnapshotDataset::WaitCounters),
         ]
     );
     assert_eq!(provider.source_shutdown(), SourceShutdown::Quiescent);

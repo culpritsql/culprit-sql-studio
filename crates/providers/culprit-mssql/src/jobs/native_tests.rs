@@ -251,7 +251,10 @@ fn record_source_receipt(
     assert_eq!(metrics.untracked_tasks, 0);
     assert!(!metrics.has_unconfirmed_work());
     assert_eq!(manifest.source_queries, EXPECTED_SOURCE_QUERIES);
-    assert_eq!(manifest.request.budget.max_queries, EXPECTED_SOURCE_QUERIES);
+    assert_eq!(
+        manifest.request.budget.max_queries,
+        EXPECTED_SOURCE_QUERIES + crate::read::ReadSession::SESSION_SETUP_QUERIES
+    );
     assert_eq!(manifest.request.budget.statement_timeout_ms, 1000);
     assert_eq!(manifest.request.budget.total_timeout_ms, 5000);
     assert!(read.observations.len() <= manifest.request.budget.max_snapshot_rows as usize);

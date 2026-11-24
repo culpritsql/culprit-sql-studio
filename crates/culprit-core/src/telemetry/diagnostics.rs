@@ -1,4 +1,5 @@
 //! Durable diagnostic state references immutable native evidence. Lifecycle and analysis are independent facts.
+use super::captured_snapshot::exported_bytes_end_with_record;
 use super::*;
 use crate::SourceState;
 use std::collections::BTreeSet;
@@ -72,27 +73,45 @@ impl DiagnosticEvidenceRef {
         row: &ExportedRecord,
         row_ordinal: u32,
     ) -> Result<Self> {
+        let expected = ExportedRecord::new(source, &row.capture, row.record.clone())?;
+        if &expected != row {
+            return Err(invalid());
+        }
+        let payload_sha256 = row.payload_sha256()?;
+        Self::from_verified_export(
+            source,
+            &source.captured_range()?.scope_id,
+            manifest_sha256,
+            row,
+            payload_sha256,
+            row_ordinal,
+        )
+    }
+    pub(super) fn from_verified_export(
+        source: &CollectionDescription,
+        source_scope_id: &str,
+        manifest_sha256: &str,
+        row: &ExportedRecord,
+        payload_sha256: String,
+        row_ordinal: u32,
+    ) -> Result<Self> {
         let declared_rows = source
             .observation
             .activity()
             .map(|activity| activity.observations)
             .or_else(|| source.observation.snapshot().map(|snapshot| snapshot.records));
-        if declared_rows.is_some_and(|count| row_ordinal >= count) {
-            return Err(invalid());
-        }
-        let expected = ExportedRecord::new(source, &row.capture, row.record.clone())?;
-        if &expected != row || !row.record.is_valid() {
+        if declared_rows.is_some_and(|count| row_ordinal >= count) || !row.record.is_valid() {
             return Err(invalid());
         }
         let value = Self {
             capture: row.capture.clone(),
             manifest_sha256: manifest_sha256.into(),
-            source_scope_id: source.captured_range()?.scope_id,
+            source_scope_id: source_scope_id.into(),
             stream: row.record.stream(),
             native_key: row.record.native_identity(),
             batch_id: row.batch_id.clone(),
             record_id: row.record_id.clone().ok_or_else(invalid)?,
-            payload_sha256: row.payload_sha256()?,
+            payload_sha256,
             representation_version: row.representation_version,
             row_ordinal,
         };
@@ -108,8 +127,24 @@ impl DiagnosticEvidenceRef {
             return Err(invalid());
         }
         let exported = ExportedRecord::new(source, &self.capture, record.clone())?;
-        if digest_value(record)? != digest_value(&exported.record)?
-            || Self::from_export(source, &self.manifest_sha256, &exported, self.row_ordinal)? != *self
+        if record != &exported.record {
+            return Err(invalid());
+        }
+        let exported_bytes = serde_json::to_vec(&exported).map_err(|_| invalid())?;
+        let record_bytes = serde_json::to_vec(record).map_err(|_| invalid())?;
+        if !exported_bytes_end_with_record(&exported_bytes, &record_bytes) {
+            return Err(invalid());
+        }
+        let payload_sha256 = digest(&exported_bytes);
+        if payload_sha256 != self.payload_sha256
+            || Self::from_verified_export(
+                source,
+                &source.captured_range()?.scope_id,
+                &self.manifest_sha256,
+                &exported,
+                payload_sha256,
+                self.row_ordinal,
+            )? != *self
         {
             return Err(invalid());
         }
