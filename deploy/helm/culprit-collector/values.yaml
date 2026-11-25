@@ -1,0 +1,134 @@
+# One StatefulSet per static collector shard.
+# Keep replicaCount at 0 until the warehouse schema and recovery namespace are initialized
+# and you explicitly assert activation.sourceQuiescent=true (or activation.deliveryOnly=true).
+replicaCount: 0
+
+activation:
+  # Set true ONLY after verifying no previous collector owner still has SQL work in flight.
+  sourceQuiescent: false
+  # Set true to run offline recovery/synthesis/delivery without opening source database connections.
+  deliveryOnly: false
+  # Optional one-shot namespace initialization Job (`culprit collect service init`).
+  initNamespaceJob:
+    enabled: false
+
+image:
+  repository: ghcr.io/culpritsql/culprit-collector
+  # Defaults to "v{{ .Chart.AppVersion }}" when both tag and digest are empty.
+  tag: ""
+  # Recommended for production: pin sha256:... digest (overrides tag with @sha256:...).
+  digest: ""
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  # Set false when binding to a pre-provisioned ServiceAccount (e.g. "culprit-sa").
+  create: true
+  name: ""
+  annotations: {}
+
+# Direct AKS / Azure Workload Identity projection at /var/run/secrets/culprit/token.
+azureWorkloadIdentity:
+  enabled: false
+  tenantId: ""
+  clientId: ""
+  tokenExpirationSeconds: 3600
+
+# Saved connection metadata written to /var/lib/culprit/workspace/connections.toml.
+# Never place passwords or tokens here; Entra/IAM tokens are resolved in memory, and
+# password-environment profiles read from secretEnvFrom / extraEnv.
+connections: {}
+# Example:
+#   pilot:
+#     engine: mssql
+#     environment: production
+#     host: myserver.database.windows.net
+#     port: 1433
+#     database: mydb
+#     auth: entra
+#     options:
+#       encrypt: "True"
+
+collector:
+  pipeline: database-telemetry
+  shard: pilot
+  healthListen: "0.0.0.0:9098"
+  limits:
+    max_bytes: 1073741824
+    max_captures: 256
+  monitoring:
+    kind: standard
+    budget:
+      page_rows: 250
+      max_snapshot_rows: 500
+      page_bytes: 4194304
+      total_bytes: 67108864
+      max_sql_bytes: 262144
+      max_plan_bytes: 2097152
+      max_pages: 32
+      max_queries: 128
+      statement_timeout_ms: 3000
+      total_timeout_ms: 15000
+  inventory:
+    targets: []
+    # Example:
+    # - id: pilot-database
+    #   connection: pilot
+    #   subject:
+    #     kind: database
+    #   shard: pilot
+    #   admission_group: shared-sql-pool
+  # Independent named credential profiles (source, recovery, analytics, ingestion).
+  # If left empty while azureWorkloadIdentity.enabled=true, defaults are generated from
+  # azureWorkloadIdentity.tenantId and azureWorkloadIdentity.clientId.
+  credentials: {}
+  sourceCredentials: {}
+  # Example:
+  #   pilot: source
+  recovery:
+    provider: azure-blob
+    options:
+      account: REPLACE_STORAGE_ACCOUNT
+      container: culprit-native
+      prefix: database-telemetry/pilot
+    credential: recovery
+  target:
+    kind: adx
+    query:
+      endpoint: https://REPLACE_CLUSTER.REGION.kusto.windows.net
+      database: culprit
+    credential: analytics
+    delivery:
+      credential: ingestion
+
+# Optional Kubernetes Secret / ConfigMap env sources for password-environment credentials.
+secretEnvFrom: []
+extraEnv: []
+
+resources:
+  requests:
+    cpu: "1"
+    memory: 512Mi
+  limits:
+    cpu: "2"
+    memory: 2Gi
+
+persistence:
+  storageClassName: ""
+  accessModes:
+    - ReadWriteOncePod
+  size: 10Gi
+  retentionPolicy:
+    whenDeleted: Retain
+    whenScaled: Retain
+
+terminationGracePeriodSeconds: 360
+
+podAnnotations: {}
+podLabels: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}

@@ -76,6 +76,8 @@ MSSQL_DATABASE_COUNTER_TEST = ("telemetry::state::native_tests::"
                                "owned_selected_database_performance_counters_use_the_real_factory_and_sealed_original_outbox")
 MSSQL_QUERY_HISTORY_TEST = ("telemetry::native_history::"
                             "owned_boxed_history_keeps_native_acquisition_separate_from_data_identity_and_replays_canonically")
+MSSQL_SCALAR_GRANT_TEST = ("activity::memory::native_tests::"
+                           "original_scalar_grant_queue_and_unchanged_work_survive_holder_release_and_retained_recovery")
 MSSQL_FULL_TEXT_TESTS = (
     "tables::native_tests::owned_full_text_enabled_and_disabled_rows_match_scan_and_stream_without_starting_a_population",
     "tables::native_tests::owned_full_text_runtime_population_retains_original_after_stop_with_supervisor_owned_background",
@@ -101,7 +103,7 @@ OPTIONAL_NATIVE_MODULES = {
         "local_native_writer_plans_keep_targeted_writes_separate_from_readers_and_other_resources",
         "exact_original_scalar_metadata_is_observed_without_memory_collection",
         "exact_original_scalar_metadata_is_observed_between_memory_source_phases",
-        AG_WORKLOAD_TEST, MSSQL_EMPTY_CATALOG_TEST, MSSQL_DATABASE_COUNTER_TEST, MSSQL_QUERY_HISTORY_TEST, *MSSQL_FULL_TEXT_TESTS, MSSQL_SQL2016_TEST,
+        AG_WORKLOAD_TEST, MSSQL_EMPTY_CATALOG_TEST, MSSQL_DATABASE_COUNTER_TEST, MSSQL_QUERY_HISTORY_TEST, MSSQL_SCALAR_GRANT_TEST, *MSSQL_FULL_TEXT_TESTS, MSSQL_SQL2016_TEST,
     ),
 }
 POSTGRES_OUTPUT_CONSUMER_TEST = ("checks_synthesis::explanations::context_tests::native_output_blocking::"
@@ -752,6 +754,7 @@ MSSQL_DEDICATED_CASES = {
     "mssql-empty-catalog": (EmptyCatalogDatabase, (MSSQL_EMPTY_CATALOG_TEST,)),
     "mssql-database-counters": (Database, (MSSQL_DATABASE_COUNTER_TEST,)),
     "mssql-query-history": (EmptyCatalogDatabase, (MSSQL_QUERY_HISTORY_TEST,)),
+    "mssql-scalar-grant": (EmptyCatalogDatabase, (MSSQL_SCALAR_GRANT_TEST,)),
     "mssql-fulltext": (FullTextDatabase, MSSQL_FULL_TEXT_TESTS),
 }
 

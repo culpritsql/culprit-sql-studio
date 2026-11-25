@@ -881,7 +881,7 @@ class MssqlNativePrerequisites(unittest.TestCase):
             database.test("culprit-mssql", "native_tests::")
         skips = tests.call_args.kwargs["skip"]
         for name in [smoke.AG_WORKLOAD_TEST, smoke.MSSQL_EMPTY_CATALOG_TEST, smoke.MSSQL_DATABASE_COUNTER_TEST,
-                     smoke.MSSQL_QUERY_HISTORY_TEST, *smoke.MSSQL_FULL_TEXT_TESTS, smoke.MSSQL_SQL2016_TEST]:
+                     smoke.MSSQL_QUERY_HISTORY_TEST, smoke.MSSQL_SCALAR_GRANT_TEST, *smoke.MSSQL_FULL_TEXT_TESTS, smoke.MSSQL_SQL2016_TEST]:
             self.assertTrue(any(skip in name for skip in skips))
         for name in [
             "tables::native_tests::owned_full_text_catalog_keeps_no_index_and_denied_null_fields_without_losing_ordinary_tables",
@@ -929,7 +929,7 @@ class NativeSelection(unittest.TestCase):
         schema_queue_control = "activity::page_targets::native_tests::schema_queue::"
         refused_connection_control = "conn::native_tests::refused_connection::"
         dedicated = [smoke.AG_WORKLOAD_TEST, smoke.MSSQL_EMPTY_CATALOG_TEST, smoke.MSSQL_DATABASE_COUNTER_TEST,
-                     smoke.MSSQL_QUERY_HISTORY_TEST, *smoke.MSSQL_FULL_TEXT_TESTS, smoke.MSSQL_SQL2016_TEST]
+                     smoke.MSSQL_QUERY_HISTORY_TEST, smoke.MSSQL_SCALAR_GRANT_TEST, *smoke.MSSQL_FULL_TEXT_TESTS, smoke.MSSQL_SQL2016_TEST]
         for selection, expected in [
             ("native_tests::", [refused_connection_control, mars_control, instance_control, schema_queue_control, "telemetry::replication::native_tests::", "jobs::", strict_holder, strict_writer, cache_control, phase_control]),
             ("jobs::native_tests::", [refused_connection_control, mars_control, instance_control, schema_queue_control, "telemetry::replication::native_tests::", strict_holder, strict_writer, cache_control, phase_control]),
@@ -1025,15 +1025,19 @@ class NativeSelection(unittest.TestCase):
         prefix = "activity::memory::native_tests::"
         quiet = "exact_original_scalar_metadata_is_observed_without_memory_collection"
         phases = "exact_original_scalar_metadata_is_observed_between_memory_source_phases"
-        acceptance = "original_scalar_grant_queue_and_unchanged_work_survive_holder_release_and_retained_recovery"
+        acceptance = "native_memory_grants_identify_current_reservation_holders_and_affected_waiters_without_plan_traversal"
         tests = [prefix + name for name in [quiet, phases, acceptance]]
         for selection, expected in [("native_tests::", [prefix + acceptance]), (prefix, [prefix + acceptance]),
                                     (quiet, [prefix + quiet]), (prefix + quiet, [prefix + quiet]),
-                                    (phases, [prefix + phases]), (prefix + phases, [prefix + phases])]:
+                                    (phases, [prefix + phases]), (prefix + phases, [prefix + phases]),
+                                    (smoke.MSSQL_SCALAR_GRANT_TEST, [])]:
             with self.subTest(selection=selection), patch.object(smoke, "run_tests") as run_tests:
                 database.test("culprit-mssql", selection)
                 skips = run_tests.call_args.kwargs["skip"]
-                self.assertEqual([test for test in tests if selection in test and not any(skip in test for skip in skips)], expected)
+                if selection == smoke.MSSQL_SCALAR_GRANT_TEST:
+                    self.assertNotIn(smoke.MSSQL_SCALAR_GRANT_TEST, skips)
+                else:
+                    self.assertEqual([test for test in tests if selection in test and not any(skip in test for skip in skips)], expected)
 
     def test_broad_selection_excludes_optional_topologies_without_their_environment(self):
         database = smoke.Database(smoke.FIXTURES[1])

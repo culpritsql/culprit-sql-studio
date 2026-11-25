@@ -1,0 +1,181 @@
+{{- include "culprit-collector.validateActivation" . -}}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "culprit-collector.fullname" . }}
+  labels:
+    {{- include "culprit-collector.labels" . | nindent 4 }}
+spec:
+  serviceName: {{ include "culprit-collector.fullname" . }}
+  replicas: {{ .Values.replicaCount }}
+  updateStrategy:
+    type: OnDelete
+  persistentVolumeClaimRetentionPolicy:
+    whenDeleted: {{ .Values.persistence.retentionPolicy.whenDeleted }}
+    whenScaled: {{ .Values.persistence.retentionPolicy.whenScaled }}
+  selector:
+    matchLabels:
+      {{- include "culprit-collector.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "culprit-collector.selectorLabels" . | nindent 8 }}
+        {{- if .Values.azureWorkloadIdentity.enabled }}
+        azure.workload.identity/use: "true"
+        {{- end }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "culprit-collector.serviceAccountName" . }}
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        - name: connection-metadata
+          image: {{ include "culprit-collector.image" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["/bin/sh", "-ec"]
+          args:
+            - |
+              umask 077
+              mkdir -p /var/lib/culprit/workspace
+              cp /config/connections.toml /var/lib/culprit/workspace/connections.toml.new
+              mv /var/lib/culprit/workspace/connections.toml.new /var/lib/culprit/workspace/connections.toml
+              culprit collect service validate --config /config/collector.json
+          env:
+            - name: CULPRIT_KEYCHAIN
+              value: "off"
+          {{- with .Values.secretEnvFrom }}
+          envFrom:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: state
+              mountPath: /var/lib/culprit
+            - name: configuration
+              mountPath: /config
+              readOnly: true
+      containers:
+        - name: collector
+          image: {{ include "culprit-collector.image" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            - collect
+            - service
+            - run
+            - --config
+            - /config/collector.json
+            {{- if .Values.activation.deliveryOnly }}
+            - --delivery-only
+            {{- else }}
+            - --source-quiescent
+            {{- end }}
+          env:
+            - name: CULPRIT_KEYCHAIN
+              value: "off"
+            {{- with .Values.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- with .Values.secretEnvFrom }}
+          envFrom:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          ports:
+            - name: health
+              containerPort: 9098
+          startupProbe:
+            httpGet:
+              path: /live
+              port: health
+            periodSeconds: 5
+            failureThreshold: 12
+          livenessProbe:
+            httpGet:
+              path: /live
+              port: health
+            periodSeconds: 30
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: health
+            periodSeconds: 10
+            failureThreshold: 3
+          volumeMounts:
+            - name: state
+              mountPath: /var/lib/culprit
+            - name: configuration
+              mountPath: /config
+              readOnly: true
+            {{- if .Values.azureWorkloadIdentity.enabled }}
+            - name: direct-identity
+              mountPath: /var/run/secrets/culprit
+              readOnly: true
+            {{- end }}
+      volumes:
+        - name: configuration
+          configMap:
+            name: {{ include "culprit-collector.fullname" . }}
+        {{- if .Values.azureWorkloadIdentity.enabled }}
+        - name: direct-identity
+          projected:
+            defaultMode: 0440
+            sources:
+              - serviceAccountToken:
+                  audience: api://AzureADTokenExchange
+                  expirationSeconds: {{ .Values.azureWorkloadIdentity.tokenExpirationSeconds }}
+                  path: token
+        {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+  volumeClaimTemplates:
+    - metadata:
+        name: state
+      spec:
+        accessModes:
+          {{- toYaml .Values.persistence.accessModes | nindent 10 }}
+        {{- if .Values.persistence.storageClassName }}
+        storageClassName: {{ .Values.persistence.storageClassName | quote }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.persistence.size | quote }}

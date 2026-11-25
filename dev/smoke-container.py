@@ -86,6 +86,7 @@ def owned_container(name, owner):
 
 def run(binary, licenses, keep_image):
     selected_platform = platform(binary)
+    arch = selected_platform.removeprefix("linux/")
     if not licenses.is_file() or licenses.stat().st_size == 0:
         raise ValueError("Generate the release notices with python3 dev/licenses.py first")
     owner = secrets.token_hex(12)
@@ -96,7 +97,7 @@ def run(binary, licenses, keep_image):
         root = Path(temporary)
         context = root / "context"
         context.mkdir()
-        for source, name in [(binary, "culprit"), (licenses, "THIRD-PARTY-LICENSES.txt"),
+        for source, name in [(binary, f"culprit-{arch}"), (licenses, "THIRD-PARTY-LICENSES.txt"),
                              (ROOT / "LICENSE", "LICENSE"), (ROOT / "deploy/collector/Dockerfile", "Dockerfile")]:
             shutil.copyfile(source, context / name)
         # Bind-mounted data is fabricated, non-secret and readable by the image's UID, never a real workspace.

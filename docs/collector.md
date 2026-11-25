@@ -2036,21 +2036,38 @@ cost. A cancellation attempt is verified only when the exact active template was
 confirmed; a quiet connection after a fast query does not establish that. Unverified cancellation remains explicit,
 and these experiments do not enable automatic production recipes.
 
-## Offline packaging checks
+## Container image, Helm chart and offline packaging checks
+
+Multi-arch collector images (`linux/amd64` and `linux/arm64`) are published to
+`ghcr.io/culpritsql/culprit-collector` (`:sha-<commit>` and `:main` on `main`, plus `:vX.Y.Z`, `:X.Y` and `:latest`
+on release tags). The image runs `/usr/local/bin/culprit` directly, so operators can generate warehouse schema DDL
+without installing a local CLI:
+
+```sh
+docker run --rm ghcr.io/culpritsql/culprit-collector:v0.6.0 collect schema --store adx --format json
+```
+
+The companion OCI Helm chart (`oci://ghcr.io/culpritsql/charts/culprit-collector`, source in
+`deploy/helm/culprit-collector`) parameterizes `deploy/collector/kubernetes.yaml`, `config.example.json` and
+`connections.example.toml` for one static shard (`StatefulSet`). It defaults to `replicaCount: 0`, enforces at most
+one replica with `ReadWriteOncePod` and `OnDelete` updates, rejects inline secrets in `connections`, and requires
+explicit `activation.sourceQuiescent=true` or `activation.deliveryOnly=true` before `replicaCount=1` renders.
+
+To run the offline container and Helm contract checks locally on a glibc-compatible Linux builder:
 
 ```sh
 cargo build --locked --release -p culprit-cli
 python3 dev/licenses.py
 python3 -B dev/smoke-container.py --binary target/release/culprit
+python3 -B dev/smoke-helm.py --binary target/release/culprit
 ```
 
-Run this on a Linux builder whose glibc baseline is compatible with the Debian bookworm runtime. CI uses Ubuntu 22.04,
-the same baseline as the Linux release, with an isolated compiler cache. The script refuses a macOS/Windows
-executable before Docker, copies only the executable, licenses and Dockerfile into a private build context, and tests
-the image with networking disabled, a non-root user,
-read-only filesystem and dropped capabilities. Fabricated connection metadata exercises offline validation; no real
-workspace is mounted. Owned test containers/images are removed; `--keep-image` retains the resulting local image.
-CI performs the Linux container check. It does not publish an image or deploy the Kubernetes resources.
+CI uses Ubuntu 22.04 (`linux/amd64`) and Debian bookworm (`linux/arm64`). `dev/smoke-container.py` refuses a
+macOS/Windows executable before Docker, stages only the executable, licenses and `Dockerfile` into a private build
+context, and tests the image with networking disabled, a non-root user, read-only filesystem and dropped capabilities.
+`dev/smoke-helm.py` lints the chart, exercises its activation/secret refusal gates, validates rendered Azure/ADX and
+S3/ClickHouse configurations through `culprit collect service validate`, and packages the chart archive. Workflows
+publish artifacts to GHCR only; they never deploy to a Kubernetes cluster.
 
 
 ### Recorded native cache ratios

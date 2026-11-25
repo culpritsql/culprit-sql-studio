@@ -1,0 +1,86 @@
+{{- if .Values.activation.initNamespaceJob.enabled -}}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "culprit-collector.fullname" . }}-init
+  labels:
+    {{- include "culprit-collector.labels" . | nindent 4 }}
+spec:
+  backoffLimit: 0
+  template:
+    metadata:
+      labels:
+        {{- include "culprit-collector.selectorLabels" . | nindent 8 }}
+        {{- if .Values.azureWorkloadIdentity.enabled }}
+        azure.workload.identity/use: "true"
+        {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "culprit-collector.serviceAccountName" . }}
+      automountServiceAccountToken: false
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: init-namespace
+          image: {{ include "culprit-collector.image" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["/bin/sh", "-ec"]
+          args:
+            - |
+              umask 077
+              mkdir -p /tmp/culprit/workspace
+              cp /config/connections.toml /tmp/culprit/workspace/connections.toml
+              sed 's|"/var/lib/culprit/workspace"|"/tmp/culprit/workspace"|g; s|"/var/lib/culprit/state"|"/tmp/culprit/state"|g' /config/collector.json > /tmp/culprit/collector.json
+              culprit collect service validate --config /tmp/culprit/collector.json
+              culprit collect service init --config /tmp/culprit/collector.json
+          env:
+            - name: CULPRIT_KEYCHAIN
+              value: "off"
+            {{- with .Values.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- with .Values.secretEnvFrom }}
+          envFrom:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: scratch
+              mountPath: /tmp/culprit
+            - name: configuration
+              mountPath: /config
+              readOnly: true
+            {{- if .Values.azureWorkloadIdentity.enabled }}
+            - name: direct-identity
+              mountPath: /var/run/secrets/culprit
+              readOnly: true
+            {{- end }}
+      volumes:
+        - name: scratch
+          emptyDir: {}
+        - name: configuration
+          configMap:
+            name: {{ include "culprit-collector.fullname" . }}
+        {{- if .Values.azureWorkloadIdentity.enabled }}
+        - name: direct-identity
+          projected:
+            defaultMode: 0440
+            sources:
+              - serviceAccountToken:
+                  audience: api://AzureADTokenExchange
+                  expirationSeconds: {{ .Values.azureWorkloadIdentity.tokenExpirationSeconds }}
+                  path: token
+        {{- end }}
+{{- end }}

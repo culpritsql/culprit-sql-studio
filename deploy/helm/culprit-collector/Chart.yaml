@@ -1,0 +1,24 @@
+apiVersion: v2
+name: culprit-collector
+description: Bounded, read-only database telemetry collector and pure diagnostic synthesizer for ADX and ClickHouse
+type: application
+version: 0.5.6
+appVersion: "0.5.6"
+home: https://culpritsql.com
+sources:
+  - https://github.com/culpritsql/culprit-sql-studio
+keywords:
+  - database
+  - diagnostics
+  - sql-server
+  - postgresql
+  - mysql
+  - clickhouse
+  - azure-data-explorer
+maintainers:
+  - name: Culprit
+    url: https://github.com/culpritsql/culprit-sql-studio
+annotations:
+  org.opencontainers.image.source: https://github.com/culpritsql/culprit-sql-studio
+  org.opencontainers.image.licenses: MIT
+

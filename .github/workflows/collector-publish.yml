@@ -1,0 +1,285 @@
+name: Collector OCI & Helm Publish
+
+# Builds, smoke-tests on native x86_64 and ARM64 runners, and publishes:
+#   - Multi-arch OCI collector image: ghcr.io/culpritsql/culprit-collector (linux/amd64, linux/arm64)
+#   - OCI Helm chart:                 oci://ghcr.io/culpritsql/charts/culprit-collector
+#
+# On pushes to `main`: publishes `:sha-<short>`, `:main`, and chart version `<version>-sha.<short>`.
+# On `v*` release tags (or manual `release_tag` dispatch): publishes `:vX.Y.Z`, `:X.Y`, `:latest`, `:sha-<short>`,
+# and chart version `X.Y.Z`.
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Existing v* tag to rebuild and publish (blank publishes current ref)"
+        required: false
+        type: string
+        default: ""
+
+# Least privilege: build and verification jobs only read the repository. Only `publish` receives `packages: write`.
+permissions:
+  contents: read
+
+concurrency:
+  group: collector-publish-${{ inputs.release_tag && format('refs/tags/{0}', inputs.release_tag) || github.ref }}
+  cancel-in-progress: ${{ github.ref == 'refs/heads/main' && inputs.release_tag == '' }}
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  source:
+    name: Resolve collector version
+    runs-on: ubuntu-latest
+    outputs:
+      sha: ${{ steps.source.outputs.sha }}
+      short_sha: ${{ steps.source.outputs.short_sha }}
+      version: ${{ steps.source.outputs.version }}
+      major_minor: ${{ steps.source.outputs.major_minor }}
+      tag: ${{ steps.source.outputs.tag }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.release_tag && format('refs/tags/{0}', inputs.release_tag) || github.sha }}
+          persist-credentials: false
+      - id: source
+        name: Pin commit and verify workspace, app, and Helm chart versions agree
+        env:
+          REQUESTED_TAG: ${{ inputs.release_tag }}
+          EVENT_REF: ${{ github.ref }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          python3 - <<'PYTHON'
+          import json, os, re, subprocess, tomllib
+          from pathlib import Path
+
+          tag = os.environ["REQUESTED_TAG"].strip()
+          if not tag and os.environ["EVENT_NAME"] == "push" and os.environ["EVENT_REF"].startswith("refs/tags/v"):
+              tag = os.environ["EVENT_REF"].removeprefix("refs/tags/")
+
+          cargo_ver = tomllib.loads(Path("Cargo.toml").read_text())["workspace"]["package"]["version"]
+          tauri_ver = json.loads(Path("app/src-tauri/tauri.conf.json").read_text())["version"]
+          pkg_ver = json.loads(Path("app/package.json").read_text())["version"]
+          chart_text = Path("deploy/helm/culprit-collector/Chart.yaml").read_text()
+          chart_ver = re.search(r"^version:\s*(\S+)\s*$", chart_text, re.M).group(1).strip("\"'")
+          chart_app_ver = re.search(r"^appVersion:\s*(\S+)\s*$", chart_text, re.M).group(1).strip("\"'")
+
+          versions = {cargo_ver, tauri_ver, pkg_ver, chart_ver, chart_app_ver}
+          if len(versions) != 1:
+              raise SystemExit(
+                  f"Version mismatch across Cargo ({cargo_ver}), Tauri ({tauri_ver}), UI ({pkg_ver}), "
+                  f"Chart ({chart_ver}/{chart_app_ver})"
+              )
+          if tag and tag != f"v{cargo_ver}":
+              raise SystemExit(f"Release tag {tag} does not match workspace version v{cargo_ver}")
+
+          major_minor = ".".join(cargo_ver.split(".")[:2])
+          sha = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
+          short_sha = sha[:12]
+          with open(os.environ["GITHUB_OUTPUT"], "a") as out:
+              out.write(
+                  f"sha={sha}\nshort_sha={short_sha}\nversion={cargo_ver}\n"
+                  f"major_minor={major_minor}\ntag={tag}\n"
+              )
+          print(f"Resolved collector source {sha} (v{cargo_ver}, tag={tag or 'main'})")
+          PYTHON
+
+  licenses:
+    name: Third-party licenses
+    needs: [source]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.source.outputs.sha }}
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249 # stable
+        with:
+          toolchain: stable
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+      - name: Install UI dependencies
+        working-directory: app
+        run: bun install --frozen-lockfile
+      - uses: ./.github/actions/install-cargo-about
+      - name: Generate third-party notices
+        run: python3 -B dev/licenses.py
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: collector-licenses
+          path: target/licenses/THIRD-PARTY-LICENSES.txt
+          if-no-files-found: error
+          retention-days: 3
+
+  build:
+    name: Build & smoke (${{ matrix.arch }})
+    needs: [source, licenses]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            os: ubuntu-22.04
+          - arch: arm64
+            os: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.source.outputs.sha }}
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249 # stable
+        if: matrix.arch == 'amd64'
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        with:
+          prefix-key: collector-oci-${{ matrix.arch }}
+          cache-on-failure: true
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: collector-licenses
+          path: target/licenses
+      - name: Build Linux amd64 collector binary (Ubuntu 22.04 glibc baseline)
+        if: matrix.arch == 'amd64'
+        env:
+          CULPRIT_BUILD_REVISION: ${{ needs.source.outputs.sha }}
+        run: cargo build --locked --release -p culprit-cli
+      - name: Build Linux arm64 collector binary (Debian bookworm glibc baseline)
+        if: matrix.arch == 'arm64'
+        env:
+          CULPRIT_BUILD_REVISION: ${{ needs.source.outputs.sha }}
+        run: |
+          mkdir -p "$HOME/.cargo/registry" "$HOME/.cargo/git" target
+          docker run --rm \
+            --user "$(id -u):$(id -g)" \
+            -v "$PWD":/work \
+            -w /work \
+            -v "$HOME/.cargo/registry":/usr/local/cargo/registry \
+            -v "$HOME/.cargo/git":/usr/local/cargo/git \
+            -e CARGO_TARGET_DIR=/work/target \
+            -e CARGO_TERM_COLOR=always \
+            -e CULPRIT_BUILD_REVISION="$CULPRIT_BUILD_REVISION" \
+            rust:bookworm \
+            cargo build --locked --release -p culprit-cli
+      - name: Verify non-root offline container entry points (${{ matrix.arch }})
+        run: python3 -B dev/smoke-container.py --binary target/release/culprit
+      - name: Verify Helm chart lint, safety gates, and collector config contracts
+        if: matrix.arch == 'amd64'
+        run: python3 -B dev/smoke-helm.py --binary target/release/culprit
+      - name: Stage verified ${{ matrix.arch }} binary
+        run: |
+          mkdir -p dist
+          cp target/release/culprit "dist/culprit-${{ matrix.arch }}"
+          chmod 0755 "dist/culprit-${{ matrix.arch }}"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: collector-binary-${{ matrix.arch }}
+          path: dist/culprit-${{ matrix.arch }}
+          if-no-files-found: error
+          retention-days: 3
+
+  publish:
+    name: Publish multi-arch GHCR image & OCI Helm chart
+    needs: [source, licenses, build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.source.outputs.sha }}
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: collector-licenses
+          path: context-stage
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: collector-binary-amd64
+          path: context-stage
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: collector-binary-arm64
+          path: context-stage
+      - name: Build and push multi-arch collector image and OCI Helm chart to GHCR
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO_OWNER: ${{ github.repository_owner }}
+          SOURCE_URL: https://github.com/${{ github.repository }}
+          SHA: ${{ needs.source.outputs.sha }}
+          SHORT_SHA: ${{ needs.source.outputs.short_sha }}
+          VERSION: ${{ needs.source.outputs.version }}
+          MAJOR_MINOR: ${{ needs.source.outputs.major_minor }}
+          TAG: ${{ needs.source.outputs.tag }}
+        run: |
+          set -euo pipefail
+          OWNER_LC="$(printf '%s' "$REPO_OWNER" | tr '[:upper:]' '[:lower:]')"
+          IMAGE_REPO="ghcr.io/${OWNER_LC}/culprit-collector"
+          CHART_OCI_PREFIX="oci://ghcr.io/${OWNER_LC}/charts"
+
+          cp LICENSE context-stage/LICENSE
+          cp deploy/collector/Dockerfile context-stage/Dockerfile
+          chmod 0555 context-stage/culprit-amd64 context-stage/culprit-arm64
+          chmod 0444 context-stage/LICENSE context-stage/THIRD-PARTY-LICENSES.txt
+
+          printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          printf '%s' "$GHCR_TOKEN" | helm registry login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+
+          docker buildx create --name culprit-multiarch --driver docker-container --use
+          trap 'docker buildx rm culprit-multiarch >/dev/null 2>&1 || true; docker logout ghcr.io >/dev/null 2>&1 || true; helm registry logout ghcr.io >/dev/null 2>&1 || true' EXIT
+
+          TAGS=("-t" "${IMAGE_REPO}:sha-${SHORT_SHA}")
+          if [ -n "$TAG" ]; then
+            TAGS+=("-t" "${IMAGE_REPO}:${TAG}" "-t" "${IMAGE_REPO}:${MAJOR_MINOR}" "-t" "${IMAGE_REPO}:latest")
+            CHART_VERSION="${VERSION}"
+          else
+            TAGS+=("-t" "${IMAGE_REPO}:main")
+            CHART_VERSION="${VERSION}-sha.${SHORT_SHA}"
+          fi
+
+          METADATA_FILE="$RUNNER_TEMP/image-metadata.json"
+          docker buildx build \
+            --platform linux/amd64,linux/arm64 \
+            --provenance=mode=max \
+            --sbom=true \
+            --build-arg "OCI_SOURCE=${SOURCE_URL}" \
+            --build-arg "OCI_VERSION=${VERSION}" \
+            --build-arg "OCI_REVISION=${SHA}" \
+            "${TAGS[@]}" \
+            --metadata-file "$METADATA_FILE" \
+            --push \
+            context-stage
+
+          DIGEST="$(jq -r '."containerimage.digest"' "$METADATA_FILE")"
+          [ -n "$DIGEST" ] && [ "$DIGEST" != "null" ]
+          docker buildx imagetools inspect "${IMAGE_REPO}@${DIGEST}"
+
+          helm lint deploy/helm/culprit-collector
+          mkdir -p "$RUNNER_TEMP/charts"
+          helm package deploy/helm/culprit-collector \
+            --version "$CHART_VERSION" \
+            --app-version "$VERSION" \
+            --destination "$RUNNER_TEMP/charts"
+          CHART_ARCHIVE="$RUNNER_TEMP/charts/culprit-collector-${CHART_VERSION}.tgz"
+          helm push "$CHART_ARCHIVE" "$CHART_OCI_PREFIX"
+
+          {
+            echo "## Published Collector Artifacts"
+            echo ""
+            echo "| Artifact | Reference |"
+            echo "|---|---|"
+            echo "| Multi-arch OCI Image (digest) | \`${IMAGE_REPO}@${DIGEST}\` |"
+            echo "| Commit Image Tag | \`${IMAGE_REPO}:sha-${SHORT_SHA}\` |"
+            if [ -n "$TAG" ]; then
+              echo "| Release Image Tags | \`${IMAGE_REPO}:${TAG}\`, \`${IMAGE_REPO}:${MAJOR_MINOR}\`, \`${IMAGE_REPO}:latest\` |"
+            else
+              echo "| Branch Image Tag | \`${IMAGE_REPO}:main\` |"
+            fi
+            echo "| OCI Helm Chart | \`${CHART_OCI_PREFIX}/culprit-collector:${CHART_VERSION}\` |"
+          } >> "$GITHUB_STEP_SUMMARY"

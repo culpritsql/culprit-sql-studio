@@ -1,0 +1,13 @@
+Culprit Collector ({{ .Values.collector.pipeline }} / shard {{ .Values.collector.shard }}) has been rendered in namespace {{ .Release.Namespace }}.
+
+Image:    {{ include "culprit-collector.image" . }}
+Replicas: {{ .Values.replicaCount }}
+
+{{- if eq (int .Values.replicaCount) 0 }}
+NOTE: replicaCount is 0 (safe default).
+1. Apply warehouse schema DDL once (no local CLI installation needed):
+   docker run --rm {{ include "culprit-collector.image" . }} collect schema --store {{ .Values.collector.target.kind }} --format json
+2. Initialize the new Blob/S3 recovery namespace once (--set activation.initNamespaceJob.enabled=true or `culprit collect service init`).
+3. Verify no previous collector owner has in-flight SQL work, then activate with:
+   --set replicaCount=1 --set activation.sourceQuiescent=true
+{{- end }}

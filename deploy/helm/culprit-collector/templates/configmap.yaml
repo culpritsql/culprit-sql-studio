@@ -1,0 +1,12 @@
+{{- include "culprit-collector.validateActivation" . -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "culprit-collector.fullname" . }}
+  labels:
+    {{- include "culprit-collector.labels" . | nindent 4 }}
+data:
+  connections.toml: |
+    {{- include "culprit-collector.connectionsToml" . | nindent 4 }}
+  collector.json: |
+    {{- include "culprit-collector.collectorJson" . | nindent 4 }}

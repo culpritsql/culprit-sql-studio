@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "required": ["replicaCount", "activation", "image", "collector", "persistence"],
+  "properties": {
+    "replicaCount": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 1,
+      "description": "At most one replica per static collector shard."
+    },
+    "activation": {
+      "type": "object",
+      "required": ["sourceQuiescent", "deliveryOnly"],
+      "properties": {
+        "sourceQuiescent": { "type": "boolean" },
+        "deliveryOnly": { "type": "boolean" }
+      }
+    },
+    "image": {
+      "type": "object",
+      "required": ["repository", "pullPolicy"],
+      "properties": {
+        "repository": { "type": "string", "minLength": 1 },
+        "tag": { "type": "string" },
+        "digest": { "type": "string", "pattern": "^(|sha256:[0-9a-f]{64})$" },
+        "pullPolicy": { "type": "string", "enum": ["Always", "IfNotPresent", "Never"] }
+      }
+    },
+    "collector": {
+      "type": "object",
+      "required": ["pipeline", "shard", "inventory", "recovery", "target", "limits"],
+      "properties": {
+        "pipeline": { "type": "string", "minLength": 1 },
+        "shard": { "type": "string", "minLength": 1 }
+      }
+    }
+  }
+}
