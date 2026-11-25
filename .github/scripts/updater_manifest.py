@@ -15,7 +15,7 @@ import pathlib
 import sys
 
 PACKAGES = {
-    "Culprit-SQL-Studio-macOS.app.tar.gz": ["darwin-aarch64-app", "darwin-x86_64-app"],
+    "Culprit-SQL-Studio-macOS.app.tar.gz": ["darwin-aarch64-app"],
     "Culprit-SQL-Studio-Windows-x64-setup.exe": ["windows-x86_64-nsis"],
     "Culprit-SQL-Studio-Linux-x86_64.AppImage": ["linux-x86_64-appimage"],
     "Culprit-SQL-Studio-Linux-amd64.deb": ["linux-x86_64-deb"],

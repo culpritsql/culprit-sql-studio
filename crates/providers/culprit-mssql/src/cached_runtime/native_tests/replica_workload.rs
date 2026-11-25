@@ -27,7 +27,11 @@ struct Factory(MssqlProvider);
 impl SourceFactory for Factory {
     async fn open(&self, request: &CollectionRequest) -> Result<Box<dyn TelemetrySource>> {
         let recipe = crate::telemetry::recipes().into_iter().find(|recipe| recipe.selector.matches(request)).unwrap();
-        assert_eq!(recipe.admission, RecipeAdmission::Unqualified);
+        let expected_admission =
+            crate::builtin_safety::policy(&recipe.id, recipe.version, recipe.selector, &recipe.budget)
+                .map(|policy| RecipeAdmission::BuiltinSafety(Box::new(policy)))
+                .unwrap_or(RecipeAdmission::Unqualified);
+        assert_eq!(recipe.admission, expected_admission);
         let source = self.0.telemetry_source(request)?;
         assert_eq!(source.query_count(), 0, "the actual factory does not acquire before the collector owns it");
         Ok(source)

@@ -24,7 +24,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 APP = os.path.join(ROOT, "app")
 OUT = os.path.join(ROOT, "target", "licenses")
 # Native release platforms and the standalone browser package: include target-specific dependencies in one notice.
-TARGETS = ["aarch64-apple-darwin", "x86_64-apple-darwin", "x86_64-pc-windows-msvc", "x86_64-unknown-linux-gnu",
+TARGETS = ["aarch64-apple-darwin", "x86_64-pc-windows-msvc", "x86_64-unknown-linux-gnu",
            "wasm32-unknown-unknown"]
 RULE = "-" * 100
 

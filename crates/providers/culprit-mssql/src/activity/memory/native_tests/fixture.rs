@@ -138,7 +138,7 @@ impl Fixture {
         self.database = Some(database.clone());
         self.admin_batch(&format!("CREATE DATABASE [{database}]"), AdministrativePurpose::Setup).await?;
         self.admin_batch(&format!("USE [{database}];{SEED};USE [master]"), AdministrativePurpose::Setup).await?;
-        self.profile = Some(ResourceProfile::new(&database, case.pool_memory_percent())?);
+        self.profile = Some(ResourceProfile::new(&database, case.pool_memory())?);
         self.install_profile().await?;
         save_cost_receipt(
             &self.directory,
