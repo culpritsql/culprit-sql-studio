@@ -14,10 +14,10 @@ pub(super) struct PoolMemory {
 }
 
 pub(super) const STANDARD_POOL_MEMORY: PoolMemory = PoolMemory { min_percent: 0, max_percent: 20 };
-// Reserve 38% (`min == max`) so cold-start `default` pool compilations cannot shrink `target_memory_kb`
-// and sweep `CACHESTORE_OBJCP`, while keeping `max_memory_kb * 3 <= 2 GiB` on a 3 GiB SQL Server container
-// (~1.72 GiB poolable * 38% * 3 = 1.96 GiB <= 2.00 GiB).
-pub(super) const SCALAR_QUEUE_POOL_MEMORY: PoolMemory = PoolMemory { min_percent: 38, max_percent: 38 };
+// Reserve a 32% floor under a 35% cap (`min < max`) so `default`-pool observer queries cannot trigger
+// unreserved-pool shrink sweeps on `CACHESTORE_OBJCP`, while avoiding `min == max` page-rounding skew and
+// keeping `max_memory_kb * 3 <= 2 GiB` (`~631 MiB * 3 = 1.85 GiB <= 2.00 GiB`) on a 3 GiB SQL Server container.
+pub(super) const SCALAR_QUEUE_POOL_MEMORY: PoolMemory = PoolMemory { min_percent: 32, max_percent: 35 };
 const REQUEST_GRANT_PERCENT: i64 = 100;
 
 const INITIAL: &str = "SELECT /* culprit */ DB_NAME() AS database_name,c.classifier_function_id AS configured_classifier,d.classifier_function_id AS effective_classifier,c.is_enabled,d.is_reconfiguration_pending,CASE WHEN EXISTS(SELECT 1 FROM sys.resource_governor_resource_pools WHERE name NOT IN(N'internal',N'default')) OR EXISTS(SELECT 1 FROM sys.resource_governor_workload_groups WHERE name NOT IN(N'internal',N'default')) OR OBJECT_ID(@P3) IS NOT NULL THEN 1 ELSE 0 END AS collision FROM sys.resource_governor_configuration c CROSS JOIN sys.dm_resource_governor_configuration d";
