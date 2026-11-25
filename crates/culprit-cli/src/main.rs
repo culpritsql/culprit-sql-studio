@@ -485,14 +485,28 @@ fn writes_sarif(command: &Command) -> bool {
     )
 }
 
-#[inline(never)]
-fn parse_cli() -> Cli {
-    Cli::parse()
-}
+const CLI_MAIN_STACK_BYTES: usize = 8 * 1024 * 1024;
 
 fn main() -> ExitCode {
-    update_cmd::remove_stale_old();
-    let cli = parse_cli();
+    run_on_cli_stack(|| {
+        update_cmd::remove_stale_old();
+        entrypoint(Cli::parse())
+    })
+}
+
+fn run_on_cli_stack<T: Send + 'static>(work: impl FnOnce() -> T + Send + 'static) -> T {
+    let handle = std::thread::Builder::new()
+        .name("culprit-main".into())
+        .stack_size(CLI_MAIN_STACK_BYTES)
+        .spawn(work)
+        .expect("spawn CLI main thread");
+    match handle.join() {
+        Ok(value) => value,
+        Err(panic) => std::panic::resume_unwind(panic),
+    }
+}
+
+fn entrypoint(cli: Cli) -> ExitCode {
     let format = match (cli.json, cli.format) {
         (true, _) => Format::Json,
         (false, Some(f)) => f,
@@ -680,29 +694,27 @@ mod tests {
 
     #[test]
     fn saved_report_commands_succeed_when_main_thread_has_windows_one_mib_stack() {
-        #[inline(never)]
-        fn parse_args(args: &[&str]) -> Cli {
-            Cli::try_parse_from(args).unwrap()
-        }
         let report = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/pg-demo.report.json");
         let report_str = report.display().to_string();
         std::thread::Builder::new()
             .name("windows-1mib-main".into())
             .stack_size(1024 * 1024)
             .spawn(move || {
-                let cli = parse_args(&["culprit", "--format", "text", "lint-sql", "x", "--report", &report_str]);
-                let out = Out::new(Format::Text);
-                let runtime = tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap();
-                let err = runtime.block_on(run(cli.command, &out)).unwrap_err();
-                assert!(err.message.contains("--sql"), "{err:?}");
+                run_on_cli_stack(move || {
+                    let cli =
+                        Cli::try_parse_from(["culprit", "--format", "text", "lint-sql", "x", "--report", &report_str])
+                            .unwrap();
+                    let out = Out::new(Format::Text);
+                    let runtime = tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap();
+                    let err = runtime.block_on(run(cli.command, &out)).unwrap_err();
+                    assert!(err.message.contains("--sql"), "{err:?}");
 
-                let cli = parse_args(&["culprit", "--format", "json", "findings", &report_str]);
-                let code = runtime.block_on(run(cli.command, &out)).unwrap();
-                assert_eq!(code, 0);
+                    let cli = Cli::try_parse_from(["culprit", "--format", "json", "findings", &report_str]).unwrap();
+                    assert_eq!(entrypoint(cli), ExitCode::SUCCESS);
 
-                let cli = parse_args(&["culprit", "--format", "text", "dashboard", &report_str]);
-                let code = runtime.block_on(run(cli.command, &out)).unwrap();
-                assert_eq!(code, 0);
+                    let cli = Cli::try_parse_from(["culprit", "--format", "text", "dashboard", &report_str]).unwrap();
+                    assert_eq!(entrypoint(cli), ExitCode::SUCCESS);
+                });
             })
             .unwrap()
             .join()

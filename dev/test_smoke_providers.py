@@ -881,7 +881,7 @@ class MssqlNativePrerequisites(unittest.TestCase):
             database.test("culprit-mssql", "native_tests::")
         skips = tests.call_args.kwargs["skip"]
         for name in [smoke.AG_WORKLOAD_TEST, smoke.MSSQL_EMPTY_CATALOG_TEST, smoke.MSSQL_DATABASE_COUNTER_TEST,
-                     *smoke.MSSQL_FULL_TEXT_TESTS, smoke.MSSQL_SQL2016_TEST]:
+                     smoke.MSSQL_QUERY_HISTORY_TEST, *smoke.MSSQL_FULL_TEXT_TESTS, smoke.MSSQL_SQL2016_TEST]:
             self.assertTrue(any(skip in name for skip in skips))
         for name in [
             "tables::native_tests::owned_full_text_catalog_keeps_no_index_and_denied_null_fields_without_losing_ordinary_tables",
@@ -929,7 +929,7 @@ class NativeSelection(unittest.TestCase):
         schema_queue_control = "activity::page_targets::native_tests::schema_queue::"
         refused_connection_control = "conn::native_tests::refused_connection::"
         dedicated = [smoke.AG_WORKLOAD_TEST, smoke.MSSQL_EMPTY_CATALOG_TEST, smoke.MSSQL_DATABASE_COUNTER_TEST,
-                     *smoke.MSSQL_FULL_TEXT_TESTS, smoke.MSSQL_SQL2016_TEST]
+                     smoke.MSSQL_QUERY_HISTORY_TEST, *smoke.MSSQL_FULL_TEXT_TESTS, smoke.MSSQL_SQL2016_TEST]
         for selection, expected in [
             ("native_tests::", [refused_connection_control, mars_control, instance_control, schema_queue_control, "telemetry::replication::native_tests::", "jobs::", strict_holder, strict_writer, cache_control, phase_control]),
             ("jobs::native_tests::", [refused_connection_control, mars_control, instance_control, schema_queue_control, "telemetry::replication::native_tests::", strict_holder, strict_writer, cache_control, phase_control]),
@@ -1124,17 +1124,17 @@ class NativeSelection(unittest.TestCase):
         database.test.assert_called_once_with("culprit-postgres", "jobs::limits::", library=True, skip=None)
 
 
-    def test_mssql_default_verification_runs_the_exact_owned_history_route_once_on_the_same_fixture(self):
+    def test_mssql_query_history_runs_on_dedicated_empty_catalog_fixture_and_leaves_shared_smoke_workload_intact(self):
         database = smoke.Database(next(fixture for fixture in smoke.FIXTURES if fixture.name == "mssql"))
         database.test = Mock()
-        history = "telemetry::native_history::owned_boxed_history_keeps_native_acquisition_separate_from_data_identity_and_replays_canonically"
+        history = smoke.MSSQL_QUERY_HISTORY_TEST
         self.assertNotIn("native_tests::", history)
+        self.assertEqual(smoke.MSSQL_DEDICATED_CASES["mssql-query-history"], (smoke.EmptyCatalogDatabase, (history,)))
         database.verify()
         selections = [call.args for call in database.test.call_args_list]
+        self.assertEqual(selections[0], ("culprit-engine", "live_providers::live_registered_provider"))
         self.assertEqual(selections.count(("culprit-mssql", "native_tests::")), 1)
-        self.assertEqual(selections.count(("culprit-mssql", history)), 1)
-        self.assertEqual(selections[0], ("culprit-mssql", history))
-        self.assertEqual(selections[-1], ("culprit-mssql", "native_tests::"))
+        self.assertEqual(selections.count(("culprit-mssql", history)), 0)
         database.test.reset_mock()
         database.verify([("culprit-mssql", history)])
         database.test.assert_called_once_with("culprit-mssql", history, library=True, skip=None)

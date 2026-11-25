@@ -208,6 +208,11 @@ jobs:
         env:
           CULPRIT_NATIVE_COST_RECEIPT_DIR: ${{ runner.temp }}/native-provider-cost-receipts
         run: python3 -B dev/smoke-providers.py mssql-database-counters
+      - name: Exercise boxed Query Store history in its own fresh database
+        if: ${{ !cancelled() && matrix.fixture == 'mssql' }}
+        env:
+          CULPRIT_NATIVE_COST_RECEIPT_DIR: ${{ runner.temp }}/native-provider-cost-receipts
+        run: python3 -B dev/smoke-providers.py mssql-query-history
       - name: Exercise native full-text metadata and population on its explicit owned installation
         if: ${{ !cancelled() && matrix.fixture == 'mssql' }}
         env:

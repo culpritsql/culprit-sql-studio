@@ -74,6 +74,8 @@ MSSQL_EMPTY_CATALOG_TEST = ("indexes::native_tests::configuration_scale::"
                             "owned_index_and_heap_partition_projection_records_small_and_medium_catalog_work")
 MSSQL_DATABASE_COUNTER_TEST = ("telemetry::state::native_tests::"
                                "owned_selected_database_performance_counters_use_the_real_factory_and_sealed_original_outbox")
+MSSQL_QUERY_HISTORY_TEST = ("telemetry::native_history::"
+                            "owned_boxed_history_keeps_native_acquisition_separate_from_data_identity_and_replays_canonically")
 MSSQL_FULL_TEXT_TESTS = (
     "tables::native_tests::owned_full_text_enabled_and_disabled_rows_match_scan_and_stream_without_starting_a_population",
     "tables::native_tests::owned_full_text_runtime_population_retains_original_after_stop_with_supervisor_owned_background",
@@ -99,7 +101,7 @@ OPTIONAL_NATIVE_MODULES = {
         "local_native_writer_plans_keep_targeted_writes_separate_from_readers_and_other_resources",
         "exact_original_scalar_metadata_is_observed_without_memory_collection",
         "exact_original_scalar_metadata_is_observed_between_memory_source_phases",
-        AG_WORKLOAD_TEST, MSSQL_EMPTY_CATALOG_TEST, MSSQL_DATABASE_COUNTER_TEST, *MSSQL_FULL_TEXT_TESTS, MSSQL_SQL2016_TEST,
+        AG_WORKLOAD_TEST, MSSQL_EMPTY_CATALOG_TEST, MSSQL_DATABASE_COUNTER_TEST, MSSQL_QUERY_HISTORY_TEST, *MSSQL_FULL_TEXT_TESTS, MSSQL_SQL2016_TEST,
     ),
 }
 POSTGRES_OUTPUT_CONSUMER_TEST = ("checks_synthesis::explanations::context_tests::native_output_blocking::"
@@ -552,9 +554,6 @@ class Database:
                           skip="cluster_tests::" if crate == "culprit-yugabyte" else None)
             return
         fixture = self.fixture
-        if fixture.engine == "mssql":
-            # Run on the fresh owned fixture before scan and 98 native tests populate shared Query Store history.
-            self.test("culprit-mssql", "telemetry::native_history::owned_boxed_history_keeps_native_acquisition_separate_from_data_identity_and_replays_canonically")
         self.test("culprit-engine", "live_providers::live_registered_provider", library=False)
         if fixture.name != "mysql-5.7":
             self.test("culprit-engine", "live_providers::live_measured_plan_", library=False)
@@ -752,6 +751,7 @@ def selected_mssql_cases(selected_tests, selectors):
 MSSQL_DEDICATED_CASES = {
     "mssql-empty-catalog": (EmptyCatalogDatabase, (MSSQL_EMPTY_CATALOG_TEST,)),
     "mssql-database-counters": (Database, (MSSQL_DATABASE_COUNTER_TEST,)),
+    "mssql-query-history": (EmptyCatalogDatabase, (MSSQL_QUERY_HISTORY_TEST,)),
     "mssql-fulltext": (FullTextDatabase, MSSQL_FULL_TEXT_TESTS),
 }
 

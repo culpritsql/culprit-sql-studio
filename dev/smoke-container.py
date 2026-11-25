@@ -52,23 +52,24 @@ def fixture(directory):
         '[connections.fixture]\nengine="mssql"\nenvironment="development"\n'
         'host="never-contact.invalid"\ndatabase="fixture"\nauth="entra"\n'
     )
-    budget = {"page_rows": 250, "max_snapshot_rows": 500, "page_bytes": 262144,
-              "total_bytes": 67108864, "max_sql_bytes": 65536, "max_plan_bytes": 131072,
-              "max_pages": 256, "max_queries": 256, "statement_timeout_ms": 3000,
+    budget = {"page_rows": 250, "max_snapshot_rows": 500, "page_bytes": 4194304,
+              "total_bytes": 67108864, "max_sql_bytes": 262144, "max_plan_bytes": 2097152,
+              "max_pages": 32, "max_queries": 128, "statement_timeout_ms": 3000,
               "total_timeout_ms": 15000}
+    identity = {"kind": "azure", "identity": {"kind": "managed-identity", "client_id": None}}
     config = {
         "pipeline": "container-smoke", "shard": "one", "workspace": "/fixture/workspace",
         "state": "/fixture/state", "health_listen": "127.0.0.1:9098",
-        "inventory": {"targets": [{"connection": "fixture", "shard": "one", "admission_group": "one",
-                                  "schedules": [{"id": "activity", "every_seconds": 60, "jitter_seconds": 0,
-                                                 "collection": {"kind": "activity"}, "budget": budget}]}]},
-        "credentials": {"fixture": {"kind": "azure", "identity": {"kind": "managed-identity", "client_id": None}}},
-        "source_credentials": {"fixture": "fixture"},
+        "inventory": {"targets": [{"id": "fixture-database", "connection": "fixture",
+                                  "subject": {"kind": "database"}, "shard": "one", "admission_group": "one"}]},
+        "monitoring": {"kind": "standard", "budget": budget},
+        "credentials": {"source": identity, "recovery": identity, "analytics": identity, "ingestion": identity},
+        "source_credentials": {"fixture": "source"},
         "recovery": {"provider": "azure-blob", "options": {"account": "nevercontact", "container": "native",
-                                                      "prefix": "one"}, "credential": "fixture"},
+                                                      "prefix": "one"}, "credential": "recovery"},
         "target": {"kind": "adx", "query": {"endpoint": "https://never-contact.westeurope.kusto.windows.net",
                                             "database": "fixture"},
-                   "credential": "fixture", "delivery": {"credential": "fixture"}},
+                   "credential": "analytics", "delivery": {"credential": "ingestion"}},
         "limits": {"max_bytes": 1073741824, "max_captures": 256},
     }
     (directory / "collector.json").write_text(json.dumps(config))
