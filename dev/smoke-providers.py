@@ -714,6 +714,14 @@ class EmptyCatalogDatabase(Database):
         self.prepare_database()
 
 
+class ScalarGrantDatabase(EmptyCatalogDatabase):
+    def __init__(self, fixture):
+        # Cached module plans (`CACHESTORE_OBJCP`) live in `default` pool, not the workload's Resource Governor pool.
+        # Give the dedicated container 4 GiB (~3.28 GiB SQLOS limit vs 2.40 GiB on 3g) so `default` pool never sweeps
+        # `dbo.scalar_probe` while `CurrentRequestMemory` and the 70%-grant sort actor execute.
+        super().__init__(replace(fixture, memory="4g"))
+
+
 class FullTextDatabase(Database):
     def start(self):
         super().start()
@@ -754,7 +762,7 @@ MSSQL_DEDICATED_CASES = {
     "mssql-empty-catalog": (EmptyCatalogDatabase, (MSSQL_EMPTY_CATALOG_TEST,)),
     "mssql-database-counters": (Database, (MSSQL_DATABASE_COUNTER_TEST,)),
     "mssql-query-history": (EmptyCatalogDatabase, (MSSQL_QUERY_HISTORY_TEST,)),
-    "mssql-scalar-grant": (EmptyCatalogDatabase, (MSSQL_SCALAR_GRANT_TEST,)),
+    "mssql-scalar-grant": (ScalarGrantDatabase, (MSSQL_SCALAR_GRANT_TEST,)),
     "mssql-fulltext": (FullTextDatabase, MSSQL_FULL_TEXT_TESTS),
 }
 

@@ -137,7 +137,7 @@ fn larger_scalar_queue_pool_keeps_exact_native_policy_and_the_two_gib_capacity_c
         Case::OriginalScalarGrant.pool_memory(),
     )
     .unwrap();
-    assert!(profile.create_resources().contains("WITH(MIN_MEMORY_PERCENT=32,MAX_MEMORY_PERCENT=35)"));
+    assert!(profile.create_resources().contains("WITH(MIN_MEMORY_PERCENT=0,MAX_MEMORY_PERCENT=22)"));
     let native = effective(&profile);
     profile.proof = Some(profile.validate_effective(&native).unwrap());
     let route = profile.route(MAX_FIXTURE_REQUESTS - 1).unwrap();
@@ -152,9 +152,9 @@ fn larger_scalar_queue_pool_keeps_exact_native_policy_and_the_two_gib_capacity_c
         assert!(profile.validate_effective(&changed).is_err());
         assert!(route.matches(&replace(&actor, &[("max_memory_percent", Val::Int(observed_percent))])).is_err());
     }
-    let unreserved = replace(&native, &[("min_memory_percent", Val::Int(0))]);
-    assert!(profile.validate_effective(&unreserved).is_err());
-    assert!(route.matches(&replace(&actor, &[("min_memory_percent", Val::Int(0))])).is_err());
+    let reserved = replace(&native, &[("min_memory_percent", Val::Int(10))]);
+    assert!(profile.validate_effective(&reserved).is_err());
+    assert!(route.matches(&replace(&actor, &[("min_memory_percent", Val::Int(10))])).is_err());
     let maximum_pool = MAX_FIXTURE_MEMORY_KIB / MAX_FIXTURE_REQUESTS as u64;
     let at_limit = replace(
         &native,

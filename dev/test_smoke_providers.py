@@ -482,13 +482,14 @@ class MssqlFixtureIdentity(unittest.TestCase):
     def test_common_and_agent_use_a_supported_machine_with_full_native_database_and_docker_nonces(self):
         original = self.ordinary_fixture()
         owner = "a" * 24
-        for fixture_type in (smoke.Database, smoke.AgentDatabase, smoke.EmptyCatalogDatabase, smoke.FullTextDatabase):
+        for fixture_type in (smoke.Database, smoke.AgentDatabase, smoke.EmptyCatalogDatabase, smoke.ScalarGrantDatabase, smoke.FullTextDatabase):
             with self.subTest(fixture_type=fixture_type.__name__):
                 with patch.object(smoke.secrets, "token_hex", side_effect=[owner, "b" * 32, "c" * 32]):
                     database = fixture_type(original)
                 self.assertEqual(database.hostname, "m" + owner[:14])
                 self.assertEqual(len(database.hostname), 15)
                 self.assertEqual(database.fixture.database, "culprit_smoke_" + owner)
+                self.assertEqual(database.fixture.memory, "4g" if fixture_type is smoke.ScalarGrantDatabase else "3g")
                 self.assertTrue(database.name.endswith(owner))
                 self.assertEqual(database.owner, owner)
                 self.assertEqual(database.test_environment()["CULPRIT_SMOKE_DATABASE"], database.fixture.database)
