@@ -131,3 +131,38 @@ fn supplied_xml_uses_the_original_callers_cancel_deadline_and_input_bounds() {
     .unwrap_err();
     assert_eq!(error.detail, Some(culprit_core::ErrorDetail::CollectionStopped(CollectionStop::TimedOut)));
 }
+
+#[test]
+fn binary_xel_intake_preserves_buffer_locations_unassigned_resource_and_rejects_xml_cross_presentation() {
+    const SAMPLE_XEL: &[u8] = include_bytes!("../../../culprit-plans/src/mssql/test_support/mssql-events.sample.xel");
+    let mut file =
+        tempfile::Builder::new().prefix("production-db-name-must-not-bind-").suffix(".xel").tempfile().unwrap();
+    file.write_all(SAMPLE_XEL).unwrap();
+    file.flush().unwrap();
+
+    let result = analyze_file(file.path(), NativeLogFormat::MssqlExtendedEventsXel, Default::default()).unwrap();
+    assert_eq!(result.input.format, NativeLogFormat::MssqlExtendedEventsXel);
+    assert!(result.input.complete);
+    assert_eq!(result.input.sha256, digest(SAMPLE_XEL));
+    assert!(result.evidence.resource.is_none());
+    assert_eq!(result.evidence.source, "supplied-mssql-event-xel");
+    // Sample contains 2 unsupported sql_batch_completed events alongside 4 supported events, so state is Partial.
+    assert_eq!(result.source.state, SourceState::Partial);
+    assert_eq!(result.evidence.observations.len(), 4);
+    let events = result.native_events.as_ref().unwrap();
+    assert_eq!(events.timeline.len(), 4);
+    assert_eq!(events.deadlocks.len(), 1);
+    assert_eq!(events.locations.len(), 4);
+    assert_eq!(events.locations[0].buffer_offset, Some(0x5000));
+    assert_eq!(events.locations[2].buffer_offset, Some(0x6000));
+    assert_eq!(events.locations[3].buffer_offset, Some(0x7000));
+    assert!(!serde_json::to_string(&result).unwrap().contains(&file.path().display().to_string()));
+    assert!(!serde_json::to_string(&result).unwrap().contains("private-xel-error-canary"));
+
+    // XML is never accepted on the binary .xel route, and binary .xel is never accepted on the XML route.
+    let xml_as_xel = analyze_bytes(b"<events/>", NativeLogFormat::MssqlExtendedEventsXel, Default::default()).unwrap();
+    assert_eq!(xml_as_xel.stopped, Some(NativeLogProblem::NativeShape));
+    let xel_as_xml = analyze_bytes(SAMPLE_XEL, NativeLogFormat::MssqlExtendedEventsXml, Default::default()).unwrap();
+    assert!(!xel_as_xml.is_read_complete());
+    assert!(xel_as_xml.evidence.observations.is_empty());
+}

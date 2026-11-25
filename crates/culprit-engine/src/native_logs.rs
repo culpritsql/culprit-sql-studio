@@ -118,6 +118,7 @@ fn analyze(
     let decoded = decode(input, format, limits, complete_input, &artifact.sha256)?;
     let source_name = match format {
         NativeLogFormat::MssqlExtendedEventsXml => "supplied-mssql-event-xml",
+        NativeLogFormat::MssqlExtendedEventsXel => "supplied-mssql-event-xel",
         _ => "supplied-postgres-log",
     };
     let partial = !complete_input || decoded.stopped.is_some() || !decoded.issues.is_empty();
@@ -186,6 +187,7 @@ fn decode(
 ) -> Result<DecodedLog> {
     match format {
         NativeLogFormat::MssqlExtendedEventsXml => Ok(mssql::decode(input, limits, artifact)),
+        NativeLogFormat::MssqlExtendedEventsXel => Ok(mssql::decode_xel(input, limits, artifact)),
         _ => decode_postgres(input, format, limits, complete),
     }
 }

@@ -10,8 +10,10 @@ pub enum NativeLogFormat {
     PostgresJson,
     PostgresCsv13,
     PostgresCsv,
-    /// Explicit XML exported from Extended Events; binary .xel files are not decoded.
+    /// Explicit XML exported from Extended Events; binary .xel files are refused on this route.
     MssqlExtendedEventsXml,
+    /// Explicit binary SQL Server Extended Events (.xel) artifact; XML text is refused on this route.
+    MssqlExtendedEventsXel,
 }
 
 #[derive(Serialize, Deserialize, TS, Clone, Copy, Debug, PartialEq, Eq)]
@@ -55,6 +57,7 @@ pub enum NativeLogProblem {
     InvalidField(String),
     CsvColumnCount,
     NativeShape,
+    UnsupportedVersion,
     UnsupportedEvent,
 }
 
@@ -104,13 +107,25 @@ impl NativeLogAnalysis {
     }
 }
 
-/// UTC placement uses only the event's own explicit offset. Unplaced positions retain their native clock in evidence.
+/// UTC placement uses only the event's own explicit offset or session clock. Unplaced positions retain their native clock in evidence.
 #[derive(Serialize, Deserialize, TS, Clone, Debug, PartialEq)]
 #[ts(export)]
 pub struct ImportedNativeEvents {
     pub timeline: Vec<crate::ChangeEvent>,
     pub unplaced_positions: Vec<u32>,
     pub deadlocks: Vec<ImportedEventDeadlock>,
+    pub locations: Vec<ImportedEventLocation>,
+}
+
+#[derive(Serialize, Deserialize, TS, Clone, Debug, PartialEq, Eq)]
+#[ts(export)]
+pub struct ImportedEventLocation {
+    /// Zero-based position in `evidence.observations` within this supplied artifact.
+    pub position: u32,
+    /// Byte offset of the enclosing binary XEL event buffer in the supplied artifact (`None` for XML exports).
+    pub buffer_offset: Option<u64>,
+    /// Byte offset of the event record within the supplied artifact.
+    pub event_offset: u64,
 }
 
 #[derive(Serialize, Deserialize, TS, Clone, Debug, PartialEq)]

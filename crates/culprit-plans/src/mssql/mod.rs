@@ -25,6 +25,7 @@ mod scan_completion;
 mod statement;
 #[cfg(any(test, feature = "test-support"))]
 pub mod test_support;
+pub mod xel;
 pub use cached_definitions::{parse_cached_definition, parse_retained_definition};
 pub use retained::clear_unrecorded_times;
 pub use statement::{native_statement_from_prefix, statement_from_prefix};

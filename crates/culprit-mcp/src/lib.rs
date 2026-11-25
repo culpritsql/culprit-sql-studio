@@ -116,7 +116,7 @@ impl CulpritMcp {
             let started = Instant::now();
             let native_tool = self.options.tool_mode == ToolMode::Standard
                 && !tools::is_warehouse_tool(tool)
-                && tool != tools::NATIVE_EVENTS_TOOL;
+                && !tools::is_native_events_tool(tool);
             let connection =
                 native_tool.then(|| args.get("connection").and_then(Value::as_str).map(str::to_string)).flatten();
             let sql = (native_tool && tools::SQL_TOOLS.contains(&tool))
@@ -185,7 +185,7 @@ impl CulpritMcp {
         if self.options.tool_mode == ToolMode::EvidenceOnly
             && !tools::is_warehouse_tool(tool)
             && tool != tools::LOCAL_CAPTURE_TOOL
-            && tool != tools::NATIVE_EVENTS_TOOL
+            && !tools::is_native_events_tool(tool)
         {
             return Err(culprit_core::Error::new(
                 culprit_core::ErrorCode::PermissionDenied,
@@ -207,7 +207,7 @@ impl CulpritMcp {
     }
 
     fn local_operation(&self, tool: &str) -> culprit_core::Result<Option<OperationGuard>> {
-        if tool == tools::NATIVE_EVENTS_TOOL {
+        if tools::is_native_events_tool(tool) {
             return OperationGuard::new(culprit_engine::native_logs::LOG_IMPORT_TIMEOUT).map(Some);
         }
         if tool == tools::LOCAL_CAPTURE_TOOL

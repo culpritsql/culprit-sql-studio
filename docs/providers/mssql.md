@@ -228,11 +228,14 @@ qualification remain required before scheduling production polling. See the [nat
 
 ### Azure SQL deadlock events
 
-For offline analysis, use **Plans → Open events XML** in the desktop app, or supply exported XML to the MCP
-`analyze_event_xml` tool. Both use the same bounded parser and explanations for attention, errors and deadlocks.
-Native UTC and offset-free timestamps remain distinct; a captured request's SQL does not prove which statement
-acquired its locks. This intake reads exported XML, requires no database credentials and does not decode binary
-`.xel` files or start a server event session.
+For offline analysis, use **Plans → Open events XML** in the desktop app (which accepts both binary `.xel` files and
+exported XML), `culprit logs ./events.xel --input-format mssql-xe-xel`, or MCP's `analyze_event_xel` and
+`analyze_event_xml` tools. All routes share the same bounded normalizer and explanations for attention, errors and
+deadlocks. Binary `.xel` framing and embedded metadata are decoded separately from exported XML without cross-format
+fallback; QPC-derived UTC instants and offset-free timestamps remain distinct, and a captured request's SQL does not
+prove which statement acquired its locks. Local intake requires no database credentials, never starts or alters a
+server event session, and keeps imported artifacts unassigned (`resource: None`) rather than binding a filename or
+database label to a monitored production resource.
 
 Culprit never reads Azure SQL's internal `dl` event session. Microsoft [advises against reading that session](https://learn.microsoft.com/en-us/azure/azure-sql/database/xevent-db-diff-from-svr#best-practices) because reading its retained events can affect database availability.
 

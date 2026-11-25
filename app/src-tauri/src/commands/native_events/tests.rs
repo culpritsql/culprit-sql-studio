@@ -106,3 +106,34 @@ async fn selected_path_uses_the_canonical_engine_reader_and_bounds_without_retur
     .unwrap_err();
     assert_eq!(result.detail, Some(culprit_core::ErrorDetail::CollectionStopped(CollectionStop::Cancelled)));
 }
+
+#[tokio::test]
+async fn selected_xel_path_dispatches_binary_decoder_without_cross_fallback_or_returning_the_path() {
+    use std::path::Path;
+    use std::sync::atomic::{AtomicU64, Ordering};
+    assert_eq!(format_for_path(Path::new("/tmp/capture.XEL")).unwrap(), NativeLogFormat::MssqlExtendedEventsXel);
+    assert_eq!(format_for_path(Path::new("/tmp/capture.xml")).unwrap(), NativeLogFormat::MssqlExtendedEventsXml);
+    assert!(format_for_path(Path::new("/tmp/capture.sqlplan")).is_err());
+
+    const SAMPLE_XEL: &[u8] =
+        include_bytes!("../../../../../crates/culprit-plans/src/mssql/test_support/mssql-events.sample.xel");
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+    let path = std::env::temp_dir().join(format!(
+        "culprit-event-xel-{}-{}.xel",
+        std::process::id(),
+        NEXT.fetch_add(1, Ordering::Relaxed)
+    ));
+    std::fs::write(&path, SAMPLE_XEL).unwrap();
+    let format = format_for_path(&path).unwrap();
+    let selected = path.clone();
+    let result = settle_import(None, &CollectionCancellation::default(), move |operation| {
+        culprit_engine::native_logs::analyze_file_with(&selected, format, Default::default(), operation)
+    })
+    .await;
+    std::fs::remove_file(&path).unwrap();
+    let result = result.unwrap();
+    assert_eq!(result.input.format, NativeLogFormat::MssqlExtendedEventsXel);
+    assert!(result.evidence.resource.is_none());
+    assert_eq!(result.evidence.observations.len(), 4);
+    assert!(!serde_json::to_string(&result).unwrap().contains(&path.display().to_string()));
+}

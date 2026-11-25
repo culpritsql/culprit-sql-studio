@@ -51,3 +51,4 @@ pub fn test_source(
 }
 
 pub mod deadlocks;
+pub const SAMPLE_EVENTS_XEL: &[u8] = include_bytes!("test_support/mssql-events.sample.xel");

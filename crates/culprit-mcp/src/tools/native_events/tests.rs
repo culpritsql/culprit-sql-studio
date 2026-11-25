@@ -88,3 +88,47 @@ async fn cancellation_before_dispatch_settles_the_owned_operation_and_malformed_
     assert_eq!(value["evidence"]["observations"], json!([]));
     host.assert_source_free();
 }
+
+#[tokio::test]
+async fn binary_xel_mcp_tool_decodes_base64_payload_in_evidence_only_mode_without_paths_or_database_lookup() {
+    const SAMPLE_XEL: &[u8] =
+        include_bytes!("../../../../culprit-plans/src/mssql/test_support/mssql-events.sample.xel");
+    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut encoded = String::with_capacity(SAMPLE_XEL.len().div_ceil(3) * 4);
+    for chunk in SAMPLE_XEL.chunks(3) {
+        let b0 = chunk[0];
+        let b1 = *chunk.get(1).unwrap_or(&0);
+        let b2 = *chunk.get(2).unwrap_or(&0);
+        encoded.push(ALPHABET[(b0 >> 2) as usize] as char);
+        encoded.push(ALPHABET[(((b0 & 0x03) << 4) | (b1 >> 4)) as usize] as char);
+        encoded.push(if chunk.len() > 1 { ALPHABET[(((b1 & 0x0F) << 2) | (b2 >> 6)) as usize] as char } else { '=' });
+        encoded.push(if chunk.len() > 2 { ALPHABET[(b2 & 0x3F) as usize] as char } else { '=' });
+    }
+
+    let host = Host::new();
+    let tool = host.server.get_tool(NATIVE_EVENTS_XEL_TOOL).unwrap();
+    assert_eq!(tool.annotations.as_ref().unwrap().read_only_hint, Some(true));
+    assert_eq!(tool.annotations.as_ref().unwrap().open_world_hint, Some(false));
+
+    let expected = culprit_engine::native_logs::analyze_bytes(
+        SAMPLE_XEL,
+        NativeLogFormat::MssqlExtendedEventsXel,
+        Default::default(),
+    )
+    .unwrap();
+    let args = json!({ "xel_base64": encoded }).as_object().unwrap().clone();
+    let result = host.server.handle("xel-test", NATIVE_EVENTS_XEL_TOOL, args).await;
+    assert_ne!(result.is_error, Some(true));
+    let value = body(&result);
+    assert_eq!(value["input"], json!(expected.input));
+    assert_eq!(value["report"], json!(expected.report));
+    assert_eq!(value["native_events"], json!(expected.native_events));
+    assert!(value["evidence"]["resource"].is_null());
+    assert!(!value.to_string().contains("private-xel-error-canary"));
+
+    for bad in [json!({ "path": "/private/not-opened.xel" }), json!({ "xel_base64": "not valid base64!!!" })] {
+        let rejected = host.server.handle("xel-test", NATIVE_EVENTS_XEL_TOOL, bad.as_object().unwrap().clone()).await;
+        assert_eq!(rejected.is_error, Some(true));
+    }
+    host.assert_source_free();
+}

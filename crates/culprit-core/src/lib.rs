@@ -234,8 +234,8 @@ pub use memory_participants::{
 };
 pub use model::*;
 pub use native_log_analysis::{
-    ImportedEventDeadlock, ImportedNativeEvents, NativeLogAnalysis, NativeLogArtifact, NativeLogFormat, NativeLogIssue,
-    NativeLogLimits, NativeLogProblem,
+    ImportedEventDeadlock, ImportedEventLocation, ImportedNativeEvents, NativeLogAnalysis, NativeLogArtifact,
+    NativeLogFormat, NativeLogIssue, NativeLogLimits, NativeLogProblem,
 };
 pub use operations::{
     MemoryLimit, NodeResource, NodeResources, ProcessMemory, QueryTermination, TerminationHistory, TerminationReason,

@@ -30,8 +30,8 @@ enum InputFormat {
     Json,
     Csv13,
     Csv,
-    // Supplied Extended Events XML, not a binary .xel file.
     MssqlXeXml,
+    MssqlXeXel,
 }
 impl From<InputFormat> for NativeLogFormat {
     fn from(format: InputFormat) -> Self {
@@ -40,6 +40,7 @@ impl From<InputFormat> for NativeLogFormat {
             InputFormat::Csv13 => Self::PostgresCsv13,
             InputFormat::Csv => Self::PostgresCsv,
             InputFormat::MssqlXeXml => Self::MssqlExtendedEventsXml,
+            InputFormat::MssqlXeXel => Self::MssqlExtendedEventsXel,
         }
     }
 }
@@ -103,6 +104,7 @@ mod tests {
             ("csv13", InputFormat::Csv13),
             ("csv", InputFormat::Csv),
             ("mssql-xe-xml", InputFormat::MssqlXeXml),
+            ("mssql-xe-xel", InputFormat::MssqlXeXel),
         ] {
             let command = Command::try_parse_from(["logs", "not-an-identity.csv", "--input-format", name]).unwrap();
             assert_eq!(command.args.input_format, expected);

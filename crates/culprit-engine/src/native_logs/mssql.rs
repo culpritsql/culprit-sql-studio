@@ -8,10 +8,20 @@ use culprit_core::{
 };
 
 pub(super) fn decode(input: &[u8], limits: NativeLogLimits, artifact: &str) -> DecodedLog {
-    let batch = match culprit_plans::mssql::events::parse_xml(input, limits) {
-        Ok(batch) => batch,
-        Err(problem) => return DecodedLog::stopped(problem),
-    };
+    match culprit_plans::mssql::events::parse_xml(input, limits) {
+        Ok(batch) => project_batch(batch, artifact, false),
+        Err(problem) => DecodedLog::stopped(problem),
+    }
+}
+
+pub(super) fn decode_xel(input: &[u8], limits: NativeLogLimits, artifact: &str) -> DecodedLog {
+    match culprit_plans::mssql::xel::parse_xel(input, limits) {
+        Ok(batch) => project_batch(batch, artifact, true),
+        Err(problem) => DecodedLog::stopped(problem),
+    }
+}
+
+fn project_batch(batch: culprit_plans::mssql::events::ParsedEventXml, artifact: &str, binary_xel: bool) -> DecodedLog {
     let mut timeline = vec![];
     let mut unplaced_positions = vec![];
     for row in &batch.records {
@@ -33,7 +43,11 @@ pub(super) fn decode(input: &[u8], limits: NativeLogLimits, artifact: &str) -> D
                         MssqlExtendedEventKind::DeadlockReport { .. } => message!("native_logs.mssql.deadlock.title"),
                     },
                 )
-                .detail(message!("native_logs.mssql.timeline.detail")),
+                .detail(if binary_xel {
+                    message!("native_logs.mssql.xel_timeline.detail")
+                } else {
+                    message!("native_logs.mssql.timeline.detail")
+                }),
             );
         } else {
             unplaced_positions.push(row.position);
@@ -59,6 +73,11 @@ pub(super) fn decode(input: &[u8], limits: NativeLogLimits, artifact: &str) -> D
         stopped: batch.stopped,
         records_examined: batch.records_examined,
         non_failure_records: 0,
-        native_events: Some(ImportedNativeEvents { timeline, unplaced_positions, deadlocks }),
+        native_events: Some(ImportedNativeEvents {
+            timeline,
+            unplaced_positions,
+            deadlocks,
+            locations: batch.locations,
+        }),
     }
 }

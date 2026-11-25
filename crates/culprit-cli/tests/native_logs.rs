@@ -112,3 +112,33 @@ fn explicit_extended_event_xml_works_without_a_workspace_and_is_never_binary_xel
     let output: Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(output["source"]["state"], "partial");
 }
+
+#[test]
+fn explicit_extended_event_xel_decodes_offline_without_workspace_or_provider_and_refuses_xml_input() {
+    const SAMPLE_XEL: &[u8] = include_bytes!("../../culprit-plans/src/mssql/test_support/mssql-events.sample.xel");
+    let directory = home("native-xe-xel-no-workspace");
+    let path = directory.0.join("production-sql.xel");
+    std::fs::write(&path, SAMPLE_XEL).unwrap();
+    let invalid_home = directory.0.join("blocked-workspace");
+    std::fs::write(&invalid_home, "regular file blocks workspace and credential initialization").unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_culprit"))
+        .arg("logs")
+        .arg(&path)
+        .args(["--input-format", "mssql-xe-xel", "--json"])
+        .env("CULPRIT_HOME", &invalid_home)
+        .env_remove("CULPRIT_LANG")
+        .output()
+        .unwrap();
+    // Sample contains 2 unsupported sql_batch_completed events alongside 4 supported events -> partial exit code 2.
+    assert_eq!(output.status.code(), Some(2), "{}", String::from_utf8_lossy(&output.stderr));
+    let parsed: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(parsed["input"]["format"], "mssql-extended-events-xel");
+    assert_eq!(parsed["input"]["complete"], true);
+    assert!(parsed["evidence"]["resource"].is_null());
+    assert_eq!(parsed["evidence"]["observations"].as_array().unwrap().len(), 4);
+    assert_eq!(parsed["native_events"]["deadlocks"].as_array().unwrap().len(), 1);
+    assert_eq!(parsed["native_events"]["locations"][0]["buffer_offset"], 0x5000);
+    assert!(!parsed.to_string().contains("private-xel-error-canary"));
+    assert!(!parsed.to_string().contains("production-sql.xel"));
+}

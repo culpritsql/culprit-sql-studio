@@ -48,7 +48,7 @@ pub(crate) async fn open_native_events(
             app.dialog()
                 .file()
                 .set_title(culprit_core::t!("native_events.import.title"))
-                .add_filter(culprit_core::t!("native_events.import.filter"), &["xml"])
+                .add_filter(culprit_core::t!("native_events.import.filter_xel"), &["xel", "xml"])
                 .pick_file(move |picked| {
                     let _ = sender.send(picked);
                 });
@@ -58,13 +58,9 @@ pub(crate) async fn open_native_events(
             };
             let Some(picked) = picked else { return Ok(None) };
             let path = picked.into_path().map_err(|_| unreadable())?;
+            let format = format_for_path(&path)?;
             settle_import(permit, &cancellation, move |operation| {
-                culprit_engine::native_logs::analyze_file_with(
-                    &path,
-                    NativeLogFormat::MssqlExtendedEventsXml,
-                    NativeLogLimits::default(),
-                    operation,
-                )
+                culprit_engine::native_logs::analyze_file_with(&path, format, NativeLogLimits::default(), operation)
             })
             .await
             .map(Some)
@@ -96,6 +92,19 @@ async fn settle_import(
         result = &mut work => result,
     }
 }
+pub(crate) fn format_for_path(path: &std::path::Path) -> Result<NativeLogFormat> {
+    let Some(ext) = path.extension().and_then(|ext| ext.to_str()) else {
+        return Err(unreadable());
+    };
+    if ext.eq_ignore_ascii_case("xel") {
+        Ok(NativeLogFormat::MssqlExtendedEventsXel)
+    } else if ext.eq_ignore_ascii_case("xml") {
+        Ok(NativeLogFormat::MssqlExtendedEventsXml)
+    } else {
+        Err(unreadable())
+    }
+}
+
 fn unreadable() -> culprit_core::Error {
     culprit_core::Error::invalid(culprit_core::t!("native_events.import.unreadable"))
 }

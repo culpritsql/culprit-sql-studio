@@ -12,7 +12,9 @@ pub(super) fn decode(input: &[u8], format: NativeLogFormat, limits: NativeLogLim
         NativeLogFormat::PostgresJson => LogFormat::Json,
         NativeLogFormat::PostgresCsv13 => LogFormat::Csv13,
         NativeLogFormat::PostgresCsv => LogFormat::Csv,
-        NativeLogFormat::MssqlExtendedEventsXml => unreachable!("closed XML dispatch"),
+        NativeLogFormat::MssqlExtendedEventsXml | NativeLogFormat::MssqlExtendedEventsXel => {
+            unreachable!("closed MSSQL Extended Events dispatch")
+        }
     };
     match structured_logs::parse(parse_input, format, limits) {
         Ok(batch) => safe_rows(batch),

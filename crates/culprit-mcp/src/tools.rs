@@ -16,7 +16,10 @@ mod artifacts;
 mod incidents;
 mod local_captures;
 mod native_events;
-pub(crate) use native_events::NATIVE_EVENTS_TOOL;
+pub(crate) use native_events::{NATIVE_EVENTS_TOOL, NATIVE_EVENTS_XEL_TOOL};
+pub(crate) fn is_native_events_tool(tool: &str) -> bool {
+    matches!(tool, NATIVE_EVENTS_TOOL | NATIVE_EVENTS_XEL_TOOL)
+}
 mod resources;
 mod response;
 mod warehouse;
@@ -293,6 +296,7 @@ fn tool<T: JsonSchema + 'static>(name: &'static str, title: &'static str, descri
 pub fn definitions(mode: crate::ToolMode, local_captures: bool, warehouse: bool) -> Vec<Tool> {
     let mut tools = if mode == crate::ToolMode::Standard { native_definitions() } else { vec![] };
     tools.push(native_events::definition());
+    tools.push(native_events::xel_definition());
     if local_captures {
         tools.push(local_captures::definition());
     }
@@ -613,6 +617,7 @@ impl CulpritMcp {
             RESOURCES_TOOL => tool_task(move || self.resources(value, warehouse_cancellation)),
             LOCAL_CAPTURE_TOOL => tool_task(move || self.analyze_capture(value, operation)),
             NATIVE_EVENTS_TOOL => tool_task(move || self.analyze_event_xml(value, operation)),
+            NATIVE_EVENTS_XEL_TOOL => tool_task(move || self.analyze_event_xel(value, operation)),
             "scan" => provider_task(move || async move {
                 let a: ScanArgs = args(value)?;
                 self.allowed(&a.connection)?;

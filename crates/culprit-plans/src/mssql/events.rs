@@ -1,6 +1,6 @@
-//! Bounded supplied Extended Events XML. This is not a binary XEL decoder or a native feed authenticator.
+//! Bounded supplied Extended Events XML and shared event normalization. Binary .xel framing lives in `super::xel`.
 use culprit_core::{
-    Deadlock, Engine, NativeLogIssue, NativeLogLimits, NativeLogProblem,
+    Deadlock, Engine, ImportedEventLocation, NativeLogIssue, NativeLogLimits, NativeLogProblem,
     telemetry::{
         ActivityClient, DefinitionPayload, MssqlExtendedEventKind, MssqlExtendedEventObservation, PayloadUnavailable,
     },
@@ -8,14 +8,24 @@ use culprit_core::{
 use roxmltree::{Document, Node};
 use std::collections::BTreeMap;
 
-type Parsed<T> = std::result::Result<T, NativeLogProblem>;
+pub(super) type Parsed<T> = std::result::Result<T, NativeLogProblem>;
 
 pub struct ParsedEventXml {
     pub records: Vec<MssqlExtendedEventObservation>,
     pub deadlocks: Vec<(u32, Deadlock)>,
+    pub locations: Vec<ImportedEventLocation>,
     pub issues: Vec<NativeLogIssue>,
     pub stopped: Option<NativeLogProblem>,
     pub records_examined: u32,
+}
+
+pub(super) struct RawEvent<'a> {
+    pub package: &'a str,
+    pub name: &'a str,
+    pub timestamp: Option<String>,
+    pub data: BTreeMap<&'a str, String>,
+    pub actions: BTreeMap<&'a str, (&'a str, String)>,
+    pub deadlock_source: &'static str,
 }
 
 /// Decode only a complete XML document with event/event-list/ring-buffer framing. The byte, DOM and row limits are
@@ -50,8 +60,14 @@ fn parse_document(doc: &Document, xml: &str, limits: NativeLogLimits) -> Parsed<
     {
         return Err(NativeLogProblem::NativeShape);
     }
-    let mut batch =
-        ParsedEventXml { records: vec![], deadlocks: vec![], issues: vec![], stopped: None, records_examined: 0 };
+    let mut batch = ParsedEventXml {
+        records: vec![],
+        deadlocks: vec![],
+        locations: vec![],
+        issues: vec![],
+        stopped: None,
+        records_examined: 0,
+    };
     for event in doc.descendants().filter(|node| node.has_tag_name("event")) {
         if batch.records_examined as usize == limits.records {
             batch.stopped = Some(NativeLogProblem::RecordLimit);
@@ -59,6 +75,7 @@ fn parse_document(doc: &Document, xml: &str, limits: NativeLogLimits) -> Parsed<
         }
         let position = batch.records_examined;
         batch.records_examined += 1;
+        let event_offset = event.range().start as u64;
         let result = if xml[event.range()].len() > limits.record_bytes {
             Err(NativeLogProblem::RecordBytes)
         } else {
@@ -67,6 +84,7 @@ fn parse_document(doc: &Document, xml: &str, limits: NativeLogLimits) -> Parsed<
         match result {
             Ok((row, graphs)) => {
                 batch.records.push(row);
+                batch.locations.push(ImportedEventLocation { position, buffer_offset: None, event_offset });
                 batch.deadlocks.extend(graphs.into_iter().map(|graph| (position, graph)));
             }
             Err(problem) => batch.issues.push(NativeLogIssue { position, problem }),
@@ -84,6 +102,107 @@ fn parse_document(doc: &Document, xml: &str, limits: NativeLogLimits) -> Parsed<
         batch.stopped = Some(NativeLogProblem::NativeShape);
     }
     Ok(batch)
+}
+
+pub(super) fn normalize_raw_event(
+    raw: RawEvent<'_>,
+    position: u32,
+    field_bytes: usize,
+) -> Parsed<(MssqlExtendedEventObservation, Vec<Deadlock>)> {
+    if raw.package != "sqlserver" {
+        return Err(NativeLogProblem::NativeShape);
+    }
+    if raw.timestamp.as_ref().is_some_and(|value| value.len() > field_bytes)
+        || raw.data.values().any(|value| value.len() > field_bytes)
+        || raw.actions.values().any(|(_, value)| value.len() > field_bytes)
+    {
+        return Err(NativeLogProblem::FieldBytes);
+    }
+    let action = |name: &str, expected_pkg: &str| -> Parsed<Option<&str>> {
+        let Some((pkg, value)) = raw.actions.get(name) else {
+            return Ok(None);
+        };
+        if *pkg != expected_pkg {
+            return Err(NativeLogProblem::NativeShape);
+        }
+        Ok(Some(value.as_str()))
+    };
+    fn required_number<T: std::str::FromStr + ToString>(raw: &RawEvent<'_>, name: &str) -> Parsed<T> {
+        let text = raw.data.get(name).ok_or(NativeLogProblem::NativeShape)?;
+        text.parse::<T>()
+            .ok()
+            .filter(|value| value.to_string() == *text)
+            .ok_or_else(|| NativeLogProblem::InvalidField(name.into()))
+    }
+    let boolean = |name: &str| -> Parsed<Option<bool>> {
+        raw.data
+            .get(name)
+            .map(|value| match value.as_str() {
+                "true" | "1" => Ok(true),
+                "false" | "0" => Ok(false),
+                _ => Err(NativeLogProblem::InvalidField(name.into())),
+            })
+            .transpose()
+    };
+    let timestamp_utc = raw.timestamp.as_deref().and_then(MssqlExtendedEventObservation::qualified_timestamp);
+    let mut graphs = vec![];
+    let kind = match raw.name {
+        "attention" => MssqlExtendedEventKind::Attention { native_duration: raw.data.get("duration").cloned() },
+        "error_reported" => MssqlExtendedEventKind::ErrorReported {
+            number: required_number(&raw, "error_number")?,
+            severity: required_number(&raw, "severity")?,
+            state: required_number(&raw, "state")?,
+            intercepted: boolean("is_intercepted")?,
+            user_defined: boolean("user_defined")?,
+        },
+        "xml_deadlock_report" | "database_xml_deadlock_report" => {
+            let xml_report = raw.data.get("xml_report").ok_or(NativeLogProblem::NativeShape)?;
+            let parsed_graphs = culprit_core::xml::read(xml_report.trim_start_matches('\u{feff}'), |doc| {
+                let doc = doc.map_err(|_| NativeLogProblem::MalformedRecord)?;
+                let mut found = vec![];
+                for node in doc.descendants().filter(|node| node.has_tag_name("deadlock")) {
+                    let mut graph =
+                        super::deadlocks::parse_deadlock_node(node, raw.deadlock_source, timestamp_utc.clone())
+                            .ok_or(NativeLogProblem::NativeShape)?;
+                    graph.redact(Engine::Mssql);
+                    found.push(graph);
+                }
+                if found.is_empty() {
+                    return Err(NativeLogProblem::NativeShape);
+                }
+                Ok(found)
+            })?;
+            graphs.extend(parsed_graphs);
+            MssqlExtendedEventKind::DeadlockReport { graphs: graphs.len() as u32 }
+        }
+        _ => return Err(NativeLogProblem::UnsupportedEvent),
+    };
+    let client = ActivityClient {
+        application: action("client_app_name", "sqlserver")?.map(str::to_owned),
+        user: action("username", "sqlserver")?.map(str::to_owned),
+        host: action("client_hostname", "sqlserver")?.map(str::to_owned),
+    };
+    let row = MssqlExtendedEventObservation {
+        position,
+        kind,
+        timestamp: raw.timestamp,
+        timestamp_utc,
+        event_sequence: action("event_sequence", "package0")?.map(str::to_owned),
+        session_id: action("session_id", "sqlserver")?.map(str::to_owned),
+        request_id: action("request_id", "sqlserver")?.map(str::to_owned),
+        transaction_id: action("transaction_id", "sqlserver")?.map(str::to_owned),
+        database_id: action("database_id", "sqlserver")?.map(str::to_owned),
+        database: action("database_name", "sqlserver")?.map(str::to_owned),
+        client: (client.application.is_some() || client.user.is_some() || client.host.is_some()).then_some(client),
+        statement: action("sql_text", "sqlserver")?
+            .map_or(DefinitionPayload::Unavailable { reason: PayloadUnavailable::NotCollected }, |sql| {
+                DefinitionPayload::sql(sql, Engine::Mssql)
+            }),
+    };
+    if !row.is_valid() {
+        return Err(NativeLogProblem::NativeShape);
+    }
+    Ok((row, graphs))
 }
 
 fn parse_event(
