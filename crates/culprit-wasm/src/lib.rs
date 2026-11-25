@@ -1,5 +1,5 @@
-//! Four pure operations over the existing models. JSON is the transport, never a second parser or DTO.
-use culprit_core::{CompareContext, Engine, Error, Plan, Result};
+//! Pure operations over the existing models. JSON is the transport, never a second parser or DTO.
+use culprit_core::{CompareContext, Engine, Error, NativeLogLimits, Plan, Result};
 use serde::{Serialize, de::DeserializeOwned};
 use wasm_bindgen::prelude::*;
 
@@ -34,6 +34,28 @@ pub fn diff_plans(
 #[wasm_bindgen(js_name = parseDeadlockJson)]
 pub fn parse_deadlock(input: &str) -> std::result::Result<String, String> {
     encode(culprit_plans::parse_deadlocks(input))
+}
+
+/// Decode a binary SQL Server Extended Events (.xel) buffer within explicit or default bounds.
+/// XML text is refused on this route so binary session-clock framing stays distinct from XML exports.
+#[wasm_bindgen(js_name = parseXelJson)]
+pub fn parse_xel(input: &[u8], limits_json: &str) -> std::result::Result<String, String> {
+    let run = || {
+        let limits = decode::<Option<NativeLogLimits>>(limits_json)?.unwrap_or_else(NativeLogLimits::portable_events);
+        culprit_plans::parse_xel_events(input, limits)
+    };
+    encode(run())
+}
+
+/// Decode exported SQL Server Extended Events XML (`<events>`, `<RingBufferTarget>`, or `<event>`) within bounds.
+/// Binary .xel files are refused on this route.
+#[wasm_bindgen(js_name = parseExtendedEventsXmlJson)]
+pub fn parse_extended_events_xml(input: &[u8], limits_json: &str) -> std::result::Result<String, String> {
+    let run = || {
+        let limits = decode::<Option<NativeLogLimits>>(limits_json)?.unwrap_or_else(NativeLogLimits::portable_events);
+        culprit_plans::parse_extended_events_xml(input, limits)
+    };
+    encode(run())
 }
 
 #[wasm_bindgen(js_name = exportPlanJson)]

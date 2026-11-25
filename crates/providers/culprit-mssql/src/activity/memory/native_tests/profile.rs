@@ -8,7 +8,9 @@ use crate::{
 use culprit_core::Result;
 
 pub(super) const STANDARD_POOL_MEMORY_PERCENT: i64 = 20;
-pub(super) const SCALAR_QUEUE_POOL_MEMORY_PERCENT: i64 = 40;
+// Keep `max_memory_kb * 3 <= 2 GiB` even on a cold 3 GiB SQL Server container (~1.76 GiB poolable * 35% * 3 = 1.77 GiB)
+// while leaving ~180 MiB of ungranted pool headroom around the single 70%-grant holder so the cached plan stays resident.
+pub(super) const SCALAR_QUEUE_POOL_MEMORY_PERCENT: i64 = 35;
 const REQUEST_GRANT_PERCENT: i64 = 100;
 
 const INITIAL: &str = "SELECT /* culprit */ DB_NAME() AS database_name,c.classifier_function_id AS configured_classifier,d.classifier_function_id AS effective_classifier,c.is_enabled,d.is_reconfiguration_pending,CASE WHEN EXISTS(SELECT 1 FROM sys.resource_governor_resource_pools WHERE name NOT IN(N'internal',N'default')) OR EXISTS(SELECT 1 FROM sys.resource_governor_workload_groups WHERE name NOT IN(N'internal',N'default')) OR OBJECT_ID(@P3) IS NOT NULL THEN 1 ELSE 0 END AS collision FROM sys.resource_governor_configuration c CROSS JOIN sys.dm_resource_governor_configuration d";

@@ -146,6 +146,7 @@ jobs:
       - name: Build Linux amd64 collector binary (Ubuntu 22.04 glibc baseline)
         if: matrix.arch == 'amd64'
         env:
+          CARGO_PROFILE_RELEASE_LTO: thin
           CULPRIT_BUILD_REVISION: ${{ needs.source.outputs.sha }}
         run: cargo build --locked --release -p culprit-cli
       - name: Build Linux arm64 collector binary (Debian bookworm glibc baseline)
@@ -153,6 +154,12 @@ jobs:
         env:
           CULPRIT_BUILD_REVISION: ${{ needs.source.outputs.sha }}
         run: |
+          if ! sudo swapon --show | grep -q '/'; then
+            sudo fallocate -l 4G /swapfile
+            sudo chmod 600 /swapfile
+            sudo mkswap /swapfile
+            sudo swapon /swapfile
+          fi
           mkdir -p "$HOME/.cargo/registry" "$HOME/.cargo/git" target
           docker run --rm \
             --user "$(id -u):$(id -g)" \
@@ -161,6 +168,7 @@ jobs:
             -v "$HOME/.cargo/registry":/usr/local/cargo/registry \
             -v "$HOME/.cargo/git":/usr/local/cargo/git \
             -e CARGO_TARGET_DIR=/work/target \
+            -e CARGO_PROFILE_RELEASE_LTO=thin \
             -e CARGO_TERM_COLOR=always \
             -e CULPRIT_BUILD_REVISION="$CULPRIT_BUILD_REVISION" \
             rust:bookworm \

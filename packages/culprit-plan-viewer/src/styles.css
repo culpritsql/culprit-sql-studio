@@ -3459,6 +3459,278 @@
   background: var(--code-bg);
 }
 
+/* ───────── extended events (.xel / XML) ───────── */
+
+.culprit-pv.xe-viewer,
+.culprit-pv .xe-viewer {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  color: var(--text);
+  font-family: var(--font);
+  font-size: var(--fs-body);
+}
+
+.culprit-pv .xe-head {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.culprit-pv .xe-head-top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.culprit-pv .xe-title-group {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 9px;
+}
+
+.culprit-pv .xe-format-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--select-border);
+  background: var(--select);
+  font-size: var(--fs-micro);
+  font-weight: 600;
+  color: var(--text);
+}
+
+.culprit-pv .xe-title {
+  margin: 0;
+  font-size: var(--fs-heading);
+  font-weight: 650;
+  color: var(--text);
+}
+
+.culprit-pv .xe-stats {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 7px;
+  font-size: var(--fs-meta);
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.culprit-pv .xe-scope {
+  margin: 0;
+  font-size: var(--fs-meta);
+  line-height: 1.45;
+}
+
+.culprit-pv .xe-banners {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.culprit-pv .xe-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border-radius: var(--r-sm);
+  font-size: var(--fs-meta);
+  border: 1px solid var(--border);
+  background: var(--sunken);
+  color: var(--text-2);
+}
+
+.culprit-pv .xe-banner.warn {
+  border-color: var(--medium);
+  background: var(--medium-bg);
+  color: var(--text);
+}
+
+.culprit-pv .xe-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 2px;
+}
+
+.culprit-pv .xe-pill-count {
+  margin-inline-start: 4px;
+  opacity: 0.78;
+  font-variant-numeric: tabular-nums;
+}
+
+.culprit-pv .xe-search {
+  min-width: min(260px, 100%);
+  flex: 1 1 220px;
+  max-width: 360px;
+}
+
+.culprit-pv .xe-empty {
+  padding: 28px 18px;
+  text-align: center;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.culprit-pv .xe-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.culprit-pv .xe-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.culprit-pv .xe-card-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.culprit-pv .xe-kind-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: var(--fs-micro);
+  font-weight: 600;
+  border: 1px solid var(--border-strong);
+  background: var(--raised);
+  color: var(--text);
+}
+
+.culprit-pv .xe-kind-pill.deadlock,
+.culprit-pv .xe-kind-pill.error-high {
+  border-color: var(--high);
+  background: var(--high-bg);
+  color: var(--high);
+}
+
+.culprit-pv .xe-kind-pill.error {
+  border-color: var(--medium);
+  background: var(--medium-bg);
+  color: var(--medium);
+}
+
+.culprit-pv .xe-kind-pill.attention {
+  border-color: var(--low);
+  background: var(--low-bg);
+  color: var(--low);
+}
+
+.culprit-pv .xe-time {
+  font-family: var(--mono);
+  font-size: var(--fs-micro);
+}
+
+.culprit-pv .xe-card-title {
+  margin: 0;
+  font-size: var(--fs-strong);
+  font-weight: 650;
+  color: var(--text);
+}
+
+.culprit-pv .xe-card-note {
+  margin: 0;
+  font-size: var(--fs-meta);
+  line-height: 1.45;
+}
+
+.culprit-pv .xe-meta-grid {
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 8px 12px;
+  padding: 9px 11px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--border);
+  background: var(--sunken);
+}
+
+.culprit-pv .xe-meta-item {
+  min-width: 0;
+}
+
+.culprit-pv .xe-meta-item dt {
+  font-size: var(--fs-2xs);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-3);
+}
+
+.culprit-pv .xe-meta-item dd {
+  margin: 2px 0 0;
+  font-family: var(--mono);
+  font-size: var(--fs-meta);
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.culprit-pv .xe-sql-block {
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  overflow: hidden;
+  background: var(--code-bg);
+}
+
+.culprit-pv .xe-sql-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  background: var(--raised);
+  font-size: var(--fs-micro);
+}
+
+.culprit-pv .xe-sql {
+  padding: 10px 12px;
+}
+
+.culprit-pv .xe-deadlock-details {
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--sunken);
+  overflow: hidden;
+}
+
+.culprit-pv .xe-deadlock-details > summary {
+  cursor: pointer;
+  padding: 8px 12px;
+  font-size: var(--fs-ui);
+  font-weight: 600;
+  color: var(--text);
+  background: var(--raised);
+}
+
+.culprit-pv .xe-deadlock-body {
+  padding: 12px;
+  border-top: 1px solid var(--border);
+}
+
 @media (prefers-reduced-motion: reduce) {
   :where(.culprit-pv),
   :where(.culprit-pv) *,

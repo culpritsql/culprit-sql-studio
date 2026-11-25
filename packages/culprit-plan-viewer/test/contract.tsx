@@ -2,6 +2,7 @@ import type { ReactElement } from "react";
 import {
   DeadlockGraph,
   DeadlockViewer,
+  ExtendedEventsViewer,
   NodeDetails,
   PlanCanvas,
   PlanDiagram,
@@ -15,17 +16,24 @@ import {
   PlanView,
   PlanViewer,
   type Deadlock,
+  type ExtendedEventsBatch,
   type Plan,
   type PlanDiff,
 } from "../pkg/index.js";
 
 // Type-only NodeNext consumer contract check: verifies closed generated declarations without app/ or Tauri.
-export function verifyViewerContract(plan: Plan, diff: PlanDiff, deadlock: Deadlock): ReactElement[] {
+export function verifyViewerContract(
+  plan: Plan,
+  diff: PlanDiff,
+  deadlock: Deadlock,
+  events: ExtendedEventsBatch,
+): ReactElement[] {
   return [
     <PlanViewer key="pv" plan={plan} defaultLook="diagram" theme="dark" />,
     <PlanCanvas key="pc" plan={plan} lens="time" showInsights={false} height={480} theme="dark" />,
     <PlanDiffViewer key="pdv" a={plan} b={plan} diff={diff} nameA="Before" nameB="After" />,
     <DeadlockViewer key="dv" deadlock={deadlock} />,
+    <ExtendedEventsViewer key="xev" batch={events} title="system_health.xel" theme="dark" />,
     <PlanSurface key="ps" plan={plan} look="objects" />,
     <PlanDiagram key="pd" plan={plan} showInsights={false} showProps={false} />,
     <PlanTree key="ptree" plan={plan} showHeader={false} showActualSummary={false} showProps={false} showInsights={false} />,

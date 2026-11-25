@@ -1,6 +1,7 @@
 //! Bounded supplied Extended Events XML and shared event normalization. Binary .xel framing lives in `super::xel`.
 use culprit_core::{
-    Deadlock, Engine, ImportedEventLocation, NativeLogIssue, NativeLogLimits, NativeLogProblem,
+    Deadlock, Engine, ExtendedEventsBatch, ExtendedEventsFormat, ImportedEventDeadlock, ImportedEventLocation,
+    NativeLogIssue, NativeLogLimits, NativeLogProblem,
     telemetry::{
         ActivityClient, DefinitionPayload, MssqlExtendedEventKind, MssqlExtendedEventObservation, PayloadUnavailable,
     },
@@ -364,6 +365,84 @@ impl<'a, 'input> EventFields<'a, 'input> {
                 _ => Err(NativeLogProblem::InvalidField(name.into())),
             })
             .transpose()
+    }
+}
+
+/// Decode a binary SQL Server Extended Events (`.xel`) artifact into a typed Core batch, refusing XML text or invalid framing.
+pub fn parse_xel_batch(input: &[u8], limits: NativeLogLimits) -> culprit_core::Result<ExtendedEventsBatch> {
+    let parsed = super::xel::parse_xel(input, limits)
+        .map_err(|problem| problem_error(problem, ExtendedEventsFormat::Xel, limits))?;
+    Ok(into_batch(parsed, ExtendedEventsFormat::Xel, input))
+}
+
+/// Decode exported SQL Server Extended Events XML (`<events>`, `<RingBufferTarget>`, or `<event>`) into a typed Core batch, refusing binary `.xel`.
+pub fn parse_xml_batch(input: &[u8], limits: NativeLogLimits) -> culprit_core::Result<ExtendedEventsBatch> {
+    if limits.is_valid()
+        && input.len() <= limits.input_bytes
+        && input.len() >= 4
+        && u32::from_le_bytes([input[0], input[1], input[2], input[3]]) == 0xEFAB_375A
+    {
+        return Err(problem_error(NativeLogProblem::NativeShape, ExtendedEventsFormat::Xml, limits));
+    }
+    let parsed =
+        parse_xml(input, limits).map_err(|problem| problem_error(problem, ExtendedEventsFormat::Xml, limits))?;
+    Ok(into_batch(parsed, ExtendedEventsFormat::Xml, input))
+}
+
+fn into_batch(parsed: ParsedEventXml, format: ExtendedEventsFormat, input: &[u8]) -> ExtendedEventsBatch {
+    let artifact_sha = culprit_core::telemetry::digest(input);
+    let tag = match format {
+        ExtendedEventsFormat::Xel => "xel",
+        ExtendedEventsFormat::Xml => "xml",
+    };
+    let deadlocks = parsed
+        .deadlocks
+        .into_iter()
+        .enumerate()
+        .map(|(ordinal, (position, mut graph))| {
+            graph.id = culprit_core::telemetry::digest(
+                format!("portable-xe-graph-v1:{tag}:{artifact_sha}:{position}:{ordinal}").as_bytes(),
+            );
+            ImportedEventDeadlock { position, graph }
+        })
+        .collect();
+    ExtendedEventsBatch {
+        format,
+        records: parsed.records,
+        deadlocks,
+        locations: parsed.locations,
+        issues: parsed.issues,
+        stopped: parsed.stopped,
+        records_examined: parsed.records_examined,
+    }
+}
+
+fn problem_error(
+    problem: NativeLogProblem,
+    format: ExtendedEventsFormat,
+    limits: NativeLogLimits,
+) -> culprit_core::Error {
+    use culprit_core::{Error, format as fmt, t};
+    match problem {
+        NativeLogProblem::InvalidLimits => Error::invalid(t!("engine.events.invalid_limits")),
+        NativeLogProblem::InputLimit => {
+            Error::invalid(t!("engine.events.too_large", bytes = fmt::count(limits.input_bytes as f64)))
+        }
+        NativeLogProblem::NativeShape => match format {
+            ExtendedEventsFormat::Xel => {
+                Error::invalid(t!("engine.events.not_xel")).with_hint(t!("engine.events.not_xel.hint"))
+            }
+            ExtendedEventsFormat::Xml => {
+                Error::invalid(t!("engine.events.not_xml")).with_hint(t!("engine.events.not_xml.hint"))
+            }
+        },
+        NativeLogProblem::UnsupportedVersion => {
+            Error::invalid(t!("engine.events.unsupported_version")).with_hint(t!("engine.events.malformed.hint"))
+        }
+        NativeLogProblem::InvalidEncoding | NativeLogProblem::InvalidUtf8 => {
+            Error::invalid(t!("engine.events.bad_encoding")).with_hint(t!("engine.events.not_xml.hint"))
+        }
+        _ => Error::invalid(t!("engine.events.malformed")).with_hint(t!("engine.events.malformed.hint")),
     }
 }
 

@@ -3,6 +3,7 @@ use serde_json::{Value, json};
 
 const POSTGRES: &str = r#"[{"Plan":{"Node Type":"Seq Scan","Relation Name":"orders","Schema":"public","Startup Cost":0.0,"Total Cost":12.5,"Plan Rows":100,"Plan Width":8}}]"#;
 const DEADLOCK: &str = include_str!("../tests/data/postgres-deadlock.log");
+const SAMPLE_XEL: &[u8] = include_bytes!("../../culprit-plans/src/mssql/test_support/mssql-events.sample.xel");
 fn response(value: std::result::Result<String, String>) -> Value {
     serde_json::from_str(&value.unwrap()).unwrap()
 }
@@ -110,4 +111,54 @@ fn json_model_and_context_decode_admit_the_existing_byte_bound_and_refuse_one_ov
     let plan = decode::<Plan>(&at_limit).unwrap_err();
     assert_eq!(plan.code, culprit_core::ErrorCode::InvalidInput);
     assert_eq!(plan.message, expected);
+}
+
+#[test]
+fn xel_and_extended_events_xml_abis_keep_routes_distinct_redact_literals_and_honor_limits() {
+    let xel_out = response(parse_xel(SAMPLE_XEL, "null"));
+    let batch = &xel_out["Ok"];
+    assert_eq!(batch["format"], "xel");
+    assert_eq!(batch["records"].as_array().unwrap().len(), 4);
+    assert_eq!(batch["deadlocks"].as_array().unwrap().len(), 1);
+    assert_eq!(batch["deadlocks"][0]["position"], 5);
+    assert_eq!(batch["deadlocks"][0]["graph"]["processes"].as_array().unwrap().len(), 2);
+    assert_eq!(batch["locations"][0]["buffer_offset"], 0x5000);
+    assert_eq!(batch["records_examined"], 6);
+
+    let raw_json = xel_out.to_string();
+    for secret in [
+        "private-xel-error-canary",
+        "private-xel-msg-canary",
+        "private-xel-cancel-canary",
+        "private-xel-deadlock-a",
+        "private-xel-deadlock-b",
+    ] {
+        assert!(!raw_json.contains(secret), "WASM XEL output leaked {secret}");
+    }
+
+    let capped = response(parse_xel(
+        SAMPLE_XEL,
+        r#"{"input_bytes":1048576,"record_bytes":65536,"field_bytes":32768,"records":2}"#,
+    ));
+    assert_eq!(capped["Ok"]["stopped"]["kind"], "record-limit");
+    assert_eq!(capped["Ok"]["records"].as_array().unwrap().len(), 1);
+
+    let xml = br#"<events><event name="attention" package="sqlserver" timestamp="2026-11-25T04:24:44.500Z"><data name="duration"><value>2500</value></data><action name="sql_text" package="sqlserver"><value>SELECT 'wasm-xml-secret' AS token</value></action></event></events>"#;
+    let xml_out = response(parse_extended_events_xml(xml, "null"));
+    assert_eq!(xml_out["Ok"]["format"], "xml");
+    assert_eq!(xml_out["Ok"]["records"].as_array().unwrap().len(), 1);
+    assert!(!xml_out.to_string().contains("wasm-xml-secret"));
+
+    // Binary .xel and XML routes refuse each other cleanly with hints.
+    let xml_on_xel = response(parse_xel(xml, "null"));
+    assert_eq!(xml_on_xel["Err"]["code"], "invalid_input");
+    assert!(xml_on_xel["Err"]["hint"].as_str().unwrap().contains("parseExtendedEventsXml"));
+
+    let xel_on_xml = response(parse_extended_events_xml(SAMPLE_XEL, "null"));
+    assert_eq!(xel_on_xml["Err"]["code"], "invalid_input");
+    assert!(xel_on_xml["Err"]["hint"].as_str().unwrap().contains("parseXel"));
+
+    let bad_limits =
+        response(parse_xel(SAMPLE_XEL, r#"{"input_bytes":0,"record_bytes":1,"field_bytes":1,"records":1}"#));
+    assert_eq!(bad_limits["Err"]["code"], "invalid_input");
 }

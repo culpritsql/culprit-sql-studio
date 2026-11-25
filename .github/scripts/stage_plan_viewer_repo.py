@@ -16,7 +16,7 @@ ROOT = Path(__file__).resolve().parents[2]
 SEMVER_RE = re.compile(r"^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$")
 STRICT_TAG_RE = re.compile(r"^v(\d+)\.(\d+)\.(\d+)$")
 DESCRIPTION = (
-    "Interactive React execution plan diagram, structural plan diff, and deadlock cycle graph components "
+    "Interactive React execution plan diagram, structural plan diff, deadlock cycle graph, and Extended Events (.xel) components "
     "for SQL Server, PostgreSQL, MySQL, MariaDB, YugabyteDB, and SQLite."
 )
 REPOSITORY_URL = "git+https://github.com/culpritsql/culprit-plan-viewer.git"
@@ -32,6 +32,8 @@ KEYWORDS = [
     "showplan",
     "sqlplan",
     "deadlock",
+    "xel",
+    "extended-events",
     "plan-viewer",
     "postgres",
     "postgresql",
@@ -52,6 +54,8 @@ REQUIRED_PKG = {
     "PlanDiffViewer.d.ts",
     "DeadlockViewer.js",
     "DeadlockViewer.d.ts",
+    "ExtendedEventsViewer.js",
+    "ExtendedEventsViewer.d.ts",
     "build-report.json",
     "THIRD-PARTY-LICENSES.txt",
 }

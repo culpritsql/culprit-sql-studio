@@ -21,6 +21,7 @@ const mssqlXml = await readFile(path.join(fixtureRoot, "mssql-actual.sqlplan"), 
 const pgBeforeJson = await readFile(path.join(fixtureRoot, "pg-seqscan.json"), "utf8");
 const pgAfterTxt = await readFile(path.join(fixtureRoot, "pg-analyze.txt"), "utf8");
 const pgDeadlockLog = await readFile(path.join(root, "crates/culprit-wasm/tests/data/postgres-deadlock.log"), "utf8");
+const sampleXelBytes = Array.from(await readFile(path.join(root, "crates/culprit-plans/src/mssql/test_support/mssql-events.sample.xel")));
 
 // Rich showcase fixtures for crisp visual documentation screenshots when --screenshots is passed.
 const showcaseBeforeJson = JSON.stringify([
@@ -356,7 +357,7 @@ try {
   await page.goto(origin);
 
   const smokeResult = await page.evaluate(
-    async ({ mssqlXml, pgBeforeJson, pgAfterTxt, pgDeadlockLog }) => {
+    async ({ mssqlXml, pgBeforeJson, pgAfterTxt, pgDeadlockLog, sampleXelBytes }) => {
       const ensure = (cond, msg) => {
         if (!cond) throw new Error(msg);
       };
@@ -529,6 +530,24 @@ try {
       ensure(mount.querySelector(".dl-graph svg"), "DeadlockViewer SVG graph missing");
       ensure(mount.querySelectorAll(".dl-proc-card").length === 2, "DeadlockViewer process cards missing");
 
+      // 4. ExtendedEventsViewer (.xel) smoke + filtering + embedded deadlock graph
+      const xelBatch = parser.parseXel(new Uint8Array(sampleXelBytes));
+      await renderSync(
+        React.createElement(viewer.ExtendedEventsViewer, {
+          batch: xelBatch,
+          title: "system_health_0.xel",
+          theme: "dark",
+        }),
+      );
+      ensure(mount.querySelector(".culprit-pv.xe-viewer[data-theme='dark']"), "ExtendedEventsViewer dark root missing");
+      ensure(mount.querySelectorAll(".xe-card").length === 4, "ExtendedEventsViewer expected 4 diagnostic event cards");
+      ensure(mount.querySelector(".xe-deadlock-details .dl-graph svg"), "ExtendedEventsViewer missing embedded DeadlockGraph");
+      const xeFilterTabs = [...mount.querySelectorAll(".xe-filters [role='tab']")];
+      ensure(xeFilterTabs.length === 4, "ExtendedEventsViewer expected 4 filter tabs");
+      xeFilterTabs[1].click();
+      await new Promise((r) => requestAnimationFrame(r));
+      ensure(mount.querySelectorAll(".xe-card").length === 1, "ExtendedEventsViewer deadlock filter expected 1 card");
+
       root.unmount();
       return {
         diagramCards,
@@ -536,9 +555,10 @@ try {
         opRows,
         diffChanges: diff.changes.length,
         deadlockProcs: deadlocks[0].processes.length,
+        xelCards: xelBatch.records.length,
       };
     },
-    { mssqlXml, pgBeforeJson, pgAfterTxt, pgDeadlockLog },
+    { mssqlXml, pgBeforeJson, pgAfterTxt, pgDeadlockLog, sampleXelBytes },
   );
 
   if (screenshotDir) {

@@ -15,6 +15,7 @@ pub(crate) use compare::compare_redacted;
 mod deadlocks;
 pub use culprit_core::PlanFormat;
 pub use deadlocks::parse_deadlocks;
+pub use mssql::events::{parse_xel_batch as parse_xel_events, parse_xml_batch as parse_extended_events_xml};
 pub mod export;
 pub mod mssql;
 pub mod mysql;

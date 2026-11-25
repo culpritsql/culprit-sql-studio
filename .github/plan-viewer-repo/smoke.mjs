@@ -79,6 +79,7 @@ for (const requiredExport of [
   "ActualSummary",
   "DeadlockGraph",
   "DeadlockViewer",
+  "ExtendedEventsViewer",
   "NodeDetails",
   "OpIcon",
   "PlanCanvas",
@@ -297,6 +298,37 @@ const diffHtml = renderToStaticMarkup(
   React.createElement(viewer.PlanDiffViewer, { a: samplePlan, b: samplePlan, diff: sampleDiff }),
 );
 assert(diffHtml.includes("cmp-verdict"), "PlanDiffViewer SSR output missing verdict section");
+
+const sampleXeBatch = {
+  format: "xel",
+  records_examined: 2,
+  stopped: null,
+  issues: [],
+  locations: [{ position: 0, buffer_offset: 0x5000, event_offset: 0x504d }],
+  deadlocks: [{ position: 0, graph: sampleDeadlock }],
+  records: [
+    {
+      position: 0,
+      kind: { event: "deadlock-report", graphs: 1 },
+      timestamp: "2026-10-11T13:48:28Z",
+      timestamp_utc: "2026-10-11T13:48:28Z",
+      event_sequence: "1",
+      session_id: "74",
+      request_id: "0",
+      transaction_id: null,
+      database_id: "6",
+      database: "shop<script>evil()</script>",
+      client: { application: "checkout", user: "app", host: "web-1" },
+      statement: { state: "available", text: "SELECT * FROM orders WHERE id = ?", sha256: "0".repeat(64), redaction_version: 3 },
+    },
+  ],
+};
+const xeHtml = renderToStaticMarkup(
+  React.createElement(viewer.ExtendedEventsViewer, { batch: sampleXeBatch, title: "system_health.xel" }),
+);
+assert(xeHtml.includes("xe-viewer"), "ExtendedEventsViewer SSR output missing xe-viewer root");
+assert(xeHtml.includes("dl-graph"), "ExtendedEventsViewer SSR output missing embedded DeadlockGraph");
+assert(!xeHtml.includes("<script>evil()"), "ExtendedEventsViewer SSR output failed to escape database context");
 
 const deadlockHtml = renderToStaticMarkup(React.createElement(viewer.DeadlockViewer, { deadlock: sampleDeadlock }));
 assert(deadlockHtml.includes("dl-graph"), "DeadlockViewer SSR output missing SVG graph");

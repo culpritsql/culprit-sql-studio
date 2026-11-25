@@ -18,7 +18,7 @@ OUTPUT = PACKAGE / "pkg"
 BINDINGS = ROOT / "app/src/gen"
 THIRD_PARTY_NOTICES = ROOT / "target/licenses/THIRD-PARTY-LICENSES.txt"
 PACKAGED_WASM_STACK_BYTES = 32 * 1024 * 1024
-MODEL_ROOTS = ("Plan", "PlanDiff", "Deadlock", "Engine", "CompareContext", "ExportFile", "ExportFormat", "ExportOptions", "Error")
+MODEL_ROOTS = ("Plan", "PlanDiff", "Deadlock", "Engine", "CompareContext", "ExportFile", "ExportFormat", "ExportOptions", "ExtendedEventsBatch", "ExtendedEventsFormat", "NativeLogLimits", "Error")
 IMPORT = re.compile(r'(from\s+["\'])(\./[^"\']+)(["\'])')
 
 

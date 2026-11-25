@@ -28,7 +28,7 @@ NATIVE_IO = {"tokio", "tokio-util", "reqwest", "hyper", "object_store", "azure_c
 PORTABLE_FORBIDDEN = (FLEET | SOURCES | AUTHENTICATION | CLOUD | LOCAL_DATABASE_FILES | DATABASE_DRIVERS |
                       NATIVE_IO | {"culprit-auth", "culprit-read", "culprit-evidence", "culprit-engine", "culprit-checks"})
 WASM_MODEL_ROOTS = {"Plan", "PlanDiff", "Deadlock", "Engine", "CompareContext", "ExportFile", "ExportFormat",
-                    "ExportOptions", "Error"}
+                    "ExportOptions", "ExtendedEventsBatch", "ExtendedEventsFormat", "NativeLogLimits", "Error"}
 
 
 def tree_output(package, features, output_format, target=None):

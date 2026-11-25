@@ -1,18 +1,21 @@
 import {
-  init, parsePlan, diffPlans, parseDeadlock, exportPlan, ParserError,
+  init, parsePlan, diffPlans, parseDeadlock, parseXel, parseExtendedEventsXml, exportPlan, ParserError,
   type CompareContext, type Deadlock, type Engine, type CoreError,
-  type ExportFile, type ExportOptions, type Plan, type PlanDiff,
+  type ExportFile, type ExportOptions, type ExtendedEventsBatch, type NativeLogLimits, type Plan, type PlanDiff,
 } from "../pkg/index.js";
 
 // Type-only consumer compiled with NodeNext. No app, Tauri, provider or generated model copy is required at runtime.
-export async function portableContract(source: string, engine: Engine): Promise<ExportFile> {
+export async function portableContract(source: string, bytes: Uint8Array, engine: Engine): Promise<ExportFile> {
   await init();
   const plan: Plan = parsePlan(source, engine);
   const context: CompareContext = { statistics: [], taken_at: null };
   const diff: PlanDiff = diffPlans(plan, "before", plan, "after", context);
   const deadlocks: Deadlock[] = parseDeadlock(source);
+  const limits: Partial<NativeLogLimits> = { records: 512 };
+  const xelBatch: ExtendedEventsBatch = parseXel(bytes, limits);
+  const xmlBatch: ExtendedEventsBatch = parseExtendedEventsXml(source, limits);
   const options: ExportOptions = { redact: true, notes: [] };
-  void diff; void deadlocks;
+  void diff; void deadlocks; void xelBatch; void xmlBatch;
   try {
     return exportPlan(plan, "portable", "markdown", options);
   } catch (error) {

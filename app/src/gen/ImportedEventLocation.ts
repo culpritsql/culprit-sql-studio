@@ -8,8 +8,8 @@ position: number,
 /**
  * Byte offset of the enclosing binary XEL event buffer in the supplied artifact (`None` for XML exports).
  */
-buffer_offset: bigint | null, 
+buffer_offset: number | null, 
 /**
  * Byte offset of the event record within the supplied artifact.
  */
-event_offset: bigint, };
+event_offset: number, };

@@ -16,7 +16,7 @@ ROOT = Path(__file__).resolve().parents[2]
 SEMVER_RE = re.compile(r"^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$")
 STRICT_TAG_RE = re.compile(r"^v(\d+)\.(\d+)\.(\d+)$")
 DESCRIPTION = (
-    "Portable WebAssembly execution plan parser, comparator, deadlock parser, and exporter "
+    "Portable WebAssembly execution plan parser, comparator, deadlock & Extended Events (.xel) parser, and exporter "
     "for SQL Server, PostgreSQL, MySQL, MariaDB, YugabyteDB, and SQLite."
 )
 REPOSITORY_URL = "git+https://github.com/culpritsql/culprit-plans.git"
@@ -30,6 +30,8 @@ KEYWORDS = [
     "showplan",
     "sqlplan",
     "deadlock",
+    "xel",
+    "extended-events",
     "wasm",
     "webassembly",
     "postgres",

@@ -1,12 +1,12 @@
 # culprit-plans
 
-Portable database plan, deadlock and event XML parsing, comparison and plan exports.
+Portable database plan, deadlock and SQL Server Extended Events (`.xel` and XML) parsing, comparison and plan exports.
 
 ## What it does
 
 - Reads SQL Server, PostgreSQL, MySQL, MariaDB, YugabyteDB and SQLite plans.
 - Parses database deadlock text and graphs.
-- Reads bounded SQL Server Extended Events XML for attention, error and deadlock records.
+- Reads bounded SQL Server Extended Events binary `.xel` captures and XML exports for attention, error and deadlock records.
 - Compares supplied plans using Culprit’s existing evidence rules.
 - Exports plans as Markdown, self-contained HTML or native plan text.
 
@@ -16,10 +16,10 @@ The shared Core model, XML parsing and JSON parsing. It opens no database connec
 
 ## Entry points
 
-`parse_plan`, `parse_native_plan`, `compare_plans`, `parse_deadlocks`, `mssql::events::parse_xml`, and `export::export_plan`.
+`parse_plan`, `parse_native_plan`, `compare_plans`, `parse_deadlocks`, `parse_xel_events`, `parse_extended_events_xml`, `mssql::xel::parse_xel`, `mssql::events::parse_xml`, and `export::export_plan`.
 
 Exports receive their timestamp from the caller. Literal redaction stays enabled by default.
-Event XML import preserves missing clocks and identities; binary `.xel` decoding requires separate support.
+Extended Events `.xel` and XML decoding keep binary session-clock framing and exported XML routes distinct while preserving missing clocks and contextual identities.
 
 ## Languages and WebAssembly
 

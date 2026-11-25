@@ -30,6 +30,11 @@ impl Default for NativeLogLimits {
     }
 }
 impl NativeLogLimits {
+    /// Standalone Extended Events default bounds (up to 8 MiB so standard 5 MB SQL Server `system_health_*.xel`
+    /// rollover files and multi-session deadlock XML payloads decode without artificial truncation).
+    pub const fn portable_events() -> Self {
+        Self { input_bytes: 8 * 1024 * 1024, record_bytes: 256 * 1024, field_bytes: 64 * 1024, records: 4096 }
+    }
     pub fn is_valid(self) -> bool {
         (1..=8 * 1024 * 1024).contains(&self.input_bytes)
             && (1..=256 * 1024).contains(&self.record_bytes)
@@ -123,8 +128,10 @@ pub struct ImportedEventLocation {
     /// Zero-based position in `evidence.observations` within this supplied artifact.
     pub position: u32,
     /// Byte offset of the enclosing binary XEL event buffer in the supplied artifact (`None` for XML exports).
+    #[ts(type = "number | null")]
     pub buffer_offset: Option<u64>,
     /// Byte offset of the event record within the supplied artifact.
+    #[ts(type = "number")]
     pub event_offset: u64,
 }
 
@@ -134,4 +141,26 @@ pub struct ImportedEventDeadlock {
     /// Position in this artifact only; graph IDs do not prove a distinct native occurrence across imports.
     pub position: u32,
     pub graph: crate::Deadlock,
+}
+
+#[derive(Serialize, Deserialize, TS, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+#[ts(export)]
+pub enum ExtendedEventsFormat {
+    Xel,
+    Xml,
+}
+
+/// Bounded SQL Server Extended Events decoded from an explicit binary `.xel` or XML artifact.
+/// Captured metadata, client labels, and statements are contextual; they establish neither database ownership nor complete history.
+#[derive(Serialize, Deserialize, TS, Clone, Debug, PartialEq)]
+#[ts(export)]
+pub struct ExtendedEventsBatch {
+    pub format: ExtendedEventsFormat,
+    pub records: Vec<crate::telemetry::MssqlExtendedEventObservation>,
+    pub deadlocks: Vec<ImportedEventDeadlock>,
+    pub locations: Vec<ImportedEventLocation>,
+    pub issues: Vec<NativeLogIssue>,
+    pub stopped: Option<NativeLogProblem>,
+    pub records_examined: u32,
 }

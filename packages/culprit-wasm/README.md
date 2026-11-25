@@ -18,13 +18,15 @@ For another local project, build this package first and point a `file:` dependen
 Serve the built package over HTTP with `.wasm` files served as `application/wasm`. Import its ESM entry and initialize the module before using its synchronous operations:
 
 ```ts
-import { init, parsePlan, diffPlans, parseDeadlock, exportPlan } from "@culpritsql/plans";
+import { init, parsePlan, diffPlans, parseDeadlock, parseXel, parseExtendedEventsXml, exportPlan } from "@culpritsql/plans";
 
 await init();
 const before = parsePlan(beforeText);
 const after = parsePlan(afterText, "postgres");
 const difference = diffPlans(before, "before", after, "after");
 const deadlocks = parseDeadlock(deadlockText);
+const xel = parseXel(new Uint8Array(await xelFile.arrayBuffer()));
+const xeXml = parseExtendedEventsXml(exportedEventsXml);
 const file = exportPlan(after, "query plan", "markdown", { redact: true, notes: [] });
 ```
 

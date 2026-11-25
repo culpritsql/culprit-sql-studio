@@ -1,6 +1,6 @@
 # @culpritsql/plan-viewer
 
-Interactive React execution plan diagrams, structural plan diffs, and deadlock cycle graphs extracted from [Culprit SQL Studio](https://github.com/culpritsql/culprit-sql-studio).
+Interactive React execution plan diagrams, structural plan diffs, deadlock cycle graphs, and SQL Server Extended Events (`.xel` / XML) viewers extracted from [Culprit SQL Studio](https://github.com/culpritsql/culprit-sql-studio).
 
 - **Standalone repository & docs**: [github.com/culpritsql/culprit-plan-viewer](https://github.com/culpritsql/culprit-plan-viewer)
 - **WebAssembly parser companion**: [`@culpritsql/plans`](https://github.com/culpritsql/culprit-plans)

@@ -29,6 +29,7 @@ const fixtures = await Promise.all(cases.map(async ([name, engine]) => {
   return { name, engine, text, sha256: createHash("sha256").update(text).digest("hex") };
 }));
 const deadlock = await readFile(path.join(root, "crates/culprit-wasm/tests/data/postgres-deadlock.log"), "utf8");
+const sampleXelBytes = Array.from(await readFile(path.join(root, "crates/culprit-plans/src/mssql/test_support/mssql-events.sample.xel")));
 const report = JSON.parse(await readFile(path.join(packageRoot, "pkg/build-report.json"), "utf8"));
 assert.equal(report.stack_policy?.linear_stack_bytes, 32 * 1024 * 1024, "use the explicit packaged XML stack policy");
 const canonicalPackageRoot = await realpath(packageRoot);
@@ -72,9 +73,9 @@ try {
   });
   page.on("response", (response) => assets.push({ url: response.url(), status: response.status(), contentType: response.headers()["content-type"] }));
   await page.goto(origin);
-  const actual = await page.evaluate(async ({ fixtures, deadlock, stackBytes }) => {
+  const actual = await page.evaluate(async ({ fixtures, deadlock, sampleXelBytes, stackBytes }) => {
     const parser = await import("/pkg/index.js");
-    const expectedExports = ["ParserError", "diffPlans", "exportPlan", "init", "parseDeadlock", "parsePlan"];
+    const expectedExports = ["ParserError", "diffPlans", "exportPlan", "init", "parseDeadlock", "parseExtendedEventsXml", "parsePlan", "parseXel"];
     if (JSON.stringify(Object.keys(parser).sort()) !== JSON.stringify(expectedExports)) {
       throw new Error("Standalone package exposed an unexpected runtime capability");
     }
@@ -142,6 +143,17 @@ try {
     ensure(observed.length === 1 && observed[0].processes.length === 2, "deadlock observation vector lost");
     ensure(observed[0].at === "2026-10-11T13:48:28Z", "explicit native UTC clock changed");
     ensure(observed[0].source === "pasted", "pasted source changed");
+    const xelBytes = new Uint8Array(sampleXelBytes);
+    const xelBatch = parser.parseXel(xelBytes);
+    ensure(xelBatch.format === "xel" && xelBatch.records.length === 4 && xelBatch.deadlocks.length === 1, "binary .xel batch lost records or deadlocks");
+    ensure(xelBatch.locations[0]?.buffer_offset === 0x5000, "binary .xel buffer offset lost");
+    const xelSerialized = JSON.stringify(xelBatch);
+    for (const secret of ["private-xel-error-canary", "private-xel-msg-canary", "private-xel-cancel-canary", "private-xel-deadlock-a", "private-xel-deadlock-b"]) {
+      ensure(!xelSerialized.includes(secret), `binary .xel leaked ${secret}`);
+    }
+    const xeXml = `<events><event name="attention" package="sqlserver" timestamp="2026-11-25T04:24:44.500Z"><data name="duration"><value>2500</value></data><action name="sql_text" package="sqlserver"><value>SELECT 'wasm-xe-xml-canary' AS token</value></action></event></events>`;
+    const xmlBatch = parser.parseExtendedEventsXml(xeXml);
+    ensure(xmlBatch.format === "xml" && xmlBatch.records.length === 1 && !JSON.stringify(xmlBatch).includes("wasm-xe-xml-canary"), "Extended Events XML batch or redaction failed");
     const privatePlan = structuredClone(plans[0]);
     privatePlan.statement = "SELECT * FROM orders WHERE token='wasm-private-literal'";
     privatePlan.raw = null;
@@ -158,13 +170,15 @@ try {
       () => parser.parsePlan(fixtures[1].text, "mysql"),
       () => parser.parsePlan(""),
       () => parser.parseDeadlock("no native deadlock here"),
+      () => parser.parseXel(new TextEncoder().encode(xeXml)),
+      () => parser.parseExtendedEventsXml(xelBytes),
       () => parser.exportPlan(privatePlan, "portable", "native", options),
     ]) { invalid(action, "existing typed refusal"); refused++; }
     ensure(parser.parsePlan(fixtures[1].text, "postgres").engine === "postgres", "module was corrupted after controlled refusals");
-    return { parsedFormats: plans.length, engines: [...new Set(plans.map((plan) => plan.engine))], sameShape: diff.same_shape, deadlocks: observed.length, exportFormats: [markdown.format, html.format, native.format], refused, safety: { xmlDepth: maxXmlDepth, planDepth: observedDepth, dtdRefused: true, malformedJsonRefused: true, nativePrivacy: true, initialMemoryBytes } };
-  }, { fixtures, deadlock, stackBytes: report.stack_policy.linear_stack_bytes });
+    return { parsedFormats: plans.length, engines: [...new Set(plans.map((plan) => plan.engine))], sameShape: diff.same_shape, deadlocks: observed.length, xelRecords: xelBatch.records.length, exportFormats: [markdown.format, html.format, native.format], refused, safety: { xmlDepth: maxXmlDepth, planDepth: observedDepth, dtdRefused: true, malformedJsonRefused: true, nativePrivacy: true, initialMemoryBytes } };
+  }, { fixtures, deadlock, sampleXelBytes, stackBytes: report.stack_policy.linear_stack_bytes });
   assert.equal(actual.parsedFormats, cases.length);
-  assert.equal(actual.refused, 8);
+  assert.equal(actual.refused, 10);
   assert.deepEqual(unexpected, []);
   assert(assets.some((asset) => asset.url.endsWith(".wasm") && asset.status === 200 && asset.contentType === "application/wasm"));
   assert(assets.filter((asset) => asset.url.startsWith(`${origin}/pkg/`)).every((asset) => asset.status === 200));

@@ -67,7 +67,7 @@ for (const model of report.models) {
 const parser = await import(new URL("../pkg/index.js", import.meta.url));
 assert.deepEqual(
   Object.keys(parser).sort(),
-  ["ParserError", "diffPlans", "exportPlan", "init", "parseDeadlock", "parsePlan"],
+  ["ParserError", "diffPlans", "exportPlan", "init", "parseDeadlock", "parseExtendedEventsXml", "parsePlan", "parseXel"],
 );
 
 const wasmBytes = await readFile(path.join(root, "pkg/native/culprit_wasm_bg.wasm"));
@@ -124,6 +124,12 @@ const deadlocks = parser.parseDeadlock(pgDeadlock);
 assert.equal(deadlocks.length, 1);
 assert.equal(deadlocks[0].processes.length, 2);
 
+const xeXml = `<events><event name="attention" package="sqlserver" timestamp="2026-11-25T04:24:44.500Z"><data name="duration"><value>2500</value></data><action name="sql_text" package="sqlserver"><value>SELECT '${canary}' AS token</value></action></event></events>`;
+const xeBatch = parser.parseExtendedEventsXml(xeXml);
+assert.equal(xeBatch.format, "xml");
+assert.equal(xeBatch.records.length, 1);
+assert(!JSON.stringify(xeBatch).includes(canary), "Extended Events XML leaked literal");
+
 for (const format of ["markdown", "html", "native"]) {
   const exported = parser.exportPlan(mssqlPlan, "check <script>", format, { redact: true, notes: [] });
   assert(!exported.contents.includes(canary), `${format} export leaked literal`);
@@ -134,6 +140,8 @@ for (const badCall of [
   () => parser.parsePlan(""),
   () => parser.parsePlan(pgJson, "mysql"),
   () => parser.parsePlan(`<!DOCTYPE ShowPlanXML [<!ENTITY x "y">]>${mssqlXml}`, "mssql"),
+  () => parser.parseXel(new TextEncoder().encode(xeXml)),
+  () => parser.parseExtendedEventsXml(new Uint8Array([0x5a, 0x37, 0xab, 0xef, 0x0a, 0x00, 0x00, 0x00])),
 ]) {
   assert.throws(badCall, (err) => err instanceof parser.ParserError && err.error.code === "invalid_input");
 }

@@ -11,6 +11,6 @@ export function nativeEventArtifact(marker = "These imported rows do not count n
     source: { source: "supplied-mssql-event-xml", state: "collected", reason: null },
     records_examined: 2, non_failure_records: 0, issues: [], stopped: null,
     report: { incident_input: { kind: "ineligible", reason: "shared-ownership-unavailable" }, incident_input_explanation: "The artifact does not prove native ownership.", source_state: "collected", source_reason: null, title: "Supplied database event evidence", summary: marker, limitations: ["No historical owner or complete history is established."], entries: [0, 1].map((position) => ({ position, title: `Native event ${position}`, explanation: "The captured event is contextual evidence.", investigation: "Compare independently qualified original evidence.", verify: "Verify using the same qualified native scope." })) },
-    native_events: { timeline: [], unplaced_positions: [1], deadlocks: [], locations: [{ position: 0, buffer_offset: null, event_offset: 8n }, { position: 1, buffer_offset: null, event_offset: 120n }] },
+    native_events: { timeline: [], unplaced_positions: [1], deadlocks: [], locations: [{ position: 0, buffer_offset: null, event_offset: 8 }, { position: 1, buffer_offset: null, event_offset: 120 }] },
   };
 }

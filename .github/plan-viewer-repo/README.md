@@ -122,6 +122,25 @@ const [deadlock] = parseDeadlock(serverDeadlockText);
 
 ---
 
+## `ExtendedEventsViewer`
+
+Client-side inspector for binary SQL Server Extended Events (`.xel`) captures (`system_health*.xel`, Azure SQL Blob XE targets) and exported Extended Events XML:
+
+- **Event type filtering & search**: Filter `xml_deadlock_report`, `error_reported`, and `attention` records by database, session, application, login, host, error code, or redacted SQL.
+- **Embedded deadlock graphs**: Automatically expands any captured `xml_deadlock_report` into `DeadlockViewer` with lock-cycle SVG and SQL fixes.
+- **Honest clock & truncation reporting**: Preserves UTC session clocks vs offset-free timestamps and surfaces truncated trailing blocks or skipped non-failure events clearly.
+
+```tsx
+import { parseXel } from "@culpritsql/plans";
+import { ExtendedEventsViewer } from "@culpritsql/plan-viewer";
+
+const batch = parseXel(new Uint8Array(await xelFile.arrayBuffer()));
+
+<ExtendedEventsViewer batch={batch} title={xelFile.name} />;
+```
+
+---
+
 ## Theming & CSS Isolation
 
 `@culpritsql/plan-viewer/styles.css` scopes every token, reset, and selector inside `.culprit-pv`. Importing it never alters your application's `html`, `body`, scrollbars, or global `<button>` styles.

@@ -14,7 +14,7 @@
 [![TypeScript](https://img.shields.io/badge/types-ts--rs-3178c6?style=flat-square&labelColor=181715)](https://github.com/culpritsql/culprit-sql-studio)
 [![License: MIT](https://img.shields.io/badge/license-MIT-4cbb84?style=flat-square&labelColor=181715)](./LICENSE)
 
-**Portable WebAssembly execution plan parser, structural differ, deadlock parser, and exporter.**
+**Portable WebAssembly execution plan parser, structural differ, deadlock & Extended Events (`.xel`) parser, and exporter.**
 <br />
 Compiled directly from [Culprit SQL Studio](https://github.com/culpritsql/culprit-sql-studio) and paired with [`@culpritsql/plan-viewer`](https://github.com/culpritsql/culprit-plan-viewer).
 
@@ -30,7 +30,7 @@ Compiled directly from [Culprit SQL Studio](https://github.com/culpritsql/culpri
 npm install @culpritsql/plans
 ```
 
-Initialize the WebAssembly module once, then call the synchronous parser, comparison, deadlock, and export operations:
+Initialize the WebAssembly module once, then call the synchronous parser, comparison, deadlock, Extended Events, and export operations:
 
 ```ts
 import {
@@ -38,6 +38,8 @@ import {
   parsePlan,
   diffPlans,
   parseDeadlock,
+  parseXel,
+  parseExtendedEventsXml,
   exportPlan,
 } from "@culpritsql/plans";
 
@@ -48,21 +50,22 @@ const after = parsePlan(afterPlanText, "postgres");
 const diff = diffPlans(before, "Before", after, "After");
 
 const deadlocks = parseDeadlock(deadlockLogText);
+const xelEvents = parseXel(new Uint8Array(await xelFile.arrayBuffer()));
 const exported = exportPlan(after, "checkout-query", "markdown", {
   redact: true,
   notes: [],
 });
 ```
 
-> Rendering in React? Pass `Plan`, `PlanDiff`, and `Deadlock` directly to [`@culpritsql/plan-viewer`](https://www.npmjs.com/package/@culpritsql/plan-viewer). Both packages share the exact same generated `ts-rs` model types.
+> Rendering in React? Pass `Plan`, `PlanDiff`, `Deadlock`, and `ExtendedEventsBatch` directly to [`@culpritsql/plan-viewer`](https://www.npmjs.com/package/@culpritsql/plan-viewer). Both packages share the exact same generated `ts-rs` model types.
 
 ---
 
 ## Supported Engines
 
-| Engine | Execution Plans | Deadlocks |
+| Engine | Execution Plans | Deadlocks & Native Events |
 | --- | --- | --- |
-| **SQL Server** | `.sqlplan` Showplan XML | XML deadlock graphs |
+| **SQL Server** | `.sqlplan` Showplan XML | XML deadlock graphs, binary `.xel` & XML Extended Events (`xml_deadlock_report`, `error_reported`, `attention`) |
 | **PostgreSQL** | `EXPLAIN (FORMAT JSON)`, `EXPLAIN (ANALYZE, BUFFERS)` text | Server log deadlock excerpts |
 | **MySQL & MariaDB** | `EXPLAIN FORMAT=JSON`, `EXPLAIN ANALYZE` tree text | `SHOW ENGINE INNODB STATUS` |
 | **YugabyteDB** | `EXPLAIN (FORMAT JSON)` + DocDB RPC/storage metrics | PostgreSQL-compatible logs |
@@ -78,6 +81,8 @@ const exported = exportPlan(after, "checkout-query", "markdown", {
 | `parsePlan` | `parsePlan(input: string, engine?: Engine): Plan` | Auto-detects format or validates strictly against `"mssql" \| "postgres" \| "mysql" \| "yugabyte" \| "sqlite"` |
 | `diffPlans` | `diffPlans(a: Plan, nameA: string, b: Plan, nameB: string, context?: CompareContext): PlanDiff` | Computes structural operator changes, access-path flips, cardinality shifts, and speedup/cost verdicts |
 | `parseDeadlock` | `parseDeadlock(input: string): Deadlock[]` | Extracts victim selection, participant sessions, held/waited locks, and original timestamps |
+| `parseXel` | `parseXel(input: Uint8Array, limits?: Partial<NativeLogLimits>): ExtendedEventsBatch` | Decodes binary SQL Server `.xel` captures (with SQL literal redaction and embedded deadlock graph extraction) |
+| `parseExtendedEventsXml` | `parseExtendedEventsXml(input: string \| Uint8Array, limits?: Partial<NativeLogLimits>): ExtendedEventsBatch` | Decodes exported `<events>`, `<RingBufferTarget>`, or `<event>` XML records |
 | `exportPlan` | `exportPlan(plan: Plan, title: string, format: ExportFormat, options: ExportOptions): ExportFile` | Exports `"markdown"`, `"html"`, or `"native"` with optional SQL literal redaction |
 | `ParserError` | `class ParserError extends Error` | Structured refusal error (`error.error` carries `{ code, message, hint, detail }`) instead of Wasm traps |
 

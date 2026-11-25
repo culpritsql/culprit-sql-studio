@@ -3,6 +3,11 @@ export { DeadlockGraph } from "./DeadlockGraph.js";
 export { DeadlockViewer, deadlockPatternLabel, deadlockWhen, type DeadlockViewerProps } from "./DeadlockViewer.js";
 export { DocdbWork } from "./DocdbWork.js";
 export {
+  ExtendedEventsViewer,
+  type ExtendedEventsFilter,
+  type ExtendedEventsViewerProps,
+} from "./ExtendedEventsViewer.js";
+export {
   bindPlanViewerClipboard,
   bindPlanViewerI18n,
   type MessageArgs,
@@ -26,16 +31,28 @@ export { PlanViewer, type PlanViewerProps, type PlanViewerTheme } from "./PlanVi
 export { Prose } from "./Prose.js";
 export { Sql } from "./Sql.js";
 export type {
+  ActivityClient,
   ChangeKind,
   Deadlock,
   DeadlockFix,
   DeadlockPattern,
   DeadlockProcess,
   DeadlockResource,
+  DefinitionPayload,
   DocdbMetrics,
   Engine,
+  ExtendedEventsBatch,
+  ExtendedEventsFormat,
+  ImportedEventDeadlock,
+  ImportedEventLocation,
   InsightArea,
+  MssqlExtendedEventKind,
+  MssqlExtendedEventObservation,
+  NativeLogIssue,
+  NativeLogLimits,
+  NativeLogProblem,
   NodeRuntime,
+  PayloadUnavailable,
   Plan,
   PlanChange,
   PlanDiff,
