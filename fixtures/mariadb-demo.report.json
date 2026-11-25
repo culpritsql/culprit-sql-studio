@@ -118,6 +118,42 @@
       "title": "Configuration"
     },
     {
+      "check": "public-endpoint",
+      "reason": "Security and backup posture metadata was not collected in this scan.",
+      "status": "insufficient-evidence",
+      "title": "Public network endpoint enabled"
+    },
+    {
+      "check": "unencrypted-connections",
+      "reason": "Security and backup posture metadata was not collected in this scan.",
+      "status": "insufficient-evidence",
+      "title": "Unencrypted client connections"
+    },
+    {
+      "check": "password-auth-enabled",
+      "reason": "Security and backup posture metadata was not collected in this scan.",
+      "status": "insufficient-evidence",
+      "title": "Password authentication enabled"
+    },
+    {
+      "check": "audit-disabled",
+      "reason": "Security and backup posture metadata was not collected in this scan.",
+      "status": "insufficient-evidence",
+      "title": "Database auditing disabled"
+    },
+    {
+      "check": "backup-retention-short",
+      "reason": "Security and backup posture metadata was not collected in this scan.",
+      "status": "insufficient-evidence",
+      "title": "Short backup retention or stale backup"
+    },
+    {
+      "check": "integrity-check-overdue",
+      "reason": "Security and backup posture metadata was not collected in this scan.",
+      "status": "insufficient-evidence",
+      "title": "Physical integrity check overdue"
+    },
+    {
       "check": "deadlocks",
       "reason": "The source does not establish deadlock counts for this database. Recorded incidents remain available in deadlock history.",
       "status": "insufficient-evidence",
@@ -818,7 +854,7 @@
     "analyzer": {
       "component": "culprit-checks",
       "revision": null,
-      "version": "0.5.6"
+      "version": "0.6.0"
     },
     "baselines": [],
     "collection": null,
@@ -853,6 +889,12 @@
         "xid-age",
         "multixact-age",
         "config",
+        "public-endpoint",
+        "unencrypted-connections",
+        "password-auth-enabled",
+        "audit-disabled",
+        "backup-retention-short",
+        "integrity-check-overdue",
         "deadlocks",
         "memory-grant",
         "memory-queue",
@@ -934,7 +976,7 @@
     "previous_analyzer": {
       "component": "culprit-checks",
       "revision": null,
-      "version": "0.5.5"
+      "version": "0.5.6"
     }
   },
   "refinement": [

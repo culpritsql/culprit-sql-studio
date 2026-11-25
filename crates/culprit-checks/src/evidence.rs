@@ -48,6 +48,16 @@ pub enum TableMeasure {
     Writes,
 }
 
+#[derive(Clone, Copy, Debug)]
+pub enum PostureMeasure {
+    PublicEndpoint,
+    TransportEncryption,
+    PasswordAuth,
+    Auditing,
+    BackupRetention,
+    IntegrityCheck,
+}
+
 /// A reusable evidence contract. Custom checks can use the same evaluator in `Check::evidence`.
 #[derive(Clone, Copy, Debug)]
 pub enum Requirement<'a> {
@@ -58,6 +68,7 @@ pub enum Requirement<'a> {
     IndexHistory,
     Query(QueryMeasure),
     Tables(TableMeasure),
+    Posture(PostureMeasure),
     Statistics,
     Pressure {
         signal: Option<&'a str>,
@@ -314,6 +325,7 @@ impl Requirement<'_> {
             Self::IndexHistory => Available,
             Self::Query(measure) => query(*measure, s),
             Self::Tables(measure) => tables(*measure, s),
+            Self::Posture(measure) => posture_evidence(*measure, s),
             Self::Statistics => {
                 if let Some(reason) = source_failed(s, &[source_id::STATISTICS, source_id::TABLES]) {
                     return Unavailable(reason);
@@ -523,4 +535,25 @@ fn postgres_settings_problem(snapshot: &Snapshot) -> Option<String> {
     } else {
         None
     }
+}
+
+fn posture_evidence(measure: PostureMeasure, s: &Snapshot) -> CheckEvidence {
+    use CheckEvidence::*;
+    if let Some(reason) = source_failed(s, &[culprit_core::POSTURE_SOURCE]) {
+        return Unavailable(reason);
+    }
+    let Some(posture) = s.posture() else {
+        return Insufficient(t!("evidence.posture_unmeasured"));
+    };
+    let measured = match measure {
+        PostureMeasure::PublicEndpoint => posture.public_network_access.is_some(),
+        PostureMeasure::TransportEncryption => posture.tls_enforced.is_some() || posture.unencrypted_sessions.is_some(),
+        PostureMeasure::PasswordAuth => posture.password_auth_enabled.is_some(),
+        PostureMeasure::Auditing => posture.auditing_enabled.is_some(),
+        PostureMeasure::BackupRetention => {
+            posture.backup_retention_days.is_some() || posture.last_full_backup_days.is_some()
+        }
+        PostureMeasure::IntegrityCheck => posture.last_integrity_check_days.is_some(),
+    };
+    if measured { Available } else { Insufficient(t!("evidence.posture_unmeasured")) }
 }

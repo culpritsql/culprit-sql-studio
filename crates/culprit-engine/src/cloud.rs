@@ -29,12 +29,15 @@ pub(crate) fn services() -> CloudServices {
             Arc::new(credentials::azure_cli()),
             Arc::new(Http),
         ));
-        services.with_discovery_provider(azure.clone()).with_metrics_provider(azure)
+        services
+            .with_discovery_provider(azure.clone())
+            .with_metrics_provider(azure.clone())
+            .with_posture_provider(azure)
     };
     #[cfg(feature = "auth-aws")]
     let services = {
         let aws = Arc::new(culprit_cloud::AwsCloud::new(Arc::new(credentials::aws())));
-        services.with_discovery_provider(aws.clone()).with_metrics_provider(aws)
+        services.with_discovery_provider(aws.clone()).with_metrics_provider(aws.clone()).with_posture_provider(aws)
     };
     services
 }

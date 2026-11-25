@@ -12,6 +12,7 @@ pub enum Category {
     Queries,
     Maintenance,
     Configuration,
+    Posture,
 }
 
 impl Category {
@@ -21,6 +22,7 @@ impl Category {
             Category::Queries => t!("core.finding.category.queries"),
             Category::Maintenance => t!("core.finding.category.maintenance"),
             Category::Configuration => t!("core.finding.category.configuration"),
+            Category::Posture => t!("core.finding.category.posture"),
         }
     }
 }
@@ -614,8 +616,9 @@ mod tests {
     #[test]
     fn categories_and_actionability_are_named_in_english() {
         assert_eq!(
-            [Category::Indexes, Category::Queries, Category::Maintenance, Category::Configuration].map(|c| c.label()),
-            ["Indexes", "Queries", "Maintenance", "Configuration"]
+            [Category::Indexes, Category::Queries, Category::Maintenance, Category::Configuration, Category::Posture,]
+                .map(|c| c.label()),
+            ["Indexes", "Queries", "Maintenance", "Configuration", "Posture"]
         );
         assert_eq!(
             [

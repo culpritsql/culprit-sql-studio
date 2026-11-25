@@ -137,6 +137,9 @@ pub struct OperationalStats {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub node_resources: Option<NodeResources>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub posture: Option<Box<crate::PostureSnapshot>>,
 }
 
 impl OperationalStats {
@@ -268,6 +271,7 @@ impl OperationalStats {
             maintenance_progress: _,
             cleanup: _,
             node_resources: _,
+            posture: _,
         } = self;
         Counters {
             index_usage_scope: *index_usage_scope,

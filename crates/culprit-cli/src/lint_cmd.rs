@@ -78,6 +78,7 @@ pub(crate) fn run(ws: &Workspace, args: LintSqlArgs, out: &Out) -> culprit_core:
         culprit_core::Category::Queries,
         culprit_core::Category::Maintenance,
         culprit_core::Category::Configuration,
+        culprit_core::Category::Posture,
     ] {
         let count = all_findings.iter().filter(|f| f.is_actionable() && f.category == cat).count() as u32;
         if count > 0 {

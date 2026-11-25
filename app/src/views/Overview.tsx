@@ -22,7 +22,7 @@ import { actionability, actionLabel, isActionable } from "../lib/findings";
 import { can } from "../lib/engines";
 import { queryHistoryEmptyState } from "../lib/query-history";
 
-const CATEGORIES: Category[] = ["indexes", "queries", "maintenance", "configuration"];
+const CATEGORIES: Category[] = ["indexes", "queries", "maintenance", "configuration", "posture"];
 
 function categoryLabel(category: Category): string {
   switch (category) {
@@ -34,6 +34,8 @@ function categoryLabel(category: Category): string {
       return t("ui.overview.category.maintenance");
     case "configuration":
       return t("ui.overview.category.configuration");
+    case "posture":
+      return t("ui.overview.category.posture");
   }
 }
 

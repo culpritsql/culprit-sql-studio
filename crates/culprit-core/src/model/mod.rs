@@ -899,6 +899,10 @@ impl Snapshot {
     pub fn queries(&self) -> &[QueryStat] {
         self.workload.as_ref().map(|w| w.queries.as_slice()).unwrap_or_default()
     }
+
+    pub fn posture(&self) -> Option<&crate::PostureSnapshot> {
+        self.operations.posture.as_deref()
+    }
 }
 
 #[derive(Serialize, Deserialize, TS, Clone, Debug, PartialEq)]

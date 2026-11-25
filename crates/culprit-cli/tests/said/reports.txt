@@ -58,7 +58,7 @@ Information and history (5)
  27  ○  An update of wide writes 7.9 KB of transaction log per row it changes
        log-volume:255
 
-Check coverage: 4 assessed without a finding; 31 limited by missing or incomplete evidence. JSON includes each check's reason.
+Check coverage: 4 assessed without a finding; 37 limited by missing or incomplete evidence. JSON includes each check's reason.
 
 ! 1 check is locked (Repeated statements within logged requests). See `culprit doctor mssql-demo`.
 
@@ -294,7 +294,7 @@ Information and history (4)
  17  ○  A call to pg_sleep takes 20.0 s of database time over the 5 hours since statistics were reset (12%), sleeping
        heavy-query:-8886085649470066503
 
-Check coverage: 6 assessed without a finding; 26 limited by missing or incomplete evidence. JSON includes each check's reason.
+Check coverage: 6 assessed without a finding; 32 limited by missing or incomplete evidence. JSON includes each check's reason.
 
 ! 1 check is locked (Repeated statements within logged requests). See `culprit doctor pg-demo`.
 
@@ -498,7 +498,7 @@ Information and history (1)
  14  ○  A read from orders: Recorded internal temporary-table work
        temp-spill:04cd7be9c366fadc
 
-Check coverage: 3 assessed without a finding; 21 limited by missing or incomplete evidence. JSON includes each check's reason.
+Check coverage: 3 assessed without a finding; 27 limited by missing or incomplete evidence. JSON includes each check's reason.
 
 ! 1 check is locked (Repeated statements within logged requests). See `culprit doctor mysql-demo`.
 
@@ -787,7 +787,7 @@ Information and history (1)
   5  ○  orders is read in full to find rows by customer_id
        filtered-scan:public.orders(customer_id)
 
-Check coverage: 5 assessed without a finding; 12 limited by missing or incomplete evidence. JSON includes each check's reason.
+Check coverage: 5 assessed without a finding; 15 limited by missing or incomplete evidence. JSON includes each check's reason.
 
 ! 3 checks are locked (Unused indexes, Overlapping indexes and Repeated statements within logged requests). See `culprit doctor yugabyte-demo`.
 

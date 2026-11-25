@@ -437,7 +437,7 @@
     "analyzer": {
       "component": "culprit-checks",
       "revision": null,
-      "version": "0.5.6"
+      "version": "0.6.0"
     },
     "baselines": [],
     "collection": null,
@@ -472,6 +472,12 @@
         "xid-age",
         "multixact-age",
         "config",
+        "public-endpoint",
+        "unencrypted-connections",
+        "password-auth-enabled",
+        "audit-disabled",
+        "backup-retention-short",
+        "integrity-check-overdue",
         "deadlocks",
         "memory-grant",
         "memory-queue",
@@ -553,7 +559,7 @@
     "previous_analyzer": {
       "component": "culprit-checks",
       "revision": null,
-      "version": "0.5.5"
+      "version": "0.5.6"
     }
   },
   "refinement": [

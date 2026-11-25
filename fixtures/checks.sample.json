@@ -365,6 +365,81 @@
     "title": "Configuration"
   },
   {
+    "category": "posture",
+    "description": "Database server accepts public network traffic instead of restricting connectivity to private endpoints or VPC subnets.",
+    "engines": [
+      "mssql",
+      "postgres",
+      "yugabyte",
+      "mysql"
+    ],
+    "id": "public-endpoint",
+    "requires": [],
+    "title": "Public network endpoint enabled"
+  },
+  {
+    "category": "posture",
+    "description": "Transport encryption (TLS 1.2+) is not enforced on the server or active plaintext sessions were observed.",
+    "engines": [
+      "mssql",
+      "postgres",
+      "yugabyte",
+      "mysql"
+    ],
+    "id": "unencrypted-connections",
+    "requires": [],
+    "title": "Unencrypted client connections"
+  },
+  {
+    "category": "posture",
+    "description": "Local SQL password logins remain enabled where short-lived cloud identity tokens (Microsoft Entra ID or AWS IAM) are supported.",
+    "engines": [
+      "mssql",
+      "postgres",
+      "mysql"
+    ],
+    "id": "password-auth-enabled",
+    "requires": [],
+    "title": "Password authentication enabled"
+  },
+  {
+    "category": "posture",
+    "description": "Server or database security audit logging and log export are turned off.",
+    "engines": [
+      "mssql",
+      "postgres",
+      "mysql"
+    ],
+    "id": "audit-disabled",
+    "requires": [],
+    "title": "Database auditing disabled"
+  },
+  {
+    "category": "posture",
+    "description": "Point-in-time backup retention is shorter than policy or no recent full backup has completed.",
+    "engines": [
+      "mssql",
+      "postgres",
+      "yugabyte",
+      "mysql"
+    ],
+    "id": "backup-retention-short",
+    "requires": [],
+    "title": "Short backup retention or stale backup"
+  },
+  {
+    "category": "posture",
+    "description": "Physical page consistency verification (DBCC CHECKDB / checksum validation) has not run within the last 14 days.",
+    "engines": [
+      "mssql",
+      "postgres",
+      "mysql"
+    ],
+    "id": "integrity-check-overdue",
+    "requires": [],
+    "title": "Physical integrity check overdue"
+  },
+  {
     "category": "queries",
     "description": "Deadlocks in the last day, grouped by pattern (key lookup, opposite order, read-then-update, lock escalation, parallelism) with the fix that removes them. SQL Server reads system_health, Azure SQL Database an explicitly configured database-scoped event session, MySQL the latest InnoDB report, and PostgreSQL only keeps a counter.",
     "engines": [

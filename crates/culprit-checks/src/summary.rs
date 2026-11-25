@@ -9,7 +9,9 @@ use crate::support;
 /// The report's summary for these findings: counts, the share the top ones touch and the headline.
 pub fn summarize(snapshot: &Snapshot, findings: &[Finding]) -> Summary {
     let mut by_category: Vec<CategoryCount> = Vec::new();
-    for category in [Category::Indexes, Category::Queries, Category::Maintenance, Category::Configuration] {
+    for category in
+        [Category::Indexes, Category::Queries, Category::Maintenance, Category::Configuration, Category::Posture]
+    {
         let count = findings.iter().filter(|f| f.is_actionable() && f.category == category).count() as u32;
         if count > 0 {
             by_category.push(CategoryCount { category, count });

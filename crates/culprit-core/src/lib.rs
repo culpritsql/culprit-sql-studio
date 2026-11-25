@@ -122,6 +122,8 @@ mod plan_facts_tests;
 pub mod plan_format;
 pub mod plan_view;
 pub mod platform;
+pub mod posture;
+pub use posture::{POSTURE_SOURCE, PostureSnapshot};
 pub mod provenance;
 pub mod provider;
 mod provider_acquisition_report;

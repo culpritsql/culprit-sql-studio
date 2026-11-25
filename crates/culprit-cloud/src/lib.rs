@@ -2,6 +2,7 @@
 //! they never discover executables, identities or secret stores.
 pub mod discovery;
 pub mod metrics;
+pub mod posture;
 pub mod providers;
 use async_trait::async_trait;
 use culprit_core::{Engine, Error, ErrorCode, Result, t};
@@ -43,6 +44,12 @@ pub trait MetricsProvider: Send + Sync {
     async fn resolve(&self, connection: &CloudConnection) -> Result<Value>;
     async fn read(&self, metadata: &Value, start: f64, end: f64) -> Result<culprit_core::CloudSignals>;
 }
+#[async_trait]
+pub trait PostureProvider: Send + Sync {
+    fn name(&self) -> &str;
+    fn recognizes(&self, connection: &CloudConnection) -> bool;
+    async fn read_posture(&self, connection: &CloudConnection) -> Result<culprit_core::PostureSnapshot>;
+}
 pub trait MetricsCache: Send + Sync {
     fn read(&self) -> Option<Vec<u8>>;
     fn write(&self, bytes: &[u8]);
@@ -51,6 +58,7 @@ pub trait MetricsCache: Send + Sync {
 pub struct CloudServices {
     discovery: Vec<Arc<dyn DiscoveryProvider>>,
     metrics: Vec<Arc<dyn MetricsProvider>>,
+    posture: Vec<Arc<dyn PostureProvider>>,
 }
 impl CloudServices {
     pub fn with_discovery_provider(mut self, provider: Arc<dyn DiscoveryProvider>) -> Self {
@@ -62,6 +70,18 @@ impl CloudServices {
         self.metrics.retain(|current| current.name() != provider.name());
         self.metrics.push(provider);
         self
+    }
+    pub fn with_posture_provider(mut self, provider: Arc<dyn PostureProvider>) -> Self {
+        self.posture.retain(|current| current.name() != provider.name());
+        self.posture.push(provider);
+        self
+    }
+    pub async fn posture(&self, connection: &CloudConnection) -> Result<culprit_core::PostureSnapshot> {
+        let provider = self.posture.iter().find(|provider| provider.recognizes(connection)).ok_or_else(|| {
+            Error::new(ErrorCode::Unsupported, t!("engine.cloud.not_cloud", name = &connection.name))
+                .with_hint(t!("engine.cloud.not_cloud_hint"))
+        })?;
+        provider.read_posture(connection).await
     }
     pub async fn discover(&self, cloud: Cloud, request: &DiscoveryRequest) -> Result<DiscoveryResult> {
         self.discovery

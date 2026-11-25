@@ -63,6 +63,7 @@ pub(crate) mod deadlocks;
 pub(crate) mod index_health;
 pub(crate) mod indexes;
 pub(crate) mod maintenance;
+pub(crate) mod posture;
 pub(crate) mod pressure;
 pub(crate) mod queries;
 pub(crate) mod signals;
@@ -77,6 +78,7 @@ pub(crate) const AREAS: &[&[&dyn Check]] = &[
     queries::CHECKS,
     maintenance::CHECKS,
     config::CHECKS,
+    posture::CHECKS,
     deadlocks::CHECKS,
     pressure::CHECKS,
     signals::CHECKS,

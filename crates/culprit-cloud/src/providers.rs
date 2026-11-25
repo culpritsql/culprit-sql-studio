@@ -96,6 +96,30 @@ impl MetricsProvider for AwsCloud {
         metrics::aws::rds_signals(self, &resource, start, end).await
     }
 }
+#[async_trait]
+impl PostureProvider for AzureCloud {
+    fn name(&self) -> &str {
+        "azure-posture-v1"
+    }
+    fn recognizes(&self, connection: &CloudConnection) -> bool {
+        MetricsProvider::recognizes(self, connection)
+    }
+    async fn read_posture(&self, connection: &CloudConnection) -> Result<culprit_core::PostureSnapshot> {
+        posture::read_azure_posture(self, connection).await
+    }
+}
+#[async_trait]
+impl PostureProvider for AwsCloud {
+    fn name(&self) -> &str {
+        "aws-rds-posture-v1"
+    }
+    fn recognizes(&self, connection: &CloudConnection) -> bool {
+        MetricsProvider::recognizes(self, connection)
+    }
+    async fn read_posture(&self, connection: &CloudConnection) -> Result<culprit_core::PostureSnapshot> {
+        posture::read_aws_posture(self, connection).await
+    }
+}
 fn invalid() -> Error {
     Error::invalid(t!("engine.credentials.invalid_profile"))
 }

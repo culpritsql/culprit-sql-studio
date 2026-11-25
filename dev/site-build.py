@@ -118,7 +118,7 @@ def build(root: Path) -> None:
     for path in sorted(site.rglob("*.css")):
         path.write_text(references(path.read_text()))
         remember(path)
-    for path in sorted(site.glob("*.html")):
+    for path in sorted(site.rglob("*.html")):
         text = references(path.read_text().replace("__VERSION__", version).replace("__CHECK_COUNT__", str(checks)).replace("__PROVIDER_CARDS__", provider_cards))
         inline = re.findall(r'<script type="application/ld\+json">(.*?)</script>', text, flags=re.DOTALL)
         hashes = " ".join("'sha256-" + base64.b64encode(hashlib.sha256(script.encode()).digest()).decode() + "'" for script in inline)
@@ -163,6 +163,23 @@ def merge_blog(root: Path) -> None:
             for p in posts:
                 lines.append(f"- [{p['title']}]({p['markdownUrl']}): {p['description']}")
             llms_path.write_text(llms_text.rstrip() + "\n" + "\n".join(lines) + "\n")
+
+    for path in sorted((site / "blog").rglob("*.html")):
+        text = path.read_text()
+        if "__CONTENT_SECURITY_POLICY__" in text:
+            inline = re.findall(r'<script type="application/ld\+json">(.*?)</script>', text, flags=re.DOTALL)
+            hashes = " ".join(
+                "'sha256-" + base64.b64encode(hashlib.sha256(script.encode()).digest()).decode() + "'"
+                for script in inline
+            )
+            policy = (
+                "default-src 'none'; "
+                f"script-src 'self' https://plausible.io/js/pa-r5EkaWqkhpILeZH2bizcF.js {hashes}; "
+                "style-src 'self'; font-src 'self'; img-src 'self' data:; "
+                "connect-src 'self' https://api.github.com/repos/culpritsql/culprit-sql-studio https://plausible.io/api/event; "
+                "object-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'"
+            )
+            path.write_text(text.replace("__CONTENT_SECURITY_POLICY__", html.escape(policy, quote=True)))
 
 
 if __name__ == "__main__":

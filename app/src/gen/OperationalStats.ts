@@ -19,6 +19,7 @@ import type { NodeResources } from "./NodeResources";
 import type { OperationalCounter } from "./OperationalCounter";
 import type { PageWaitSnapshot } from "./PageWaitSnapshot";
 import type { PostgresSettingsRead } from "./PostgresSettingsRead";
+import type { PostureSnapshot } from "./PostureSnapshot";
 import type { RecordedChangeCaptureHistories } from "./RecordedChangeCaptureHistories";
 import type { RecordedManagedInstanceResourceRead } from "./RecordedManagedInstanceResourceRead";
 import type { RecordedOperationalRead } from "./RecordedOperationalRead";
@@ -89,4 +90,4 @@ tempdb_metadata_memory?: CapturedOperationalRead, hyperscale_log_components?: Ca
 /**
  * None means that the native usage population was not established.
  */
-index_usage_scope?: IndexUsageScope, log_failures: Array<LoggedFailure>, spaces: Array<SpaceUsage>, counters: Array<OperationalCounter>, sequences: Array<SequenceCapacity>, multixacts: Array<FreezeAge>, sqlite: SqliteFileHealth | null, cluster: ClusterHealth | null, activity_history?: ActivityHistory, termination_history?: TerminationHistory, memory_failures?: MemoryFailureSnapshot, native_failures?: NativeFailureSnapshot, jobs?: JobsSnapshot, session_memory?: SessionMemorySnapshot, page_waits?: PageWaitSnapshot, task_space?: TaskSpaceSnapshot, query_compilation?: CompilationSnapshot, compiler_admission?: CompilerAdmissionSnapshot, maintenance_progress?: MaintenanceProgressSnapshot, cleanup?: Array<CleanupSnapshot>, node_resources?: NodeResources, };
+index_usage_scope?: IndexUsageScope, log_failures: Array<LoggedFailure>, spaces: Array<SpaceUsage>, counters: Array<OperationalCounter>, sequences: Array<SequenceCapacity>, multixacts: Array<FreezeAge>, sqlite: SqliteFileHealth | null, cluster: ClusterHealth | null, activity_history?: ActivityHistory, termination_history?: TerminationHistory, memory_failures?: MemoryFailureSnapshot, native_failures?: NativeFailureSnapshot, jobs?: JobsSnapshot, session_memory?: SessionMemorySnapshot, page_waits?: PageWaitSnapshot, task_space?: TaskSpaceSnapshot, query_compilation?: CompilationSnapshot, compiler_admission?: CompilerAdmissionSnapshot, maintenance_progress?: MaintenanceProgressSnapshot, cleanup?: Array<CleanupSnapshot>, node_resources?: NodeResources, posture?: PostureSnapshot, };

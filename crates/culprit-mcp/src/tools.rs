@@ -165,6 +165,7 @@ pub enum CategoryArg {
     Queries,
     Maintenance,
     Configuration,
+    Posture,
 }
 
 #[derive(Deserialize, JsonSchema, Clone, Copy)]
@@ -804,6 +805,7 @@ impl CulpritMcp {
                     CategoryArg::Queries => Category::Queries,
                     CategoryArg::Maintenance => Category::Maintenance,
                     CategoryArg::Configuration => Category::Configuration,
+                    CategoryArg::Posture => Category::Posture,
                 });
                 let min = match a.min_severity {
                     Some(SeverityArg::High) => Severity::High,
