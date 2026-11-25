@@ -254,6 +254,33 @@ Selected
 | extend PublicationTimeKnown=false
 }
 
+.create-or-alter function $NNewHighFindings(resource:string,window_from:datetime,window_until:datetime,asof:datetime) {
+$NFindings(resource,window_from,window_until,asof)
+| where Severity == "high" and Actionability in ("needs-attention","optional-improvement") and not(Inactive) and InputReadComplete and tostring(OutputCoverage.findings.state) == "evaluated"
+}
+
+.create-or-alter function $NNewHighFindingsDuring(resource:string,window_from:datetime,window_until:datetime) {
+let Selected=materialize($NNewHighFindings(resource,window_from,window_until,now()));
+Selected
+| extend PublicationTimeKnown=false
+}
+
+.create-or-alter function $NNewRegressions(resource:string,window_from:datetime,window_until:datetime,asof:datetime) {
+let Marks=$NChanges(resource,window_from,window_until,asof)
+    | where ChangeKind in ("mark","index","setting","code","version")
+    | summarize ProximityMarks=make_set(strcat(ChangeKind,": ",Title),8) by ConnectionAlias;
+$NFindings(resource,window_from,window_until,asof)
+| where CheckId in ("query-regression","plan-change","unstable-query") and Actionability in ("needs-attention","optional-improvement") and not(Inactive) and InputReadComplete and tostring(OutputCoverage.findings.state) == "evaluated"
+| join kind=leftouter Marks on ConnectionAlias
+| extend ProximityMarks=coalesce(ProximityMarks,dynamic([])),ProximityProof=false
+}
+
+.create-or-alter function $NNewRegressionsDuring(resource:string,window_from:datetime,window_until:datetime) {
+let Selected=materialize($NNewRegressions(resource,window_from,window_until,now()));
+Selected
+| extend PublicationTimeKnown=false
+}
+
 .create-or-alter function $NStatusNow(resource:string,max_age:timespan) {
 let Selected=materialize($NStatus(resource,now(),max_age));
 Selected

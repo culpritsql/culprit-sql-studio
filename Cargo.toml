@@ -6,6 +6,7 @@ members = [
     "crates/telemetry/culprit-*",
     "crates/recovery/culprit-*",
     "crates/authentication/culprit-*",
+    "crates/notify/culprit-*",
     "app/src-tauri",
 ]
 default-members = [
@@ -14,6 +15,7 @@ default-members = [
     "crates/telemetry/culprit-*",
     "crates/recovery/culprit-*",
     "crates/authentication/culprit-*",
+    "crates/notify/culprit-*",
 ]
 
 [workspace.package]
@@ -48,6 +50,12 @@ culprit-sqlite = { path = "crates/providers/culprit-sqlite" }
 culprit-querylog = { path = "crates/culprit-querylog" }
 culprit-engine = { path = "crates/culprit-engine" }
 culprit-mcp = { path = "crates/culprit-mcp" }
+culprit-notify = { path = "crates/notify/culprit-notify" }
+culprit-notify-slack = { path = "crates/notify/culprit-notify-slack" }
+culprit-notify-teams = { path = "crates/notify/culprit-notify-teams" }
+culprit-notify-pagerduty = { path = "crates/notify/culprit-notify-pagerduty" }
+culprit-notify-webhook = { path = "crates/notify/culprit-notify-webhook" }
+culprit-notify-github = { path = "crates/notify/culprit-notify-github" }
 anyhow = "1.0.104"
 async-trait = "0.1.92"
 base64 = "0.23.1"

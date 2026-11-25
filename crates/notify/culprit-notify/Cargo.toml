@@ -1,0 +1,25 @@
+[package]
+name = "culprit-notify"
+description = "Pure alert deduplication evaluator and pluggable outbound notification sink contracts"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lib]
+doctest = false
+
+[dependencies]
+async-trait.workspace = true
+chrono.workspace = true
+culprit-auth.workspace = true
+culprit-core.workspace = true
+culprit-read.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+zeroize.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+tokio = { workspace = true, features = ["test-util"] }

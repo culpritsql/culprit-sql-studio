@@ -1085,6 +1085,7 @@ dependencies = [
  "culprit-engine",
  "culprit-evidence",
  "culprit-mcp",
+ "culprit-notify",
  "culprit-plans",
  "culprit-read",
  "culprit-store-adx",
@@ -1095,6 +1096,7 @@ dependencies = [
  "tokio",
  "ureq",
  "windows-sys 0.61.2",
+ "zeroize",
 ]
 
 [[package]]
@@ -1167,6 +1169,12 @@ dependencies = [
  "culprit-evidence",
  "culprit-mssql",
  "culprit-mysql",
+ "culprit-notify",
+ "culprit-notify-github",
+ "culprit-notify-pagerduty",
+ "culprit-notify-slack",
+ "culprit-notify-teams",
+ "culprit-notify-webhook",
  "culprit-plans",
  "culprit-postgres",
  "culprit-querylog",
@@ -1265,6 +1273,99 @@ dependencies = [
  "serde_json",
  "tempfile",
  "tokio",
+]
+
+[[package]]
+name = "culprit-notify"
+version = "0.6.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "culprit-auth",
+ "culprit-core",
+ "culprit-read",
+ "serde",
+ "serde_json",
+ "sha2 0.11.1",
+ "tempfile",
+ "tokio",
+ "zeroize",
+]
+
+[[package]]
+name = "culprit-notify-github"
+version = "0.6.0"
+dependencies = [
+ "async-trait",
+ "culprit-auth",
+ "culprit-core",
+ "culprit-notify",
+ "culprit-read",
+ "serde",
+ "serde_json",
+ "tokio",
+ "zeroize",
+]
+
+[[package]]
+name = "culprit-notify-pagerduty"
+version = "0.6.0"
+dependencies = [
+ "async-trait",
+ "culprit-auth",
+ "culprit-core",
+ "culprit-notify",
+ "culprit-read",
+ "serde",
+ "serde_json",
+ "tokio",
+ "zeroize",
+]
+
+[[package]]
+name = "culprit-notify-slack"
+version = "0.6.0"
+dependencies = [
+ "async-trait",
+ "culprit-auth",
+ "culprit-core",
+ "culprit-notify",
+ "culprit-read",
+ "serde",
+ "serde_json",
+ "tokio",
+ "zeroize",
+]
+
+[[package]]
+name = "culprit-notify-teams"
+version = "0.6.0"
+dependencies = [
+ "async-trait",
+ "culprit-auth",
+ "culprit-core",
+ "culprit-notify",
+ "culprit-read",
+ "serde",
+ "serde_json",
+ "tokio",
+ "zeroize",
+]
+
+[[package]]
+name = "culprit-notify-webhook"
+version = "0.6.0"
+dependencies = [
+ "async-trait",
+ "culprit-auth",
+ "culprit-core",
+ "culprit-notify",
+ "culprit-read",
+ "ring",
+ "serde",
+ "serde_json",
+ "tokio",
+ "zeroize",
 ]
 
 [[package]]

@@ -23,7 +23,8 @@ culprit-auth.workspace = true
 culprit-auth-azure.workspace = true
 culprit-core.workspace = true
 culprit-collector.workspace = true
-culprit-engine = { workspace = true, features = ["store-adx", "store-clickhouse", "recovery-azure", "recovery-s3"] }
+culprit-notify.workspace = true
+culprit-engine = { workspace = true, features = ["store-adx", "store-clickhouse", "recovery-azure", "recovery-s3", "notify-all"] }
 culprit-store-adx = { workspace = true, features = ["write"] }
 culprit-store-clickhouse = { workspace = true, features = ["write"] }
 culprit-mcp.workspace = true
@@ -39,6 +40,7 @@ culprit-evidence = { workspace = true, features = ["test-support"] }
 async-trait.workspace = true
 culprit-checks.workspace = true
 culprit-collector = { workspace = true, features = ["test-support"] }
+zeroize.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 # Hides a typed password (console echo off), as `stty -echo` does on Unix.

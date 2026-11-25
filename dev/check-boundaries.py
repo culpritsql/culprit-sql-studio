@@ -15,6 +15,14 @@ STORES = {"culprit-store-adx", "culprit-store-clickhouse"}
 AUTHENTICATION = {"culprit-auth-azure", "culprit-auth-aws"}
 RECOVERY = {"culprit-blob-azure", "culprit-blob-s3"}
 CLOUD = {"culprit-cloud"}
+NOTIFICATIONS = {
+    "culprit-notify",
+    "culprit-notify-slack",
+    "culprit-notify-teams",
+    "culprit-notify-pagerduty",
+    "culprit-notify-webhook",
+    "culprit-notify-github",
+}
 FLEET = STORES | RECOVERY | {"culprit-collector"}
 LOCAL_DATABASE_FILES = {"tempfile", "rusqlite"}
 WASM_TARGET = "wasm32-unknown-unknown"
@@ -25,8 +33,9 @@ DATABASE_DRIVERS = {"tiberius", "tokio-postgres", "postgres-protocol", "postgres
                     "rusqlite", "libsqlite3-sys"}
 NATIVE_IO = {"tokio", "tokio-util", "reqwest", "hyper", "object_store", "azure_core", "aws-config",
              "aws-sdk-s3", "ssh2", "openssh", "libssh2-sys"}
-PORTABLE_FORBIDDEN = (FLEET | SOURCES | AUTHENTICATION | CLOUD | LOCAL_DATABASE_FILES | DATABASE_DRIVERS |
-                      NATIVE_IO | {"culprit-auth", "culprit-read", "culprit-evidence", "culprit-engine", "culprit-checks"})
+PORTABLE_FORBIDDEN = (FLEET | SOURCES | AUTHENTICATION | CLOUD | NOTIFICATIONS | LOCAL_DATABASE_FILES |
+                      DATABASE_DRIVERS | NATIVE_IO |
+                      {"culprit-auth", "culprit-read", "culprit-evidence", "culprit-engine", "culprit-checks"})
 WASM_MODEL_ROOTS = {"Plan", "PlanDiff", "Deadlock", "Engine", "CompareContext", "ExportFile", "ExportFormat",
                     "ExportOptions", "ExtendedEventsBatch", "ExtendedEventsFormat", "NativeLogLimits", "Error"}
 
@@ -67,33 +76,38 @@ def verify_read_features(package, features=None):
 
 def default_rules():
     rules = {
-        "culprit-mcp": FLEET,
-        "culprit-app": {"culprit-collector"},
-        "culprit-archive-web": {"culprit-collector"} | SOURCES | LOCAL_DATABASE_FILES | DATABASE_DRIVERS,
+        "culprit-mcp": FLEET | NOTIFICATIONS,
+        "culprit-app": {"culprit-collector"} | NOTIFICATIONS,
+        "culprit-archive-web": {"culprit-collector"} | SOURCES | LOCAL_DATABASE_FILES | DATABASE_DRIVERS | NOTIFICATIONS,
     }
-    rules.update({package: FLEET | CLOUD | AUTHENTICATION | {"culprit-engine"} for package in SOURCES})
-    rules.update({package: SOURCES | CLOUD | AUTHENTICATION | {"culprit-engine"} for package in STORES | RECOVERY})
-    rules.update({package: FLEET | CLOUD | SOURCES | {"culprit-engine"} for package in AUTHENTICATION})
-    rules.update({package: FLEET | SOURCES | AUTHENTICATION | CLOUD | {"culprit-engine"}
+    rules.update({package: FLEET | CLOUD | AUTHENTICATION | NOTIFICATIONS | {"culprit-engine"} for package in SOURCES})
+    rules.update({package: SOURCES | CLOUD | AUTHENTICATION | NOTIFICATIONS | {"culprit-engine"} for package in STORES | RECOVERY})
+    rules.update({package: FLEET | CLOUD | SOURCES | NOTIFICATIONS | {"culprit-engine"} for package in AUTHENTICATION})
+    rules.update({package: FLEET | SOURCES | AUTHENTICATION | CLOUD | NOTIFICATIONS | {"culprit-engine"}
                   for package in ["culprit-auth", "culprit-read", "culprit-core", "culprit-checks"]})
-    rules["culprit-collector"] = STORES | RECOVERY | CLOUD | SOURCES | AUTHENTICATION | {"culprit-engine"}
-    rules["culprit-cloud"] = FLEET | SOURCES | AUTHENTICATION | {"culprit-engine"}
-    rules["culprit-evidence"] = FLEET | SOURCES | AUTHENTICATION | CLOUD | LOCAL_DATABASE_FILES | {"culprit-auth", "culprit-engine"}
+    rules["culprit-collector"] = STORES | RECOVERY | CLOUD | SOURCES | AUTHENTICATION | NOTIFICATIONS | {"culprit-engine"}
+    rules["culprit-cloud"] = FLEET | SOURCES | AUTHENTICATION | NOTIFICATIONS | {"culprit-engine"}
+    rules["culprit-evidence"] = FLEET | SOURCES | AUTHENTICATION | CLOUD | NOTIFICATIONS | LOCAL_DATABASE_FILES | {"culprit-auth", "culprit-engine"}
+    notify_forbidden = (FLEET | SOURCES | AUTHENTICATION | CLOUD | LOCAL_DATABASE_FILES | DATABASE_DRIVERS |
+                        {"culprit-evidence", "culprit-engine", "culprit-checks", "ureq", "reqwest", "hyper"})
+    for package in NOTIFICATIONS:
+        sibling_sinks = NOTIFICATIONS - {"culprit-notify", package}
+        rules[package] = notify_forbidden | sibling_sinks
     return rules
 
 
 def engine_compositions():
-    read_only = {"culprit-collector"} | SOURCES | AUTHENTICATION | LOCAL_DATABASE_FILES
+    read_only = {"culprit-collector"} | SOURCES | AUTHENTICATION | LOCAL_DATABASE_FILES | NOTIFICATIONS
     return [
-        ("store-clickhouse,recovery-s3", {"culprit-store-adx", "culprit-blob-azure"}),
-        ("store-adx,recovery-azure", {"culprit-store-clickhouse", "culprit-blob-s3"}),
+        ("store-clickhouse,recovery-s3", {"culprit-store-adx", "culprit-blob-azure"} | NOTIFICATIONS),
+        ("store-adx,recovery-azure", {"culprit-store-clickhouse", "culprit-blob-s3"} | NOTIFICATIONS),
         ("warehouse-clickhouse,evidence-s3", read_only | {"culprit-store-adx", "culprit-blob-azure"}),
         ("warehouse-adx,evidence-azure", read_only | {"culprit-store-clickhouse", "culprit-blob-s3"}),
     ]
 
 
 def read_adapter_rules():
-    forbidden = {"culprit-collector", "culprit-engine"} | SOURCES | AUTHENTICATION | CLOUD | LOCAL_DATABASE_FILES
+    forbidden = {"culprit-collector", "culprit-engine"} | SOURCES | AUTHENTICATION | CLOUD | NOTIFICATIONS | LOCAL_DATABASE_FILES
     return {package: forbidden | ((STORES | RECOVERY) - {package}) for package in STORES | RECOVERY}
 
 

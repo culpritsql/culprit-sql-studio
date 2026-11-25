@@ -1,0 +1,24 @@
+[package]
+name = "culprit-notify-webhook"
+description = "HMAC-SHA256 signed JSON webhook notification sink adapter for Culprit"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lib]
+doctest = false
+
+[dependencies]
+async-trait.workspace = true
+culprit-auth.workspace = true
+culprit-core.workspace = true
+culprit-notify.workspace = true
+culprit-read.workspace = true
+ring.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+zeroize.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }

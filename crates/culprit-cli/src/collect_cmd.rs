@@ -23,6 +23,8 @@ pub(crate) enum CollectCommand {
     Queries(crate::query_assets_cmd::QueryAssetsArgs),
     #[command(subcommand,about=culprit_core::t!("service.cli.about"))]
     Service(crate::service_cmd::ServiceCommand),
+    #[command(subcommand,about=culprit_core::t!("notify.cli.about"))]
+    Notify(crate::notify_cmd::NotifyCommand),
     #[command(about=culprit_core::t!("collection.cli.once"))]
     Once(OnceArgs),
     #[command(subcommand,about=culprit_core::t!("outbox.cli.about"))]
@@ -386,6 +388,9 @@ pub(crate) fn run(command: CollectCommand, out: &Out) -> crate::CommandTask<'_> 
         }),
         CollectCommand::Admission(command) => {
             crate::command_task(|| async move { crate::admission_cmd::run(&Workspace::open()?, command, out).await })
+        }
+        CollectCommand::Notify(command) => {
+            crate::command_task(|| async move { crate::notify_cmd::run(command, out).await })
         }
     }
 }

@@ -14,6 +14,7 @@ mod lint_cmd;
 mod live_cmd;
 mod locks;
 mod logs_cmd;
+mod notify_cmd;
 mod outbox_cmd;
 mod output;
 mod plan_cmd;

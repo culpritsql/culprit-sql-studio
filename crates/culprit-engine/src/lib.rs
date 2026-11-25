@@ -54,6 +54,8 @@ pub use local_captures::{
 };
 pub mod marks;
 pub mod native_logs;
+#[cfg(feature = "notify")]
+pub mod notify;
 mod operation;
 mod private_fs;
 mod process;

@@ -167,6 +167,28 @@ SELECT *,toBool(0) AS PublicationTimeKnown FROM $NChanges(resource={resource:Str
 CREATE OR REPLACE VIEW $NRecordedIncidentAlertsDuring SQL SECURITY INVOKER AS
 SELECT *,toBool(0) AS PublicationTimeKnown FROM $NNewIncidents(resource={resource:String},from={window_from:DateTime64(9, 'UTC')},until={window_until:DateTime64(9, 'UTC')},asof=now64(9,'UTC'));
 
+CREATE OR REPLACE VIEW $NNewHighFindings SQL SECURITY INVOKER AS
+SELECT * FROM $NFindings(resource={resource:String},from={from:DateTime64(9, 'UTC')},until={until:DateTime64(9, 'UTC')},asof={asof:DateTime64(9, 'UTC')})
+WHERE Severity='high' AND Actionability IN ('needs-attention','optional-improvement') AND NOT Inactive AND InputReadComplete AND JSONExtractString(OutputCoverage,'findings','state')='evaluated';
+
+CREATE OR REPLACE VIEW $NNewHighFindingsDuring SQL SECURITY INVOKER AS
+SELECT *,toBool(0) AS PublicationTimeKnown FROM $NNewHighFindings(resource={resource:String},from={window_from:DateTime64(9, 'UTC')},until={window_until:DateTime64(9, 'UTC')},asof=now64(9,'UTC'));
+
+CREATE OR REPLACE VIEW $NNewRegressions SQL SECURITY INVOKER AS
+WITH Marks AS (
+    SELECT ConnectionAlias,groupUniqArray(8)(concat(ChangeKind,': ',Title)) AS ProximityMarks
+    FROM $NChanges(resource={resource:String},from={from:DateTime64(9, 'UTC')},until={until:DateTime64(9, 'UTC')},asof={asof:DateTime64(9, 'UTC')})
+    WHERE ChangeKind IN ('mark','index','setting','code','version')
+    GROUP BY ConnectionAlias
+)
+SELECT F.*,ifNull(M.ProximityMarks,emptyArrayString()) AS ProximityMarks,toBool(0) AS ProximityProof
+FROM $NFindings(resource={resource:String},from={from:DateTime64(9, 'UTC')},until={until:DateTime64(9, 'UTC')},asof={asof:DateTime64(9, 'UTC')}) AS F
+ALL LEFT JOIN Marks AS M ON F.ConnectionAlias=M.ConnectionAlias
+WHERE F.CheckId IN ('query-regression','plan-change','unstable-query') AND F.Actionability IN ('needs-attention','optional-improvement') AND NOT F.Inactive AND F.InputReadComplete AND JSONExtractString(F.OutputCoverage,'findings','state')='evaluated';
+
+CREATE OR REPLACE VIEW $NNewRegressionsDuring SQL SECURITY INVOKER AS
+SELECT *,toBool(0) AS PublicationTimeKnown FROM $NNewRegressions(resource={resource:String},from={window_from:DateTime64(9, 'UTC')},until={window_until:DateTime64(9, 'UTC')},asof=now64(9,'UTC'));
+
 CREATE OR REPLACE VIEW $NStatusNow SQL SECURITY INVOKER AS
 SELECT *,toBool(0) AS PublicationTimeKnown FROM $NStatus(resource={resource:String},asof=now64(9,'UTC'),max_age_seconds={max_age_seconds:UInt32});
 

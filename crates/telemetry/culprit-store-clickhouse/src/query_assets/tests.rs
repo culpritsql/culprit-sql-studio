@@ -54,13 +54,17 @@ fn friendly_helpers_keep_publication_membership_and_closed_namespace_binding_for
     assert!(assets.script.starts_with("CREATE OR REPLACE VIEW "));
     assert!(assets.script.ends_with(";\n"));
     assert!(assets.commands.iter().all(|command| assets.script.contains(command)));
-    assert_eq!(assets.examples.len(), 17);
+    assert_eq!(assets.examples.len(), 19);
     assert!(
         assets
             .examples
             .iter()
             .any(|example| example.name == "fleet-summary" && example.query.contains("PilotFleetSummary("))
     );
+    assert!(assets.examples.iter().any(|example| example.name == "new-high-findings-alert-window"
+        && example.query.contains("PilotNewHighFindingsDuring(")));
+    assert!(assets.examples.iter().any(|example| example.name == "new-regressions-alert-window"
+        && example.query.contains("PilotNewRegressionsDuring(")));
     assert!(
         assets
             .examples

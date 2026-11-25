@@ -83,6 +83,8 @@ pub fn configured(binding: QueryHelperBinding) -> Result<QueryHelperAssets> {
         ("finding-window", "FindingsDuring"),
         ("change-window", "ChangesDuring"),
         ("recorded-incident-alert-window", "RecordedIncidentAlertsDuring"),
+        ("new-high-findings-alert-window", "NewHighFindingsDuring"),
+        ("new-regressions-alert-window", "NewRegressionsDuring"),
     ] {
         examples.push(QueryExample { name: label, query: format!("SELECT * FROM {n}{function}({window})") });
     }
