@@ -240,20 +240,27 @@ impl SourceProfileAdmission {
                 }
                 RecipeCostScope::Activity(_) => false,
             },
-            SourceProfileApproval::Builtin { scope, .. } => {
-                context.has_qualified_local_owner()
-                    && context.database_writable.is_some()
-                    && match scope.as_deref() {
-                        Some(RecipeCostScope::Activity(scope)) => {
-                            context.target == scope.target
-                                && context.partition == scope.partition
-                                && context.partition.native_epoch() == scope.native_epoch.as_deref()
-                        }
-                        Some(RecipeCostScope::NativeRead(scope)) => scope.matches_context(context),
-                        None => context.target.database().is_some(),
-                        _ => false,
-                    }
-            }
+            SourceProfileApproval::Builtin { scope, .. } => match scope.as_deref() {
+                Some(RecipeCostScope::Activity(scope)) => {
+                    context.has_qualified_local_owner()
+                        && context.database_writable.is_some()
+                        && context.target == scope.target
+                        && context.partition == scope.partition
+                        && context.partition.native_epoch() == scope.native_epoch.as_deref()
+                }
+                Some(RecipeCostScope::NativeRead(scope)) => scope.matches_context(context),
+                Some(RecipeCostScope::SharedResource { target, partition, .. }) => {
+                    context.has_qualified_local_owner()
+                        && context.database_writable.is_none()
+                        && context.target == CollectionTarget::Shared(target.clone())
+                        && context.partition == *partition
+                }
+                None => {
+                    context.has_qualified_local_owner()
+                        && context.database_writable.is_some()
+                        && context.target.database().is_some()
+                }
+            },
         }
     }
 }

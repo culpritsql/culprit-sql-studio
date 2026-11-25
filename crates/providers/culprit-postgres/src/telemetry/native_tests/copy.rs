@@ -55,14 +55,14 @@ async fn genuine_copy_stdin_retains_exact_original_native_scope_request_and_prog
             assert_eq!(progress.tuples_excluded.as_deref(), Some("0"));
             assert!(matches!(progress.tuples_skipped.as_deref(), None | Some("0")));
             assert_eq!(point.manifest.source_queries, 8, "one setup and seven original-owner reads");
-            assert_eq!(
+            assert!(matches!(
                 crate::telemetry_recipes()
                     .into_iter()
                     .find(|recipe| recipe.id == "postgres.current-request-work")
                     .unwrap()
                     .admission,
-                RecipeAdmission::Unqualified
-            );
+                RecipeAdmission::BuiltinSafety(_)
+            ));
             fixture.release_and_complete().await;
             let absent =
                 owned_fixture::capture(&fixture.specification, request(&original), &fixture.cancellation).await;

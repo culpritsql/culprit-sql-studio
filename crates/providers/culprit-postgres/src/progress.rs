@@ -21,7 +21,7 @@ mod source;
 mod vacuum;
 #[cfg(test)]
 pub(crate) use source::fixture_source;
-pub(crate) use source::source;
+pub(crate) use source::{profile_source, source};
 #[cfg(test)]
 mod non_index_tests;
 #[cfg(test)]

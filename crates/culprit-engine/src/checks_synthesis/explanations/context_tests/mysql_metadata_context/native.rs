@@ -113,7 +113,7 @@ fn request(selection: CollectionSelection) -> Result<CollectionRequest> {
         culprit_mysql::telemetry_recipes().into_iter().find(|recipe| recipe.accepts(&request)).ok_or_else(invalid)?;
     if matches!(&request.selection, CollectionSelection::SourceRead { .. })
         && (recipe.id != "mysql.metadata-lock-context"
-            || recipe.admission != RecipeAdmission::Unqualified
+            || !matches!(recipe.admission, RecipeAdmission::BuiltinSafety(_))
             || recipe.budget.max_queries != 37)
     {
         return Err(invalid());

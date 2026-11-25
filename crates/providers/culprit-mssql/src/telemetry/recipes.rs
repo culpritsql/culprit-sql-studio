@@ -486,7 +486,9 @@ const REGISTRATIONS: &[Registration] = &[
         .on_editions(&[2, 3, 4, 5, 8])
         .bounded(streamed::catalog_budget)
         .version(3),
-    streamed!("mssql.query-compilation", QueryCompilation, compilation::QueryCompilation).version(6),
+    streamed!("mssql.query-compilation", QueryCompilation, compilation::QueryCompilation)
+        .bounded(compilation::bounded_budget)
+        .version(6),
     streamed!("mssql.cached-runtime", CachedRuntime, cached_runtime::CachedRuntime).version(4),
     streamed!("mssql.objects", Objects, objects::Objects)
         .baseline()

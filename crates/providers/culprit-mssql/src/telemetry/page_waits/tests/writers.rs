@@ -37,7 +37,7 @@ async fn writer_source_is_lazy_and_catalog_envelope_preserves_each_stricter_call
         crate::telemetry_recipes().into_iter().find(|recipe| recipe.id == "mssql.focused-page-wait-writers").unwrap();
     assert_eq!(recipe.selector, RecipeSelector::FocusedPageWaitWriters);
     assert_eq!(recipe.purpose, RecipePurpose::Investigation);
-    assert_eq!(recipe.admission, RecipeAdmission::Unqualified);
+    assert!(matches!(recipe.admission, RecipeAdmission::BuiltinSafety(_)));
     assert_eq!(recipe.subjects, [RecipeSubject::Database]);
 }
 

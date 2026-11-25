@@ -65,7 +65,7 @@ async fn every_static_declaration_selects_one_real_native_constructor_without_op
         assert!(descriptor.accepts(&request));
         assert_eq!(
             matches!(descriptor.admission, RecipeAdmission::BuiltinSafety(_)),
-            matches!(descriptor.id.as_str(), "mysql.activity" | "mysql.blocking" | "mysql.settings")
+            crate::builtin_safety::BUILTIN_SAFETY_IDS.contains(&descriptor.id.as_str())
         );
         assert_eq!(REGISTRATIONS.iter().filter(|candidate| candidate.accepts(&request)).count(), 1);
         let mut source = crate::telemetry::source(connector(), &request).unwrap();
@@ -96,7 +96,7 @@ fn native_projection_revisions_invalidate_only_changed_recipe_identities_without
     assert!(
         declarations
             .iter()
-            .filter(|recipe| !matches!(recipe.id.as_str(), "mysql.activity" | "mysql.blocking" | "mysql.settings"))
+            .filter(|recipe| !crate::builtin_safety::BUILTIN_SAFETY_IDS.contains(&recipe.id.as_str()))
             .all(|recipe| recipe.admission == RecipeAdmission::Unqualified)
     );
 }
@@ -123,7 +123,7 @@ fn baseline_and_investigation_meaning_is_explicit_without_qualifying_native_cost
     assert!(
         declarations
             .iter()
-            .filter(|recipe| !matches!(recipe.id.as_str(), "mysql.activity" | "mysql.blocking" | "mysql.settings"))
+            .filter(|recipe| !crate::builtin_safety::BUILTIN_SAFETY_IDS.contains(&recipe.id.as_str()))
             .all(|recipe| recipe.admission == RecipeAdmission::Unqualified)
     );
     assert!(declarations.iter().all(|recipe| !matches!(
@@ -164,7 +164,7 @@ async fn profiles_reuse_native_caps_and_preserve_every_stricter_caller_dimension
     assert_eq!((blocking.budget.statement_timeout_ms, blocking.budget.total_timeout_ms), (1000, 5000));
     let metadata = declarations().into_iter().find(|recipe| recipe.id == "mysql.metadata-lock-context").unwrap();
     assert_eq!(metadata.selector, RecipeSelector::FocusedMetadataLocks);
-    assert_eq!(metadata.admission, RecipeAdmission::Unqualified);
+    assert!(matches!(metadata.admission, RecipeAdmission::BuiltinSafety(_)));
     assert_eq!((metadata.budget.max_queries, metadata.budget.max_snapshot_rows), (37, MAX_BLOCKING_PARTICIPANTS));
     assert_eq!((metadata.budget.statement_timeout_ms, metadata.budget.total_timeout_ms), (1000, 5000));
     let distribution = declarations().into_iter().find(|recipe| recipe.id == "mysql.runtime-distributions").unwrap();

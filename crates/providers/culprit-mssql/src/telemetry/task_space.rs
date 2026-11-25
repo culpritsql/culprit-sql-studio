@@ -28,7 +28,7 @@ impl TaskSpaceSource {
     }
 }
 
-fn bounded_request(request: &CollectionRequest) -> Result<CollectionRequest> {
+pub(super) fn bounded_request(request: &CollectionRequest) -> Result<CollectionRequest> {
     request.validate()?;
     request.subject.require_database()?;
     match &request.selection {
@@ -50,7 +50,7 @@ impl<R: NativeRead> TaskSpaceSource<R> {
         Self::from_validated_io(io, bounded_request(request)?, host, port)
     }
 
-    fn from_validated_io(io: R, request: CollectionRequest, host: String, port: u16) -> Result<Self> {
+    pub(super) fn from_validated_io(io: R, request: CollectionRequest, host: String, port: u16) -> Result<Self> {
         let options = ReadOptions { budget: request.budget.clone(), identity: IdentityDetail::Endpoint };
         let reader = ActivityReader::new(io, options, host, port);
         let source_read = match &request.selection {

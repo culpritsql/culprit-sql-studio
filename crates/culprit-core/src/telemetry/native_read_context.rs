@@ -95,6 +95,40 @@ impl NativeReadContext {
         Ok(context)
     }
 
+    pub fn from_investigation_description(source: &CollectionDescription) -> Result<Self> {
+        match &source.observation {
+            SourceObservation::SourceRead { execution, .. } | SourceObservation::PagedSourceRead { execution, .. } => {
+                if !source.partition_is_consistent() || !execution.is_valid() {
+                    return Err(CollectionStop::InvalidPage.error());
+                }
+                Ok(execution.as_ref().clone())
+            }
+            SourceObservation::Activity(_)
+            | SourceObservation::FocusedBlocking { .. }
+            | SourceObservation::MetadataLockContext { .. } => Self::from_activity(source),
+            SourceObservation::FocusedPageWait { result, .. } => {
+                let mut context = Self::from_snapshot(source)?;
+                if !matches!(source.target, CollectionTarget::Shared(_)) {
+                    context.database_writable = result.focus.participant().database_writable;
+                }
+                Ok(context)
+            }
+            SourceObservation::FocusedCompilationAdmission { result, .. } => {
+                let mut context = Self::from_snapshot(source)?;
+                if !matches!(source.target, CollectionTarget::Shared(_)) {
+                    context.database_writable = result.focus.database_writable;
+                }
+                Ok(context)
+            }
+            SourceObservation::FocusedRequestMemory { result, .. } => {
+                let mut context = Self::from_snapshot(source)?;
+                context.database_writable = result.focus.database_writable;
+                Ok(context)
+            }
+            _ => Self::from_snapshot(source),
+        }
+    }
+
     pub fn is_valid(&self) -> bool {
         self.target.is_valid()
             && !matches!(self.target, CollectionTarget::ConfiguredConnection(_))

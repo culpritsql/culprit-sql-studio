@@ -39,6 +39,25 @@ fn bounded(requested: &CollectionBudget, queries: u32) -> CollectionBudget {
 }
 
 pub(crate) fn source(connector: Arc<Connector>, request: &CollectionRequest) -> Result<Box<dyn TelemetrySource>> {
+    open(connector, request, None)
+}
+
+pub(crate) fn profile_source(
+    connector: Arc<Connector>,
+    request: &CollectionRequest,
+    admission: &SourceProfileAdmission,
+) -> Result<Box<dyn TelemetrySource>> {
+    if bounded_budget(&request.budget) != request.budget {
+        return Err(source_native::invalid());
+    }
+    open(connector, request, Some(culprit_read::SourceProfileGuard::new(request, admission)?))
+}
+
+fn open(
+    connector: Arc<Connector>,
+    request: &CollectionRequest,
+    profile: Option<culprit_read::SourceProfileGuard>,
+) -> Result<Box<dyn TelemetrySource>> {
     request.validate()?;
     request.subject.require_database()?;
     let CollectionSelection::CurrentRequestWork { focus } = &request.selection else {
@@ -47,11 +66,13 @@ pub(crate) fn source(connector: Arc<Connector>, request: &CollectionRequest) -> 
     validate_selector(focus)?;
     let mut request = request.clone();
     request.budget = bounded_budget(&request.budget);
+    let connector = profile.map_or_else(|| connector.clone(), |guard| Arc::new(connector.with_profile(guard)));
     Ok(Box::new(FrozenSource::new(
         Reader {
             io: ReadSession::new(connector.clone(), request.budget.clone(), Scope::Server),
             connector,
             verified: None,
+            generation: None,
         },
         &request,
     )?))
@@ -61,6 +82,7 @@ struct Reader<R = ReadSession> {
     io: R,
     connector: Arc<Connector>,
     verified: Option<CollectionDescription>,
+    generation: Option<u64>,
 }
 #[async_trait::async_trait]
 impl<R: OwnedRead> ObservationReader for Reader<R> {
@@ -68,6 +90,9 @@ impl<R: OwnedRead> ObservationReader for Reader<R> {
         let CollectionSelection::CurrentRequestWork { focus } = &request.selection else {
             return Err(source_native::invalid());
         };
+        if let Some(profile) = self.connector.profile() {
+            profile.ensure_active()?;
+        }
         let captured = capture_from(
             &mut self.io,
             &self.connector,
@@ -77,6 +102,14 @@ impl<R: OwnedRead> ObservationReader for Reader<R> {
             PlanRead::None,
         )
         .await?;
+        if let Some(profile) = self.connector.profile() {
+            if let Some(policy) = profile.builtin_policy()
+                && !crate::builtin_safety::verify(policy)?
+            {
+                return Err(CollectionStop::SourceChanged.error());
+            }
+            profile.bind_native(&captured.snapshot.context, self.io.connection_generation())?;
+        }
         let snapshot = captured.snapshot;
         let description = description(&snapshot);
         let records = snapshot
@@ -90,11 +123,17 @@ impl<R: OwnedRead> ObservationReader for Reader<R> {
                 }))
             })
             .collect::<Result<Vec<_>>>()?;
+        self.generation = self.io.connection_generation();
         self.verified = Some(description.clone());
         Ok(FrozenObservation { description, records })
     }
     async fn verify(&mut self, source: &CollectionDescription) -> Result<bool> {
-        Ok(self.verified.as_ref() == Some(source))
+        if let Some(profile) = self.connector.profile() {
+            profile.verify_final(&NativeReadContext::from_snapshot(source)?, self.io.connection_generation())?;
+        }
+        Ok(self.verified.as_ref() == Some(source)
+            && (self.connector.profile().is_none()
+                || self.generation.is_some() && self.generation == self.io.connection_generation()))
     }
     fn query_count(&self) -> u32 {
         self.io.query_count()

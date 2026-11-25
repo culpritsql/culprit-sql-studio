@@ -190,7 +190,7 @@ impl<D: SnapshotRecipe> StreamedSnapshot<D> {
     }
 }
 impl<D: SnapshotRecipe, R: NativeStreamRead> StreamedSnapshot<D, R> {
-    fn with_io(io: R, request: &CollectionRequest, host: String, port: u16, recipe: D) -> Result<Self> {
+    pub(super) fn with_io(io: R, request: &CollectionRequest, host: String, port: u16, recipe: D) -> Result<Self> {
         Self::with_purpose(io, request, host, port, recipe, SnapshotPurpose::Dataset)
     }
     fn with_purpose(

@@ -10,7 +10,7 @@ mod frozen;
 mod profile;
 mod progress;
 pub use frozen::{FrozenObservation, FrozenSource, ObservationReader};
-pub use profile::SourceProfileGuard;
+pub use profile::{GuardedTelemetrySource, SourceProfileGuard};
 pub use progress::{PagedProgress, SourceProgress};
 mod snapshot;
 pub use fence::{ReadFence, ReadWork};

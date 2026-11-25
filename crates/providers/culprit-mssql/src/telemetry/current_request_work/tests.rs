@@ -108,7 +108,7 @@ async fn unknown_original_scope_or_role_refuses_before_reader_work_and_declared_
         assert!(Source::with_io(native::io(vec![]), &request, "fixture.invalid".into(), 1433).is_err());
     }
     let recipe = crate::telemetry::recipes().into_iter().find(|r| r.id == "mssql.current-request-work").unwrap();
-    assert_eq!(recipe.admission, RecipeAdmission::Unqualified);
+    assert!(matches!(recipe.admission, RecipeAdmission::BuiltinSafety(_)));
     assert_eq!(recipe.version, 2);
     assert_eq!(recipe.budget.max_queries, 11);
 }
@@ -140,6 +140,6 @@ async fn cache_native_error_stops_before_a_retired_owner_can_require_replacement
         }
     }
     let recipe = crate::telemetry::recipes().into_iter().find(|r| r.id == "mssql.current-request-work").unwrap();
-    assert_eq!(recipe.admission, RecipeAdmission::Unqualified);
+    assert!(matches!(recipe.admission, RecipeAdmission::BuiltinSafety(_)));
     assert_eq!(recipe.budget.max_queries, 11);
 }

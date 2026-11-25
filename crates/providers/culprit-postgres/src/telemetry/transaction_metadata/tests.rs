@@ -291,7 +291,7 @@ fn source_budget_intersects_every_existing_caller_ceiling_without_baseline_or_co
     let recipe = recipes.iter().find(|recipe| recipe.id == "postgres.transaction-metadata").unwrap();
     assert_eq!(recipe.purpose, RecipePurpose::Investigation);
     assert_eq!(recipe.version, 2);
-    assert!(matches!(recipe.admission, RecipeAdmission::Unqualified));
+    assert!(matches!(recipe.admission, RecipeAdmission::BuiltinSafety(_)));
     assert_eq!(recipe.selector, SourceReadQuestion::TransactionMetadata.selector());
 }
 #[test]
@@ -411,7 +411,7 @@ async fn continuation_uses_the_same_native_reader_query_envelope_and_completed_o
     assert_eq!(selected_recipes.len(), 1);
     assert_eq!(selected_recipes[0].id, "postgres.transaction-metadata");
     assert_eq!(selected_recipes[0].version, 2);
-    assert!(matches!(selected_recipes[0].admission, RecipeAdmission::Unqualified));
+    assert!(matches!(selected_recipes[0].admission, RecipeAdmission::BuiltinSafety(_)));
     let selected = super::super::source(connector, &request).unwrap();
     assert_eq!(selected.query_count(), 0, "the catalog routes the same closed constructor without native work");
 }

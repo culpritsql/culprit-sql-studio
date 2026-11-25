@@ -53,10 +53,13 @@ impl BuiltinRecipeSafety {
             && scope.partition().is_qualified()
             && match scope {
                 RecipeCostScope::Activity(_) => !matches!(self.selector, RecipeSelector::Collection(_)),
+                RecipeCostScope::SharedResource { .. } => matches!(
+                    self.selector,
+                    RecipeSelector::FocusedPageWait | RecipeSelector::FocusedCompilationAdmission
+                ),
                 RecipeCostScope::NativeRead(execution) => SourceReadQuestion::ALL
                     .iter()
                     .any(|question| question.selector() == self.selector && execution.accepts_question(*question)),
-                _ => false,
             }
     }
     pub fn matches_recipe(&self, recipe: &RecipeDescriptor) -> bool {
@@ -105,6 +108,21 @@ impl RecipeExecutionAdmission {
         caller: &CollectionBudget,
     ) -> Result<Self> {
         Self::for_scope(recipe, RecipeCostScope::NativeRead(execution.clone()), caller)
+    }
+    pub fn for_shared(
+        recipe: &RecipeDescriptor,
+        owner: &CollectionDescription,
+        caller: &CollectionBudget,
+    ) -> Result<Self> {
+        let CollectionTarget::Shared(target) = &owner.target else {
+            return Err(CollectionStop::InvalidPage.error());
+        };
+        let scope = RecipeCostScope::SharedResource {
+            target: target.clone(),
+            partition: owner.partition.clone(),
+            source: owner.source.clone(),
+        };
+        Self::for_scope(recipe, scope, caller)
     }
     fn for_scope(recipe: &RecipeDescriptor, scope: RecipeCostScope, caller: &CollectionBudget) -> Result<Self> {
         let value = match &recipe.admission {

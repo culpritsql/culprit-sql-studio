@@ -22,7 +22,7 @@ impl PageWaitSource {
         Self::from_reader(ActivityReader::open_collection(pool, options, host, port)?, &request)
     }
 }
-fn bounded_request(request: &CollectionRequest) -> Result<CollectionRequest> {
+pub(super) fn bounded_request(request: &CollectionRequest) -> Result<CollectionRequest> {
     request.validate()?;
     let mut bounded = request.clone();
     bounded.budget = if matches!(request.selection, CollectionSelection::PageTaskHolders { .. }) {

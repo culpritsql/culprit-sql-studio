@@ -25,20 +25,39 @@ pub(super) fn bounded_budget(requested: &CollectionBudget) -> CollectionBudget {
     budget
 }
 pub(super) fn source(connector: Connector, request: &CollectionRequest) -> Result<Box<dyn TelemetrySource>> {
+    open(connector, request, None)
+}
+pub(super) fn profile_source(
+    connector: Connector,
+    request: &CollectionRequest,
+    admission: &SourceProfileAdmission,
+) -> Result<Box<dyn TelemetrySource>> {
+    if bounded_budget(&request.budget) != request.budget {
+        return Err(native::invalid());
+    }
+    open(connector, request, Some(culprit_read::SourceProfileGuard::new(request, admission)?))
+}
+fn open(
+    connector: Connector,
+    request: &CollectionRequest,
+    profile: Option<culprit_read::SourceProfileGuard>,
+) -> Result<Box<dyn TelemetrySource>> {
     request.validate()?;
     request.subject.require_database()?;
     let (focus, _) = question(request)?;
     participant(focus)?;
     let mut request = request.clone();
     request.budget = bounded_budget(&request.budget);
-    let reader = Reader {
-        host: connector.host.clone(),
-        port: connector.port,
-        io: ReadSession::new(connector, request.budget.clone()),
-        verified: None,
-        generation: None,
-    };
-    Ok(Box::new(FrozenSource::new(reader, &request)?))
+    let mut io = ReadSession::new(connector.clone(), request.budget.clone());
+    if let Some(guard) = &profile {
+        io = io.with_profile(guard.clone());
+    }
+    let reader = Reader { host: connector.host, port: connector.port, io, verified: None, generation: None };
+    let frozen = FrozenSource::new(reader, &request)?;
+    Ok(match profile {
+        Some(guard) => Box::new(culprit_read::GuardedTelemetrySource::new(frozen, guard)),
+        None => Box::new(frozen),
+    })
 }
 struct Reader<R = ReadSession> {
     io: R,

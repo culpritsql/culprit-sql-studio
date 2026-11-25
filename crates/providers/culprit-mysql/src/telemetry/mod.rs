@@ -135,6 +135,7 @@ pub(crate) fn safety_source(
         }
         RecipeSelector::FocusedBlocking => blocking::profile_source(connector, request, profile),
         RecipeSelector::FocusedMetadataLocks => blocking::metadata_profile_source(connector, request, profile),
+        RecipeSelector::CurrentRequestWork => crate::progress::profile_source(connector, request, profile),
         _ => Err(native::invalid()),
     }
 }

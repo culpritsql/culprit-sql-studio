@@ -9,7 +9,7 @@ fn registered_source_versions_include_native_acquisition_policy_revisions() {
         .iter()
         .filter(|recipe| recipe.version != 1)
         .map(|recipe| {
-            let builtin = matches!(recipe.id.as_str(), "mssql.activity" | "mssql.blocking" | "mssql.settings");
+            let builtin = crate::builtin_safety::BUILTIN_SAFETY_IDS.contains(&recipe.id.as_str());
             assert_eq!(matches!(recipe.admission, RecipeAdmission::BuiltinSafety(_)), builtin, "{}", recipe.id);
             (recipe.id.as_str(), recipe.version)
         })
@@ -788,7 +788,7 @@ fn worker_starvation_is_question_only_unqualified_and_preserves_the_setup_in_its
     assert_eq!(recipe.version, 1);
     assert_eq!(recipe.selector, RecipeSelector::WorkerStarvation);
     assert_eq!(recipe.purpose, RecipePurpose::Investigation);
-    assert_eq!(recipe.admission, RecipeAdmission::Unqualified);
+    assert!(matches!(recipe.admission, RecipeAdmission::BuiltinSafety(_)));
     assert_eq!(
         recipe.subjects,
         vec![
@@ -881,7 +881,7 @@ fn catalog_baseline_purpose_does_not_reclassify_any_existing_focused_or_source_r
     assert!(!focused.is_empty());
     for recipe in focused {
         assert_eq!(recipe.purpose, RecipePurpose::Investigation, "{}", recipe.id);
-        let builtin = matches!(recipe.id.as_str(), "mssql.blocking" | "mssql.readable-secondary-recovery");
+        let builtin = crate::builtin_safety::BUILTIN_SAFETY_IDS.contains(&recipe.id.as_str());
         assert_eq!(matches!(recipe.admission, RecipeAdmission::BuiltinSafety(_)), builtin, "{}", recipe.id);
     }
 }

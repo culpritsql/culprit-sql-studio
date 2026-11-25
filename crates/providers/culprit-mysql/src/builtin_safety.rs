@@ -1,6 +1,15 @@
 //! Source-owned safety for bounded native metadata readers, distinct from measured target cost.
 use crate::connect::Flavor;
 use culprit_core::{Result, telemetry::*};
+#[cfg(test)]
+pub(crate) const BUILTIN_SAFETY_IDS: &[&str] = &[
+    "mysql.activity",
+    "mysql.blocking",
+    "mysql.current-request-work",
+    "mysql.metadata-lock-context",
+    "mysql.settings",
+];
+
 pub(crate) fn policy(
     id: &str,
     version: u32,
@@ -12,7 +21,9 @@ pub(crate) fn policy(
         ("mysql.settings", RecipeSelector::Collection(TelemetryCollection::Snapshot(SnapshotDataset::Settings))) => {
             RecipePurpose::Baseline
         }
-        ("mysql.blocking", RecipeSelector::FocusedBlocking) => RecipePurpose::Investigation,
+        ("mysql.blocking", RecipeSelector::FocusedBlocking)
+        | ("mysql.metadata-lock-context", RecipeSelector::FocusedMetadataLocks)
+        | ("mysql.current-request-work", RecipeSelector::CurrentRequestWork) => RecipePurpose::Investigation,
         _ => return None,
     };
     Some(BuiltinRecipeSafety {
@@ -63,6 +74,7 @@ fn templates() -> String {
         include_str!("telemetry/blocking.rs"),
         include_str!("telemetry/blocking/participants.rs"),
         include_str!("telemetry/blocking/edges.rs"),
+        include_str!("progress.rs"),
     ];
     let mut bytes = Vec::new();
     for part in parts {
@@ -117,8 +129,9 @@ mod tests {
             .iter()
             .filter(|recipe| matches!(recipe.admission, RecipeAdmission::BuiltinSafety(_)))
             .collect::<Vec<_>>();
-        assert_eq!(selected.len(), 3);
+        assert_eq!(selected.len(), BUILTIN_SAFETY_IDS.len());
         for recipe in selected {
+            assert!(BUILTIN_SAFETY_IDS.contains(&recipe.id.as_str()), "{}", recipe.id);
             let RecipeAdmission::BuiltinSafety(policy) = &recipe.admission else { panic!() };
             assert!(verify(policy).unwrap());
             for (flavor, version) in [
@@ -149,7 +162,7 @@ mod tests {
         assert!(
             recipes
                 .iter()
-                .filter(|recipe| !matches!(recipe.id.as_str(), "mysql.activity" | "mysql.blocking" | "mysql.settings"))
+                .filter(|recipe| !BUILTIN_SAFETY_IDS.contains(&recipe.id.as_str()))
                 .all(|recipe| matches!(recipe.admission, RecipeAdmission::Unqualified))
         );
     }

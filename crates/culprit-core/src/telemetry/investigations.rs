@@ -258,9 +258,7 @@ impl DiagnosticInvestigationIntent {
         caller_budget: &CollectionBudget,
         owner: DiagnosticSharedOwner<'_>,
     ) -> Result<Self> {
-        let RecipeAdmission::Measured(receipt) = &recipe.admission else {
-            return Err(invalid());
-        };
+        let qualification = RecipeExecutionAdmission::for_shared(recipe, owner.source, caller_budget)?;
         let value = Self {
             episode_id: episode.id.clone(),
             episode_revision: episode.revision.clone(),
@@ -268,8 +266,8 @@ impl DiagnosticInvestigationIntent {
             recipe_version: recipe.version,
             focus,
             execution: DiagnosticExecutionBinding::Shared { owner: Box::new(owner.reference.clone()) },
-            budget: receipt.tested_budget.clone(),
-            qualification: receipt.as_ref().clone().into(),
+            budget: qualification.budget().clone(),
+            qualification,
         };
         if !value.matches_admission(episode, recipe, component, caller_budget)
             || !value.matches_shared_owner(owner.source, owner.row)

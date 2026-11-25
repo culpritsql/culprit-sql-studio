@@ -234,6 +234,6 @@ async fn native_partial_coverage_caller_caps_and_unqualified_recipe_survive_the_
         .find(|recipe| recipe.id == "mssql.current-request-memory")
         .unwrap();
     assert_eq!(recipe.version, 7);
-    assert!(matches!(recipe.admission, RecipeAdmission::Unqualified));
+    assert!(matches!(recipe.admission, RecipeAdmission::BuiltinSafety(_)));
     assert_eq!(recipe.selector, SourceReadQuestion::OutputGrantRetention.selector());
 }

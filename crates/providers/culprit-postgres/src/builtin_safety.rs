@@ -1,6 +1,17 @@
 //! Validated built-in safety for existing native metadata readers, not measured CPU or cost receipts.
 use culprit_core::{Result, telemetry::*};
 
+#[cfg(test)]
+pub(crate) const BUILTIN_SAFETY_IDS: &[&str] = &[
+    "postgres.activity",
+    "postgres.blocking",
+    "postgres.current-request-work",
+    "postgres.maintenance-progress",
+    "postgres.readable-secondary-recovery",
+    "postgres.settings",
+    "postgres.transaction-metadata",
+];
+
 pub(crate) fn policy(
     recipe_id: &str,
     recipe_version: u32,
@@ -12,11 +23,17 @@ pub(crate) fn policy(
         ("postgres.settings", RecipeSelector::Collection(TelemetryCollection::Snapshot(SnapshotDataset::Settings))) => {
             RecipePurpose::Baseline
         }
-        ("postgres.blocking", RecipeSelector::FocusedBlocking) => RecipePurpose::Investigation,
-        (
+        ("postgres.blocking", RecipeSelector::FocusedBlocking)
+        | (
             "postgres.readable-secondary-recovery",
             RecipeSelector::Collection(TelemetryCollection::Snapshot(SnapshotDataset::ReadableSecondaryRecovery)),
-        ) => RecipePurpose::Investigation,
+        )
+        | (
+            "postgres.transaction-metadata",
+            RecipeSelector::Collection(TelemetryCollection::Snapshot(SnapshotDataset::TransactionMetadata)),
+        )
+        | ("postgres.maintenance-progress", RecipeSelector::MaintenanceProgress)
+        | ("postgres.current-request-work", RecipeSelector::CurrentRequestWork) => RecipePurpose::Investigation,
         _ => return None,
     };
     Some(BuiltinRecipeSafety {
@@ -71,6 +88,9 @@ fn template_fingerprint() -> String {
         include_str!("telemetry/activity.rs"),
         include_str!("telemetry/blocking.rs"),
         include_str!("telemetry/readable_secondary_recovery.rs"),
+        include_str!("telemetry/transaction_metadata.rs"),
+        include_str!("progress.rs"),
+        include_str!("progress/source.rs"),
         include_str!("native/readable_secondary_recovery.rs"),
         include_str!("native/readable_secondary_recovery/sql.rs"),
         include_str!("native/replication/sql.rs"),
@@ -115,17 +135,11 @@ mod tests {
                 _ => None,
             })
             .collect::<Vec<_>>();
-        assert_eq!(policies.len(), 4);
+        assert_eq!(policies.len(), BUILTIN_SAFETY_IDS.len());
         for (recipe, policy) in policies {
             assert!(recipe.is_valid());
             assert!(verify(policy).unwrap());
-            assert!(matches!(
-                recipe.id.as_str(),
-                "postgres.activity"
-                    | "postgres.blocking"
-                    | "postgres.readable-secondary-recovery"
-                    | "postgres.settings"
-            ));
+            assert!(BUILTIN_SAFETY_IDS.contains(&recipe.id.as_str()), "{}", recipe.id);
             assert!(verify_native(policy, 180006).is_ok());
             for version in [170009, 190000] {
                 assert!(verify_native(policy, version).is_err());
@@ -136,9 +150,9 @@ mod tests {
                     "template" => changed.templates_sha256 = digest(b"not-the-reader"),
                     "component" => changed.component.version.as_mut().unwrap().push_str("-foreign"),
                     "budget" => changed.budget.max_queries += 1,
-                    "selector" => changed.selector = RecipeSelector::CurrentRequestWork,
+                    "selector" => changed.selector = RecipeSelector::PageWaitTasks,
                     "version" => changed.version += 1,
-                    "recipe" => changed.recipe_id = "postgres.current-request-work".into(),
+                    "recipe" => changed.recipe_id = "postgres.timescale-jobs".into(),
                     _ => unreachable!(),
                 }
                 assert!(!verify(&changed).unwrap(), "{fault}");
@@ -147,13 +161,7 @@ mod tests {
         assert!(
             recipes
                 .iter()
-                .filter(|recipe| !matches!(
-                    recipe.id.as_str(),
-                    "postgres.activity"
-                        | "postgres.blocking"
-                        | "postgres.readable-secondary-recovery"
-                        | "postgres.settings"
-                ))
+                .filter(|recipe| !BUILTIN_SAFETY_IDS.contains(&recipe.id.as_str()))
                 .all(|recipe| matches!(recipe.admission, RecipeAdmission::Unqualified))
         );
     }

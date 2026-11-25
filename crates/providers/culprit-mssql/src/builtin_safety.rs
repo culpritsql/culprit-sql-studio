@@ -1,6 +1,27 @@
 //! Validated built-in safety for bounded SQL Server and Azure SQL metadata readers, not measured CPU or cost receipts.
 use culprit_core::{Result, telemetry::*};
 
+#[cfg(test)]
+pub(crate) const BUILTIN_SAFETY_IDS: &[&str] = &[
+    "mssql.activity",
+    "mssql.blocking",
+    "mssql.current-request-memory",
+    "mssql.current-request-work",
+    "mssql.focused-compiler-admission",
+    "mssql.focused-page-task-holders",
+    "mssql.focused-page-wait",
+    "mssql.focused-page-wait-writers",
+    "mssql.focused-request-memory",
+    "mssql.focused-shared-compiler-admission",
+    "mssql.focused-shared-tempdb-page-wait",
+    "mssql.query-compilation",
+    "mssql.readable-secondary-recovery",
+    "mssql.retained-plans",
+    "mssql.settings",
+    "mssql.task-space",
+    "mssql.worker-starvation",
+];
+
 pub(crate) fn policy(
     recipe_id: &str,
     recipe_version: u32,
@@ -12,10 +33,32 @@ pub(crate) fn policy(
         ("mssql.settings", RecipeSelector::Collection(TelemetryCollection::Snapshot(SnapshotDataset::Settings))) => {
             RecipePurpose::Baseline
         }
-        ("mssql.blocking", RecipeSelector::FocusedBlocking) => RecipePurpose::Investigation,
-        (
+        ("mssql.blocking", RecipeSelector::FocusedBlocking)
+        | (
             "mssql.readable-secondary-recovery",
             RecipeSelector::Collection(TelemetryCollection::Snapshot(SnapshotDataset::ReadableSecondaryRecovery)),
+        )
+        | ("mssql.worker-starvation", RecipeSelector::WorkerStarvation)
+        | ("mssql.focused-compiler-admission", RecipeSelector::FocusedCompilationAdmission)
+        | ("mssql.focused-shared-compiler-admission", RecipeSelector::FocusedCompilationAdmission)
+        | ("mssql.focused-request-memory", RecipeSelector::FocusedRequestMemory)
+        | (
+            "mssql.current-request-memory",
+            RecipeSelector::Collection(TelemetryCollection::Snapshot(SnapshotDataset::CurrentRequestMemory)),
+        )
+        | ("mssql.focused-page-wait", RecipeSelector::FocusedPageWait)
+        | ("mssql.focused-shared-tempdb-page-wait", RecipeSelector::FocusedPageWait)
+        | ("mssql.focused-page-task-holders", RecipeSelector::FocusedPageTaskHolders)
+        | ("mssql.focused-page-wait-writers", RecipeSelector::FocusedPageWaitWriters)
+        | ("mssql.current-request-work", RecipeSelector::CurrentRequestWork)
+        | (
+            "mssql.retained-plans",
+            RecipeSelector::Collection(TelemetryCollection::Snapshot(SnapshotDataset::RetainedPlans)),
+        )
+        | ("mssql.task-space", RecipeSelector::Collection(TelemetryCollection::Snapshot(SnapshotDataset::TaskSpace)))
+        | (
+            "mssql.query-compilation",
+            RecipeSelector::Collection(TelemetryCollection::Snapshot(SnapshotDataset::QueryCompilation)),
         ) => RecipePurpose::Investigation,
         _ => return None,
     };
@@ -59,6 +102,15 @@ fn template_fingerprint() -> String {
         include_str!("telemetry/activity/mod.rs"),
         include_str!("telemetry/blocking.rs"),
         include_str!("telemetry/readable_secondary_recovery.rs"),
+        include_str!("telemetry/worker_starvation.rs"),
+        include_str!("telemetry/compiler_admission.rs"),
+        include_str!("telemetry/request_memory.rs"),
+        include_str!("telemetry/page_waits.rs"),
+        include_str!("telemetry/current_request_work.rs"),
+        include_str!("telemetry/retained_definitions.rs"),
+        include_str!("telemetry/task_space.rs"),
+        include_str!("telemetry/compilation.rs"),
+        include_str!("telemetry/streamed.rs"),
         include_str!("telemetry/state.rs"),
         include_str!("telemetry/state/settings.rs"),
         include_str!("telemetry/subject.rs"),
@@ -153,14 +205,11 @@ mod tests {
                 _ => None,
             })
             .collect::<Vec<_>>();
-        assert_eq!(policies.len(), 4);
+        assert_eq!(policies.len(), BUILTIN_SAFETY_IDS.len());
         for (recipe, policy) in policies {
             assert!(recipe.is_valid());
             assert!(verify(policy).unwrap());
-            assert!(matches!(
-                recipe.id.as_str(),
-                "mssql.activity" | "mssql.blocking" | "mssql.readable-secondary-recovery" | "mssql.settings"
-            ));
+            assert!(BUILTIN_SAFETY_IDS.contains(&recipe.id.as_str()), "{}", recipe.id);
             for (edition, major) in [(3, 16), (2, 16), (5, 12), (8, 12), (8, 16)] {
                 assert!(verify_activity(policy, edition, major).is_ok());
             }
@@ -173,7 +222,7 @@ mod tests {
                     "template" => changed.templates_sha256 = digest(b"not-the-reader"),
                     "component" => changed.component.version.as_mut().unwrap().push_str("-foreign"),
                     "budget" => changed.budget.max_queries += 1,
-                    "selector" => changed.selector = RecipeSelector::CurrentRequestWork,
+                    "selector" => changed.selector = RecipeSelector::PageWaitTasks,
                     "version" => changed.version += 1,
                     "recipe" => changed.recipe_id = "mssql.page-wait-targets".into(),
                     _ => unreachable!(),
@@ -184,10 +233,7 @@ mod tests {
         assert!(
             recipes
                 .iter()
-                .filter(|recipe| !matches!(
-                    recipe.id.as_str(),
-                    "mssql.activity" | "mssql.blocking" | "mssql.readable-secondary-recovery" | "mssql.settings"
-                ))
+                .filter(|recipe| !BUILTIN_SAFETY_IDS.contains(&recipe.id.as_str()))
                 .all(|recipe| matches!(recipe.admission, RecipeAdmission::Unqualified))
         );
     }

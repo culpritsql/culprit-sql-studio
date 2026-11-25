@@ -7,6 +7,18 @@ use crate::{
 use culprit_core::{Result, Source, telemetry::*};
 
 pub(super) struct QueryCompilation;
+pub(super) fn bounded_budget(caller: &CollectionBudget) -> CollectionBudget {
+    caller.intersection(&CollectionBudget {
+        page_rows: 64,
+        max_snapshot_rows: 256,
+        max_queries: 16,
+        page_bytes: 512 * 1024,
+        total_bytes: 4 * 1024 * 1024,
+        statement_timeout_ms: 1_000,
+        total_timeout_ms: 5_000,
+        ..CollectionBudget::upper_limits()
+    })
+}
 pub(super) struct CompilationLayout {
     query_id: Option<String>,
 }

@@ -329,7 +329,7 @@ async fn wrong_or_focused_selections_and_expanded_subjects_do_not_enter_the_task
     );
     let recipe = crate::telemetry::recipes().into_iter().find(|recipe| recipe.id == "mssql.task-space").unwrap();
     assert_eq!(recipe.version, 6);
-    assert_eq!(recipe.admission, RecipeAdmission::Unqualified);
+    assert!(matches!(recipe.admission, RecipeAdmission::BuiltinSafety(_)));
 }
 
 // Controlled original facts exercise the production reader/profile seam; this is not native-cost approval.

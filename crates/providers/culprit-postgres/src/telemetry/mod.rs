@@ -629,6 +629,12 @@ pub(crate) fn safety_source(
         {
             readable_secondary_recovery::profile_source(connector, request, profile)
         }
+        CollectionSelection::SourceRead { focus, .. } if focus.question == SourceReadQuestion::TransactionMetadata => {
+            transaction_metadata::profile_source(connector, request, profile)
+        }
+        CollectionSelection::MaintenanceProgress { .. } | CollectionSelection::CurrentRequestWork { .. } => {
+            crate::progress::profile_source(connector, request, profile)
+        }
         _ => Err(CollectionStop::SourceChanged.error()),
     }
 }

@@ -239,7 +239,8 @@ async fn retained_frozen_pages_reuse_the_completed_source_and_never_inspect_a_pl
     };
     request.validate().unwrap();
     let io = reader(after(), Ok(vec![stage(&[])]), statement(&[]));
-    let mut source = FrozenSource::new(Reader { io, connector: connector(), verified: None }, &request).unwrap();
+    let mut source =
+        FrozenSource::new(Reader { io, connector: connector(), verified: None, generation: None }, &request).unwrap();
     let description = source.describe().await.unwrap();
     assert!(description.matches_request(&request));
     let count = source.query_count();

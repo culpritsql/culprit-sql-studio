@@ -90,7 +90,9 @@ pub(crate) fn safety_source(
     port: u16,
     profile: &culprit_core::telemetry::SourceProfileAdmission,
 ) -> Result<Box<dyn TelemetrySource>> {
+    use crate::activity::{ActivityReader, IdentityDetail, ReadOptions};
     use culprit_core::telemetry::{RecipeSelector, SnapshotDataset, TelemetryCollection};
+    use culprit_read::{GuardedTelemetrySource, SourceProfileGuard};
     match profile.selector() {
         RecipeSelector::Collection(TelemetryCollection::Activity)
         | RecipeSelector::Collection(TelemetryCollection::Snapshot(SnapshotDataset::Settings)) => {
@@ -99,6 +101,87 @@ pub(crate) fn safety_source(
         RecipeSelector::FocusedBlocking => blocking::profile_source(pool, request, host, port, profile),
         RecipeSelector::Collection(TelemetryCollection::Snapshot(SnapshotDataset::ReadableSecondaryRecovery)) => {
             readable_secondary_recovery::profile_source(pool, request, host, port, profile)
+        }
+        RecipeSelector::WorkerStarvation => {
+            if worker_starvation::bounded_budget(&request.budget) != request.budget {
+                return Err(crate::read::invalid_data());
+            }
+            let guard = SourceProfileGuard::new(request, profile)?;
+            let io = Session::collection(pool, request.budget.clone())?.with_profile(guard.clone());
+            let inner = worker_starvation::WorkerStarvationSource::with_io(io, request, host, port)?;
+            Ok(Box::new(GuardedTelemetrySource::new(inner, guard)))
+        }
+        RecipeSelector::FocusedCompilationAdmission => {
+            if compiler_admission::focused_budget(&request.budget) != request.budget {
+                return Err(crate::read::invalid_data());
+            }
+            let guard = SourceProfileGuard::new(request, profile)?;
+            let options = ReadOptions { budget: request.budget.clone(), identity: IdentityDetail::Endpoint };
+            let reader = ActivityReader::open_profiled_collection(pool, options, host, port, guard.clone())?;
+            let inner = compiler_admission::CompilerAdmissionSource::from_reader(reader, request)?;
+            Ok(Box::new(GuardedTelemetrySource::new(inner, guard)))
+        }
+        RecipeSelector::FocusedRequestMemory
+        | RecipeSelector::Collection(TelemetryCollection::Snapshot(SnapshotDataset::CurrentRequestMemory)) => {
+            if request_memory::bounded_budget(&request.budget) != request.budget {
+                return Err(crate::read::invalid_data());
+            }
+            let guard = SourceProfileGuard::new(request, profile)?;
+            let options = ReadOptions { budget: request.budget.clone(), identity: IdentityDetail::Endpoint };
+            let reader = ActivityReader::open_profiled_collection(pool, options, host, port, guard.clone())?;
+            let inner = request_memory::MemorySource::from_reader(reader, request)?;
+            Ok(Box::new(GuardedTelemetrySource::new(inner, guard)))
+        }
+        RecipeSelector::FocusedPageWait
+        | RecipeSelector::FocusedPageTaskHolders
+        | RecipeSelector::FocusedPageWaitWriters => {
+            let bounded = page_waits::bounded_request(request)?;
+            if bounded.budget != request.budget {
+                return Err(crate::read::invalid_data());
+            }
+            let guard = SourceProfileGuard::new(request, profile)?;
+            let options = ReadOptions { budget: request.budget.clone(), identity: IdentityDetail::Endpoint };
+            let reader = ActivityReader::open_profiled_collection(pool, options, host, port, guard.clone())?;
+            let inner = page_waits::PageWaitSource::from_reader(reader, request)?;
+            Ok(Box::new(GuardedTelemetrySource::new(inner, guard)))
+        }
+        RecipeSelector::CurrentRequestWork => {
+            if current_request_work::bounded_budget(&request.budget) != request.budget {
+                return Err(crate::read::invalid_data());
+            }
+            let guard = SourceProfileGuard::new(request, profile)?;
+            let io = Session::collection(pool, request.budget.clone())?.with_profile(guard.clone());
+            let inner = current_request_work::Source::with_io(io, request, host, port)?;
+            Ok(Box::new(GuardedTelemetrySource::new(inner, guard)))
+        }
+        RecipeSelector::Collection(TelemetryCollection::Snapshot(SnapshotDataset::TaskSpace)) => {
+            let bounded = task_space::bounded_request(request)?;
+            if bounded.budget != request.budget {
+                return Err(crate::read::invalid_data());
+            }
+            let guard = SourceProfileGuard::new(request, profile)?;
+            let io = Session::collection(pool, request.budget.clone())?.with_profile(guard.clone());
+            let inner = task_space::TaskSpaceSource::from_validated_io(io, bounded, host, port)?;
+            Ok(Box::new(GuardedTelemetrySource::new(inner, guard)))
+        }
+        RecipeSelector::Collection(TelemetryCollection::Snapshot(SnapshotDataset::RetainedPlans)) => {
+            if retained_definitions::bounded_budget(&request.budget) != request.budget {
+                return Err(crate::read::invalid_data());
+            }
+            let guard = SourceProfileGuard::new(request, profile)?;
+            let io = Session::collection(pool, request.budget.clone())?.with_profile(guard.clone());
+            let inner =
+                streamed::StreamedSnapshot::with_io(io, request, host, port, retained_definitions::RetainedPlans)?;
+            Ok(Box::new(GuardedTelemetrySource::new(inner, guard)))
+        }
+        RecipeSelector::Collection(TelemetryCollection::Snapshot(SnapshotDataset::QueryCompilation)) => {
+            if compilation::bounded_budget(&request.budget) != request.budget {
+                return Err(crate::read::invalid_data());
+            }
+            let guard = SourceProfileGuard::new(request, profile)?;
+            let io = Session::collection(pool, request.budget.clone())?.with_profile(guard.clone());
+            let inner = streamed::StreamedSnapshot::with_io(io, request, host, port, compilation::QueryCompilation)?;
+            Ok(Box::new(GuardedTelemetrySource::new(inner, guard)))
         }
         _ => Err(crate::read::invalid_data()),
     }

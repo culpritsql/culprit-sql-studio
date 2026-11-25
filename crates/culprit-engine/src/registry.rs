@@ -313,7 +313,25 @@ mod builtin_safety_tests {
             admitted.sort_unstable();
             assert_eq!(
                 admitted,
-                ["mssql.activity", "mssql.blocking", "mssql.readable-secondary-recovery", "mssql.settings"]
+                [
+                    "mssql.activity",
+                    "mssql.blocking",
+                    "mssql.current-request-memory",
+                    "mssql.current-request-work",
+                    "mssql.focused-compiler-admission",
+                    "mssql.focused-page-task-holders",
+                    "mssql.focused-page-wait",
+                    "mssql.focused-page-wait-writers",
+                    "mssql.focused-request-memory",
+                    "mssql.focused-shared-compiler-admission",
+                    "mssql.focused-shared-tempdb-page-wait",
+                    "mssql.query-compilation",
+                    "mssql.readable-secondary-recovery",
+                    "mssql.retained-plans",
+                    "mssql.settings",
+                    "mssql.task-space",
+                    "mssql.worker-starvation",
+                ]
             );
         }
     }
@@ -367,7 +385,16 @@ mod mysql_safety_tests {
             .map(|recipe| recipe.id.as_str())
             .collect::<Vec<_>>();
         admitted.sort_unstable();
-        assert_eq!(admitted, ["mysql.activity", "mysql.blocking", "mysql.settings"]);
+        assert_eq!(
+            admitted,
+            [
+                "mysql.activity",
+                "mysql.blocking",
+                "mysql.current-request-work",
+                "mysql.metadata-lock-context",
+                "mysql.settings",
+            ]
+        );
         let untrusted = ProviderRegistration::new(
             Arc::new(|_, _| panic!("metadata listing never calls a factory")),
             crate::ProviderConstructionPolicy::DeferredNativeWork,
