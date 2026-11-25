@@ -15,6 +15,7 @@ ANALYTICAL_TABLES = frozenset({
     "CulpritQueryRuntimeV1", "CulpritQueryWaitsV1", "CulpritQueryDefinitionsV1", "CulpritPlanDefinitionsV1",
     "CulpritResourceSamplesV1", "CulpritActivityV1", "CulpritDeadlocksV1", "CulpritOperationalV1",
     "CulpritWaitCountersV1", "CulpritReplicationV1", "CulpritSettingsV1", "CulpritTuningV1", "CulpritObjectsV1",
+    "CulpritIncidentsV1", "CulpritFindingsV1", "CulpritChangesV1", "CulpritCollectorConnectionsV1",
     "CulpritPublishedRangesV1",
 })
 

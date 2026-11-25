@@ -1133,7 +1133,8 @@ class NativeSelection(unittest.TestCase):
         selections = [call.args for call in database.test.call_args_list]
         self.assertEqual(selections.count(("culprit-mssql", "native_tests::")), 1)
         self.assertEqual(selections.count(("culprit-mssql", history)), 1)
-        self.assertEqual(selections[-2:], [("culprit-mssql", "native_tests::"), ("culprit-mssql", history)])
+        self.assertEqual(selections[0], ("culprit-mssql", history))
+        self.assertEqual(selections[-1], ("culprit-mssql", "native_tests::"))
         database.test.reset_mock()
         database.verify([("culprit-mssql", history)])
         database.test.assert_called_once_with("culprit-mssql", history, library=True, skip=None)
