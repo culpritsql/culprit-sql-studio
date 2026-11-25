@@ -42,6 +42,8 @@ pub mod history;
 mod http;
 pub mod import;
 pub mod incident_history;
+#[cfg(feature = "collector")]
+pub mod inventory_onboarding;
 mod local_capture_actions;
 mod local_captures;
 #[cfg(feature = "collector")]

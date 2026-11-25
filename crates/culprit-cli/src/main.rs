@@ -24,6 +24,7 @@ mod scan_capture;
 mod service_cmd;
 mod share_cmd;
 mod ssh;
+mod sync_inventory_cmd;
 #[cfg(test)]
 mod test_support;
 mod timeline_cmd;

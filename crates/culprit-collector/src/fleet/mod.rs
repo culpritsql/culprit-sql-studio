@@ -3,6 +3,7 @@ mod admission;
 mod history;
 mod investigations;
 mod journal;
+pub mod onboarding;
 mod scheduler;
 mod storage;
 mod windows;
