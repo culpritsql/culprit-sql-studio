@@ -489,7 +489,7 @@ class MssqlFixtureIdentity(unittest.TestCase):
                 self.assertEqual(database.hostname, "m" + owner[:14])
                 self.assertEqual(len(database.hostname), 15)
                 self.assertEqual(database.fixture.database, "culprit_smoke_" + owner)
-                self.assertEqual(database.fixture.memory, "4g" if fixture_type is smoke.ScalarGrantDatabase else "3g")
+                self.assertEqual(database.fixture.memory, "4g")
                 self.assertTrue(database.name.endswith(owner))
                 self.assertEqual(database.owner, owner)
                 self.assertEqual(database.test_environment()["CULPRIT_SMOKE_DATABASE"], database.fixture.database)

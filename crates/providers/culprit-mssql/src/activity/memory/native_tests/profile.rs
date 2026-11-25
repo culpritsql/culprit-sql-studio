@@ -14,10 +14,10 @@ pub(super) struct PoolMemory {
 }
 
 pub(super) const STANDARD_POOL_MEMORY: PoolMemory = PoolMemory { min_percent: 0, max_percent: 20 };
-// Keep `min_percent = 0` so `default` pool (`CACHESTORE_OBJCP`) retains full target memory for cached module
-// plans, and cap `grant_pool` at 22% (`~584 MiB * 3 = 1.71 GiB <= 2.00 GiB` on the 4 GiB scalar-grant fixture)
-// so a 70% sort grant (`~307 MiB >> 20 MiB` used) leaves >2.3 GiB uncontested in `default` pool.
-pub(super) const SCALAR_QUEUE_POOL_MEMORY: PoolMemory = PoolMemory { min_percent: 0, max_percent: 22 };
+// Keep `min_percent = 0` so `default` pool (`CACHESTORE_OBJCP`) retains full target memory, and size `grant_pool`
+// to 25% (`~641 MiB * 3 = 1.88 GiB <= 2.00 GiB` on the 4 GiB scalar-grant fixture) so both `grant_pool` and
+// `default` pool keep ample headroom while `WORKLOAD` holds its 70% sort grant.
+pub(super) const SCALAR_QUEUE_POOL_MEMORY: PoolMemory = PoolMemory { min_percent: 0, max_percent: 25 };
 const REQUEST_GRANT_PERCENT: i64 = 100;
 
 const INITIAL: &str = "SELECT /* culprit */ DB_NAME() AS database_name,c.classifier_function_id AS configured_classifier,d.classifier_function_id AS effective_classifier,c.is_enabled,d.is_reconfiguration_pending,CASE WHEN EXISTS(SELECT 1 FROM sys.resource_governor_resource_pools WHERE name NOT IN(N'internal',N'default')) OR EXISTS(SELECT 1 FROM sys.resource_governor_workload_groups WHERE name NOT IN(N'internal',N'default')) OR OBJECT_ID(@P3) IS NOT NULL THEN 1 ELSE 0 END AS collision FROM sys.resource_governor_configuration c CROSS JOIN sys.dm_resource_governor_configuration d";

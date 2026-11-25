@@ -54,7 +54,7 @@ FIXTURES = (
     *(Fixture(f"mariadb-{version}", f"mariadb:{version}", "mysql", 3306, "culprit_smoke", "root")
       for version in ("10.6", "10.11", "11.8")),
     Fixture("mssql", "mcr.microsoft.com/mssql/server:2022-latest", "mssql", 1433,
-            "culprit_smoke", "sa", "3g", "linux/amd64"),
+            "culprit_smoke", "sa", "4g", "linux/amd64"),
     Fixture("timescale", "timescale/timescaledb@sha256:d971568f9af05e218866181151117f517282f05f299a0e4010dc6a97704f6f2c",
             "postgres", 5432, "culprit_timescale", "postgres"),
     Fixture("yugabyte", "yugabytedb/yugabyte@sha256:e604d9e273a1fc3fccaf6ecbfe6ac6e3b93d2b4f06a075c461e3d73676d183fc",
@@ -720,6 +720,22 @@ class ScalarGrantDatabase(EmptyCatalogDatabase):
         # Give the dedicated container 4 GiB (~3.28 GiB SQLOS limit vs 2.40 GiB on 3g) so `default` pool never sweeps
         # `dbo.scalar_probe` while `CurrentRequestMemory` and the 70%-grant sort actor execute.
         super().__init__(replace(fixture, memory="4g"))
+
+    def readiness_query(self):
+        # `master` accepts `SELECT 1` ~5s after container start, before background startup tasks finish ~8-10s post-boot
+        # and flush `Object Plans` (`CACHESTORE_OBJCP`). Wait until all databases are ONLINE and post-boot settles.
+        return """IF EXISTS (SELECT 1 FROM sys.databases WHERE state <> 0)
+ OR DATEDIFF(millisecond, (SELECT sqlserver_start_time FROM sys.dm_os_sys_info), SYSDATETIME()) < 15000
+ THROW 51000, N'Owned scalar-grant SQL Server fixture is still in startup stabilization.', 1;
+SELECT 1;"""
+
+    def seed(self):
+        super().seed()
+        # Warm system catalog metadata in `master` before the Rust fixture creates its own derived database.
+        self.sql("SELECT COUNT_BIG(*) FROM sys.all_columns c JOIN sys.all_objects o ON o.object_id=c.object_id; "
+                 "SELECT COUNT_BIG(*) FROM sys.dm_exec_query_memory_grants mg "
+                 "LEFT JOIN sys.dm_exec_query_resource_semaphores rs ON rs.pool_id=mg.pool_id;",
+                 database="master")
 
 
 class FullTextDatabase(Database):
