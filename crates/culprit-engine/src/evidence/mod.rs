@@ -2,6 +2,7 @@
 mod artifacts;
 pub use artifacts::{WindowArtifactChoice, window_artifact_choices};
 mod config;
+mod fleet;
 mod incidents;
 pub use incidents::{IncidentRequest, NamedWindowQuery};
 mod query_helpers;

@@ -99,6 +99,12 @@ pub fn configured(binding: QueryHelperBinding) -> Result<QueryHelperAssets> {
         name: "published-collection-status",
         query: format!("SELECT * FROM {n}CollectionStatus(asof=now64(9,'UTC'),max_age_seconds=1800)"),
     });
+    examples.push(QueryExample {
+        name: "fleet-summary",
+        query: format!(
+            "SELECT * FROM {n}FleetSummary(from=now64(9,'UTC')-INTERVAL 24 HOUR,until=now64(9,'UTC'),asof=now64(9,'UTC'),max_age_seconds=1800)"
+        ),
+    });
     let script = format!("{};\n", commands.join(";\n\n"));
     let operator = operators::assets(&binding)?;
     Ok(QueryHelperAssets { binding, commands, script, examples, operator })

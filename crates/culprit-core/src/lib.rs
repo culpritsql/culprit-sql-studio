@@ -23,6 +23,8 @@ pub mod collected_analysis;
 mod collected_window;
 pub use cdc_report::CdcReport;
 pub use collected_window::*;
+mod warehouse_fleet;
+pub use warehouse_fleet::*;
 mod warehouse_window;
 pub use warehouse_window::*;
 mod change_capture_report;

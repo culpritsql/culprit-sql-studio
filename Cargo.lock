@@ -963,6 +963,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "culprit-archive-web"
+version = "0.6.0"
+dependencies = [
+ "clap",
+ "culprit-auth",
+ "culprit-core",
+ "culprit-engine",
+ "culprit-evidence",
+ "culprit-plans",
+ "culprit-read",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "culprit-auth"
 version = "0.6.0"
 dependencies = [

@@ -71,6 +71,7 @@ pub fn run_app() -> std::result::Result<(), Box<dyn std::error::Error>> {
             commands::warehouses::add_warehouse_connection,
             commands::warehouses::remove_warehouse_connection,
             commands::warehouses::warehouse_resources,
+            commands::warehouses::warehouse_fleet,
             commands::warehouses::warehouse_incident,
             commands::warehouses::warehouse_window,
             commands::warehouses::warehouse_artifacts,

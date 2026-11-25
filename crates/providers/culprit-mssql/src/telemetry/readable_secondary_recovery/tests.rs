@@ -37,7 +37,7 @@ async fn frozen_redo_source_pages_and_finishes_the_exact_original_native_context
     assert_eq!(trace.closes.load(Ordering::SeqCst), 1);
 }
 #[tokio::test]
-async fn strict_caller_fourteen_cannot_skip_final_native_authority_and_the_recipe_stays_unqualified() {
+async fn strict_caller_fourteen_cannot_skip_final_native_authority_and_the_recipe_is_never_measured() {
     let mut request = request().await;
     request.budget.max_queries = 14;
     let reader_limit = ReadSession::budget_after_setup(request.budget.clone()).unwrap().max_queries;
@@ -54,7 +54,7 @@ async fn strict_caller_fourteen_cannot_skip_final_native_authority_and_the_recip
         .into_iter()
         .find(|recipe| recipe.id == "mssql.readable-secondary-recovery")
         .unwrap();
-    assert_eq!(recipe.admission, RecipeAdmission::Unqualified);
+    assert!(matches!(recipe.admission, RecipeAdmission::BuiltinSafety(_)));
     assert_eq!(recipe.budget.max_queries, 15);
 }
 #[tokio::test]

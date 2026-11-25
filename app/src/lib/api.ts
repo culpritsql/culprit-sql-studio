@@ -19,7 +19,7 @@ import type { ErrorDetail } from "../gen/ErrorDetail";
 export type ApiError = { code: string; message: string; hint: string | null; detail?: ErrorDetail | null };
 
 export interface Api extends WarehousesApi, ConnectionsApi, DiscoveryApi, AuthenticationApi, ReportsApi, PlansApi, ActivityApi, TimelineApi, EditorApi, FilesApi, ApprovalsApi, UpdatesApi, LocalizationApi {
-  readonly kind: "desktop" | "demo";
+  readonly kind: "desktop" | "demo" | "archive-web";
 }
 
 export function isApiError(value: unknown): value is ApiError {
@@ -36,7 +36,21 @@ export function isDesktop(): boolean {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 }
 
-const loadApi = lazyResource<Api>(() => isDesktop() ? import("./api/desktop").then((m) => m.desktopApi()) : import("./demo-api").then((m) => m.demoApi()));
+export function isArchiveWeb(): boolean {
+  return (
+    typeof window !== "undefined" &&
+    "__CULPRIT_ARCHIVE_WEB__" in window &&
+    Boolean((window as { __CULPRIT_ARCHIVE_WEB__?: unknown }).__CULPRIT_ARCHIVE_WEB__)
+  );
+}
+
+const loadApi = lazyResource<Api>(() =>
+  isDesktop()
+    ? import("./api/desktop").then((m) => m.desktopApi())
+    : isArchiveWeb()
+      ? import("./api/archive-web").then((m) => m.archiveWebApi())
+      : import("./demo-api").then((m) => m.demoApi()),
+);
 let languageApplication: Promise<void> = Promise.resolve();
 
 /** Apply choices in order; every subsequent API read waits for the latest choice. */

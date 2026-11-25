@@ -71,6 +71,35 @@ pub(crate) async fn warehouse_resources(
         .await
 }
 #[tauri::command]
+pub(crate) async fn warehouse_fleet(
+    ws: Ws<'_>,
+    window: tauri::WebviewWindow,
+    requests: State<'_, WarehouseRequests>,
+    connection: WarehouseConnectionRef,
+    request: WarehouseFleetRequest,
+    request_id: String,
+) -> Result<WarehouseFleetReport> {
+    let cancellation = ReadCancellation::default();
+    let token = &cancellation.0;
+    requests
+        .0
+        .run_settled(window.label(), &request_id, token, |permit| async move {
+            match permit {
+                Some(permit) => {
+                    ws.warehouse_fleet_with_permit(
+                        &connection,
+                        &request,
+                        token,
+                        culprit_engine::evidence::EvidenceReadPermit::from(permit),
+                    )
+                    .await
+                }
+                None => ws.warehouse_fleet(&connection, &request, token).await,
+            }
+        })
+        .await
+}
+#[tauri::command]
 pub(crate) async fn warehouse_incident(
     ws: Ws<'_>,
     window: tauri::WebviewWindow,

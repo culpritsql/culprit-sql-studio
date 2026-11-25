@@ -46,3 +46,77 @@
   .archives .archive-form fieldset,
   .archives .archive-time-range { grid-template-columns: minmax(0, 1fr); }
 }
+
+.archives .archive-fleet {
+  margin-block: 16px;
+}
+.archives .archive-fleet-summary {
+  padding: 10px 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--raised);
+  font-weight: 500;
+  margin-block-end: 12px;
+}
+.archives .archive-fleet-toolbar {
+  display: grid;
+  gap: 8px;
+  margin-block-end: 12px;
+}
+.archives .archive-fleet-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.archives .archive-fleet-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 10px;
+  margin-block: 10px;
+}
+.archives .archive-fleet-card {
+  display: grid;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--raised);
+  color: var(--text);
+  text-align: start;
+  cursor: pointer;
+}
+.archives .archive-fleet-card.selected,
+.archives .archive-fleet-card:focus-visible {
+  outline: 2px solid var(--focus);
+}
+.archives .archive-fleet-card-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.archives .archive-fleet-metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.archives .archive-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 7px;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  border: 1px solid var(--border-strong);
+}
+.archives .archive-pill.bad {
+  color: var(--bad, #d9534f);
+}
+.archives .archive-pill.warn {
+  color: var(--warn, #d58512);
+}
+.archives .archive-pill.good {
+  color: var(--good, #2e8b57);
+}
+.archives .archive-fleet-bounds {
+  font-size: 0.8rem;
+}

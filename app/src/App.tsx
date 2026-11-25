@@ -23,7 +23,7 @@ import { PasswordNeeded } from "./components/PasswordNeeded";
 import { DashboardSkeleton } from "./components/DashboardSkeleton";
 import { startUpdateChecks } from "./lib/updates";
 import { workloadSource, windowUnknown } from "./lib/rates";
-import { errorMessage } from "./lib/api";
+import { errorMessage, isArchiveWeb } from "./lib/api";
 import { toast as notify } from "./lib/store";
 import { queryHistoryEmptyState } from "./lib/query-history";
 
@@ -76,6 +76,10 @@ export function App() {
   useEffect(() => startUpdateChecks(), []);
 
   useEffect(() => {
+    if (isArchiveWeb() && getState().view === "connections") {
+      setState({ view: "archives" });
+      return;
+    }
     let cancelled = false;
     loadConnections().then((connections) => {
       if (cancelled || getState().active !== null || getState().view !== "connections") return;

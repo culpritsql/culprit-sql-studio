@@ -992,6 +992,8 @@ pub mod recovery_config;
 #[cfg(feature = "evidence")]
 mod warehouse_connections;
 
+mod warehouse_fleet;
+pub use warehouse_fleet::{WarehouseFleetReader, WarehouseFleetTask};
 mod warehouse_incidents;
 pub use warehouse_incidents::{
     WarehouseArtifactsTask, WarehouseIncidentReader, WarehouseIncidentTask, WarehouseResourcesTask, WarehouseWindowTask,

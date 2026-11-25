@@ -295,6 +295,7 @@ export async function demoApi(): Promise<Api> {
     warehouseConnections: async () => [],
     addWarehouseConnection: () => desktopOnly(t("ui.archives.desktop_only")),
     removeWarehouseConnection: () => desktopOnly(t("ui.archives.desktop_only")),
+    warehouseFleet: () => desktopOnly(t("ui.archives.desktop_only")),
     warehouseResources: () => desktopOnly(t("ui.archives.desktop_only")),
     warehouseWindow: () => desktopOnly(t("ui.archives.desktop_only")),
     warehouseArtifacts: () => desktopOnly(t("ui.archives.desktop_only")),

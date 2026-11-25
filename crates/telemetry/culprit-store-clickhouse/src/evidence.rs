@@ -9,7 +9,7 @@ use async_trait::async_trait;
 use culprit_core::{Result, telemetry::DeliveryProblem};
 use culprit_evidence::analytical::ProjectionCatalog;
 use culprit_evidence::analytical::evidence::EvidenceReader;
-use culprit_evidence::analytical::evidence::{IncidentDiscoveryRequest, PublishedResourceQuery};
+use culprit_evidence::analytical::evidence::{FleetResourceQuery, IncidentDiscoveryRequest, PublishedResourceQuery};
 use culprit_evidence::analytical::indexes::ProjectionIndexes;
 use culprit_evidence::analytical::read_store::AnalyticalReadPage;
 use culprit_evidence::analytical::read_store::AnalyticalReadStore;
@@ -61,6 +61,14 @@ impl AnalyticalReadStore for ClickHouseReadStore {
         byte_limit: usize,
     ) -> Result<AnalyticalReadPage> {
         incidents::read(self, contract, request, byte_limit).await
+    }
+    async fn fleet_candidates(
+        &self,
+        contract: &Contract,
+        request: &FleetResourceQuery,
+        byte_limit: usize,
+    ) -> Result<AnalyticalReadPage> {
+        fleet::read(self, contract, request, byte_limit).await
     }
     async fn audit_membership(&self, range: &CommittedRange, byte_limit: usize) -> Result<usize> {
         let branches = self
@@ -169,6 +177,7 @@ fn invalid() -> culprit_core::Error {
     DeliveryProblem::Integrity.error()
 }
 
+mod fleet;
 mod incidents;
 mod resources;
 

@@ -111,6 +111,47 @@ impl EvidenceReader {
         super::resources::page(contract, &request, candidates, metrics)
     }
 
+    /// Bounded one-row-per-resource publication search; every returned candidate is authenticated via recovery proofs.
+    pub async fn fleet_candidates(
+        &self,
+        contract: &Contract,
+        request: &FleetResourceQuery,
+        budget: EvidenceReadBudget,
+    ) -> Result<FleetDiscoveryPage> {
+        let request = request.within_budget(contract, budget)?;
+        if contract.destination() != self.store.destination() {
+            return Err(DeliveryProblem::DestinationChanged.error());
+        }
+        let catalog = self.store.catalog();
+        if contract.schema_digest() != catalog.digest() {
+            return Err(DeliveryProblem::UnsupportedSchema.error());
+        }
+        let deadline = tokio::time::Instant::now() + Duration::from_millis(u64::from(budget.timeout_ms));
+        let mut metrics = EvidenceReadMetrics::default();
+        let mut state = ReadState { budget, metrics: &mut metrics };
+        state.query()?;
+        let reading = self.store.fleet_candidates(contract, &request, state.byte_limit()?);
+        let rows = tokio::time::timeout_at(deadline, reading).await.map_err(|_| CollectionStop::TimedOut.error())??;
+        state.response(&rows)?;
+        if rows.rows.len() > request.selection.page_rows as usize + 1 {
+            return Err(invalid());
+        }
+        state.metrics.pages = 1;
+        state.metrics.returned_rows = u32::try_from(rows.rows.len()).map_err(|_| capacity())?;
+        let candidates = rows
+            .rows
+            .iter()
+            .map(|row| {
+                let values = catalog.publication().logical_values(row)?;
+                request.hint_from_values(contract, &values)
+            })
+            .collect::<Result<Vec<_>>>()?;
+        if tokio::time::Instant::now() >= deadline {
+            return Err(CollectionStop::TimedOut.error());
+        }
+        super::fleet::page(contract, &request, candidates, metrics)
+    }
+
     pub async fn read_capture(
         &self,
         range: &CommittedRange,

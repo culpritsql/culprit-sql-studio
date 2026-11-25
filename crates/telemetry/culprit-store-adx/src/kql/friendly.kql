@@ -283,3 +283,33 @@ Rows | join kind=leftsemi Times on ResourceId,SourceId,LogicalSourceId,Collected
     State=case(max_age<=0s,"invalid-max-age",isnull(CollectedUntil),"unknown-clock",CollectedUntil>asof,"clock-boundary",CollectedUntil<asof-max_age,"stale","observed-acquisition"),
     ConfiguredFleetKnown=false,PublicationTimeKnown=false
 }
+
+.create-or-alter function $NFleetSummary(window_from:datetime,window_until:datetime,asof:datetime,max_age:timespan) {
+let Status=$NStatusRows(asof,max_age)
+    | order by ResourceId asc,CollectedUntil desc,SourceId desc,LogicalSourceId desc
+    | extend CulpritFleetRow=row_number()
+    | extend CulpritFleetStart=CulpritFleetRow == 1 or ResourceId != prev(ResourceId)
+    | where row_number(1,CulpritFleetStart) == 1
+    | project-away CulpritFleetRow,CulpritFleetStart;
+let Meta=$NHeaders(asof)
+    | order by ResourceId asc,CollectedUntil desc,SourceId desc,RangeId desc
+    | extend CulpritMetaRow=row_number()
+    | extend CulpritMetaStart=CulpritMetaRow == 1 or ResourceId != prev(ResourceId)
+    | where row_number(1,CulpritMetaStart) == 1
+    | project ResourceId,Engine,Environment,EnvironmentKnown=isnotnull(Header.display.environment),SourcePartition=SourceDescription.partition;
+let Incidents=$NHeads(asof)
+    | summarize ActiveIncidents=countif(Lifecycle == "active"),UncertainIncidents=countif(Lifecycle == "uncertain") by ResourceId;
+let Findings=$NFindingWindow(window_from,window_until,asof)
+    | where not(Inactive)
+    | summarize HighFindings=countif(Severity == "high" and Actionability in ("needs-attention","optional-improvement")),ActionableFindings=countif(Actionability in ("needs-attention","optional-improvement")) by ResourceId;
+let Changes=$NChangeWindow(window_from,window_until,asof)
+    | summarize RecentChanges=count() by ResourceId;
+Status
+| join kind=leftouter Meta on ResourceId
+| join kind=leftouter Incidents on ResourceId
+| join kind=leftouter Findings on ResourceId
+| join kind=leftouter Changes on ResourceId
+| project ResourceId,Engine,Alias,DatabaseName,DatabaseNameKnown,Environment,EnvironmentKnown,SourcePartition,State,CollectedFrom,CollectedUntil,OriginalObservedFrom,OriginalObservedUntil,
+    ActiveIncidents=coalesce(ActiveIncidents,0),UncertainIncidents=coalesce(UncertainIncidents,0),HighFindings=coalesce(HighFindings,0),ActionableFindings=coalesce(ActionableFindings,0),RecentChanges=coalesce(RecentChanges,0),
+    InputReadComplete,OutputRowsComplete,ContextIssues
+}

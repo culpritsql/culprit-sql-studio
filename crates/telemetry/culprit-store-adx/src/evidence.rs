@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use culprit_core::{Result, telemetry::TelemetryStream};
 use culprit_evidence::analytical::ProjectionCatalog;
 use culprit_evidence::analytical::evidence::EvidenceReader;
-use culprit_evidence::analytical::evidence::{IncidentDiscoveryRequest, PublishedResourceQuery};
+use culprit_evidence::analytical::evidence::{FleetResourceQuery, IncidentDiscoveryRequest, PublishedResourceQuery};
 use culprit_evidence::analytical::indexes::ProjectionIndexes;
 use culprit_evidence::analytical::read_store::AnalyticalReadPage;
 use culprit_evidence::analytical::read_store::AnalyticalReadStore;
@@ -60,6 +60,14 @@ impl AnalyticalReadStore for AdxReadStore {
     ) -> Result<AnalyticalReadPage> {
         incidents::read(self, contract, request, byte_limit).await
     }
+    async fn fleet_candidates(
+        &self,
+        contract: &Contract,
+        request: &FleetResourceQuery,
+        byte_limit: usize,
+    ) -> Result<AnalyticalReadPage> {
+        fleet::read(self, contract, request, byte_limit).await
+    }
     async fn audit_membership(&self, range: &CommittedRange, byte_limit: usize) -> Result<usize> {
         self.readback.audit_membership(range, byte_limit).await
     }
@@ -78,6 +86,7 @@ impl AnalyticalReadStore for AdxReadStore {
     }
 }
 
+mod fleet;
 mod incidents;
 mod resources;
 

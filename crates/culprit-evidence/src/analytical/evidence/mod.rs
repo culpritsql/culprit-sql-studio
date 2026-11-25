@@ -3,6 +3,7 @@
 mod decode;
 mod definition_links;
 pub use definition_links::EvidenceDefinitionLink;
+mod fleet;
 mod hydration;
 mod incidents;
 mod reader;
@@ -10,6 +11,7 @@ mod resources;
 mod response_bytes;
 mod types;
 
+pub use fleet::{FleetDiscoveryPage, FleetResourceQuery};
 pub use incidents::{
     IncidentCandidateCursor, IncidentCandidateHint, IncidentCandidatePosition, IncidentCandidateSelection,
     IncidentDiscoveryPage, IncidentDiscoveryRequest, MAX_INCIDENT_CANDIDATE_PAGE_ROWS,

@@ -95,6 +95,8 @@ pub fn configured(binding: QueryHelperBinding) -> Result<QueryHelperAssets> {
         name: "published-collection-status",
         query: format!("{name}CollectionStatus(now(),30m)"),
     });
+    examples
+        .push(QueryExample { name: "fleet-summary", query: format!("{name}FleetSummary(ago(24h),now(),now(),30m)") });
     examples.push(QueryExample {
         name: "opt-in-adx-queued-batching",
         query: include_str!("kql/operator_batching_opt_in.kql").into(),

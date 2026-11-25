@@ -47,7 +47,13 @@ fn friendly_helpers_keep_publication_membership_and_closed_namespace_binding_for
     assert!(assets.script.starts_with(".execute database script with (ContinueOnErrors=false) <|\n"));
     assert!(assets.script.ends_with('\n'));
     assert!(assets.commands.iter().all(|command| assets.script.contains(command)));
-    assert_eq!(assets.examples.len(), 17);
+    assert_eq!(assets.examples.len(), 18);
+    assert!(
+        assets
+            .examples
+            .iter()
+            .any(|example| example.name == "fleet-summary" && example.query.contains("PilotFleetSummary("))
+    );
     assert!(
         assets
             .examples

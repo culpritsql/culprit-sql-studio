@@ -189,3 +189,38 @@ SELECT ResourceId,ResourceKind,SourceId,LogicalSourceId,SourceName,Engine,Retain
     multiIf({max_age_seconds:UInt32}=0,'invalid-max-age',isNull(CollectedUntil),'unknown-clock',CollectedUntil>{asof:DateTime64(9, 'UTC')},'clock-boundary',CollectedUntil<{asof:DateTime64(9, 'UTC')}-toIntervalSecond({max_age_seconds:UInt32}),'stale','observed-acquisition') AS State,
     false AS ConfiguredFleetKnown,false AS PublicationTimeKnown
 FROM Rows ALL LEFT JOIN Names USING (ResourceId) WHERE CollectedUntil=LastAcquired;
+
+CREATE OR REPLACE VIEW $NFleetSummary SQL SECURITY INVOKER AS
+WITH Status AS (
+    SELECT * FROM $NStatusRows(asof={asof:DateTime64(9, 'UTC')},max_age_seconds={max_age_seconds:UInt32})
+    ORDER BY ResourceId ASC,CollectedUntil DESC,SourceId DESC,LogicalSourceId DESC
+    LIMIT 1 BY ResourceId
+),
+Meta AS (
+    SELECT ResourceId,Engine,Environment,toBool(JSONHas(Header,'display','environment') AND JSONExtractRaw(Header,'display','environment')!='null') AS EnvironmentKnown,JSONExtractRaw(SourceDescription,'partition') AS SourcePartition
+    FROM $NHeaders(asof={asof:DateTime64(9, 'UTC')})
+    ORDER BY ResourceId ASC,CollectedUntil DESC,SourceId DESC,RangeId DESC
+    LIMIT 1 BY ResourceId
+),
+Incidents AS (
+    SELECT ResourceId,countIf(Lifecycle='active') AS ActiveIncidents,countIf(Lifecycle='uncertain') AS UncertainIncidents
+    FROM $NHeads(asof={asof:DateTime64(9, 'UTC')}) GROUP BY ResourceId
+),
+Findings AS (
+    SELECT ResourceId,countIf(Severity='high' AND Actionability IN ('needs-attention','optional-improvement')) AS HighFindings,countIf(Actionability IN ('needs-attention','optional-improvement')) AS ActionableFindings
+    FROM $NFindingWindow(from={from:DateTime64(9, 'UTC')},until={until:DateTime64(9, 'UTC')},asof={asof:DateTime64(9, 'UTC')})
+    WHERE NOT Inactive GROUP BY ResourceId
+),
+Changes AS (
+    SELECT ResourceId,count() AS RecentChanges
+    FROM $NChangeWindow(from={from:DateTime64(9, 'UTC')},until={until:DateTime64(9, 'UTC')},asof={asof:DateTime64(9, 'UTC')})
+    GROUP BY ResourceId
+)
+SELECT S.ResourceId,M.Engine,S.Alias,S.DatabaseName,toBool(S.DatabaseName!='') AS DatabaseNameKnown,M.Environment,M.EnvironmentKnown,M.SourcePartition,S.State,S.CollectedFrom,S.CollectedUntil,S.OriginalObservedFrom,S.OriginalObservedUntil,
+    ifNull(I.ActiveIncidents,0) AS ActiveIncidents,ifNull(I.UncertainIncidents,0) AS UncertainIncidents,ifNull(F.HighFindings,0) AS HighFindings,ifNull(F.ActionableFindings,0) AS ActionableFindings,ifNull(C.RecentChanges,0) AS RecentChanges,
+    S.InputReadComplete,S.OutputRowsComplete,S.ContextIssues
+FROM Status AS S
+ALL LEFT JOIN Meta AS M ON S.ResourceId=M.ResourceId
+ALL LEFT JOIN Incidents AS I ON S.ResourceId=I.ResourceId
+ALL LEFT JOIN Findings AS F ON S.ResourceId=F.ResourceId
+ALL LEFT JOIN Changes AS C ON S.ResourceId=C.ResourceId;

@@ -161,4 +161,28 @@ impl AnalyticalReadStore for ReadOnlyStore {
         let response_bytes = serde_json::to_vec(&rows).unwrap().len();
         Ok(AnalyticalReadPage { rows, response_bytes })
     }
+    async fn fleet_candidates(
+        &self,
+        contract: &Contract,
+        request: &crate::analytical::evidence::FleetResourceQuery,
+        _: usize,
+    ) -> Result<AnalyticalReadPage> {
+        request.validate(contract)?;
+        let values = self.catalog.publication().logical_values(&self.publication)?;
+        let include = values.get("ContractId").and_then(Value::as_str) == Some(&contract.id()?)
+            && values.get("SchemaDigest").and_then(Value::as_str) == Some(contract.schema_digest())
+            && values.get("RecoveryStoreId").and_then(Value::as_str) == Some(request.recovery_store_id.as_str())
+            && values.get("ResourceKind").and_then(Value::as_str) == Some("database")
+            && values
+                .get("CollectedFrom")
+                .and_then(Value::as_str)
+                .zip(values.get("CollectedUntil").and_then(Value::as_str))
+                .is_some_and(|(from, until)| request.selection.accepts_acquisition(from, until))
+            && request.selection.after.as_ref().is_none_or(|cursor| {
+                values.get("ResourceId").and_then(Value::as_str).is_some_and(|id| id > cursor.resource_id.as_str())
+            });
+        let rows = if include { vec![self.publication.clone()] } else { vec![] };
+        let response_bytes = serde_json::to_vec(&rows).unwrap().len();
+        Ok(AnalyticalReadPage { rows, response_bytes })
+    }
 }

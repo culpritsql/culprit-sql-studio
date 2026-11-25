@@ -107,6 +107,44 @@ impl Workspace {
         )
         .await
     }
+    pub async fn warehouse_fleet(
+        &self,
+        reference: &WarehouseConnectionRef,
+        request: &WarehouseFleetRequest,
+        cancellation: &CollectionCancellation,
+    ) -> Result<WarehouseFleetReport> {
+        self.read_warehouse_fleet(reference, request, cancellation, None).await
+    }
+    pub async fn warehouse_fleet_with_permit(
+        &self,
+        reference: &WarehouseConnectionRef,
+        request: &WarehouseFleetRequest,
+        cancellation: &CollectionCancellation,
+        permit: crate::evidence::EvidenceReadPermit,
+    ) -> Result<WarehouseFleetReport> {
+        self.read_warehouse_fleet(reference, request, cancellation, Some(permit)).await
+    }
+    async fn read_warehouse_fleet(
+        &self,
+        reference: &WarehouseConnectionRef,
+        request: &WarehouseFleetRequest,
+        cancellation: &CollectionCancellation,
+        permit: Option<crate::evidence::EvidenceReadPermit>,
+    ) -> Result<WarehouseFleetReport> {
+        request.validate()?;
+        self.with_warehouse_read(
+            reference,
+            cancellation,
+            EvidenceService::fleet_budget(),
+            |service, budget| async move {
+                match permit {
+                    Some(permit) => service.fleet_with_permit(request, budget, cancellation, permit).await,
+                    None => service.fleet(request, budget, cancellation).await,
+                }
+            },
+        )
+        .await
+    }
     pub async fn warehouse_incident(
         &self,
         reference: &WarehouseConnectionRef,

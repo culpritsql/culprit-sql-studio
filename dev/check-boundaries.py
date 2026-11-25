@@ -66,7 +66,11 @@ def verify_read_features(package, features=None):
 
 
 def default_rules():
-    rules = {"culprit-mcp": FLEET, "culprit-app": {"culprit-collector"}}
+    rules = {
+        "culprit-mcp": FLEET,
+        "culprit-app": {"culprit-collector"},
+        "culprit-archive-web": {"culprit-collector"} | SOURCES | LOCAL_DATABASE_FILES | DATABASE_DRIVERS,
+    }
     rules.update({package: FLEET | CLOUD | AUTHENTICATION | {"culprit-engine"} for package in SOURCES})
     rules.update({package: SOURCES | CLOUD | AUTHENTICATION | {"culprit-engine"} for package in STORES | RECOVERY})
     rules.update({package: FLEET | CLOUD | SOURCES | {"culprit-engine"} for package in AUTHENTICATION})
@@ -284,6 +288,9 @@ def main():
         verify(package, "", forbidden)
         verify_read_features(package, "")
     verify_read_features("culprit-app")
+    verify_read_features("culprit-archive-web")
+    verify("culprit-archive-web", "", {"culprit-collector"} | SOURCES | AUTHENTICATION | LOCAL_DATABASE_FILES | DATABASE_DRIVERS)
+    verify_read_features("culprit-archive-web", "")
     verify_portable_graphs()
 
 

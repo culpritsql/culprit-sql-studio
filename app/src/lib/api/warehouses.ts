@@ -1,5 +1,7 @@
 import type { WarehouseArtifactQuery } from "../../gen/WarehouseArtifactQuery";
 import type { WarehouseArtifactReport } from "../../gen/WarehouseArtifactReport";
+import type { WarehouseFleetReport } from "../../gen/WarehouseFleetReport";
+import type { WarehouseFleetRequest } from "../../gen/WarehouseFleetRequest";
 import type { WarehouseWindowQuery } from "../../gen/WarehouseWindowQuery";
 import type { WarehouseWindowReport } from "../../gen/WarehouseWindowReport";
 import type { WarehouseConnectionInfo } from "../../gen/WarehouseConnectionInfo";
@@ -14,6 +16,7 @@ export interface WarehousesApi {
   warehouseConnections(): Promise<WarehouseConnectionInfo[]>;
   addWarehouseConnection(input: SaveWarehouseConnection): Promise<WarehouseConnectionInfo>;
   removeWarehouseConnection(connection: WarehouseConnectionRef): Promise<void>;
+  warehouseFleet(connection: WarehouseConnectionRef, request: WarehouseFleetRequest, signal?: AbortSignal): Promise<WarehouseFleetReport>;
   warehouseResources(connection: WarehouseConnectionRef, request: PublishedResourceRequest, signal?: AbortSignal): Promise<PublishedResources>;
   warehouseWindow(connection: WarehouseConnectionRef, request: WarehouseWindowQuery, signal?: AbortSignal): Promise<WarehouseWindowReport>;
   warehouseArtifacts(connection: WarehouseConnectionRef, request: WarehouseArtifactQuery, signal?: AbortSignal): Promise<WarehouseArtifactReport>;
@@ -25,6 +28,7 @@ export function desktopWarehouses(invoke: Invoke): WarehousesApi {
     warehouseConnections: () => invoke("warehouse_connections"),
     addWarehouseConnection: (input) => invoke("add_warehouse_connection", { input }),
     removeWarehouseConnection: (connection) => invoke("remove_warehouse_connection", { connection }),
+    warehouseFleet: (connection, request, signal) => read("warehouse_fleet", { connection, request }, signal),
     warehouseResources: (connection, request, signal) => read("warehouse_resources", { connection, request }, signal),
     warehouseWindow: (connection, request, signal) => read("warehouse_window", { connection, request }, signal),
     warehouseArtifacts: (connection, request, signal) => read("warehouse_artifacts", { connection, request }, signal),

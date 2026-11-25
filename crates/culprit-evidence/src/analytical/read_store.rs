@@ -1,7 +1,7 @@
 //! Read-only native warehouse operations, shared by delivery proofs and captured-evidence investigation.
 use super::{
     ProjectionCatalog,
-    evidence::{IncidentDiscoveryRequest, PublishedResourceQuery},
+    evidence::{FleetResourceQuery, IncidentDiscoveryRequest, PublishedResourceQuery},
 };
 use crate::delivery::{contract::Contract, recovery::CommittedRange};
 use async_trait::async_trait;
@@ -50,6 +50,15 @@ pub trait AnalyticalReadStore: Send + Sync {
         &self,
         _contract: &Contract,
         _request: &IncidentDiscoveryRequest,
+        _byte_limit: usize,
+    ) -> Result<AnalyticalReadPage> {
+        Err(DeliveryProblem::UnsupportedSchema.error())
+    }
+    /// Optional per-resource fleet discovery. Each returned publication row is authenticated independently.
+    async fn fleet_candidates(
+        &self,
+        _contract: &Contract,
+        _request: &FleetResourceQuery,
         _byte_limit: usize,
     ) -> Result<AnalyticalReadPage> {
         Err(DeliveryProblem::UnsupportedSchema.error())

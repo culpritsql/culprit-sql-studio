@@ -29,12 +29,11 @@ fn the_selected_schema_lock_envelope_pays_twelve_total_and_preserves_every_tight
     );
     assert_eq!(recipe.purpose, RecipePurpose::Investigation);
     assert_eq!(recipe.budget, bounded_budget(&CollectionBudget::upper_limits()));
-    assert_eq!(
-        recipe.admission,
-        RecipeAdmission::Unqualified,
-        "native correctness is no automatic safety or measured-cost authority"
+    assert!(
+        matches!(recipe.admission, RecipeAdmission::BuiltinSafety(_)),
+        "source-validated built-in safety is distinct from measured-cost authority"
     );
-    assert!(recipes.iter().all(|recipe| matches!(recipe.admission, RecipeAdmission::Unqualified)));
+    assert!(recipes.iter().all(|recipe| !matches!(recipe.admission, RecipeAdmission::Measured(_))));
 }
 
 #[tokio::test]
