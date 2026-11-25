@@ -47,6 +47,7 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
   CARGO_PROFILE_RELEASE_LTO: thin
+  CARGO_PROFILE_RELEASE_CODEGEN_UNITS: 16
 
 jobs:
   source:
@@ -116,7 +117,7 @@ jobs:
           retention-days: 7
 
   macos:
-    name: macOS (universal, signed and notarized)
+    name: macOS (Apple Silicon, signed and notarized)
     needs: [source, licenses]
     runs-on: macos-latest
     # Signing secrets can live in this environment, so required reviewers can gate who may sign a build.
@@ -126,6 +127,8 @@ jobs:
       CULPRIT_BUILD_REVISION: ${{ needs.source.outputs.sha }}
       HAS_APPLE_SIGNING: ${{ secrets.MACOS_CERT_P12 != '' }}
       HAS_UPDATER_SIGNING: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY != '' }}
+      # Match Tauri's default macOS deployment target so `tauri build` and `cargo build -p culprit-cli` share `target/release`.
+      MACOSX_DEPLOYMENT_TARGET: "10.13"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -146,7 +149,6 @@ jobs:
       - uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249 # stable
         with:
           toolchain: stable
-          targets: aarch64-apple-darwin,x86_64-apple-darwin
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           cache-on-failure: true
@@ -178,24 +180,24 @@ jobs:
           echo "signing identity: $IDENTITY"
           echo "SIGN_IDENTITY=$IDENTITY" >> "$GITHUB_ENV"
 
-      - name: Build the app (universal) and the CLI
+      - name: Build the app (Apple Silicon) and the CLI
         env:
           # Tauri signs the app with this identity (hardened runtime); "-" is ad-hoc when there's no certificate.
           APPLE_SIGNING_IDENTITY: ${{ env.SIGN_IDENTITY || '-' }}
         run: |
           set -euo pipefail
-          (cd app && bunx tauri build --target universal-apple-darwin --bundles app --config src-tauri/tauri.release.conf.json)
+          [ "$(rustc -vV | sed -n 's/^host: //p')" = "aarch64-apple-darwin" ]
+          (cd app && bunx tauri build --bundles app --config src-tauri/tauri.release.conf.json)
           (cd app && bun scripts/check-bundled-locales.ts)
-          cargo build --locked --release -p culprit-cli --target aarch64-apple-darwin
-          cargo build --locked --release -p culprit-cli --target x86_64-apple-darwin
+          cargo build --locked --release -p culprit-cli
           mkdir -p dist
-          lipo -create -output dist/culprit target/aarch64-apple-darwin/release/culprit target/x86_64-apple-darwin/release/culprit
+          cp target/release/culprit dist/culprit
           if [ "$APPLE_SIGNING_IDENTITY" = "-" ]; then
             codesign --force --sign - dist/culprit
           else
             codesign --force --timestamp --options runtime --sign "$APPLE_SIGNING_IDENTITY" dist/culprit
           fi
-          ditto target/universal-apple-darwin/release/bundle/macos/Culprit.app dist/Culprit.app
+          ditto target/release/bundle/macos/Culprit.app dist/Culprit.app
 
       - name: Notarize and staple
         if: env.HAS_APPLE_SIGNING == 'true'
@@ -431,6 +433,14 @@ jobs:
         with:
           ref: ${{ needs.source.outputs.sha }}
           persist-credentials: false
+      - name: Check out the packaging tools from this workflow revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: .release-tools
+          sparse-checkout: .github/scripts/updater_manifest.py
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: release-*
@@ -456,7 +466,7 @@ jobs:
       - name: Write the update manifest
         env:
           TAG: ${{ needs.source.outputs.tag }}
-        run: python3 .github/scripts/updater_manifest.py out "$TAG" "$GITHUB_REPOSITORY" "$RUNNER_TEMP/notes.md"
+        run: python3 .release-tools/.github/scripts/updater_manifest.py out "$TAG" "$GITHUB_REPOSITORY" "$RUNNER_TEMP/notes.md"
       - name: Create the draft release
         env:
           GH_TOKEN: ${{ github.token }}

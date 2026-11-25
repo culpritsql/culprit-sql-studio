@@ -34,10 +34,10 @@ enum Case {
     OriginalScalarSourcePhases,
 }
 impl Case {
-    fn pool_memory_percent(self) -> i64 {
+    fn pool_memory(self) -> profile::PoolMemory {
         match self {
-            Self::OriginalScalarGrant => profile::SCALAR_QUEUE_POOL_MEMORY_PERCENT,
-            _ => profile::STANDARD_POOL_MEMORY_PERCENT,
+            Self::OriginalScalarGrant => profile::SCALAR_QUEUE_POOL_MEMORY,
+            _ => profile::STANDARD_POOL_MEMORY,
         }
     }
 

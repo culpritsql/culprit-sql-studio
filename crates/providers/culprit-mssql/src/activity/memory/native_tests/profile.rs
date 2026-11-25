@@ -7,10 +7,17 @@ use crate::{
 };
 use culprit_core::Result;
 
-pub(super) const STANDARD_POOL_MEMORY_PERCENT: i64 = 20;
-// Keep `max_memory_kb * 3 <= 2 GiB` even on a cold 3 GiB SQL Server container (~1.76 GiB poolable * 35% * 3 = 1.77 GiB)
-// while leaving ~180 MiB of ungranted pool headroom around the single 70%-grant holder so the cached plan stays resident.
-pub(super) const SCALAR_QUEUE_POOL_MEMORY_PERCENT: i64 = 35;
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) struct PoolMemory {
+    pub min_percent: i64,
+    pub max_percent: i64,
+}
+
+pub(super) const STANDARD_POOL_MEMORY: PoolMemory = PoolMemory { min_percent: 0, max_percent: 20 };
+// Reserve 38% (`min == max`) so cold-start `default` pool compilations cannot shrink `target_memory_kb`
+// and sweep `CACHESTORE_OBJCP`, while keeping `max_memory_kb * 3 <= 2 GiB` on a 3 GiB SQL Server container
+// (~1.72 GiB poolable * 38% * 3 = 1.96 GiB <= 2.00 GiB).
+pub(super) const SCALAR_QUEUE_POOL_MEMORY: PoolMemory = PoolMemory { min_percent: 38, max_percent: 38 };
 const REQUEST_GRANT_PERCENT: i64 = 100;
 
 const INITIAL: &str = "SELECT /* culprit */ DB_NAME() AS database_name,c.classifier_function_id AS configured_classifier,d.classifier_function_id AS effective_classifier,c.is_enabled,d.is_reconfiguration_pending,CASE WHEN EXISTS(SELECT 1 FROM sys.resource_governor_resource_pools WHERE name NOT IN(N'internal',N'default')) OR EXISTS(SELECT 1 FROM sys.resource_governor_workload_groups WHERE name NOT IN(N'internal',N'default')) OR OBJECT_ID(@P3) IS NOT NULL THEN 1 ELSE 0 END AS collision FROM sys.resource_governor_configuration c CROSS JOIN sys.dm_resource_governor_configuration d";
@@ -23,11 +30,11 @@ pub(super) struct ActorRoute {
     pub pool_id: i64,
     pub group_id: i64,
     pub classifier_id: i64,
-    pub max_memory_percent: i64,
+    pub memory: PoolMemory,
 }
 impl ActorRoute {
     pub fn matches(&self, row: &Rec) -> Result<bool> {
-        let _ = capacity(row, self.max_memory_percent)?;
+        let _ = capacity(row, self.memory)?;
         Ok(text(row, "actor_application")? == self.application
             && text(row, "pool_name")? == self.pool
             && text(row, "group_name")? == self.group
@@ -52,14 +59,17 @@ pub(super) struct ResourceProfile {
     group: String,
     classifier: String,
     applications: Vec<String>,
-    max_memory_percent: i64,
+    memory: PoolMemory,
     original_enabled: Option<bool>,
     proof: Option<Proof>,
     removed: bool,
 }
 impl ResourceProfile {
-    pub fn new(owned_database: &str, max_memory_percent: i64) -> Result<Self> {
-        if !(1..=100).contains(&max_memory_percent) {
+    pub fn new(owned_database: &str, memory: PoolMemory) -> Result<Self> {
+        if !(0..=100).contains(&memory.min_percent)
+            || !(1..=100).contains(&memory.max_percent)
+            || memory.min_percent > memory.max_percent
+        {
             return Err(invalid_data());
         }
         let suffix = owned_database.replace('-', "_");
@@ -77,16 +87,7 @@ impl ResourceProfile {
         if applications.iter().any(|name| name.len() > 128) {
             return Err(invalid_data());
         }
-        Ok(Self {
-            pool,
-            group,
-            classifier,
-            applications,
-            max_memory_percent,
-            original_enabled: None,
-            proof: None,
-            removed: false,
-        })
+        Ok(Self { pool, group, classifier, applications, memory, original_enabled: None, proof: None, removed: false })
     }
 
     pub async fn install(&mut self, admin: &mut MsClient) -> Result<()> {
@@ -114,7 +115,7 @@ impl ResourceProfile {
             pool_id: proof.pool_id,
             group_id: proof.group_id,
             classifier_id: proof.classifier_id,
-            max_memory_percent: self.max_memory_percent,
+            memory: self.memory,
         })
     }
 
@@ -163,8 +164,8 @@ impl ResourceProfile {
 
     fn create_resources(&self) -> String {
         format!(
-            "/* culprit */ CREATE RESOURCE POOL [{}] WITH(MIN_MEMORY_PERCENT=0,MAX_MEMORY_PERCENT={});CREATE WORKLOAD GROUP [{}] WITH(REQUEST_MAX_MEMORY_GRANT_PERCENT={REQUEST_GRANT_PERCENT},GROUP_MAX_REQUESTS=0) USING [{}]",
-            self.pool, self.max_memory_percent, self.group, self.pool
+            "/* culprit */ CREATE RESOURCE POOL [{}] WITH(MIN_MEMORY_PERCENT={},MAX_MEMORY_PERCENT={});CREATE WORKLOAD GROUP [{}] WITH(REQUEST_MAX_MEMORY_GRANT_PERCENT={REQUEST_GRANT_PERCENT},GROUP_MAX_REQUESTS=0) USING [{}]",
+            self.pool, self.memory.min_percent, self.memory.max_percent, self.group, self.pool
         )
     }
 
@@ -201,7 +202,7 @@ impl ResourceProfile {
         let classifier_id = integer(row, "classifier_id")?;
         let pool_id = integer(row, "pool_id")?;
         let group_id = integer(row, "group_id")?;
-        let (max, target) = capacity(row, self.max_memory_percent)?;
+        let (max, target) = capacity(row, self.memory)?;
         if classifier_id <= 0
             || pool_id <= 2
             || group_id <= 2
@@ -239,7 +240,8 @@ impl ResourceProfile {
             "group":self.group,
             "classifier":format!("dbo.{}",self.classifier),
             "actor_applications":self.applications,
-            "pool_memory_percent":self.max_memory_percent,
+            "pool_min_memory_percent":self.memory.min_percent,
+            "pool_memory_percent":self.memory.max_percent,
             "request_max_memory_grant_percent":REQUEST_GRANT_PERCENT,
             "group_max_requests":0,
             "original_enabled":self.original_enabled,
@@ -256,12 +258,12 @@ impl ResourceProfile {
     }
 }
 
-fn capacity(row: &Rec, max_memory_percent: i64) -> Result<(u64, u64)> {
+fn capacity(row: &Rec, memory: PoolMemory) -> Result<(u64, u64)> {
     let max = positive(row, "max_memory_kb")?;
     let target = positive(row, "target_memory_kb")?;
     if !boolean(row, "is_enabled")?
-        || integer(row, "min_memory_percent")? != 0
-        || integer(row, "max_memory_percent")? != max_memory_percent
+        || integer(row, "min_memory_percent")? != memory.min_percent
+        || integer(row, "max_memory_percent")? != memory.max_percent
         || row.f64("grant_percent") != Some(REQUEST_GRANT_PERCENT as f64)
         || integer(row, "group_max_requests")? != 0
         || target > max

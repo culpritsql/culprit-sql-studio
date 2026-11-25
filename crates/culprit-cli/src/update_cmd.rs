@@ -83,8 +83,8 @@ impl PartialOrd for Version {
 /// The release asset holding the bare CLI for this platform, or none where Culprit ships no prebuilt binary.
 pub(crate) fn asset_for(os: &str, arch: &str) -> Option<&'static str> {
     match (os, arch) {
-        // One universal binary for Apple silicon and Intel.
-        ("macos", "aarch64" | "x86_64") => Some("culprit-cli-macos"),
+        // Apple silicon only.
+        ("macos", "aarch64") => Some("culprit-cli-macos"),
         ("linux", "x86_64") => Some("culprit-cli-linux-x86_64"),
         ("windows", "x86_64") => Some("culprit-cli-windows-x64.exe"),
         _ => None,
@@ -427,7 +427,7 @@ mod tests {
     #[test]
     fn picks_the_binary_for_the_platform() {
         assert_eq!(asset_for("macos", "aarch64"), Some("culprit-cli-macos"));
-        assert_eq!(asset_for("macos", "x86_64"), Some("culprit-cli-macos"));
+        assert_eq!(asset_for("macos", "x86_64"), None);
         assert_eq!(asset_for("linux", "x86_64"), Some("culprit-cli-linux-x86_64"));
         assert_eq!(asset_for("windows", "x86_64"), Some("culprit-cli-windows-x64.exe"));
         assert_eq!(asset_for("linux", "aarch64"), None);
