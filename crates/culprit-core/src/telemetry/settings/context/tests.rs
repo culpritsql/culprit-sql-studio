@@ -41,6 +41,14 @@ fn native_formats_preserve_actual_products_versions_and_do_not_fill_unobserved_s
             DatabaseProduct::Mariadb,
             "MariaDB 11.8.3",
         ),
+        (NativeSettingsFormat::MssqlSettings, "16", Engine::Mssql, DatabaseProduct::Mssql, "SQL Server 16.0"),
+        (
+            NativeSettingsFormat::AzureSqlManagedInstanceSettings,
+            "12",
+            Engine::Mssql,
+            DatabaseProduct::Mssql,
+            "Azure SQL Managed Instance",
+        ),
     ] {
         let context = NativeSettingsContext { format, version: raw.into() };
         assert!(context.is_valid_for(engine));
@@ -72,6 +80,9 @@ fn unknown_mixed_unbounded_or_control_character_versions_do_not_choose_a_decoder
         (NativeSettingsFormat::MariaDbGlobalVariables, "11.8.9"),
         (NativeSettingsFormat::MariaDbGlobalVariables, "11.8.9-MariaDB-"),
         (NativeSettingsFormat::MariaDbGlobalVariables, "11.8.9-MariaDB x"),
+        (NativeSettingsFormat::MssqlSettings, "12"),
+        (NativeSettingsFormat::MssqlSettings, "16.0"),
+        (NativeSettingsFormat::AzureSqlManagedInstanceSettings, "11"),
     ] {
         assert!(!NativeSettingsContext { format, version: raw.into() }.is_valid(), "{raw:?}");
     }

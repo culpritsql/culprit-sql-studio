@@ -13,12 +13,23 @@ pub(in crate::activity) mod output_context;
 pub(crate) const SOURCE: &str = "mssql-blocking";
 
 impl<R: NativeRead> ActivityReader<R> {
+    #[cfg(test)]
     pub(crate) async fn capture_focused_blocking(
         &mut self,
         focus: &ActivityRequestFocus,
     ) -> Result<culprit_read::FrozenObservation> {
+        self.capture_focused_blocking_with_profile(focus, None).await
+    }
+    pub(crate) async fn capture_focused_blocking_with_profile(
+        &mut self,
+        focus: &ActivityRequestFocus,
+        profile: Option<&culprit_read::SourceProfileGuard>,
+    ) -> Result<culprit_read::FrozenObservation> {
         validate_focus(focus)?;
-        let mut pending = PendingActivityFrame::begin_blocking(self, focus).await?;
+        let mut pending = match profile {
+            Some(profile) => PendingActivityFrame::begin_profiled_blocking(self, focus, profile).await?,
+            None => PendingActivityFrame::begin_blocking(self, focus).await?,
+        };
         // A truncated/hidden census cannot prove that the original native request is absent.
         pending.require_complete()?;
         let authority = pending.native_authority()?;

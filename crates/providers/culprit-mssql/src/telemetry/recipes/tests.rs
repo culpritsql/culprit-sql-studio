@@ -9,7 +9,8 @@ fn registered_source_versions_include_native_acquisition_policy_revisions() {
         .iter()
         .filter(|recipe| recipe.version != 1)
         .map(|recipe| {
-            assert_eq!(recipe.admission, RecipeAdmission::Unqualified, "{}", recipe.id);
+            let builtin = matches!(recipe.id.as_str(), "mssql.activity" | "mssql.blocking" | "mssql.settings");
+            assert_eq!(matches!(recipe.admission, RecipeAdmission::BuiltinSafety(_)), builtin, "{}", recipe.id);
             (recipe.id.as_str(), recipe.version)
         })
         .collect::<BTreeSet<_>>();
@@ -191,7 +192,7 @@ async fn every_declared_recipe_uses_exactly_one_actual_constructor_without_nativ
     for (registration, descriptor) in REGISTRATIONS.iter().zip(&declarations) {
         assert!(descriptor.is_valid(), "{}", descriptor.id);
         assert!(ids.insert(&descriptor.id));
-        assert_eq!(descriptor.admission, RecipeAdmission::Unqualified);
+        assert!(!matches!(descriptor.admission, RecipeAdmission::Measured(_)));
         assert_eq!(descriptor.version, registration.version);
         for &kind in registration.subjects {
             let mut selection = selection(descriptor.selector).await;
@@ -577,7 +578,7 @@ fn selected_columnstore_rowgroups_recipe_requires_native_target_and_stays_manual
 #[test]
 fn settings_local_profile_advertises_only_the_existing_native_budget_without_cost_approval() {
     let recipe = declarations().into_iter().find(|recipe| recipe.id == "mssql.settings").unwrap();
-    assert_eq!(recipe.admission, RecipeAdmission::Unqualified);
+    assert!(matches!(recipe.admission, RecipeAdmission::BuiltinSafety(_)));
     assert_eq!(recipe.subjects, [RecipeSubject::Database]);
     assert_eq!(recipe.budget, super::super::state::settings_budget(&CollectionBudget::upper_limits()));
 }
@@ -880,7 +881,8 @@ fn catalog_baseline_purpose_does_not_reclassify_any_existing_focused_or_source_r
     assert!(!focused.is_empty());
     for recipe in focused {
         assert_eq!(recipe.purpose, RecipePurpose::Investigation, "{}", recipe.id);
-        assert_eq!(recipe.admission, RecipeAdmission::Unqualified, "{}", recipe.id);
+        let builtin = matches!(recipe.id.as_str(), "mssql.blocking" | "mssql.readable-secondary-recovery");
+        assert_eq!(matches!(recipe.admission, RecipeAdmission::BuiltinSafety(_)), builtin, "{}", recipe.id);
     }
 }
 
@@ -947,7 +949,7 @@ fn managed_instance_settings_reuses_the_existing_database_recipe_and_never_adds_
     let settings = catalog.iter().find(|recipe| recipe.id == "mssql.settings").unwrap();
     assert_eq!(settings.subjects, [RecipeSubject::Database]);
     assert_eq!(settings.purpose, RecipePurpose::Baseline);
-    assert_eq!(settings.admission, RecipeAdmission::Unqualified);
+    assert!(matches!(settings.admission, RecipeAdmission::BuiltinSafety(_)));
     assert_eq!(settings.budget.max_queries, 18);
     assert_eq!(settings.budget.max_snapshot_rows, 512);
     let request = CollectionRequest {

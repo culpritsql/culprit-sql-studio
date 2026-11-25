@@ -92,7 +92,9 @@ pub fn global_settings_finding_evidence(
             namespace: NativeIdentity::new(MARIADB_SERVER_UID_NAMESPACE),
             native: NativeIdentity::new("q83hHHfky00d9QAi5bwmy+JVlfE="),
         },
-        NativeSettingsFormat::PostgresSettings => unreachable!(),
+        NativeSettingsFormat::PostgresSettings
+        | NativeSettingsFormat::MssqlSettings
+        | NativeSettingsFormat::AzureSqlManagedInstanceSettings => unreachable!(),
     };
     let source = CollectionDescription {
         target: target.clone(),

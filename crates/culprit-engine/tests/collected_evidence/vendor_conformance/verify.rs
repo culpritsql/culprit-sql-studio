@@ -887,10 +887,20 @@ async fn watcher_59_datasets_map_to_registered_recipes_sources_and_canonical_pro
             spec.source_name
         );
         assert!(catalog.get(spec.stream).is_ok(), "missing analytical stream {:?} for {}", spec.stream, spec.id);
+        assert!(
+            !matches!(recipe.admission, RecipeAdmission::Measured(_)),
+            "MSSQL recipe {} must not advertise measured cost receipts",
+            spec.recipe_id
+        );
+        let builtin = matches!(
+            spec.recipe_id,
+            "mssql.activity" | "mssql.blocking" | "mssql.readable-secondary-recovery" | "mssql.settings"
+        );
         assert_eq!(
+            matches!(recipe.admission, RecipeAdmission::BuiltinSafety(_)),
+            builtin,
+            "unexpected admission {:?} on MSSQL recipe {}",
             recipe.admission,
-            RecipeAdmission::Unqualified,
-            "MSSQL recipe {} must remain Unqualified until official Tiberius cancellation lands",
             spec.recipe_id
         );
     }

@@ -746,3 +746,53 @@ fn automatic_activity_preserves_its_six_queries_and_the_exact_distinct_followup_
         );
     }
 }
+
+#[cfg(feature = "mssql")]
+#[test]
+fn standard_builtin_mssql_enrollment_needs_no_operator_receipt_and_never_constructs_a_provider() {
+    let root = tempfile::tempdir().unwrap();
+    let mut config = super::super::tests::config(root.path());
+    config.inventory.targets[0].schedules.clear();
+    config.source_credentials.clear();
+    config.monitoring = MonitoringPolicy::Standard { budget: CollectionBudget::default() };
+    let calls = Arc::new(AtomicUsize::new(0));
+    let count = calls.clone();
+    let registration = ProviderRegistration::new(
+        Arc::new(move |_, _| {
+            count.fetch_add(1, Ordering::SeqCst);
+            panic!("metadata-only enrollment cannot open a provider")
+        }),
+        ProviderConstructionPolicy::DeferredNativeWork,
+        culprit_mssql::telemetry_recipes(),
+    )
+    .unwrap()
+    .with_builtin_safety(culprit_mssql::component_version(), Arc::new(culprit_mssql::verify_builtin_safety))
+    .unwrap()
+    .with_profile_source(
+        culprit_mssql::telemetry_profile_selectors(),
+        Arc::new(|provider, request, profile| provider.telemetry_source_for_profile(request, profile)),
+    )
+    .unwrap();
+    let runtime = CollectorRuntime::empty().with_provider(Engine::Mssql, registration);
+    let workspace = runtime.workspace(&config.workspace);
+    let mut stored = workspace.store.get("fixture").unwrap();
+    stored.engine = Engine::Mssql;
+    stored.auth = AuthKind::None;
+    workspace.store.put("fixture", stored).unwrap();
+
+    let plan = Enrollment::resolve(&workspace, &config).unwrap();
+    assert_eq!(calls.load(Ordering::SeqCst), 0);
+    let mut enrolled: Vec<&str> = plan.summary.automatic.iter().map(|entry| entry.recipe_id.as_str()).collect();
+    enrolled.sort_unstable();
+    assert_eq!(enrolled, ["mssql.activity", "mssql.settings"]);
+    assert!(
+        plan.profiles.values().all(|profile| profile.qualification().is_none() && profile.builtin_policy().is_some())
+    );
+    let backend = plan.backend(&workspace);
+    assert!(
+        backend
+            .investigation_budget("fixture", &CollectionSubject::Database, TelemetryCollection::Activity)
+            .unwrap()
+            .is_some()
+    );
+}

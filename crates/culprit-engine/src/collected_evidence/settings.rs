@@ -27,6 +27,9 @@ pub(crate) fn analyze_settings_original(
     if !metadata.apply_server_metadata(&mut snapshot.server) {
         return Err(invalid());
     }
+    if metadata.format == NativeSettingsFormat::AzureSqlManagedInstanceSettings {
+        snapshot.server.platform = Some(culprit_core::Platform::AzureSqlManagedInstance);
+    }
     snapshot.operations.postgres_settings = projection.postgres;
     let empty = snapshot.settings.is_empty();
     let outcome =
@@ -115,6 +118,13 @@ fn project_settings(original: &dyn OriginalProjection) -> Result<SettingsProject
             Ok(SettingsProjection { settings, postgres: Some(Box::new(read)), complete, recovery_limited })
         }
         NativeSettingsFormat::MysqlGlobalVariables | NativeSettingsFormat::MariaDbGlobalVariables => {
+            let observations = observations(original)?;
+            let settings: Vec<_> = observations.iter().filter_map(|setting| context.project(setting)).collect();
+            let complete =
+                catalogs::complete(original) && !observations.is_empty() && settings.len() == observations.len();
+            Ok(SettingsProjection { settings, postgres: None, complete, recovery_limited: false })
+        }
+        NativeSettingsFormat::MssqlSettings | NativeSettingsFormat::AzureSqlManagedInstanceSettings => {
             let observations = observations(original)?;
             let settings: Vec<_> = observations.iter().filter_map(|setting| context.project(setting)).collect();
             let complete =

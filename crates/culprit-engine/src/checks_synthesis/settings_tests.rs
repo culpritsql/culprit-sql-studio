@@ -282,4 +282,120 @@ async fn scan_shaped_and_retained_settings_use_one_role_policy_and_preserve_the_
     }
 }
 
+#[tokio::test]
+async fn mssql_and_managed_instance_settings_reach_config_check_with_row_lineage_and_no_executable_sql() {
+    for (format, version) in
+        [(NativeSettingsFormat::MssqlSettings, "16"), (NativeSettingsFormat::AzureSqlManagedInstanceSettings, "12")]
+    {
+        let target: CollectionTarget =
+            DatabaseIdentity::server(Engine::Mssql, "shop", "fixture.invalid", 1433, None).into();
+        let partition = SourcePartition::InstanceLocal {
+            member: Some(SharedResourceIdentity {
+                engine: Engine::Mssql,
+                kind: SharedResourceKind::Instance,
+                namespace: NativeIdentity::new("native-mssql-host"),
+                native: NativeIdentity::new("native-mssql-instance"),
+            }),
+            epoch: Some(digest(b"local-mssql-recovery-epoch")),
+        };
+        let execution = NativeReadContext {
+            target: target.clone(),
+            partition: partition.clone(),
+            observed_from: "2020-01-01T12:00:00Z".into(),
+            observed_until: "2020-01-01T12:00:01Z".into(),
+            database_writable: Some(true),
+        };
+        let records = vec![
+            TelemetryRecord::Setting(SettingObservation {
+                source: "database settings".into(),
+                namespace: "sys.databases".into(),
+                name: "compatibility_level".into(),
+                scope: MeasurementScope::Database,
+                nature: SettingNature::Configuration,
+                value: Some("130".into()),
+                value_in_use: None,
+                value_for_secondary: None,
+                unit: None,
+                native_context: None,
+                native_source: None,
+                pending_restart: None,
+                native_is_default: None,
+                default_value: None,
+                default_source: SettingDefaultSource::Unknown,
+            }),
+            TelemetryRecord::Setting(SettingObservation {
+                source: "database settings".into(),
+                namespace: "sys.databases".into(),
+                name: "is_read_committed_snapshot_on".into(),
+                scope: MeasurementScope::Database,
+                nature: SettingNature::Configuration,
+                value: Some("0".into()),
+                value_in_use: None,
+                value_for_secondary: None,
+                unit: None,
+                native_context: None,
+                native_source: None,
+                pending_restart: None,
+                native_is_default: None,
+                default_value: None,
+                default_source: SettingDefaultSource::Unknown,
+            }),
+            TelemetryRecord::Setting(SettingObservation {
+                source: "server settings".into(),
+                namespace: "sys.configurations".into(),
+                name: "cost threshold for parallelism".into(),
+                scope: MeasurementScope::Server,
+                nature: SettingNature::Configuration,
+                value: Some("5".into()),
+                value_in_use: Some("5".into()),
+                value_for_secondary: None,
+                unit: None,
+                native_context: None,
+                native_source: None,
+                pending_restart: None,
+                native_is_default: None,
+                default_value: Some("5".into()),
+                default_source: SettingDefaultSource::EngineSpec,
+            }),
+        ];
+        let source = CollectionDescription {
+            target,
+            partition,
+            source: "settings-state".into(),
+            continuity: SourceContinuity::Unverified,
+            observation: SourceObservation::SnapshotAcquisition {
+                snapshot: StateSnapshotDescription {
+                    dataset: SnapshotDataset::Settings,
+                    observed_from: "2020-01-01T12:00:00Z".into(),
+                    observed_until: "2020-01-01T12:00:01Z".into(),
+                    records: 3,
+                    sources: vec![
+                        StateSourceCoverage::collected("database settings".into(), 2),
+                        StateSourceCoverage::collected("server settings".into(), 1),
+                    ],
+                },
+                execution: Box::new(execution),
+                settings_context: Some(NativeSettingsContext { format, version: version.into() }),
+            },
+        };
+        assert!(source.partition_is_consistent());
+        let capture = read(source, records, EvidenceFamily::SettingObservations).await;
+        let original = capture.verified_original().unwrap();
+        let output = policy().synthesize_captures(&capture, &[], RECORDED_AT, &display()).unwrap();
+        output.validate().unwrap();
+        assert!(matches!(output.description.output_coverage.findings, DerivedOutputCoverage::Evaluated));
+        for (subject, ordinal) in
+            [("compatibility-level", 0), ("read-committed-snapshot", 1), ("cost-threshold-for-parallelism", 2)]
+        {
+            let finding = output
+                .findings
+                .iter()
+                .find(|row| row.finding.check == "config" && row.finding.subject.name == subject)
+                .unwrap_or_else(|| panic!("missing {subject} for {format:?}"));
+            assert!(finding.finding.fix.as_ref().unwrap().sql.is_none());
+            assert_eq!(finding.inputs, vec![original.reference(ordinal).unwrap()]);
+        }
+    }
+}
+
 mod global_variables;

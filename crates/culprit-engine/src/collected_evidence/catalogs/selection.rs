@@ -45,10 +45,20 @@ pub(crate) fn same_scope(primary: &dyn OriginalProjection, original: &dyn Origin
 }
 
 fn same_local_catalog_owner(primary: &CollectionDescription, catalog: &CollectionDescription) -> bool {
-    if !matches!(catalog.observation, SourceObservation::LocalResource { .. }) {
+    if !matches!(
+        catalog.observation,
+        SourceObservation::LocalResource { .. } | SourceObservation::SnapshotAcquisition { .. }
+    ) {
         return false;
     }
-    let Ok(catalog_owner) = NativeReadContext::from_snapshot(catalog) else { return false };
+    let Some(catalog_owner) = catalog
+        .observation
+        .snapshot_acquisition_context()
+        .cloned()
+        .or_else(|| NativeReadContext::from_snapshot(catalog).ok())
+    else {
+        return false;
+    };
     let primary_owner = if let Some(history) = primary.query_history() {
         history.acquisition_owner.as_deref().cloned()
     } else if primary.observation.activity().is_some() {

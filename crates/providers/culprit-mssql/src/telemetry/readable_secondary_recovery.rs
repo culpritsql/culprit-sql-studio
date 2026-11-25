@@ -48,13 +48,38 @@ pub(super) fn source(
     request.budget = bounded_budget(&request.budget);
     request.budget.validate()?;
     let io = ReadSession::collection(pool, request.budget.clone())?;
-    with_io(io, &request, host, port)
+    with_io_and_profile(io, &request, host, port, None)
 }
+pub(super) fn profile_source(
+    pool: Arc<Pool>,
+    request: &CollectionRequest,
+    host: String,
+    port: u16,
+    admission: &SourceProfileAdmission,
+) -> Result<Box<dyn TelemetrySource>> {
+    selection(request)?;
+    if bounded_budget(&request.budget) != request.budget {
+        return Err(crate::read::invalid_data());
+    }
+    let profile = culprit_read::SourceProfileGuard::new(request, admission)?;
+    let io = ReadSession::collection(pool, request.budget.clone())?.with_profile(profile.clone());
+    with_io_and_profile(io, request, host, port, Some(profile))
+}
+#[cfg(test)]
 fn with_io<R: NativeRead + 'static>(
     io: R,
     request: &CollectionRequest,
     host: String,
     port: u16,
+) -> Result<Box<dyn TelemetrySource>> {
+    with_io_and_profile(io, request, host, port, None)
+}
+fn with_io_and_profile<R: NativeRead + 'static>(
+    io: R,
+    request: &CollectionRequest,
+    host: String,
+    port: u16,
+    profile: Option<culprit_read::SourceProfileGuard>,
 ) -> Result<Box<dyn TelemetrySource>> {
     selection(request)?;
     let activity = ActivityReader::new(
@@ -63,18 +88,24 @@ fn with_io<R: NativeRead + 'static>(
         host,
         port,
     );
-    Ok(Box::new(FrozenSource::new(Reader { activity, verified: None, generation: None }, request)?))
+    Ok(Box::new(FrozenSource::new(Reader { activity, verified: None, generation: None, profile }, request)?))
 }
 struct Reader<R: NativeRead> {
     activity: ActivityReader<R>,
     verified: Option<CollectionDescription>,
     generation: Option<u64>,
+    profile: Option<culprit_read::SourceProfileGuard>,
 }
 #[async_trait::async_trait]
 impl<R: NativeRead> ObservationReader for Reader<R> {
     async fn observe(&mut self, request: &CollectionRequest) -> Result<FrozenObservation> {
         let (focus, execution) = selection(request)?;
-        let point = Box::pin(self.activity.capture_readable_secondary_recovery(focus, execution)).await?;
+        let point = Box::pin(self.activity.capture_readable_secondary_recovery_with_profile(
+            focus,
+            execution,
+            self.profile.as_ref(),
+        ))
+        .await?;
         let (description, record) = point.into_source_read(focus)?;
         if !description.matches_request(request) {
             return Err(crate::read::invalid_data());
@@ -84,6 +115,12 @@ impl<R: NativeRead> ObservationReader for Reader<R> {
         Ok(FrozenObservation { description, records: vec![record] })
     }
     async fn verify(&mut self, description: &CollectionDescription) -> Result<bool> {
+        if let Some(profile) = &self.profile {
+            profile.verify_final(
+                description.observation.execution_context().ok_or_else(crate::read::invalid_data)?,
+                self.activity.connection_generation(),
+            )?;
+        }
         Ok(self.verified.as_ref() == Some(description)
             && self.generation.is_some()
             && self.generation == self.activity.connection_generation())

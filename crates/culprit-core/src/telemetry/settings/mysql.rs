@@ -47,7 +47,7 @@ impl NativeSettingsFormat {
         SETTINGS.iter().find(|(setting, _, _)| *setting == name).and_then(|(_, mysql, maria)| match self {
             Self::MysqlGlobalVariables => *mysql,
             Self::MariaDbGlobalVariables => *maria,
-            Self::PostgresSettings => None,
+            Self::PostgresSettings | Self::MssqlSettings | Self::AzureSqlManagedInstanceSettings => None,
         })
     }
     /// Native SHOW returns a global effective value, no saved value or native default verdict.

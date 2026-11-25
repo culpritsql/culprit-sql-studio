@@ -50,14 +50,17 @@ impl Registration {
         self
     }
     fn descriptor(&self) -> RecipeDescriptor {
+        let budget = self.native_budget();
         RecipeDescriptor {
             id: self.id.into(),
             version: self.version,
             purpose: self.purpose,
             selector: self.selector,
             subjects: self.subjects.to_vec(),
-            budget: self.native_budget(),
-            admission: RecipeAdmission::Unqualified,
+            admission: crate::builtin_safety::policy(self.id, self.version, self.selector, &budget)
+                .map(|policy| RecipeAdmission::BuiltinSafety(Box::new(policy)))
+                .unwrap_or(RecipeAdmission::Unqualified),
+            budget,
         }
     }
     fn native_budget(&self) -> CollectionBudget {
@@ -508,6 +511,13 @@ const REGISTRATIONS: &[Registration] = &[
 
 pub(super) fn declarations() -> Vec<RecipeDescriptor> {
     REGISTRATIONS.iter().map(Registration::descriptor).collect()
+}
+
+pub(super) fn profile_selectors() -> Vec<RecipeSelector> {
+    vec![
+        RecipeSelector::Collection(TelemetryCollection::Activity),
+        RecipeSelector::Collection(TelemetryCollection::Snapshot(SnapshotDataset::Settings)),
+    ]
 }
 
 /// Discovery has already observed the native platform. Derive its routes from the same registrations without

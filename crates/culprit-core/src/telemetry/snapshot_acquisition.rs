@@ -68,7 +68,13 @@ pub(super) fn source_is_consistent(source: &CollectionDescription) -> Option<boo
         _ => return None,
     };
     let namespace_matches = match dataset {
-        SnapshotDataset::Settings => source.partition == SourcePartition::Target,
+        SnapshotDataset::Settings => {
+            if execution.target.engine() == crate::Engine::Mssql {
+                source.partition == execution.partition
+            } else {
+                source.partition == SourcePartition::Target
+            }
+        }
         SnapshotDataset::StatementCounters | SnapshotDataset::StatementDefinitions => {
             source.partition == execution.partition
         }

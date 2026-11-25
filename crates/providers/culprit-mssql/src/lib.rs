@@ -6,6 +6,8 @@ mod actual;
 mod ado;
 mod advice;
 mod backup_history;
+mod builtin_safety;
+pub use builtin_safety::verify as verify_builtin_safety;
 mod cache_entry_memory;
 mod cache_summary;
 mod cached_definitions;
@@ -165,6 +167,11 @@ pub fn telemetry_recipes() -> Vec<culprit_core::telemetry::RecipeDescriptor> {
     telemetry::recipes()
 }
 
+/// Existing baseline readers capable of enforcing an independently admitted native profile. No admission is issued.
+pub fn telemetry_profile_selectors() -> Vec<culprit_core::telemetry::RecipeSelector> {
+    telemetry::profile_selectors()
+}
+
 #[async_trait]
 impl Provider for MssqlProvider {
     async fn telemetry_resources(
@@ -178,6 +185,18 @@ impl Provider for MssqlProvider {
         request: &culprit_core::telemetry::CollectionRequest,
     ) -> Result<Box<dyn culprit_core::telemetry::TelemetrySource>> {
         telemetry::source(self.pool.clone(), request, self.endpoint_host.clone(), self.endpoint_port)
+    }
+    fn telemetry_source_for_safety(
+        &self,
+        request: &culprit_core::telemetry::CollectionRequest,
+        profile: &culprit_core::telemetry::SourceProfileAdmission,
+    ) -> Result<Box<dyn culprit_core::telemetry::TelemetrySource>> {
+        let policy =
+            profile.builtin_policy().ok_or_else(|| culprit_core::telemetry::CollectionStop::SourceChanged.error())?;
+        if !builtin_safety::verify(policy)? {
+            return Err(culprit_core::telemetry::CollectionStop::SourceChanged.error());
+        }
+        telemetry::safety_source(self.pool.clone(), request, self.endpoint_host.clone(), self.endpoint_port, profile)
     }
     fn telemetry_source_for_profile(
         &self,

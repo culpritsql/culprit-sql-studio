@@ -66,8 +66,54 @@ fn references(original: &dyn OriginalProjection, finding: &Finding) -> Result<Ve
         .enumerate()
         .filter(|(_, row)| {
             matches!(&row.row().record, TelemetryRecord::Setting(setting)
-            if setting.name == finding.subject.name && setting.scope == MeasurementScope::Server)
+            if (setting.name == finding.subject.name && setting.scope == MeasurementScope::Server)
+                || (original.source().target.engine() == Engine::Mssql
+                    && mssql_setting_matches(&finding.subject.name, setting)))
         })
         .map(|(position, _)| original.reference(position))
         .collect()
+}
+fn mssql_setting_matches(subject: &str, setting: &SettingObservation) -> bool {
+    match subject {
+        "query-store" => {
+            setting.namespace == "sys.database_query_store_options"
+                && matches!(setting.name.as_str(), "actual_state_desc" | "readonly_reason")
+        }
+        "query-store-size" => {
+            setting.namespace == "sys.database_query_store_options"
+                && matches!(
+                    setting.name.as_str(),
+                    "actual_state_desc"
+                        | "current_storage_size_mb"
+                        | "max_storage_size_mb"
+                        | "size_based_cleanup_mode_desc"
+                )
+        }
+        "query-store-capture" => {
+            setting.namespace == "sys.database_query_store_options"
+                && matches!(setting.name.as_str(), "actual_state_desc" | "query_capture_mode_desc")
+        }
+        "query-store-waits" => {
+            setting.namespace == "sys.database_query_store_options"
+                && matches!(setting.name.as_str(), "actual_state_desc" | "wait_stats_capture_mode_desc")
+        }
+        "read-committed-snapshot" => {
+            setting.namespace == "sys.databases"
+                && matches!(setting.name.as_str(), "is_read_committed_snapshot_on" | "snapshot_isolation_state_desc")
+        }
+        "auto_create_statistics" => setting.namespace == "sys.databases" && setting.name == "is_auto_create_stats_on",
+        "auto_update_statistics" => setting.namespace == "sys.databases" && setting.name == "is_auto_update_stats_on",
+        "compatibility-level" => setting.namespace == "sys.databases" && setting.name == "compatibility_level",
+        "cost-threshold-for-parallelism" => {
+            setting.namespace == "sys.configurations" && setting.name == "cost threshold for parallelism"
+        }
+        "legacy-cardinality-estimation" => {
+            setting.namespace == "sys.database_scoped_configurations" && setting.name == "LEGACY_CARDINALITY_ESTIMATION"
+        }
+        "maxdop" => {
+            (setting.namespace == "sys.configurations" && setting.name == "max degree of parallelism")
+                || (setting.namespace == "sys.database_scoped_configurations" && setting.name == "MAXDOP")
+        }
+        _ => false,
+    }
 }

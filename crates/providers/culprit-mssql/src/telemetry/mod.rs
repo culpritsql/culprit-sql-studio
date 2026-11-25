@@ -68,7 +68,44 @@ pub(crate) fn profile_source(
     port: u16,
     profile: &culprit_core::telemetry::SourceProfileAdmission,
 ) -> Result<Box<dyn TelemetrySource>> {
-    Ok(Box::new(activity::ActivitySource::for_profile(pool, request, host, port, profile)?))
+    use culprit_core::telemetry::{RecipeSelector, SnapshotDataset, TelemetryCollection};
+    match profile.selector() {
+        RecipeSelector::Collection(TelemetryCollection::Activity) => {
+            Ok(Box::new(activity::ActivitySource::for_profile(pool, request, host, port, profile)?))
+        }
+        RecipeSelector::Collection(TelemetryCollection::Snapshot(SnapshotDataset::Settings)) => {
+            Ok(Box::new(state::StateSource::for_profile(pool, request, host, port, profile)?))
+        }
+        _ => Err(culprit_core::Error::new(
+            culprit_core::ErrorCode::Unsupported,
+            culprit_core::t!("collection.unsupported"),
+        )),
+    }
+}
+
+pub(crate) fn safety_source(
+    pool: Arc<Pool>,
+    request: &CollectionRequest,
+    host: String,
+    port: u16,
+    profile: &culprit_core::telemetry::SourceProfileAdmission,
+) -> Result<Box<dyn TelemetrySource>> {
+    use culprit_core::telemetry::{RecipeSelector, SnapshotDataset, TelemetryCollection};
+    match profile.selector() {
+        RecipeSelector::Collection(TelemetryCollection::Activity)
+        | RecipeSelector::Collection(TelemetryCollection::Snapshot(SnapshotDataset::Settings)) => {
+            profile_source(pool, request, host, port, profile)
+        }
+        RecipeSelector::FocusedBlocking => blocking::profile_source(pool, request, host, port, profile),
+        RecipeSelector::Collection(TelemetryCollection::Snapshot(SnapshotDataset::ReadableSecondaryRecovery)) => {
+            readable_secondary_recovery::profile_source(pool, request, host, port, profile)
+        }
+        _ => Err(crate::read::invalid_data()),
+    }
+}
+
+pub(crate) fn profile_selectors() -> Vec<culprit_core::telemetry::RecipeSelector> {
+    recipes::profile_selectors()
 }
 
 #[cfg(test)]

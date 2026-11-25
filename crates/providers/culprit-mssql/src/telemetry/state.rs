@@ -90,10 +90,32 @@ pub(super) struct StateSource<R = ReadSession> {
     pool_settings_point: Option<MssqlPoolSettingsPoint>,
     offset: usize,
     progress: Progress,
+    profile: Option<culprit_read::SourceProfileGuard>,
 }
 impl StateSource {
     pub(super) fn new(pool: Arc<Pool>, request: &CollectionRequest, host: String, port: u16) -> Result<Self> {
         Self::with_io(ReadSession::collection(pool, native_budget(request))?, request, host, port)
+    }
+    pub(super) fn for_profile(
+        pool: Arc<Pool>,
+        request: &CollectionRequest,
+        host: String,
+        port: u16,
+        admission: &SourceProfileAdmission,
+    ) -> Result<Self> {
+        request.validate()?;
+        request.subject.require_database()?;
+        if request.selection != (CollectionSelection::Snapshot { dataset: SnapshotDataset::Settings }) {
+            return Err(invalid_data());
+        }
+        if settings_budget(&request.budget) != request.budget {
+            return Err(culprit_core::Error::new(ErrorCode::Unsupported, culprit_core::t!("collection.unsupported")));
+        }
+        let profile = culprit_read::SourceProfileGuard::new(request, admission)?;
+        let io = ReadSession::collection(pool, request.budget.clone())?.with_profile(profile.clone());
+        let mut source = Self::with_io(io, request, host, port)?;
+        source.profile = Some(profile);
+        Ok(source)
     }
 }
 impl<R: NativeRead> StateSource<R> {
@@ -139,6 +161,7 @@ impl<R: NativeRead> StateSource<R> {
             pool_settings_point: None,
             offset: 0,
             progress: Progress::New,
+            profile: None,
         })
     }
     async fn clock(&mut self) -> Result<(String, bool)> {
@@ -294,6 +317,9 @@ impl<R: NativeRead> TelemetrySource for StateSource<R> {
             return Err(invalid_data());
         }
         self.progress = Progress::Failed;
+        if let Some(profile) = &self.profile {
+            profile.ensure_active()?;
+        }
         let dataset = pool_settings::dataset(&self.request.selection)?;
         if pool_operational::selected(&self.request) {
             let CollectionSubject::Shared { resource } = &self.request.subject else {
@@ -342,6 +368,18 @@ impl<R: NativeRead> TelemetrySource for StateSource<R> {
         };
         if dataset == SnapshotDataset::Settings {
             settings::require_profile(&read.identity)?;
+            if let Some(profile) = &self.profile {
+                let subject::Identity::LocalDatabase(owner) = &read.identity else {
+                    return Err(culprit_core::Error::new(
+                        culprit_core::ErrorCode::Unsupported,
+                        culprit_core::t!("collection.unsupported"),
+                    ));
+                };
+                if let Some(policy) = profile.builtin_policy() {
+                    crate::builtin_safety::verify_settings(policy, owner)?;
+                }
+                profile.bind_native(&owner.completed(owner)?, self.io.connection_generation())?;
+            }
         }
         if matches!(dataset, SnapshotDataset::DatabasePerformanceCounters | SnapshotDataset::SuspectPages) {
             local_point::require_profile(&read.identity)?;
@@ -529,17 +567,46 @@ impl<R: NativeRead> TelemetrySource for StateSource<R> {
             }
             .into(),
             continuity: SourceContinuity::Unverified,
-            observation: pool_settings::observation(
-                StateSnapshotDescription {
-                    dataset,
-                    observed_from,
-                    observed_until,
-                    records: self.rows.len() as u32,
-                    sources,
-                },
-                self.identity.as_ref().ok_or_else(invalid_data)?,
-                self.pool_settings_point.clone(),
-            )?,
+            observation: if self.profile.is_some() && dataset == SnapshotDataset::Settings {
+                let subject::Identity::LocalDatabase(owner) = self.identity.as_ref().ok_or_else(invalid_data)? else {
+                    return Err(invalid_data());
+                };
+                let format = if owner.activity.edition == crate::probe::ENGINE_EDITION_MANAGED_INSTANCE {
+                    NativeSettingsFormat::AzureSqlManagedInstanceSettings
+                } else {
+                    NativeSettingsFormat::MssqlSettings
+                };
+                let partition = owner.source_partition()?;
+                SourceObservation::SnapshotAcquisition {
+                    snapshot: StateSnapshotDescription {
+                        dataset,
+                        observed_from: observed_from.clone(),
+                        observed_until: observed_until.clone(),
+                        records: self.rows.len() as u32,
+                        sources,
+                    },
+                    execution: Box::new(NativeReadContext {
+                        target: owner.activity.database.clone().into(),
+                        partition,
+                        observed_from,
+                        observed_until,
+                        database_writable: owner.activity.writable,
+                    }),
+                    settings_context: Some(NativeSettingsContext { format, version: owner.activity.major.to_string() }),
+                }
+            } else {
+                pool_settings::observation(
+                    StateSnapshotDescription {
+                        dataset,
+                        observed_from,
+                        observed_until,
+                        records: self.rows.len() as u32,
+                        sources,
+                    },
+                    self.identity.as_ref().ok_or_else(invalid_data)?,
+                    self.pool_settings_point.clone(),
+                )?
+            },
         };
         let mut description = description;
         if let Some(authority) = pool_authority {
@@ -565,6 +632,9 @@ impl<R: NativeRead> TelemetrySource for StateSource<R> {
             return Err(invalid_data());
         }
         self.progress = Progress::Failed;
+        if let Some(profile) = &self.profile {
+            profile.check_connection(self.io.connection_generation())?;
+        }
         let snapshot = self
             .description
             .as_ref()
@@ -598,6 +668,9 @@ impl<R: NativeRead> TelemetrySource for StateSource<R> {
             return Err(invalid_data());
         }
         self.progress = Progress::Failed;
+        if let Some(profile) = &self.profile {
+            profile.ensure_active()?;
+        }
         self.check_instance_wait_transport()?;
         self.check_local_transport()?;
         let owner = self.identity.as_ref().ok_or_else(invalid_data)?;
@@ -606,6 +679,14 @@ impl<R: NativeRead> TelemetrySource for StateSource<R> {
         } else {
             (owner.recheck(&mut self.io, &self.host, self.port).await?, None)
         };
+        if let Some(profile) = &self.profile {
+            let (subject::Identity::LocalDatabase(before), subject::Identity::LocalDatabase(after)) =
+                (owner, &identity)
+            else {
+                return Err(CollectionStop::SourceChanged.error());
+            };
+            profile.verify_final(&before.completed(after)?, self.io.connection_generation())?;
+        }
         let until = &self
             .description
             .as_ref()

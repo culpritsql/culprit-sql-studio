@@ -3,6 +3,6 @@ import type { NativeSettingsFormat } from "./NativeSettingsFormat";
 
 export type NativeSettingsContext = { format: NativeSettingsFormat, 
 /**
- * PostgreSQL server_version_num, or the original MySQL/MariaDB VERSION() value.
+ * PostgreSQL server_version_num, SQL Server major version, or original MySQL/MariaDB VERSION() value.
  */
 version: string, };

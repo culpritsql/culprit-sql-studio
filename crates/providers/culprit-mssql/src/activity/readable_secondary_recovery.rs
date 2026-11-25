@@ -24,22 +24,40 @@ fn validate_native(owner: &Context) -> Result<()> {
     Ok(())
 }
 impl<R: NativeRead> ActivityReader<R> {
+    #[cfg(test)]
     pub(crate) async fn capture_readable_secondary_recovery(
         &mut self,
         focus: &SourceReadFocus,
         execution: &SourceReadExecutionScope,
     ) -> Result<ReadableSecondaryRecoveryPoint> {
+        self.capture_readable_secondary_recovery_with_profile(focus, execution, None).await
+    }
+    pub(crate) async fn capture_readable_secondary_recovery_with_profile(
+        &mut self,
+        focus: &SourceReadFocus,
+        execution: &SourceReadExecutionScope,
+        profile: Option<&culprit_read::SourceProfileGuard>,
+    ) -> Result<ReadableSecondaryRecoveryPoint> {
         if self.observed {
             return Err(invalid_data());
         }
         self.observed = true;
+        if let Some(profile) = profile {
+            profile.ensure_active()?;
+        }
         let original = focus.readable_secondary_request().ok_or_else(invalid_data)?;
         validate_focus(original)?;
         let before = Box::new(Box::pin(Context::read(&mut self.io, &self.host, self.port)).await?);
         validate_native(&before)?;
+        if let Some(policy) = profile.and_then(culprit_read::SourceProfileGuard::builtin_policy) {
+            crate::builtin_safety::verify_readable_secondary_recovery(policy, &before)?;
+        }
         let initial = before.completed(&before)?;
         if !execution.matches_context(&initial) || !focused_request_original_scope_matches(original, &initial) {
             return Err(CollectionStop::SourceChanged.error());
+        }
+        if let Some(profile) = profile {
+            profile.bind_native(&initial, self.io.connection_generation())?;
         }
         let first = Box::pin(participants::selected_check(&mut self.io, original, before.activity.writable)).await?;
         let state = first.selector_state(&original.original.key, &original.statement_identity);
@@ -63,6 +81,9 @@ impl<R: NativeRead> ActivityReader<R> {
             || self.io.connection_generation() != before.connection_generation()
         {
             return Err(CollectionStop::SourceChanged.error());
+        }
+        if let Some(profile) = profile {
+            profile.verify_final(&context, self.io.connection_generation())?;
         }
         let (binding, membership) = match state {
             RequestState::SameStatement => (FocusedRequestBinding::Matched, FocusedRequestMembership::Observed),

@@ -28,22 +28,48 @@ pub(super) fn source(
     request.budget = bounded_budget(&request.budget);
     let options = ReadOptions { budget: request.budget.clone(), identity: IdentityDetail::Endpoint };
     let reader = ActivityReader::open_collection(pool, options, host, port)?;
-    Ok(Box::new(from_reader(reader, &request)?))
+    Ok(Box::new(from_reader_with_profile(reader, &request, None)?))
 }
+pub(super) fn profile_source(
+    pool: Arc<Pool>,
+    request: &CollectionRequest,
+    host: String,
+    port: u16,
+    admission: &SourceProfileAdmission,
+) -> Result<Box<dyn TelemetrySource>> {
+    request.validate()?;
+    request.subject.require_database()?;
+    if bounded_budget(&request.budget) != request.budget {
+        return Err(crate::read::invalid_data());
+    }
+    let profile = culprit_read::SourceProfileGuard::new(request, admission)?;
+    let options = ReadOptions { budget: request.budget.clone(), identity: IdentityDetail::Endpoint };
+    let reader = ActivityReader::open_profiled_collection(pool, options, host, port, profile.clone())?;
+    Ok(Box::new(from_reader_with_profile(reader, request, Some(profile))?))
+}
+#[cfg(test)]
 fn from_reader<R: NativeRead>(
     reader: ActivityReader<R>,
     request: &CollectionRequest,
+) -> Result<culprit_read::FrozenSource<BlockingReader<R>>> {
+    from_reader_with_profile(reader, request, None)
+}
+fn from_reader_with_profile<R: NativeRead>(
+    reader: ActivityReader<R>,
+    request: &CollectionRequest,
+    profile: Option<culprit_read::SourceProfileGuard>,
 ) -> Result<culprit_read::FrozenSource<BlockingReader<R>>> {
     request.validate()?;
     request.subject.require_database()?;
     if !matches!(request.selection, CollectionSelection::FocusedBlocking { .. }) {
         return Err(CollectionStop::InvalidPage.error());
     }
-    culprit_read::FrozenSource::new(BlockingReader { reader, verified: None }, request)
+    culprit_read::FrozenSource::new(BlockingReader { reader, verified: None, profile }, request)
 }
 struct BlockingReader<R: NativeRead> {
     reader: ActivityReader<R>,
     verified: Option<CollectionDescription>,
+    profile: Option<culprit_read::SourceProfileGuard>,
 }
 #[async_trait::async_trait]
 impl<R: NativeRead> culprit_read::ObservationReader for BlockingReader<R> {
@@ -51,7 +77,7 @@ impl<R: NativeRead> culprit_read::ObservationReader for BlockingReader<R> {
         let CollectionSelection::FocusedBlocking { focus } = &request.selection else {
             return Err(CollectionStop::InvalidPage.error());
         };
-        let observation = self.reader.capture_focused_blocking(focus).await?;
+        let observation = self.reader.capture_focused_blocking_with_profile(focus, self.profile.as_ref()).await?;
         if !observation.description.matches_request(request) {
             return Err(CollectionStop::SourceChanged.error());
         }
@@ -59,6 +85,9 @@ impl<R: NativeRead> culprit_read::ObservationReader for BlockingReader<R> {
         Ok(observation)
     }
     async fn verify(&mut self, source: &CollectionDescription) -> Result<bool> {
+        if let Some(profile) = &self.profile {
+            profile.verify_final(&NativeReadContext::from_activity(source)?, self.reader.connection_generation())?;
+        }
         // The existing PendingActivityFrame completed the mandatory held native final recheck.
         Ok(self.verified.as_ref() == Some(source))
     }

@@ -444,3 +444,46 @@ async fn a_later_catalog_row_cannot_borrow_the_first_rows_native_authority() {
     assert!(source.read_page(TelemetryStream::SettingObservations, None).await.is_err());
     assert_eq!(source.close().await, SourceShutdown::Quiescent);
 }
+
+#[tokio::test]
+async fn profiled_settings_bind_builtin_safety_emit_snapshot_acquisition_and_refuse_untested_major() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    let recipe = crate::telemetry::recipes().into_iter().find(|r| r.id == "mssql.settings").unwrap();
+    let RecipeAdmission::BuiltinSafety(policy) = recipe.admission else { panic!() };
+    let mut bounded = request();
+    bounded.budget = recipe.budget.clone();
+    let active = Arc::new(AtomicBool::new(true));
+    let flag = active.clone();
+    let admission = SourceProfileAdmission::for_builtin(
+        digest(b"mssql-settings-route"),
+        *policy,
+        None,
+        bounded.budget.clone(),
+        move || flag.load(Ordering::Acquire),
+    )
+    .unwrap();
+
+    let mut source = settings_source(replies(), &bounded);
+    source.profile = Some(culprit_read::SourceProfileGuard::new(&bounded, &admission).unwrap());
+    let description = source.describe().await.unwrap();
+    assert!(description.partition_is_consistent());
+    assert_eq!(
+        description.observation.snapshot_settings_context(),
+        Some(&NativeSettingsContext { format: NativeSettingsFormat::MssqlSettings, version: "16".into() })
+    );
+    assert_eq!(description.observation.snapshot_acquisition_context().unwrap().database_writable, Some(true));
+    let rows = drain(&mut source).await;
+    assert!(!rows.is_empty());
+    assert_eq!(source.finish().await.unwrap(), SourceCompletion::Verified);
+    assert_eq!(source.close().await, SourceShutdown::Quiescent);
+
+    // SQL Server 2019 (major 15) is refused before reading setting catalogs under builtin safety.
+    let mut sql15 = replies();
+    sql15[1] = Ok(vec![replace(&metadata(), &[("major", Val::Text("15".into()))])]);
+    sql15[3] = Ok(vec![replace(&authority("2020-01-01T06:00:00Z"), &[("major", Val::Int(15))])]);
+    let mut refused = settings_source(sql15, &bounded);
+    refused.profile = Some(culprit_read::SourceProfileGuard::new(&bounded, &admission).unwrap());
+    assert_eq!(CollectionStop::from_error(&refused.describe().await.unwrap_err()), CollectionStop::SourceChanged);
+    assert_eq!(refused.query_count(), 4);
+    assert_eq!(refused.close().await, SourceShutdown::Quiescent);
+}

@@ -11,6 +11,8 @@ pub enum NativeSettingsFormat {
     PostgresSettings,
     MysqlGlobalVariables,
     MariaDbGlobalVariables,
+    MssqlSettings,
+    AzureSqlManagedInstanceSettings,
 }
 
 #[derive(Serialize, Deserialize, TS, Clone, Debug, PartialEq, Eq)]
@@ -18,7 +20,7 @@ pub enum NativeSettingsFormat {
 #[ts(export)]
 pub struct NativeSettingsContext {
     pub format: NativeSettingsFormat,
-    /// PostgreSQL server_version_num, or the original MySQL/MariaDB VERSION() value.
+    /// PostgreSQL server_version_num, SQL Server major version, or original MySQL/MariaDB VERSION() value.
     pub version: String,
 }
 impl NativeSettingsContext {
@@ -42,6 +44,21 @@ impl NativeSettingsContext {
             NativeSettingsFormat::MysqlGlobalVariables | NativeSettingsFormat::MariaDbGlobalVariables => {
                 self.format.project_global_variable(observation)
             }
+            NativeSettingsFormat::MssqlSettings | NativeSettingsFormat::AzureSqlManagedInstanceSettings => {
+                if !observation.is_valid()
+                    || observation.nature == SettingNature::Unknown
+                    || !matches!(
+                        observation.namespace.as_str(),
+                        "sys.databases"
+                            | "sys.database_scoped_configurations"
+                            | "sys.configurations"
+                            | "sys.database_query_store_options"
+                    )
+                {
+                    return None;
+                }
+                observation.to_mssql_setting()
+            }
         }
     }
     /// Apply only the original native product/version. This does not fill current edition/platform,
@@ -55,7 +72,10 @@ impl NativeSettingsContext {
         else {
             return false;
         };
-        server.product = format!("{} {}", product.label, version.split('-').next().unwrap_or(&version));
+        server.product = match self.format {
+            NativeSettingsFormat::AzureSqlManagedInstanceSettings => "Azure SQL Managed Instance".into(),
+            _ => format!("{} {}", product.label, version.split('-').next().unwrap_or(&version)),
+        };
         server.version = version;
         true
     }
@@ -87,6 +107,14 @@ impl NativeSettingsContext {
                 }
                 Some(version.into())
             }
+            NativeSettingsFormat::MssqlSettings => {
+                let major = canonical_number(&self.version)?;
+                (13..=17).contains(&major).then(|| format!("{major}.0"))
+            }
+            NativeSettingsFormat::AzureSqlManagedInstanceSettings => {
+                let major = canonical_number(&self.version)?;
+                (12..=17).contains(&major).then(|| format!("{major}.0"))
+            }
         }
     }
 }
@@ -95,6 +123,7 @@ impl NativeSettingsFormat {
         match self {
             Self::PostgresSettings => Engine::Postgres,
             Self::MysqlGlobalVariables | Self::MariaDbGlobalVariables => Engine::Mysql,
+            Self::MssqlSettings | Self::AzureSqlManagedInstanceSettings => Engine::Mssql,
         }
     }
     fn product(self) -> DatabaseProduct {
@@ -102,6 +131,7 @@ impl NativeSettingsFormat {
             Self::PostgresSettings => DatabaseProduct::Postgres,
             Self::MysqlGlobalVariables => DatabaseProduct::Mysql,
             Self::MariaDbGlobalVariables => DatabaseProduct::Mariadb,
+            Self::MssqlSettings | Self::AzureSqlManagedInstanceSettings => DatabaseProduct::Mssql,
         }
     }
 }

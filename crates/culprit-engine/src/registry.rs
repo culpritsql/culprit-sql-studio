@@ -105,9 +105,7 @@ fn postgres_registration() -> Result<ProviderRegistration> {
 fn profile_intake(registration: ProviderRegistration) -> Result<ProviderRegistration> {
     #[cfg(feature = "collector")]
     let registration = registration.with_profile_source(
-        vec![culprit_core::telemetry::RecipeSelector::Collection(
-            culprit_core::telemetry::TelemetryCollection::Activity,
-        )],
+        culprit_mssql::telemetry_profile_selectors(),
         Arc::new(|provider, request, profile| provider.telemetry_source_for_profile(request, profile)),
     )?;
     Ok(registration)
@@ -119,7 +117,8 @@ fn mssql_registration() -> Result<ProviderRegistration> {
         Arc::new(|spec, context| Ok(Box::new(culprit_mssql::MssqlProvider::new(spec)?.with_read_context(context)?))),
         crate::ProviderConstructionPolicy::DeferredNativeWork,
         culprit_mssql::telemetry_recipes(),
-    )?;
+    )?
+    .with_builtin_safety(culprit_mssql::component_version(), Arc::new(culprit_mssql::verify_builtin_safety))?;
     #[cfg(feature = "collector")]
     let registration = registration.with_native_qualification_issuer(
         Arc::new(|spec, request| culprit_mssql::MssqlProvider::new(spec)?.qualification_source(request)),
@@ -189,7 +188,7 @@ mod tests {
                 #[cfg(feature = "postgres")]
                 Engine::Postgres => culprit_postgres::telemetry_profile_selectors(),
                 #[cfg(feature = "mssql")]
-                Engine::Mssql => vec![RecipeSelector::Collection(TelemetryCollection::Activity)],
+                Engine::Mssql => culprit_mssql::telemetry_profile_selectors(),
                 #[cfg(feature = "mysql")]
                 Engine::Mysql => culprit_mysql::telemetry_profile_selectors(),
                 _ => vec![],
@@ -296,13 +295,27 @@ mod builtin_safety_tests {
             }
         }
         #[cfg(feature = "mssql")]
-        assert!(
-            mssql_registration()
-                .unwrap()
+        {
+            let mssql = mssql_registration().unwrap();
+            let mut admitted = mssql
                 .telemetry_recipes()
                 .iter()
-                .all(|recipe| matches!(recipe.admission, RecipeAdmission::Unqualified))
-        );
+                .filter(|recipe| matches!(recipe.admission, RecipeAdmission::BuiltinSafety(_)))
+                .map(|recipe| {
+                    let RecipeAdmission::BuiltinSafety(policy) = &recipe.admission else { unreachable!() };
+                    assert!(mssql.verify_builtin_safety(policy).unwrap());
+                    let mut forged = policy.as_ref().clone();
+                    forged.templates_sha256 = digest(b"foreign-mssql-reader");
+                    assert!(!mssql.verify_builtin_safety(&forged).unwrap());
+                    recipe.id.as_str()
+                })
+                .collect::<Vec<_>>();
+            admitted.sort_unstable();
+            assert_eq!(
+                admitted,
+                ["mssql.activity", "mssql.blocking", "mssql.readable-secondary-recovery", "mssql.settings"]
+            );
+        }
     }
 }
 

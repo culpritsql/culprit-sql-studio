@@ -49,6 +49,19 @@ impl PendingActivityFrame {
         )
         .await
     }
+    pub(crate) async fn begin_profiled_blocking<R: crate::read::NativeRead>(
+        reader: &mut ActivityReader<R>,
+        focus: &ActivityRequestFocus,
+        profile: &culprit_read::SourceProfileGuard,
+    ) -> Result<Self> {
+        Self::begin_with_projection(
+            reader,
+            ActivityAuthorityPolicy::AdministrativeCandidates,
+            MetadataProjection::Blocking(focus),
+            Some(profile.clone()),
+        )
+        .await
+    }
     pub(crate) async fn begin_census<R: crate::read::NativeRead>(reader: &mut ActivityReader<R>) -> Result<Self> {
         Self::begin_with_projection(
             reader,
@@ -91,6 +104,17 @@ impl PendingActivityFrame {
         census_scope.validate_authority(before.context.as_ref(), reader.io.connection_generation())?;
         if let Some(profile) = &profile {
             let context = before.context.as_ref().ok_or_else(|| CollectionStop::SourceChanged.error())?;
+            if let Some(policy) = profile.builtin_policy() {
+                match &projection {
+                    MetadataProjection::Census => crate::builtin_safety::verify_activity(
+                        policy,
+                        context.activity.edition,
+                        context.activity.major,
+                    )?,
+                    MetadataProjection::Blocking(_) => crate::builtin_safety::verify_blocking(policy, context)?,
+                    MetadataProjection::Standard => return Err(CollectionStop::SourceChanged.error()),
+                }
+            }
             profile.bind_native(&census_scope.native_context(context, context)?, reader.io.connection_generation())?;
         }
         let baseline = match projection {
