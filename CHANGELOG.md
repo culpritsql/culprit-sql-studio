@@ -2,14 +2,29 @@
 
 Each release's notes are its section below: the release workflow publishes them on GitHub, and the desktop app shows them when it offers the update. A release without a section here isn't drafted.
 
-## Unreleased
+## 0.6.0
 
-- **More collector providers (preview).** Background telemetry now supports MySQL, MariaDB, YugabyteDB and SQLite metadata through shared bounded readers, outbox recovery and delivery contracts.
-- **Honest blocking evidence.** Missing native lock details retain an uncertain incident and its last verified timestamp instead of falsely resolving it.
-- **Safer native reads.** Shared cancellation fencing and backpressure handling; SQLite closes metadata transactions before paging and accounts for setup and cleanup queries.
-- **Provider consistency.** Scans and collection share MySQL/MariaDB lock-view and index-visibility selection; same-named procedures and functions keep distinct identities. PostgreSQL scan responses use shared row and byte limits.
+### Added
 
-Export format 10 requires fresh collector/recovery state. Live ADX delivery and production-load qualification remain pending.
+- **Synthesized warehouse diagnoses in ADX and ClickHouse.** The collector runs Culprit's pure diagnostic engine on sealed captures and publishes derived `CulpritIncidentsV1`, `CulpritFindingsV1` and `CulpritChangesV1` streams alongside `CulpritCollectorConnectionsV1` and the 13 raw evidence tables, plus S3 conditional-object recovery alongside Azure Blob.
+- **Source-free archive investigation across Desktop, CLI and MCP.** Browse published resources, time windows, incidents, findings and changes (`culprit resources`, `culprit window`, `culprit incident`, `culprit mcp --warehouse-evidence` and **Telemetry archives** in the desktop app) using independent warehouse and recovery credentials, with no live connection to production databases.
+- **Operator query, Grafana dashboard and paused alert packs.** `culprit collect queries` generates namespace-bound ADX and ClickHouse helper views, an eight-panel Grafana dashboard and three paused tabular alert provisioning rules with explicit publication and freshness guards.
+- **Multi-step root-cause investigations.** Progressive capture and causal discrimination for parameter-sensitive plan reuse, tempdb/PVS space and cleanup retention, table-valued parameters (TVPs), page-latch hot targets and writers, DDL/metadata lock queues, worker starvation, PostgreSQL subtransaction/MultiXact SLRU pressure, commit/log flush pipelines, parallel worker/operator skew, slow client output consumption and readable-secondary redo/recovery conflicts.
+- **Offline Extended Events (`.xel`) import and native job timelines.** Inspect local binary `.xel` files and exported XML offline in the app, CLI (`culprit logs`) and MCP (`analyze_event_xel`) with zero database connections, and project SQL Server Agent, PostgreSQL/TimescaleDB and MySQL/MariaDB scheduled job history with explicit clock qualification.
+- **Standalone `@culpritsql/plans` WebAssembly package and Plan Viewer.** Parse, compare and render execution plans and deadlock graphs in the browser without database credentials or desktop dependencies.
+- **Multi-arch GHCR collector image and OCI Helm chart.** Published `linux/amd64` and `linux/arm64` images at `ghcr.io/culpritsql/culprit-collector` and OCI Helm chart at `oci://ghcr.io/culpritsql/charts/culprit-collector`, defaulting to zero replicas with explicit source-quiescence and non-root security gates.
+
+### Improvements
+
+- **Broader provider and platform telemetry.** Expanded bounded readers across SQL Server, Azure SQL Database, Elastic Pools, Hyperscale (`sys.dm_hs_database_log_rate` and page-server I/O), Managed Instance, PostgreSQL, TimescaleDB, YugabyteDB, MySQL, MariaDB and SQLite, including readable-replica isolation, columnstore, full-text, CDC/change-feed, memory clerks and compilation gateways.
+- **Standard monitoring preset and independent freshness.** Configure targets with `monitoring: standard` and track source acquisition, delivery, synthesis, verification and publication freshness separately without inferring recovery from missing data.
+
+### Fixes
+
+- **Bounded ADX alert and status queries.** Compact original-revision census keeps multi-cohort recorded-incident alerts and status checks well within Kusto memory and request limits without dropping conflict or completeness checks.
+- **Cross-platform CLI and cancellation safety.** Run the CLI entry point on an explicit 8 MiB worker stack so saved-report commands never overflow Windows's 1 MiB main-thread stack, and preserve strict unconfirmed-cancellation fencing across native providers.
+
+**Upgrade and preview note:** Saved scans and collector/recovery namespaces use updated contracts; take a fresh scan and initialize a fresh collector namespace after upgrading. Automatic SQL Server recipes remain gated (`Unqualified`) pending upstream Tiberius attention-acknowledgement support and per-deployment load qualification; live customer ADX rollout remains opt-in and starts with zero replicas.
 
 ## 0.5.6
 
