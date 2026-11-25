@@ -65,6 +65,8 @@ class StagePlanViewerRepoTests(unittest.TestCase):
             "PlanDiffViewer.d.ts": b"export declare function PlanDiffViewer(): null;\n",
             "DeadlockViewer.js": b"export function DeadlockViewer() { return null; }\n",
             "DeadlockViewer.d.ts": b"export declare function DeadlockViewer(): null;\n",
+            "ExtendedEventsViewer.js": b"export function ExtendedEventsViewer() { return null; }\n",
+            "ExtendedEventsViewer.d.ts": b"export declare function ExtendedEventsViewer(): null;\n",
             "THIRD-PARTY-LICENSES.txt": b"Third-party notices\n",
             "models/Plan.d.ts": b"export type Plan = unknown;\n",
         }
