@@ -13,6 +13,7 @@ use serde_json::{Value, json};
 use crate::CulpritMcp;
 use crate::view;
 mod artifacts;
+mod fleet;
 mod incidents;
 mod local_captures;
 mod native_events;
@@ -23,13 +24,25 @@ pub(crate) fn is_native_events_tool(tool: &str) -> bool {
 mod resources;
 mod response;
 mod warehouse;
+mod warehouse_plans;
 mod windows;
 pub(crate) use artifacts::ARTIFACTS_TOOL;
+pub(crate) use fleet::FLEET_ATTENTION_TOOL;
 pub(crate) use incidents::INCIDENT_TOOL;
 pub(crate) use resources::RESOURCES_TOOL;
+pub(crate) use warehouse_plans::{WAREHOUSE_PLAN_COMPARE_TOOL, WAREHOUSE_PLAN_INSIGHTS_TOOL};
 pub(crate) use windows::WINDOW_TOOL;
 pub(crate) fn is_warehouse_tool(tool: &str) -> bool {
-    matches!(tool, INCIDENT_TOOL | RESOURCES_TOOL | WINDOW_TOOL | ARTIFACTS_TOOL)
+    matches!(
+        tool,
+        INCIDENT_TOOL
+            | RESOURCES_TOOL
+            | WINDOW_TOOL
+            | ARTIFACTS_TOOL
+            | FLEET_ATTENTION_TOOL
+            | WAREHOUSE_PLAN_INSIGHTS_TOOL
+            | WAREHOUSE_PLAN_COMPARE_TOOL
+    )
 }
 pub(crate) use local_captures::{LOCAL_CAPTURE_TOOL, check_operation as check_local_operation};
 
@@ -303,9 +316,12 @@ pub fn definitions(mode: crate::ToolMode, local_captures: bool, warehouse: bool)
     if warehouse {
         tools.extend([
             resources::definition(),
+            fleet::definition(),
             incidents::definition(),
             windows::definition(),
             artifacts::definition(),
+            warehouse_plans::insights_definition(),
+            warehouse_plans::compare_definition(),
         ]);
     }
     tools
@@ -615,6 +631,13 @@ impl CulpritMcp {
             ARTIFACTS_TOOL => tool_task(move || self.warehouse_artifacts(value, warehouse_cancellation)),
             INCIDENT_TOOL => tool_task(move || self.incident(value, warehouse_cancellation)),
             RESOURCES_TOOL => tool_task(move || self.resources(value, warehouse_cancellation)),
+            FLEET_ATTENTION_TOOL => tool_task(move || self.fleet_attention(value, warehouse_cancellation)),
+            WAREHOUSE_PLAN_INSIGHTS_TOOL => {
+                tool_task(move || self.warehouse_plan_insights(value, warehouse_cancellation))
+            }
+            WAREHOUSE_PLAN_COMPARE_TOOL => {
+                tool_task(move || self.warehouse_plan_compare(value, warehouse_cancellation))
+            }
             LOCAL_CAPTURE_TOOL => tool_task(move || self.analyze_capture(value, operation)),
             NATIVE_EVENTS_TOOL => tool_task(move || self.analyze_event_xml(value, operation)),
             NATIVE_EVENTS_XEL_TOOL => tool_task(move || self.analyze_event_xel(value, operation)),

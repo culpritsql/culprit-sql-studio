@@ -650,7 +650,7 @@ fn dispatch<'a>(command: Command, ws: Workspace, out: &'a Out) -> CommandTask<'a
         Command::LintSql(args) => Box::pin(async move { lint_cmd::run(&ws, args, out) }),
         Command::Mcp(args) => Box::pin(async move { agents::mcp(ws, args).await }),
         Command::Audit(args) => Box::pin(async move { agents::audit(&ws, args, out) }),
-        Command::Agent(command) => Box::pin(async move { agents::agent(&ws, command, out) }),
+        Command::Agent(command) => command_task(move || async move { agents::agent(&ws, command, out).await }),
         Command::Update(_) => Box::pin(async move { unreachable!("an update is run before the workspace opens") }),
     }
 }

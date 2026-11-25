@@ -1,0 +1,61 @@
+name: "Culprit Warehouse Triage & Verified Migration Gate"
+description: "Triage published ADX/ClickHouse database findings and block unsafe DDL migrations via culprit lint-sql"
+inputs:
+  warehouse-config:
+    description: "Path to read-only warehouse evidence configuration JSON"
+    required: true
+  resource:
+    description: "Optional connection alias or database name to scope triage"
+    required: false
+    default: ""
+  window:
+    description: "Lookback window (e.g. 24h, 6h)"
+    required: false
+    default: "24h"
+  snapshot-report:
+    description: "Optional saved catalog report/snapshot JSON for schema-aware DDL linting"
+    required: false
+    default: ""
+  proposed-sql:
+    description: "Optional proposed SQL migration file to validate"
+    required: false
+    default: ""
+  fail-on:
+    description: "Minimum DDL hazard severity that fails the gate (low, medium, high)"
+    required: false
+    default: "high"
+outputs:
+  brief-path:
+    description: "Path to the redacted Markdown PR brief"
+    value: ${{ steps.triage.outputs.brief_path }}
+runs:
+  using: "composite"
+  steps:
+    - name: Run source-free warehouse triage and deterministic lint-sql gate
+      id: triage
+      shell: bash
+      env:
+        INPUT_WAREHOUSE: ${{ inputs.warehouse-config }}
+        INPUT_RESOURCE: ${{ inputs.resource }}
+        INPUT_WINDOW: ${{ inputs.window }}
+        INPUT_REPORT: ${{ inputs.snapshot-report }}
+        INPUT_SQL: ${{ inputs.proposed-sql }}
+        INPUT_FAIL_ON: ${{ inputs.fail-on }}
+      run: |
+        set -euo pipefail
+        BRIEF_FILE="${RUNNER_TEMP:-/tmp}/culprit-triage-brief.md"
+        ARGS=(agent triage-warehouse --warehouse-evidence "$INPUT_WAREHOUSE" --window "$INPUT_WINDOW" --fail-on "$INPUT_FAIL_ON" --format markdown)
+        if [ -n "$INPUT_RESOURCE" ]; then
+          ARGS+=(--resource "$INPUT_RESOURCE")
+        fi
+        if [ -n "$INPUT_REPORT" ]; then
+          ARGS+=(--report "$INPUT_REPORT")
+        fi
+        if [ -n "$INPUT_SQL" ]; then
+          ARGS+=(--proposed-sql "$INPUT_SQL")
+        fi
+        culprit "${ARGS[@]}" > "$BRIEF_FILE"
+        if [ -n "$INPUT_SQL" ] && [ -n "$INPUT_REPORT" ]; then
+          culprit lint-sql "$INPUT_REPORT" --file "$INPUT_SQL" --fail-on "$INPUT_FAIL_ON" --format sarif > "${RUNNER_TEMP:-/tmp}/culprit-lint.sarif"
+        fi
+        echo "brief_path=$BRIEF_FILE" >> "$GITHUB_OUTPUT"

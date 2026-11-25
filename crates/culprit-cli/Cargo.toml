@@ -28,6 +28,7 @@ culprit-engine = { workspace = true, features = ["store-adx", "store-clickhouse"
 culprit-store-adx = { workspace = true, features = ["write"] }
 culprit-store-clickhouse = { workspace = true, features = ["write"] }
 culprit-mcp.workspace = true
+chrono.workspace = true
 clap.workspace = true
 serde.workspace = true
 serde_json.workspace = true

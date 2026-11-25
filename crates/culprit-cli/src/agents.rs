@@ -15,6 +15,7 @@ use crate::output::{Format, Out};
 mod incident_tests;
 #[cfg(test)]
 mod local_capture_tests;
+pub mod triage_cmd;
 
 #[derive(Args)]
 pub struct McpArgs {
@@ -39,6 +40,8 @@ pub enum AgentCommand {
     /// Teach the coding agents in a repository to use Culprit: an AGENTS.md section, a Claude Code skill and an
     /// `.mcp.json` entry. Safe to re-run; writes no findings, host names or secrets.
     Init(InitArgs),
+    #[command(about = culprit_core::t!("agent.triage.about"))]
+    TriageWarehouse(triage_cmd::TriageWarehouseArgs),
 }
 
 #[derive(Args)]
@@ -146,8 +149,9 @@ pub(crate) fn mcp_server(ws: Workspace, args: McpArgs) -> Result<culprit_mcp::Cu
     }
     if let Some(path) = args.warehouse_evidence {
         let config = culprit_engine::evidence::EvidenceConfig::from_file(&path)?;
-        let reader = culprit_engine::evidence::EvidenceRuntime::default().evidence(&config)?;
-        server = server.with_warehouse(Arc::new(culprit_mcp::WarehouseDelegation::read_only(Arc::new(reader))));
+        let reader = Arc::new(culprit_engine::evidence::EvidenceRuntime::default().evidence(&config)?);
+        server = server
+            .with_warehouse(Arc::new(culprit_mcp::WarehouseDelegation::read_only(reader.clone()).with_fleet(reader)));
     }
     Ok(server)
 }
@@ -217,7 +221,7 @@ pub fn audit(ws: &Workspace, args: AuditArgs, out: &Out) -> Result<u8> {
     Ok(0)
 }
 
-pub fn agent(ws: &Workspace, command: AgentCommand, out: &Out) -> Result<u8> {
+pub async fn agent(ws: &Workspace, command: AgentCommand, out: &Out) -> Result<u8> {
     match command {
         AgentCommand::Init(args) => {
             for name in &args.connections {
@@ -238,5 +242,6 @@ pub fn agent(ws: &Workspace, command: AgentCommand, out: &Out) -> Result<u8> {
             }
             Ok(0)
         }
+        AgentCommand::TriageWarehouse(args) => triage_cmd::run(ws, args, out).await,
     }
 }
