@@ -46,6 +46,7 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
+  CARGO_PROFILE_RELEASE_LTO: thin
 
 jobs:
   source:
@@ -120,7 +121,7 @@ jobs:
     runs-on: macos-latest
     # Signing secrets can live in this environment, so required reviewers can gate who may sign a build.
     environment: release
-    timeout-minutes: 90
+    timeout-minutes: 120
     env:
       CULPRIT_BUILD_REVISION: ${{ needs.source.outputs.sha }}
       HAS_APPLE_SIGNING: ${{ secrets.MACOS_CERT_P12 != '' }}
@@ -294,7 +295,7 @@ jobs:
     runs-on: windows-latest
     # The update-signing secrets can live in this environment, limited to release tags.
     environment: release
-    timeout-minutes: 60
+    timeout-minutes: 120
     env:
       CULPRIT_BUILD_REVISION: ${{ needs.source.outputs.sha }}
       HAS_UPDATER_SIGNING: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY != '' }}
@@ -311,6 +312,8 @@ jobs:
         with:
           toolchain: stable
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        with:
+          cache-on-failure: true
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
       - name: Build the installer and the CLI
         shell: bash
@@ -350,7 +353,7 @@ jobs:
     runs-on: ubuntu-22.04
     # The update-signing secrets can live in this environment, limited to release tags.
     environment: release
-    timeout-minutes: 60
+    timeout-minutes: 120
     env:
       CULPRIT_BUILD_REVISION: ${{ needs.source.outputs.sha }}
       HAS_UPDATER_SIGNING: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY != '' }}
@@ -382,6 +385,8 @@ jobs:
         with:
           toolchain: stable
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        with:
+          cache-on-failure: true
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
       - name: Build the AppImage, the Debian package and the CLI
         run: |
