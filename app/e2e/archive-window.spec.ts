@@ -46,3 +46,27 @@ test("changing the UTC window or archive cancels and withholds a late published 
   await expect(root.getByRole("region", { name: english["ui.window.title"], exact: true })).toContainText("FIRST_WINDOW_PAGE");
   await assertNoNativeArchiveWork(page);
 });
+
+test("1h 24h and 7d window presets bound the selected observation without current source work", async ({ page }) => {
+  await installArchiveApi(page); await openArchives(page); await selectArchive(page); await selectArchiveResource(page);
+  const root = page.locator(".archives");
+  await root.getByLabel(english["ui.window.until"], { exact: true }).fill("2026-11-22T12:00");
+  await root.getByRole("button", { name: english["ui.window_picker.short_24h"], exact: true }).click();
+  await expect(root.getByLabel(english["ui.window.from"], { exact: true })).toHaveValue("2026-11-21T12:00");
+  await expect(root.getByLabel(english["ui.window.until"], { exact: true })).toHaveValue("2026-11-22T12:00");
+  await root.getByRole("button", { name: english["ui.window_picker.short_7d"], exact: true }).click();
+  await expect(root.getByLabel(english["ui.window.from"], { exact: true })).toHaveValue("2026-11-15T12:00");
+  await holdArchivePhase(page, "window");
+  await root.getByRole("button", { name: english["ui.window.answers"], exact: true }).click();
+  await expect.poll(async () => (await archiveState(page)).windows.length).toBe(1);
+  const pendingId = (await archiveState(page)).windows[0]!.requestId;
+  await root.getByRole("button", { name: english["ui.window_picker.short_1h"], exact: true }).click();
+  await expect.poll(async () => (await archiveState(page)).commands.some((call) => call.command === "cancel_warehouse_read" && call.requestId === pendingId)).toBe(true);
+  await releaseArchivePhase(page, "window", "STALE_PRESET_PAGE");
+  await expect(root).not.toContainText("STALE_PRESET_PAGE");
+  await expect(root.getByLabel(english["ui.window.from"], { exact: true })).toHaveValue("2026-11-22T11:00");
+  await root.getByRole("button", { name: english["ui.window.answers"], exact: true }).click();
+  await expect.poll(async () => (await archiveState(page)).windows.length).toBe(2);
+  expect((await archiveState(page)).windows[1]!.request.window).toEqual({ from: "2026-11-22T11:00:00.000Z", until: "2026-11-22T12:00:00.000Z" });
+  await assertNoNativeArchiveWork(page);
+});

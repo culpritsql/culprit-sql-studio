@@ -247,6 +247,28 @@ fn inputs() -> Vec<(&'static str, String, CollectionDescription, Vec<TelemetryRe
     }
     let (source, record) = corpus::pool_history();
     cases.push(("pool-resource-history", "original".into(), source, vec![record]));
+    for case in corpus::CollectorConnectionCase::ALL {
+        let (s, r) = corpus::collector_connection_evidence(case);
+        cases.push(("collector-connections", format!("{case:?}"), s, r));
+    }
+    for case in corpus::ManagedInstanceResourceCase::ALL {
+        let (s, r) = corpus::managed_instance_resource_case(case);
+        cases.push(("managed-instance-resources", format!("{case:?}"), s, r));
+    }
+    for (index, (s, r)) in
+        corpus::mssql_schema_catalog_evidence(corpus::MssqlSchemaCatalogCase::Exact).into_iter().enumerate()
+    {
+        cases.push(("schema-catalog", format!("Exact-{index}"), s, r));
+    }
+    for case in corpus::RecentClientCase::ALL {
+        let (s, r) = corpus::recent_client_evidence(case);
+        cases.push(("recent-clients", case.name().into(), s, r));
+    }
+    for (index, (s, r)) in
+        corpus::process_cpu_interval_evidence(corpus::ProcessCpuIntervalCase::Exact).into_iter().enumerate()
+    {
+        cases.push(("process-cpu", format!("Exact-{index}"), s, r));
+    }
     cases
 }
 
@@ -367,3 +389,5 @@ fn scheduler_contracts() -> Vec<Value> {
         json!({"path":"crates/culprit-collector/src/analytical/test_support/instance_resources/schedulers.rs","sha256":digest(include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"),"/../culprit-evidence/src/analytical/test_support/instance_resources/schedulers.rs")))}),
     ]
 }
+
+mod verify;

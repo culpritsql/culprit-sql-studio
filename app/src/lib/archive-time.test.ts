@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { archiveSearchWindowInputs, archiveUtcInput } from "./archive-time";
+import { ARCHIVE_WINDOW_PRESETS, archivePresetWindowInputs, archiveSearchWindowInputs, archiveUtcInput } from "./archive-time";
 
 test("default search windows contain instantaneous and short originals instead of collapsing to the same minute", () => {
   for (const [from, until] of [
@@ -25,4 +25,13 @@ test("longer originals keep their complete extent, while invalid or unrepresenta
     ["2026-11-22T10:00:01Z", "2026-11-22T10:00:00Z"],
     ["9999-12-31T23:59:59Z", "9999-12-31T23:59:59Z"],
   ]) expect(archiveSearchWindowInputs(from!, until!)).toBeNull();
+});
+
+test("1h 24h and 7d window presets anchor cleanly to explicit UTC inputs or recorded observation bounds", () => {
+  expect(ARCHIVE_WINDOW_PRESETS).toEqual([60, 1440, 10080]);
+  expect(archivePresetWindowInputs("2026-11-22T12:00", 60)).toEqual({ from: "2026-11-22T11:00", until: "2026-11-22T12:00" });
+  expect(archivePresetWindowInputs("2026-11-22T12:00", 1440)).toEqual({ from: "2026-11-21T12:00", until: "2026-11-22T12:00" });
+  expect(archivePresetWindowInputs("2026-11-22T12:00", 10080)).toEqual({ from: "2026-11-15T12:00", until: "2026-11-22T12:00" });
+  expect(archivePresetWindowInputs("2026-11-22T10:00:15Z", 60)).toEqual({ from: "2026-11-22T09:01", until: "2026-11-22T10:01" });
+  expect(archivePresetWindowInputs("unknown", 60)).toBeNull();
 });

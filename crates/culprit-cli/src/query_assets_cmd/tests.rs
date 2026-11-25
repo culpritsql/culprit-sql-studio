@@ -59,3 +59,68 @@ fn text_output_moves_the_store_owned_script_verbatim_and_bounds_both_formats() {
     assert!(value["operator"]["dashboard"]["panels"].is_array());
     assert_eq!(value["operator"]["alerts"]["apiVersion"], 1);
 }
+
+#[test]
+fn adx_and_clickhouse_operator_packs_share_gold_views_freshness_stages_and_paused_alerts_without_rule_duplication() {
+    use culprit_evidence::analytical::query_helpers::QueryHelperBinding;
+    use culprit_evidence::delivery::contract::Contract;
+    use std::collections::BTreeSet;
+
+    let policy = QueryHelperPolicy {
+        name: "Pilot".into(),
+        analyzer: ComponentVersion::package("culprit-checks", "0.5.6", Some("6809956f")),
+        rules_version: "/retained-diagnosis-13".into(),
+        history_from: "2026-11-01T00:00:00Z".into(),
+    };
+    let adx_schema = culprit_store_adx::catalog::SchemaCatalog::new().unwrap();
+    let ch_schema = culprit_store_clickhouse::catalog::SchemaCatalog::new().unwrap();
+    let adx_contract =
+        Contract::new("pilot".into(), "shard-0".into(), "adx:db".into(), adx_schema.digest().into()).unwrap();
+    let ch_contract =
+        Contract::new("pilot".into(), "shard-0".into(), "clickhouse:db".into(), ch_schema.digest().into()).unwrap();
+    let store_id = "b".repeat(64);
+
+    let adx = culprit_store_adx::query_assets::configured(
+        QueryHelperBinding::new(policy.clone(), &adx_contract, &store_id).unwrap(),
+    )
+    .unwrap();
+    let ch = culprit_store_clickhouse::query_assets::configured(
+        QueryHelperBinding::new(policy, &ch_contract, &store_id).unwrap(),
+    )
+    .unwrap();
+
+    let adx_names: BTreeSet<&str> =
+        adx.examples.iter().map(|ex| ex.name).filter(|&n| n != "opt-in-adx-queued-batching").collect();
+    let ch_names: BTreeSet<&str> = ch.examples.iter().map(|ex| ex.name).collect();
+    assert_eq!(adx_names, ch_names, "both stores must expose identical logical query/alert examples");
+    assert!(adx.examples.iter().any(|ex| ex.name == "opt-in-adx-queued-batching"));
+
+    // Verify all three Gold tables and independent freshness/availability wrappers appear in both helper scripts,
+    // with PublicationTimeKnown=false honesty and zero inline CPU/latency threshold detector duplication.
+    for script in [&adx.script, &ch.script] {
+        for gold in ["CulpritIncidentsV1", "CulpritFindingsV1", "CulpritChangesV1", "CulpritPublishedRangesV1"] {
+            assert!(script.contains(gold), "helper script must consume {gold}");
+        }
+        assert!(script.contains("PublicationTimeKnown"));
+        assert!(!script.contains("avg_cpu_percent >"), "warehouse helpers must not duplicate threshold detectors");
+    }
+
+    for (store, pack) in [("adx", &adx.operator), ("clickhouse", &ch.operator)] {
+        let panels = pack.dashboard["panels"].as_array().unwrap();
+        assert_eq!(panels.len(), 8, "{store} dashboard must ship all 8 bounded operator panels");
+        let groups = pack.alerts["groups"].as_array().unwrap();
+        let rules: Vec<&serde_json::Value> =
+            groups.iter().flat_map(|g| g["rules"].as_array().unwrap().iter()).collect();
+        assert_eq!(rules.len(), 3, "{store} alert pack must ship 3 paused rules (incident, deadlock, availability)");
+        assert!(
+            rules.iter().all(|rule| rule["isPaused"] == serde_json::json!(true)),
+            "{store} provisioned alert rules must start paused"
+        );
+        let serialized = serde_json::to_string(&pack.alerts).unwrap();
+        for freshness_kind in
+            ["diagnosis", "collection", "diagnosis-unavailable", "namespace-unavailable", "acquisition-unavailable"]
+        {
+            assert!(serialized.contains(freshness_kind), "{store} availability alert missing {freshness_kind}");
+        }
+    }
+}

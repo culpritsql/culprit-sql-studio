@@ -15,7 +15,7 @@ import type { WarehouseIncidentView } from "../gen/WarehouseIncidentView";
 import type { WarehousesApi } from "../lib/api/warehouses";
 import { api, errorMessage } from "../lib/api";
 import { t, useLanguage } from "../lib/i18n";
-import { archiveSearchWindowInputs, archiveTimeInput, archiveUtcInput } from "../lib/archive-time";
+import { ARCHIVE_WINDOW_PRESETS, type ArchiveWindowPresetMinutes, archivePresetWindowInputs, archiveSearchWindowInputs, archiveTimeInput, archiveUtcInput } from "../lib/archive-time";
 import { nativeTextPreview } from "../components/NativeObservationFields";
 import { ObservationReadQualifications } from "../components/ObservationList";
 import { ArchiveConnectionForm } from "./archives/ArchiveConnectionForm";
@@ -170,6 +170,15 @@ export default function Archives({ load = client }: { load?: () => Promise<Wareh
         <div className="archive-time-range"><label className="field">{t("ui.window.from")}<input type="datetime-local" value={windowFrom} onChange={(event) => { pending.current?.abort(); setWindowFrom(event.target.value); setWindowReport(null); setArtifacts(null); setError(null); }} /></label>
         <label className="field">{t("ui.window.until")}<input type="datetime-local" value={windowUntil} onChange={(event) => { pending.current?.abort(); setWindowUntil(event.target.value); setWindowReport(null); setArtifacts(null); setError(null); }} /></label></div>
         <div className="actions">
+          {ARCHIVE_WINDOW_PRESETS.map((minutes: ArchiveWindowPresetMinutes) => {
+            const labelKey = minutes === 60 ? "ui.window_picker.short_1h" : minutes === 1440 ? "ui.window_picker.short_24h" : "ui.window_picker.short_7d";
+            return <button type="button" className="btn" key={minutes} onClick={() => {
+              const anchor = archiveUtcInput(windowUntil) ? windowUntil : (resource.native_time.kind === "utc" ? resource.native_time.until : resource.collected_until);
+              const preset = archivePresetWindowInputs(anchor, minutes);
+              if (!preset) { setError(t("ui.archives.time_invalid")); return; }
+              pending.current?.abort(); pending.current = null; setBusy(false); setWindowFrom(preset.from); setWindowUntil(preset.until); setWindowReport(null); setArtifacts(null); setError(null);
+            }}>{t(labelKey)}</button>;
+          })}
           <button type="button" className="btn primary" disabled={busy} onClick={() => void readWindow()}>{t("ui.window.answers")}</button>
           <button type="button" className="btn" disabled={busy} onClick={() => void readWindow("compatible-workload")}>{t("ui.window.workload")}</button>
         </div>

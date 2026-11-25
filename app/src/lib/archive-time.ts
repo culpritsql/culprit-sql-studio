@@ -12,6 +12,9 @@ export function archiveTimeInput(utc: string): string {
 const MINUTE_MS = 60_000;
 const DEFAULT_SEARCH_WINDOW_MS = 60 * MINUTE_MS;
 
+export const ARCHIVE_WINDOW_PRESETS = [60, 1440, 10080] as const;
+export type ArchiveWindowPresetMinutes = (typeof ARCHIVE_WINDOW_PRESETS)[number];
+
 /** Human search bounds surround the selected observation; its original clocks remain unchanged. */
 export function archiveSearchWindowInputs(from: string, until: string): { from: string; until: string } | null {
   const first = Date.parse(from), last = Date.parse(until);
@@ -19,6 +22,18 @@ export function archiveSearchWindowInputs(from: string, until: string): { from: 
   // An exclusive upper bound must also contain an instantaneous or sub-minute observation.
   const upper = (Math.floor(last / MINUTE_MS) + 1) * MINUTE_MS;
   const lower = Math.min(Math.floor(first / MINUTE_MS) * MINUTE_MS, upper - DEFAULT_SEARCH_WINDOW_MS);
+  if (!Number.isFinite(new Date(lower).getTime()) || !Number.isFinite(new Date(upper).getTime())) return null;
+  const result = { from: archiveTimeInput(new Date(lower).toISOString()), until: archiveTimeInput(new Date(upper).toISOString()) };
+  return archiveUtcInput(result.from) && archiveUtcInput(result.until) ? result : null;
+}
+
+/** Anchor a 1h/24h/7d window to an explicit minute-resolution UTC input or a recorded observation bound. */
+export function archivePresetWindowInputs(anchor: string, minutes: ArchiveWindowPresetMinutes): { from: string; until: string } | null {
+  const exactInput = archiveUtcInput(anchor);
+  const parsed = exactInput ? Date.parse(exactInput) : Date.parse(anchor);
+  if (!Number.isFinite(parsed)) return null;
+  const upper = exactInput ? parsed : (Math.floor(parsed / MINUTE_MS) + 1) * MINUTE_MS;
+  const lower = upper - minutes * MINUTE_MS;
   if (!Number.isFinite(new Date(lower).getTime()) || !Number.isFinite(new Date(upper).getTime())) return null;
   const result = { from: archiveTimeInput(new Date(lower).toISOString()), until: archiveTimeInput(new Date(upper).toISOString()) };
   return archiveUtcInput(result.from) && archiveUtcInput(result.until) ? result : null;
