@@ -31,7 +31,7 @@ struct EntryReader<R: NativeRead> {
 impl CacheEntryMemorySource {
     pub fn new(pool: Arc<Pool>, request: &CollectionRequest, host: String, port: u16) -> Result<Self> {
         let request = bounded_request(request)?;
-        Self::from_reader(ReadSession::collection(pool, request.budget.clone())?, &request, host, port)
+        Self::with_io(ReadSession::collection(pool, request.budget.clone())?, &request, host, port)
     }
 }
 
@@ -51,7 +51,7 @@ fn bounded_request(request: &CollectionRequest) -> Result<CollectionRequest> {
 }
 
 impl<R: NativeRead> CacheEntryMemorySource<R> {
-    fn from_reader(reader: R, request: &CollectionRequest, host: String, port: u16) -> Result<Self> {
+    pub(super) fn with_io(reader: R, request: &CollectionRequest, host: String, port: u16) -> Result<Self> {
         let request = bounded_request(request)?;
         let CollectionSelection::CacheEntryMemory { focus } = &request.selection else { return Err(invalid_data()) };
         let reader = EntryReader {

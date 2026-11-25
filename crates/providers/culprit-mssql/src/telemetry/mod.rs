@@ -154,6 +154,24 @@ pub(crate) fn safety_source(
             let inner = current_request_work::Source::with_io(io, request, host, port)?;
             Ok(Box::new(GuardedTelemetrySource::new(inner, guard)))
         }
+        RecipeSelector::Collection(TelemetryCollection::Snapshot(SnapshotDataset::CurrentExecutionProfile)) => {
+            if current_execution_profile::bounded_budget(&request.budget) != request.budget {
+                return Err(crate::read::invalid_data());
+            }
+            let guard = SourceProfileGuard::new(request, profile)?;
+            let io = Session::collection(pool, request.budget.clone())?.with_profile(guard.clone());
+            let inner = current_execution_profile::CurrentExecutionProfileSource::with_io(io, request, host, port)?;
+            Ok(Box::new(GuardedTelemetrySource::new(inner, guard)))
+        }
+        RecipeSelector::CacheEntryMemory => {
+            if cache_entry_memory::bounded_budget(&request.budget) != request.budget {
+                return Err(crate::read::invalid_data());
+            }
+            let guard = SourceProfileGuard::new(request, profile)?;
+            let io = Session::collection(pool, request.budget.clone())?.with_profile(guard.clone());
+            let inner = cache_entry_memory::CacheEntryMemorySource::with_io(io, request, host, port)?;
+            Ok(Box::new(GuardedTelemetrySource::new(inner, guard)))
+        }
         RecipeSelector::Collection(TelemetryCollection::Snapshot(SnapshotDataset::TaskSpace)) => {
             let bounded = task_space::bounded_request(request)?;
             if bounded.budget != request.budget {

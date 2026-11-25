@@ -67,7 +67,7 @@ async fn the_same_selected_source_freezes_one_whole_entry_and_checks_ownership_b
     changed_metrics[3] =
         replace(&changed_metrics[3], &[("usecounts", Val::Int(100)), ("size_in_bytes", Val::Int(65536))]);
     let reader = FakeRead::new(replies(changed_metrics, crate::grants::tests::authority(AT)));
-    let mut source = CacheEntryMemorySource::from_reader(reader, &requested, "fixture.invalid".into(), 1433).unwrap();
+    let mut source = CacheEntryMemorySource::with_io(reader, &requested, "fixture.invalid".into(), 1433).unwrap();
     let description = source.describe().await.unwrap();
     assert_eq!(description.observation.snapshot().unwrap().sources[0].state, culprit_core::SourceState::Partial);
     assert_eq!(source.query_count(), 3);
@@ -97,8 +97,7 @@ async fn a_changed_member_epoch_role_or_native_clock_cannot_complete_the_point()
         let reader =
             FakeRead::new(replies(native_rows(), replace(&crate::grants::tests::authority(AT), &[(field, value)])));
         let mut source =
-            CacheEntryMemorySource::from_reader(reader, &request(focus().await), "fixture.invalid".into(), 1433)
-                .unwrap();
+            CacheEntryMemorySource::with_io(reader, &request(focus().await), "fixture.invalid".into(), 1433).unwrap();
         source.describe().await.unwrap();
         assert_eq!(pages(&mut source).await.len(), 1);
         let outcome = source.finish().await;
@@ -129,7 +128,7 @@ async fn an_original_known_role_or_future_point_is_checked_before_any_entry_look
             Ok(vec![crate::grants::tests::authority(AT)]),
         ]);
         let mut source =
-            CacheEntryMemorySource::from_reader(reader, &request(original), "fixture.invalid".into(), 1433).unwrap();
+            CacheEntryMemorySource::with_io(reader, &request(original), "fixture.invalid".into(), 1433).unwrap();
         assert_eq!(CollectionStop::from_error(&source.describe().await.unwrap_err()), CollectionStop::SourceChanged);
         assert_eq!(source.query_count(), 2);
         assert_eq!(source.close().await, SourceShutdown::Quiescent);
@@ -142,8 +141,7 @@ async fn unknown_original_role_stays_unknown_and_does_not_block_a_new_qualified_
     original.context.database_writable = None;
     let reader = FakeRead::new(replies(native_rows(), crate::grants::tests::authority(AT)));
     let mut source =
-        CacheEntryMemorySource::from_reader(reader, &request(original.clone()), "fixture.invalid".into(), 1433)
-            .unwrap();
+        CacheEntryMemorySource::with_io(reader, &request(original.clone()), "fixture.invalid".into(), 1433).unwrap();
     let description = source.describe().await.unwrap();
     let SourceObservation::CacheEntryMemory { focus, .. } = &description.observation else { panic!() };
     assert_eq!(focus.context.database_writable, None);
@@ -159,8 +157,7 @@ async fn altered_sql_handle_binding_or_cache_keys_stops_followup_reads_in_the_sa
     changed[4] = replace(&changed[4], &[("attribute_value", Val::Text("252".into()))]);
     let reader = FakeRead::new(replies(changed, crate::grants::tests::authority(AT)));
     let mut source =
-        CacheEntryMemorySource::from_reader(reader, &request(original.clone()), "fixture.invalid".into(), 1433)
-            .unwrap();
+        CacheEntryMemorySource::with_io(reader, &request(original.clone()), "fixture.invalid".into(), 1433).unwrap();
     source.describe().await.unwrap();
     pages(&mut source).await;
     assert_eq!(source.finish().await.unwrap(), SourceCompletion::Changed);
@@ -173,7 +170,7 @@ async fn altered_sql_handle_binding_or_cache_keys_stops_followup_reads_in_the_sa
         ("sql_handle", Val::Text("0x0304".into())),
     ])]);
     let mut source =
-        CacheEntryMemorySource::from_reader(FakeRead::new(data), &request(original), "fixture.invalid".into(), 1433)
+        CacheEntryMemorySource::with_io(FakeRead::new(data), &request(original), "fixture.invalid".into(), 1433)
             .unwrap();
     source.describe().await.unwrap();
     pages(&mut source).await;
@@ -187,7 +184,7 @@ async fn caller_query_limits_survive_both_phases_and_uncertain_close_is_never_di
     let mut requested = request(focus().await);
     requested.budget.max_queries = 3;
     let reader = FakeRead::new(replies(native_rows(), crate::grants::tests::authority(AT))).with_query_limit(3);
-    let mut source = CacheEntryMemorySource::from_reader(reader, &requested, "fixture.invalid".into(), 1433).unwrap();
+    let mut source = CacheEntryMemorySource::with_io(reader, &requested, "fixture.invalid".into(), 1433).unwrap();
     source.describe().await.unwrap();
     pages(&mut source).await;
     assert_eq!(CollectionStop::from_error(&source.finish().await.unwrap_err()), CollectionStop::QueryLimit);
@@ -197,7 +194,7 @@ async fn caller_query_limits_survive_both_phases_and_uncertain_close_is_never_di
     let mut reader = FakeRead::new(replies(native_rows(), crate::grants::tests::authority(AT))).pause_on_query(4);
     reader.shutdown = SourceShutdown::Unconfirmed;
     let mut source =
-        CacheEntryMemorySource::from_reader(reader, &request(focus().await), "fixture.invalid".into(), 1433).unwrap();
+        CacheEntryMemorySource::with_io(reader, &request(focus().await), "fixture.invalid".into(), 1433).unwrap();
     source.describe().await.unwrap();
     pages(&mut source).await;
     let mut pending = Box::pin(source.finish());
@@ -222,8 +219,7 @@ async fn collection_cache_clamping_reserves_setup_once_and_keeps_the_real_final_
         assert_eq!(native.max_queries, total.min(10) - ReadSession::SESSION_SETUP_QUERIES);
         let reader = FakeRead::new(replies(native_rows(), crate::grants::tests::authority(AT)))
             .with_query_limit(native.max_queries);
-        let mut source =
-            CacheEntryMemorySource::from_reader(reader, &requested, "fixture.invalid".into(), 1433).unwrap();
+        let mut source = CacheEntryMemorySource::with_io(reader, &requested, "fixture.invalid".into(), 1433).unwrap();
         source.describe().await.unwrap();
         let recorded = pages(&mut source).await;
         assert_eq!(recorded.len(), 1);
@@ -244,4 +240,64 @@ async fn collection_cache_clamping_reserves_setup_once_and_keeps_the_real_final_
         assert!(source.query_count() + ReadSession::SESSION_SETUP_QUERIES <= bounded.budget.max_queries);
         assert_eq!(source.close().await, SourceShutdown::Quiescent);
     }
+}
+
+#[tokio::test]
+async fn safety_profile_guard_binds_cache_entry_memory_owner_and_refuses_revoked_admission() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    let original = focus().await;
+    let mut requested = request(original.clone());
+    let recipe = crate::telemetry::recipes().into_iter().find(|r| r.id == "mssql.cache-entry-memory").unwrap();
+    assert!(matches!(recipe.admission, RecipeAdmission::BuiltinSafety(_)));
+    requested.budget = recipe.budget.clone();
+    let native_epoch = original.context.partition.native_epoch().map(str::to_owned);
+    let scope = DiagnosticScope {
+        target: original.context.target.clone(),
+        partition: original.context.partition.clone(),
+        source: culprit_core::source_id::SESSIONS.into(),
+        population: DiagnosticPopulation::Activity {
+            population: ActivityPopulation::ActiveRequestsOpenTransactionsAndBlockers,
+        },
+        measurement_scope: culprit_core::MeasurementScope::Database,
+        native_epoch,
+    };
+    let execution =
+        RecipeExecutionAdmission::for_recipe(&recipe, &scope, &requested.budget).expect("builtin cache-entry safety");
+    let RecipeAdmission::BuiltinSafety(policy) = recipe.admission else { panic!() };
+    let active = Arc::new(AtomicBool::new(true));
+    let flag = active.clone();
+    let profile = SourceProfileAdmission::for_builtin(
+        digest(b"mssql-cache-entry-memory-route"),
+        *policy,
+        Some(execution.scope().clone()),
+        requested.budget.clone(),
+        move || flag.load(Ordering::Acquire),
+    )
+    .unwrap();
+    let guard = culprit_read::SourceProfileGuard::new(&requested, &profile).unwrap();
+    let reader = FakeRead::new(replies(native_rows(), crate::grants::tests::authority(AT))).with_generation(1);
+    let inner = CacheEntryMemorySource::with_io(reader, &requested, "fixture.invalid".into(), 1433).unwrap();
+    let mut source = culprit_read::GuardedTelemetrySource::new(inner, guard.clone());
+    // Bind socket generation as ReadSession::with_profile does before native work.
+    guard.check_connection(Some(1)).unwrap();
+    source.describe().await.unwrap();
+    let CollectionRead::Page { records, next_cursor: None } =
+        source.read_page(TelemetryStream::OperationalSamples, None).await.unwrap()
+    else {
+        panic!()
+    };
+    assert_eq!(records.len(), 1);
+    assert_eq!(source.finish().await.unwrap(), SourceCompletion::Verified);
+    assert_eq!(source.close().await, SourceShutdown::Quiescent);
+
+    // Revoking admission blocks both in-flight guarded sources and subsequent guard construction.
+    let revoked_guard = culprit_read::SourceProfileGuard::new(&requested, &profile).unwrap();
+    active.store(false, Ordering::Release);
+    let inner =
+        CacheEntryMemorySource::with_io(FakeRead::new(vec![]), &requested, "fixture.invalid".into(), 1433).unwrap();
+    let mut revoked = culprit_read::GuardedTelemetrySource::new(inner, revoked_guard);
+    assert_eq!(CollectionStop::from_error(&revoked.describe().await.unwrap_err()), CollectionStop::SourceChanged);
+    assert_eq!(revoked.query_count(), 0);
+    assert_eq!(revoked.close().await, SourceShutdown::Quiescent);
+    assert!(culprit_read::SourceProfileGuard::new(&requested, &profile).is_err());
 }

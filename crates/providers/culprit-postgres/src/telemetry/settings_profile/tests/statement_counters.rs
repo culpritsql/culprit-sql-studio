@@ -273,6 +273,7 @@ fn counter_recipe_bounds_intersect_every_caller_limit_and_never_make_definitions
     let recipes = crate::telemetry_recipes();
     let counters = recipes.iter().find(|recipe| recipe.id == "postgres.statement-counters").unwrap();
     assert_eq!(counters.version, 3);
+    assert!(matches!(counters.admission, RecipeAdmission::BuiltinSafety(_)));
     assert!(!matches!(counters.admission, RecipeAdmission::Measured(_)));
     assert!(
         !crate::telemetry_profile_selectors().contains(&RecipeSelector::Collection(TelemetryCollection::Snapshot(

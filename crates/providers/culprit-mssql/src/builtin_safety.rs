@@ -5,6 +5,8 @@ use culprit_core::{Result, telemetry::*};
 pub(crate) const BUILTIN_SAFETY_IDS: &[&str] = &[
     "mssql.activity",
     "mssql.blocking",
+    "mssql.cache-entry-memory",
+    "mssql.current-execution-profile",
     "mssql.current-request-memory",
     "mssql.current-request-work",
     "mssql.focused-compiler-admission",
@@ -34,6 +36,11 @@ pub(crate) fn policy(
             RecipePurpose::Baseline
         }
         ("mssql.blocking", RecipeSelector::FocusedBlocking)
+        | ("mssql.cache-entry-memory", RecipeSelector::CacheEntryMemory)
+        | (
+            "mssql.current-execution-profile",
+            RecipeSelector::Collection(TelemetryCollection::Snapshot(SnapshotDataset::CurrentExecutionProfile)),
+        )
         | (
             "mssql.readable-secondary-recovery",
             RecipeSelector::Collection(TelemetryCollection::Snapshot(SnapshotDataset::ReadableSecondaryRecovery)),
@@ -95,12 +102,17 @@ fn template_fingerprint() -> String {
         include_str!("activity/blocking.rs"),
         include_str!("activity/blocking/metadata_locks.rs"),
         include_str!("activity/participants.rs"),
+        include_str!("activity/current_execution_profile.rs"),
         include_str!("activity/readable_secondary_recovery.rs"),
         include_str!("activity/readable_secondary_recovery/redo.rs"),
+        include_str!("cache_entry_memory.rs"),
+        include_str!("cache_entry_memory/sql.rs"),
         include_str!("telemetry/mod.rs"),
         include_str!("telemetry/recipes.rs"),
         include_str!("telemetry/activity/mod.rs"),
         include_str!("telemetry/blocking.rs"),
+        include_str!("telemetry/cache_entry_memory.rs"),
+        include_str!("telemetry/current_execution_profile.rs"),
         include_str!("telemetry/readable_secondary_recovery.rs"),
         include_str!("telemetry/worker_starvation.rs"),
         include_str!("telemetry/compiler_admission.rs"),
@@ -122,6 +134,8 @@ fn template_fingerprint() -> String {
         include_str!("../../../culprit-core/src/telemetry/observation.rs"),
         include_str!("../../../culprit-core/src/telemetry/source_partition.rs"),
         include_str!("../../../culprit-core/src/telemetry/native_read_context.rs"),
+        include_str!("../../../culprit-core/src/telemetry/cache_entry_memory.rs"),
+        include_str!("../../../culprit-core/src/telemetry/current_execution_profile.rs"),
         include_str!("../../../culprit-core/src/telemetry/readable_secondary_recovery.rs"),
     ];
     let mut bytes = Vec::new();

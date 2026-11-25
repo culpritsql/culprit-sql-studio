@@ -9,6 +9,7 @@ pub(crate) const BUILTIN_SAFETY_IDS: &[&str] = &[
     "postgres.maintenance-progress",
     "postgres.readable-secondary-recovery",
     "postgres.settings",
+    "postgres.statement-counters",
     "postgres.transaction-metadata",
 ];
 
@@ -23,6 +24,10 @@ pub(crate) fn policy(
         ("postgres.settings", RecipeSelector::Collection(TelemetryCollection::Snapshot(SnapshotDataset::Settings))) => {
             RecipePurpose::Baseline
         }
+        (
+            "postgres.statement-counters",
+            RecipeSelector::Collection(TelemetryCollection::Snapshot(SnapshotDataset::StatementCounters)),
+        ) => RecipePurpose::Baseline,
         ("postgres.blocking", RecipeSelector::FocusedBlocking)
         | (
             "postgres.readable-secondary-recovery",

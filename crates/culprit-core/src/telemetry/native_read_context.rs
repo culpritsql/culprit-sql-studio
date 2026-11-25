@@ -125,6 +125,11 @@ impl NativeReadContext {
                 context.database_writable = result.focus.database_writable;
                 Ok(context)
             }
+            SourceObservation::CacheEntryMemory { .. } => {
+                let mut context = Self::from_snapshot(source)?;
+                context.database_writable = Some(true);
+                Ok(context)
+            }
             _ => Self::from_snapshot(source),
         }
     }

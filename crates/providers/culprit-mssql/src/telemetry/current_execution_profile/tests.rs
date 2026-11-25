@@ -339,7 +339,39 @@ async fn unknown_original_role_scope_and_foreign_question_refuse_before_any_nati
     }
     let recipe =
         crate::telemetry::recipes().into_iter().find(|recipe| recipe.id == "mssql.current-execution-profile").unwrap();
-    assert_eq!(recipe.admission, RecipeAdmission::Unqualified);
+    assert!(matches!(recipe.admission, RecipeAdmission::BuiltinSafety(_)));
     assert_eq!(recipe.budget.max_queries, 16);
     assert_eq!(recipe.version, 3);
+}
+
+#[tokio::test]
+async fn safety_profile_guard_enforces_exact_budget_and_refuses_revoked_execution_profile_admission() {
+    use std::sync::atomic::AtomicBool;
+    let mut req = request().await;
+    let recipe = crate::telemetry::recipes().into_iter().find(|r| r.id == "mssql.current-execution-profile").unwrap();
+    req.budget = recipe.budget.clone();
+    let CollectionSelection::SourceRead { execution, .. } = &req.selection else { panic!() };
+    let execution_admission =
+        RecipeExecutionAdmission::for_source_read(&recipe, execution, &req.budget).expect("builtin source-read safety");
+    let RecipeAdmission::BuiltinSafety(policy) = recipe.admission else { panic!() };
+    let active = Arc::new(AtomicBool::new(true));
+    let flag = active.clone();
+    let profile = SourceProfileAdmission::for_builtin(
+        digest(b"mssql-current-execution-profile-route"),
+        *policy,
+        Some(execution_admission.scope().clone()),
+        req.budget.clone(),
+        move || flag.load(Ordering::Acquire),
+    )
+    .unwrap();
+    let guard = culprit_read::SourceProfileGuard::new(&req, &profile).unwrap();
+    let inner = CurrentExecutionProfileSource::with_io(current::io(vec![]), &req, "fixture.invalid".into(), 1433)
+        .expect("lazy guarded profile source");
+    let mut source = culprit_read::GuardedTelemetrySource::new(inner, guard);
+    assert_eq!(source.query_count(), 0);
+    active.store(false, Ordering::Release);
+    assert_eq!(CollectionStop::from_error(&source.describe().await.unwrap_err()), CollectionStop::SourceChanged);
+    assert_eq!(source.query_count(), 0, "revoked builtin admission refuses before any native query");
+    assert_eq!(source.close().await, SourceShutdown::Quiescent);
+    assert!(culprit_read::SourceProfileGuard::new(&req, &profile).is_err());
 }
