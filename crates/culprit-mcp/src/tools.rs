@@ -1006,7 +1006,8 @@ mod tests {
                 "lint_sql",
                 "drift",
                 "run_query",
-                "analyze_event_xml"
+                "analyze_event_xml",
+                "analyze_event_xel"
             ]
         );
         for t in &tools {

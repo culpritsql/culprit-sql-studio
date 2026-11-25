@@ -143,6 +143,7 @@ SQL Server
   hyperscale-log-components Native Hyperscale log components · adds detail
   configured-log-rates      Configured transaction-log rate limits from sys.dm_user_db_resource_governance. · adds detail
   memory failures           retained database-engine out-of-memory observations · adds detail
+  native failures           retained Extended Events error, attention and deadlock metadata · adds detail
   current request memory    current query memory requests and reservations · adds detail
   mssql-current-request-work Counters and selected cached-statement metadata for one original request, with native source and endpoint checks. · adds detail
   cache entry memory        selected cache objects and their native cache-key attributes · adds detail

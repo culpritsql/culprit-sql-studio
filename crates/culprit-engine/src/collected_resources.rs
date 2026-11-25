@@ -112,12 +112,33 @@ pub use task_space::task_space;
 mod runtime_distributions;
 pub use runtime_distributions::runtime_distributions;
 
+fn memory_failures_target(
+    source: &CollectionDescription,
+) -> Result<(&StateSnapshotDescription, &SharedResourceIdentity)> {
+    let native = source.observation.snapshot().ok_or_else(|| DeliveryProblem::UnsupportedSchema.error())?;
+    if native.dataset != SnapshotDataset::MemoryFailures
+        || native.dataset.stream() != TelemetryStream::OperationalSamples
+    {
+        return Err(DeliveryProblem::UnsupportedSchema.error());
+    }
+    let CollectionTarget::Shared(resource) = &source.target else {
+        return Err(DeliveryProblem::UnsupportedSchema.error());
+    };
+    if !matches!(resource.kind, SharedResourceKind::Instance | SharedResourceKind::Pool)
+        || resource.engine != Engine::Mssql
+    {
+        return Err(DeliveryProblem::UnsupportedSchema.error());
+    }
+    Ok((native, resource))
+}
+
 /// Positions identify captured rows, never incidents across observations. Native offset-free event time remains
 /// distinct from UTC capture and delivery clocks.
 pub fn memory_failures(capture: &EvidenceCapture) -> Result<CollectedRetainedFailureAnalysis> {
     if !capture.families().contains(&EvidenceFamily::OperationalSamples) {
         return Err(DeliveryProblem::UnsupportedSchema.error());
     }
+    memory_failures_target(capture.source())?;
     let original = capture.verified_original()?;
     let report = memory_failures_from_original(&original)?;
     Ok(CollectedRetainedFailureAnalysis { context: crate::collected_context::from_capture(capture), report })
@@ -127,11 +148,8 @@ pub(crate) fn memory_failures_from_original(
     original: &dyn culprit_evidence::original_projection::OriginalProjection,
 ) -> Result<culprit_core::RetainedFailureReport> {
     let source = original.source();
-    let native = source.observation.snapshot().ok_or_else(|| DeliveryProblem::UnsupportedSchema.error())?;
-    if native.dataset != SnapshotDataset::MemoryFailures
-        || native.dataset.stream() != TelemetryStream::OperationalSamples
-        || !original.selected_streams().any(|stream| stream == TelemetryStream::OperationalSamples)
-    {
+    let (native, resource) = memory_failures_target(source)?;
+    if !original.selected_streams().any(|stream| stream == TelemetryStream::OperationalSamples) {
         return Err(DeliveryProblem::UnsupportedSchema.error());
     }
     if !source.target.is_valid() || !native.is_valid() {
@@ -140,14 +158,6 @@ pub(crate) fn memory_failures_from_original(
     let [coverage] = native.sources.as_slice() else {
         return Err(invalid());
     };
-    let CollectionTarget::Shared(resource) = &source.target else {
-        return Err(DeliveryProblem::UnsupportedSchema.error());
-    };
-    if !matches!(resource.kind, SharedResourceKind::Instance | SharedResourceKind::Pool)
-        || resource.engine != Engine::Mssql
-    {
-        return Err(DeliveryProblem::UnsupportedSchema.error());
-    }
     let mut observations = Vec::new();
     for record in original.records() {
         let TelemetryRecord::Operational(observation) = &record.row().record else {
@@ -181,12 +191,34 @@ pub(crate) fn memory_failures_from_original(
     Ok(report)
 }
 
+fn native_failures_target(
+    source: &CollectionDescription,
+) -> Result<(&StateSnapshotDescription, Option<SharedResourceIdentity>)> {
+    let native = source.observation.snapshot().ok_or_else(|| DeliveryProblem::UnsupportedSchema.error())?;
+    if native.dataset != SnapshotDataset::NativeFailures
+        || native.dataset.stream() != TelemetryStream::OperationalSamples
+    {
+        return Err(DeliveryProblem::UnsupportedSchema.error());
+    }
+    let resource = match &source.target {
+        CollectionTarget::Shared(resource) if resource.kind == SharedResourceKind::Instance => Some(resource.clone()),
+        CollectionTarget::Database(database)
+            if database.engine == Engine::Mssql && source.source == MSSQL_DATABASE_EVENTS_SOURCE =>
+        {
+            None
+        }
+        _ => return Err(DeliveryProblem::UnsupportedSchema.error()),
+    };
+    Ok((native, resource))
+}
+
 /// Only exact declared operational rows from this authenticated capture are admitted. Current sessions and
 /// neighboring captures are never consulted to fill missing query, resource-owner or native-clock information.
 pub fn native_failures(capture: &EvidenceCapture) -> Result<CollectedRetainedFailureAnalysis> {
     if !capture.families().contains(&EvidenceFamily::OperationalSamples) {
         return Err(DeliveryProblem::UnsupportedSchema.error());
     }
+    native_failures_target(capture.source())?;
     let original = capture.verified_original()?;
     let report = native_failures_from_original(&original)?;
     Ok(CollectedRetainedFailureAnalysis { context: crate::collected_context::from_capture(capture), report })
@@ -196,11 +228,8 @@ pub(crate) fn native_failures_from_original(
     original: &dyn culprit_evidence::original_projection::OriginalProjection,
 ) -> Result<culprit_core::RetainedFailureReport> {
     let source = original.source();
-    let native = source.observation.snapshot().ok_or_else(|| DeliveryProblem::UnsupportedSchema.error())?;
-    if native.dataset != SnapshotDataset::NativeFailures
-        || native.dataset.stream() != TelemetryStream::OperationalSamples
-        || !original.selected_streams().any(|stream| stream == TelemetryStream::OperationalSamples)
-    {
+    let (native, resource) = native_failures_target(source)?;
+    if !original.selected_streams().any(|stream| stream == TelemetryStream::OperationalSamples) {
         return Err(DeliveryProblem::UnsupportedSchema.error());
     }
     if !source.target.is_valid() || !native.is_valid() {
@@ -208,15 +237,6 @@ pub(crate) fn native_failures_from_original(
     }
     let [coverage] = native.sources.as_slice() else {
         return Err(invalid());
-    };
-    let resource = match &source.target {
-        CollectionTarget::Shared(resource) if resource.kind == SharedResourceKind::Instance => Some(resource.clone()),
-        CollectionTarget::Database(database)
-            if database.engine == Engine::Mssql && source.source == MSSQL_DATABASE_EVENTS_SOURCE =>
-        {
-            None
-        }
-        _ => return Err(DeliveryProblem::UnsupportedSchema.error()),
     };
     let mut observations = Vec::new();
     for record in original.records() {

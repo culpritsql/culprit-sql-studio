@@ -5349,7 +5349,6 @@
   "native_events.field.request": "Native request ID",
   "native_events.field.user": "Reported client user",
   "native_events.import.choose": "Choose XML file",
-  "native_events.import.filter": "Extended Events XML",
   "native_events.import.filter_xel": "Extended Events (.xel, .xml)",
   "native_events.import.intro": "Open an XML export containing attention, error, or deadlock events. The selected artifact does not establish a database owner or complete server history.",
   "native_events.import.open": "Open events XML",
