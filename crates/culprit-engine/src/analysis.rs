@@ -7,7 +7,7 @@ use culprit_core::{
 };
 
 pub(crate) struct Input {
-    pub snapshot: Snapshot,
+    pub snapshot: Box<Snapshot>,
     pub collected: Option<Box<Snapshot>>,
     pub recorded_changes: Vec<ChangeEvent>,
     pub collection: Option<CollectionProvenance>,
@@ -17,8 +17,8 @@ pub(crate) struct Input {
     previous_analyzer: Option<ComponentVersion>,
 }
 
-impl From<Snapshot> for Input {
-    fn from(snapshot: Snapshot) -> Self {
+impl From<Box<Snapshot>> for Input {
+    fn from(snapshot: Box<Snapshot>) -> Self {
         Self {
             snapshot,
             collected: None,
@@ -32,12 +32,18 @@ impl From<Snapshot> for Input {
     }
 }
 
+impl From<Snapshot> for Input {
+    fn from(snapshot: Snapshot) -> Self {
+        Self::from(Box::new(snapshot))
+    }
+}
+
 impl From<Report> for Input {
     fn from(report: Report) -> Self {
         let Report { snapshot, evidence, provenance, .. } = report;
         let input = match evidence {
             Some(evidence) => Self::retained(evidence),
-            None => Self::prepared(snapshot),
+            None => Self::prepared(Box::new(snapshot)),
         };
         input.with_provenance(provenance)
     }
@@ -45,14 +51,14 @@ impl From<Report> for Input {
 
 impl Input {
     pub(crate) fn retained(evidence: culprit_core::ReportEvidence) -> Self {
-        let mut input = Self::from(*evidence.input);
+        let mut input = Self::from(evidence.input);
         input.collected = evidence.collected;
         input.recorded_changes = evidence.recorded_changes;
         input.origin = AnalysisOrigin::RetainedInput;
         input
     }
 
-    pub(crate) fn prepared(snapshot: Snapshot) -> Self {
+    pub(crate) fn prepared(snapshot: Box<Snapshot>) -> Self {
         let mut input = Self::from(snapshot);
         input.origin = AnalysisOrigin::PreparedReport;
         input
@@ -75,7 +81,7 @@ pub(crate) fn reread(input: Input, extra: &[Arc<dyn Check>]) -> Report {
 
 pub(crate) fn shared(mut input: Input, extra: &[Arc<dyn Check>]) -> Report {
     // Retaining the unredacted collection would bypass the redaction boundary.
-    input.snapshot = culprit_core::redact::redact_snapshot(&input.snapshot);
+    *input.snapshot = culprit_core::redact::redact_snapshot(&input.snapshot);
     input.collected = None;
     input.recorded_changes.clear();
     for reference in &mut input.baselines {
@@ -102,7 +108,7 @@ pub(crate) fn collected(
 }
 
 fn run(input: Input, extra: &[Arc<dyn Check>]) -> Report {
-    let mut report = culprit_checks::analyze_with(input.snapshot, extra);
+    let mut report = culprit_checks::analyze_with(*input.snapshot, extra);
     if let Some(p) = &mut report.provenance {
         p.origin = input.origin;
         p.collection = input.collection;

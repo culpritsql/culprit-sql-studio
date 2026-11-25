@@ -762,7 +762,7 @@ pub(crate) fn load_analysis_input(path: &Path) -> Result<crate::analysis::Input>
     if value.get("snapshot").is_some() && value.get("findings").is_some() && value.get("summary").is_some() {
         return storage::analysis_input(value).map_err(|e| not_a_report(path, &e));
     }
-    let snapshot: culprit_core::Snapshot = serde_json::from_value(value).map_err(|e| not_a_snapshot(path, &e))?;
+    let snapshot: Box<culprit_core::Snapshot> = serde_json::from_value(value).map_err(|e| not_a_snapshot(path, &e))?;
     Ok(crate::analysis::Input::from(snapshot))
 }
 

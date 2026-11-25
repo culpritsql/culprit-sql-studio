@@ -485,9 +485,14 @@ fn writes_sarif(command: &Command) -> bool {
     )
 }
 
+#[inline(never)]
+fn parse_cli() -> Cli {
+    Cli::parse()
+}
+
 fn main() -> ExitCode {
     update_cmd::remove_stale_old();
-    let cli = Cli::parse();
+    let cli = parse_cli();
     let format = match (cli.json, cli.format) {
         (true, _) => Format::Json,
         (false, Some(f)) => f,
@@ -671,6 +676,37 @@ mod tests {
         let request = run(Command::Checks, &out);
         let bytes = std::mem::size_of_val(&request);
         assert!(bytes <= 4096, "command entry retains {bytes} inline bytes; only the selected handler owns its state");
+    }
+
+    #[test]
+    fn saved_report_commands_succeed_when_main_thread_has_windows_one_mib_stack() {
+        #[inline(never)]
+        fn parse_args(args: &[&str]) -> Cli {
+            Cli::try_parse_from(args).unwrap()
+        }
+        let report = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/pg-demo.report.json");
+        let report_str = report.display().to_string();
+        std::thread::Builder::new()
+            .name("windows-1mib-main".into())
+            .stack_size(1024 * 1024)
+            .spawn(move || {
+                let cli = parse_args(&["culprit", "--format", "text", "lint-sql", "x", "--report", &report_str]);
+                let out = Out::new(Format::Text);
+                let runtime = tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap();
+                let err = runtime.block_on(run(cli.command, &out)).unwrap_err();
+                assert!(err.message.contains("--sql"), "{err:?}");
+
+                let cli = parse_args(&["culprit", "--format", "json", "findings", &report_str]);
+                let code = runtime.block_on(run(cli.command, &out)).unwrap();
+                assert_eq!(code, 0);
+
+                let cli = parse_args(&["culprit", "--format", "text", "dashboard", &report_str]);
+                let code = runtime.block_on(run(cli.command, &out)).unwrap();
+                assert_eq!(code, 0);
+            })
+            .unwrap()
+            .join()
+            .unwrap();
     }
 
     #[test]

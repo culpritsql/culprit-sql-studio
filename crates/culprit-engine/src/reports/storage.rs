@@ -250,8 +250,8 @@ pub(super) fn analysis_input(mut value: Value) -> serde_json::Result<crate::anal
         apply(&mut snapshot, stored.input)?;
         let (snapshot, collected) = match stored.collected {
             Some(diff) if diff.changes.is_empty() => {
-                let snapshot: culprit_core::Snapshot = serde_json::from_value(snapshot)?;
-                let collected = Some(Box::new(snapshot.clone()));
+                let snapshot: Box<culprit_core::Snapshot> = serde_json::from_value(snapshot)?;
+                let collected = Some(snapshot.clone());
                 (snapshot, collected)
             }
             diff => {
@@ -262,11 +262,14 @@ pub(super) fn analysis_input(mut value: Value) -> serde_json::Result<crate::anal
                 } else {
                     None
                 };
-                (serde_json::from_value(snapshot)?, collected.map(serde_json::from_value).transpose()?.map(Box::new))
+                (
+                    serde_json::from_value::<Box<culprit_core::Snapshot>>(snapshot)?,
+                    collected.map(serde_json::from_value::<Box<culprit_core::Snapshot>>).transpose()?,
+                )
             }
         };
         crate::analysis::Input::retained(culprit_core::ReportEvidence {
-            input: Box::new(snapshot),
+            input: snapshot,
             collected,
             recorded_changes: stored.recorded_changes,
         })
@@ -284,7 +287,7 @@ pub(super) fn analysis_input(mut value: Value) -> serde_json::Result<crate::anal
         crate::analysis::Input::prepared(serde_json::from_value(snapshot)?)
     }
     .with_provenance(provenance);
-    share_snapshots(std::iter::once(&mut input.snapshot).chain(input.collected.as_deref_mut()));
+    share_snapshots(std::iter::once(input.snapshot.as_mut()).chain(input.collected.as_deref_mut()));
     Ok(input)
 }
 
@@ -342,7 +345,7 @@ mod tests {
         assert_ne!(message(&en), message(&fr));
         let replay = scope("fr", || {
             let input = analysis_input(serde_json::from_slice(&encoded).unwrap()).unwrap();
-            culprit_checks::analyze(input.snapshot)
+            culprit_checks::analyze(*input.snapshot)
         });
         assert_eq!(message(&fr), message(&replay));
     }

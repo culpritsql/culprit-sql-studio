@@ -79,6 +79,7 @@ pub enum Format {
     Sarif,
 }
 
+#[derive(Clone, Copy)]
 pub struct Out {
     pub(super) format: Format,
     color: bool,
