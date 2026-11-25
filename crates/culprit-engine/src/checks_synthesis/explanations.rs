@@ -386,6 +386,7 @@ pub(super) fn blocking(original: &dyn OriginalProjection) -> Result<Explanation>
     let report = culprit_checks::focused_blocking::explain(original.source(), &rows, original.is_read_complete())?;
     let actors = super::causal_actors::blocking(original, &report)?;
     let mut explanation = Explanation::words(&report.summary, &report.investigation, &report.verify);
+    let mut specialized = false;
     if let SourceObservation::FocusedBlocking { result, .. } = &original.source().observation
         && let Some(case) = report
             .metadata_queue
@@ -399,6 +400,7 @@ pub(super) fn blocking(original: &dyn OriginalProjection) -> Result<Explanation>
         explanation.mechanism = Some(words.mechanism.clone());
         explanation.action = Some(words.investigation.clone());
         explanation.verify = Some(words.verify.clone());
+        specialized = true;
     }
     if let SourceObservation::FocusedBlocking { result, .. } = &original.source().observation
         && let Some(case) =
@@ -409,6 +411,10 @@ pub(super) fn blocking(original: &dyn OriginalProjection) -> Result<Explanation>
         explanation.mechanism = Some(words.mechanism.clone());
         explanation.action = Some(words.investigation.clone());
         explanation.verify = Some(words.verify.clone());
+        specialized = true;
+    }
+    if !specialized && let Some(blocking) = &report.blocking {
+        enrich_blocking_root_cause(original, &report.context, &rows, blocking, &mut explanation);
     }
     explanation.culprits = actors.culprits;
     explanation.candidates = actors.candidates;
@@ -416,6 +422,99 @@ pub(super) fn blocking(original: &dyn OriginalProjection) -> Result<Explanation>
     explanation.limitations.extend(report.metadata_queue.limitations);
     explanation.limitations.extend(report.output_retention.limitations);
     Ok(explanation)
+}
+
+fn enrich_blocking_root_cause(
+    original: &dyn OriginalProjection,
+    context: &NativeReadContext,
+    rows: &[ActivityFrameRow<'_>],
+    blocking: &Blocking,
+    explanation: &mut Explanation,
+) {
+    if !original.is_read_complete() || !context.has_qualified_local_owner() {
+        return;
+    }
+    let chain = match &original.source().observation {
+        SourceObservation::FocusedBlocking { snapshot, result } => {
+            if snapshot.coverage.error_code == Some(culprit_core::ErrorCode::PermissionDenied)
+                || result.binding != FocusedRequestBinding::Matched
+                || result.membership != FocusedRequestMembership::Observed
+            {
+                return;
+            }
+            let victim = result.focus.original.key.session.id.as_str();
+            blocking.chains.iter().find(|chain| chain_contains_session(&chain.tree, victim))
+        }
+        _ => blocking.chains.first(),
+    };
+    let Some(chain) = chain else { return };
+
+    let head_obs = chain.tree.owner.as_ref().and_then(ActivityWaitOwner::session).and_then(|identity| {
+        let mut matches = rows.iter().filter(|row| row.observation.key.session == identity);
+        let first = matches.next()?;
+        matches.next().is_none().then_some(first.observation)
+    });
+    let idle_with_open_tx = chain.head_kind == culprit_core::blocking::HeadKind::IdleInTransaction
+        || head_obs.is_some_and(|obs| {
+            let state = obs.state.to_ascii_lowercase();
+            (obs.idle || state == "sleeping" || state.contains("idle in transaction"))
+                && (obs.open_transactions.unwrap_or(0) > 0 || obs.transaction_age_ms.is_some())
+        });
+
+    if idle_with_open_tx {
+        let tx_ms = chain
+            .transaction_ms
+            .or_else(|| head_obs.and_then(|obs| obs.transaction_age_ms.as_deref()?.parse::<f64>().ok()));
+        let (has_age, duration) = match tx_ms.filter(|ms| ms.is_finite() && *ms >= 0.0) {
+            Some(ms) => ("yes", format::duration(ms)),
+            None => ("no", String::new()),
+        };
+        explanation.victim_summary = Some(t!(
+            "view.blocking.synthesis.idle_transaction.victim",
+            head = chain.head.as_str(),
+            has_age = has_age,
+            duration = duration.as_str()
+        ));
+        append_paragraph(
+            &mut explanation.mechanism,
+            Some(t!(
+                "view.blocking.synthesis.idle_transaction.mechanism",
+                head = chain.head.as_str(),
+                n = chain.waiters,
+                count = format::digits(chain.waiters.to_string())
+            )),
+        );
+        append_paragraph(
+            &mut explanation.action,
+            Some(t!("view.blocking.synthesis.idle_transaction.action", head = chain.head.as_str())),
+        );
+    }
+
+    let is_object_data_lock = original.source().target.engine() == Engine::Mssql
+        && chain
+            .lock
+            .as_ref()
+            .and_then(|lock| lock.resource.as_deref())
+            .is_some_and(|res| res.eq_ignore_ascii_case("OBJECT"))
+        && !chain.wait_type.as_deref().is_some_and(|w| w.starts_with("LCK_M_SCH_"));
+    if is_object_data_lock {
+        let object = chain.lock.as_ref().and_then(|lock| lock.object.as_deref()).unwrap_or_default();
+        let has_object = if object.is_empty() { "no" } else { "yes" };
+        append_paragraph(
+            &mut explanation.mechanism,
+            Some(t!(
+                "view.blocking.synthesis.object_escalation.mechanism",
+                head = chain.head.as_str(),
+                has_object = has_object,
+                object = object
+            )),
+        );
+        append_paragraph(&mut explanation.action, Some(t!("view.blocking.synthesis.object_escalation.action")));
+    }
+}
+
+fn chain_contains_session(node: &culprit_core::blocking::BlockNode, session_id: &str) -> bool {
+    node.session == session_id || node.children.iter().any(|child| chain_contains_session(child, session_id))
 }
 pub(super) fn original_observation(original: &dyn OriginalProjection, position: usize) -> Result<Explanation> {
     let Some(header) = original.source().observation.snapshot() else { return Ok(Explanation::default()) };

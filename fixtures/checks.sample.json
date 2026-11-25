@@ -503,6 +503,16 @@
   },
   {
     "category": "configuration",
+    "description": "Compilation stalls on WAIT_ON_SYNC_STATISTICS_REFRESH while SQL Server updates outdated statistics inline before compiling a plan.",
+    "engines": [
+      "mssql"
+    ],
+    "id": "sync-stats-refresh",
+    "requires": [],
+    "title": "Queries stalling on synchronous statistics refresh"
+  },
+  {
+    "category": "configuration",
     "description": "SQL Server sessions waiting for a worker thread (THREADPOOL), or PostgreSQL/MySQL connections close to max_connections.",
     "engines": [
       "mssql",
@@ -578,6 +588,16 @@
     "id": "storage-capacity",
     "requires": [],
     "title": "Files and logs near their allocation limits"
+  },
+  {
+    "category": "configuration",
+    "description": "Transaction logs that are filling while SQL Server reports a specific log_reuse_wait_desc blocker (active transaction, stalled replication/CDC reader, lagging replica, or overdue log backup) that prevents log truncation before Error 9002.",
+    "engines": [
+      "mssql"
+    ],
+    "id": "log-reuse-blocked",
+    "requires": [],
+    "title": "Transaction log reuse held back near capacity"
   },
   {
     "category": "maintenance",

@@ -15,11 +15,13 @@ pub enum Observation {
     OperationalCounters,
     Cluster,
     WalSize,
+    SyncStatsWaits,
 }
 
 #[derive(Clone, Copy, Debug)]
 pub enum QueryMeasure {
     Work,
+    FamiliesOrPlanCache,
     Plans,
     CapturedPlans,
     Timeline,
@@ -260,6 +262,9 @@ impl Requirement<'_> {
                     Observation::OperationalCounters => !s.operations.counters.is_empty(),
                     Observation::Cluster => s.operations.cluster.is_some(),
                     Observation::WalSize => s.operations.sqlite.as_ref().is_some_and(|w| w.wal_bytes.is_some()),
+                    Observation::SyncStatsWaits => {
+                        !s.waits.is_empty() || s.queries().iter().any(|q| !q.waits.is_empty())
+                    }
                 };
                 if let Some(reason) = source_failed(s, sources) {
                     return if known { Insufficient(reason) } else { Unavailable(reason) };
@@ -404,7 +409,12 @@ fn query(measure: QueryMeasure, s: &Snapshot) -> CheckEvidence {
     use CheckEvidence::*;
     let insufficient = |why: String| Insufficient(why);
     let Some(w) = &s.workload else {
-        return Unavailable(s.no_workload_reason().unwrap_or_else(|| t!("evidence.no_history")));
+        let reason = s.no_workload_reason().unwrap_or_else(|| t!("evidence.no_history"));
+        return if matches!(measure, QueryMeasure::FamiliesOrPlanCache) && s.plan_cache.is_some() {
+            Insufficient(reason)
+        } else {
+            Unavailable(reason)
+        };
     };
     if w.queries.is_empty() {
         return insufficient(t!("evidence.no_statements"));

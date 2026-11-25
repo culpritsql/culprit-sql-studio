@@ -38,6 +38,13 @@
       "title": "Overlapping indexes"
     },
     {
+      "assessed_queries": [
+        "8345917977273313509",
+        "466454478821061062",
+        "4357247400045295631",
+        "-71879613880347319",
+        "-1395695495724611761"
+      ],
       "check": "query-family",
       "reason": null,
       "status": "assessed",
@@ -668,6 +675,7 @@
         "compile-pressure",
         "compile-queue",
         "compilation-policy",
+        "sync-stats-refresh",
         "worker-pressure",
         "held-cleanup",
         "network-wait",
@@ -675,6 +683,7 @@
         "checkpoint-pressure",
         "row-lock-waits",
         "storage-capacity",
+        "log-reuse-blocked",
         "sequence-capacity",
         "operational-errors",
         "cluster-health",

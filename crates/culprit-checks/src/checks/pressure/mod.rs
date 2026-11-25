@@ -24,6 +24,7 @@ mod network_wait;
 #[cfg(test)]
 mod resource_accounting_tests;
 mod row_lock_waits;
+mod sync_stats_refresh;
 #[cfg(test)]
 mod tests;
 mod tier_limit;
@@ -40,6 +41,7 @@ pub use memory_grant::*;
 pub use memory_queue::*;
 pub use network_wait::*;
 pub use row_lock_waits::*;
+pub use sync_stats_refresh::*;
 pub use tier_limit::*;
 pub use worker_pressure::*;
 
@@ -50,6 +52,7 @@ pub(crate) const CHECKS: &[&dyn Check] = &[
     &CompilePressureCheck,
     &CompileQueueCheck,
     &CompilationPolicyCheck,
+    &SyncStatsRefreshCheck,
     &WorkerPressureCheck,
     &HeldCleanupCheck,
     &NetworkWaitCheck,

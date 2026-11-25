@@ -299,7 +299,7 @@ pub(crate) fn wait_type_category(wait_type: &str) -> &'static str {
     {
         return "Parallelism";
     }
-    if w == "RESOURCE_SEMAPHORE_QUERY_COMPILE" {
+    if w == "RESOURCE_SEMAPHORE_QUERY_COMPILE" || w == "WAIT_ON_SYNC_STATISTICS_REFRESH" {
         return "Compilation";
     }
     if w.starts_with("RESOURCE_SEMAPHORE") || w == "CMEMTHREAD" {

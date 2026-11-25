@@ -71,6 +71,26 @@ impl Evaluations {
             engine,
         )
     }
+    pub fn add_operational(
+        &mut self,
+        analysis: &crate::collected_evidence::RetainedOperationalAnalysis,
+        input: u16,
+        catalog_inputs: &[u16],
+        engine: Engine,
+    ) -> Result<()> {
+        self.append(
+            DerivedFindingAssessment {
+                input,
+                scope: DerivedFindingScope::Operational,
+                checks: vec![],
+                limitations: limitation_reasons(&analysis.limitations),
+                catalog_inputs: catalog_inputs.to_vec(),
+            },
+            &analysis.report.assessments,
+            &analysis.report.locked,
+            engine,
+        )
+    }
     fn append(
         &mut self,
         mut assessment: DerivedFindingAssessment,

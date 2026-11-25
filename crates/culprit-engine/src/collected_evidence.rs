@@ -12,11 +12,13 @@ use culprit_evidence::original_projection::OriginalProjection;
 
 pub(crate) mod catalogs;
 mod groups;
+mod operational;
 mod populations;
 mod settings;
 pub(crate) mod statement_counters;
 mod validation;
 mod waits;
+pub(crate) use operational::{RetainedOperationalAnalysis, analyze_operational_original, supports_operational};
 pub(crate) use settings::{RetainedSettingsAnalysis, analyze_settings_original, settings_read};
 mod window;
 pub use window::analyze_window;

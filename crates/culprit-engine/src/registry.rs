@@ -316,6 +316,8 @@ mod builtin_safety_tests {
                 [
                     "mssql.activity",
                     "mssql.blocking",
+                    "mssql.cache-entry-memory",
+                    "mssql.current-execution-profile",
                     "mssql.current-request-memory",
                     "mssql.current-request-work",
                     "mssql.focused-compiler-admission",

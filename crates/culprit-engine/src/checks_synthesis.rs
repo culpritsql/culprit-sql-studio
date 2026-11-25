@@ -12,6 +12,7 @@ mod evaluation;
 mod explanations;
 mod finding_rows;
 mod job_executions;
+mod operational;
 mod output_budget;
 mod settings;
 mod statement_counters;
@@ -21,7 +22,7 @@ mod incidents;
 mod queries;
 
 // Advance this policy when retained interpretation changes, including builds sharing a package version.
-pub(crate) const BUILTIN_RULES_VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "/retained-diagnosis-14");
+pub(crate) const BUILTIN_RULES_VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "/retained-diagnosis-15");
 
 pub struct ChecksSynthesizer {
     pipeline: Arc<culprit_checks::Pipeline>,
@@ -136,6 +137,12 @@ impl ChecksSynthesizer {
         }
         if settings::supports(primary) {
             let projected = settings::findings(primary, &description, &self.pipeline, &mut budget)?;
+            output.findings = projected.findings;
+            description.finding_evaluations = projected.evaluations;
+            description.output_coverage.findings = DerivedOutputCoverage::Evaluated;
+        }
+        if operational::supports(primary) {
+            let projected = operational::findings(primary, &description, &self.pipeline, &catalogs, &mut budget)?;
             output.findings = projected.findings;
             description.finding_evaluations = projected.evaluations;
             description.output_coverage.findings = DerivedOutputCoverage::Evaluated;
@@ -292,6 +299,9 @@ mod job_execution_tests;
 
 #[cfg(test)]
 mod metadata_queue_tests;
+
+#[cfg(test)]
+mod operational_tests;
 
 #[cfg(test)]
 mod settings_tests;

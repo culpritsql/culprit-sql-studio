@@ -64,6 +64,24 @@
       "title": "SQL Server's own tuning advice"
     },
     {
+      "assessed_queries": [
+        "7",
+        "9",
+        "10",
+        "8",
+        "6",
+        "5",
+        "35",
+        "146",
+        "138",
+        "143",
+        "161",
+        "246",
+        "249",
+        "255",
+        "263",
+        "264"
+      ],
       "check": "query-family",
       "reason": null,
       "status": "assessed",
@@ -257,6 +275,12 @@
       "title": "Repeated compilation policy"
     },
     {
+      "check": "sync-stats-refresh",
+      "reason": null,
+      "status": "assessed",
+      "title": "Queries stalling on synchronous statistics refresh"
+    },
+    {
       "check": "worker-pressure",
       "reason": "The required pressure measurement was not recorded by this scan.",
       "status": "insufficient-evidence",
@@ -285,6 +309,12 @@
       "reason": "This source was not recorded, was not applicable, or did not expose visible objects. No clean result can be established from its absence.",
       "status": "insufficient-evidence",
       "title": "Files and logs near their allocation limits"
+    },
+    {
+      "check": "log-reuse-blocked",
+      "reason": "This source was not recorded, was not applicable, or did not expose visible objects. No clean result can be established from its absence.",
+      "status": "insufficient-evidence",
+      "title": "Transaction log reuse held back near capacity"
     },
     {
       "check": "sequence-capacity",
@@ -2285,6 +2315,7 @@
         "compile-pressure",
         "compile-queue",
         "compilation-policy",
+        "sync-stats-refresh",
         "worker-pressure",
         "held-cleanup",
         "network-wait",
@@ -2292,6 +2323,7 @@
         "checkpoint-pressure",
         "row-lock-waits",
         "storage-capacity",
+        "log-reuse-blocked",
         "sequence-capacity",
         "operational-errors",
         "cluster-health",

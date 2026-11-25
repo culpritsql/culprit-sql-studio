@@ -77,6 +77,8 @@ compile-queue     Compiler admission
                   SQL Server · Requests in this database delayed by compiler admission, with recent per-query compile-memory evidence where available.
 compilation-policy  Repeated compilation policy
                   SQL Server · An explicit statement recompile directive accompanies expensive repeated compilation over this retained query entry's lifetime.
+sync-stats-refresh  Queries stalling on synchronous statistics refresh
+                  SQL Server · Compilation stalls on WAIT_ON_SYNC_STATISTICS_REFRESH while SQL Server updates outdated statistics inline before compiling a plan.
 worker-pressure   Running out of workers or connections
                   SQL Server, PostgreSQL, MySQL/MariaDB · SQL Server sessions waiting for a worker thread (THREADPOOL), or PostgreSQL/MySQL connections close to max_connections.
 held-cleanup      A long open transaction holds cleanup back
@@ -91,6 +93,8 @@ row-lock-waits    Transactions waiting for row locks
                   MySQL/MariaDB · InnoDB row-lock waits add up to real time (a minute an hour or more across the server), from long transactions or updates that scan instead of using an index.
 storage-capacity  Files and logs near their allocation limits
                   SQL Server · Current database file and transaction-log capacity, log reuse reasons, and shared tempdb allocation. Autogrowth room is distinguished from a hard limit.
+log-reuse-blocked  Transaction log reuse held back near capacity
+                  SQL Server · Transaction logs that are filling while SQL Server reports a specific log_reuse_wait_desc blocker (active transaction, stalled replication/CDC reader, lagging replica, or overdue log backup) that prevents log truncation before Error 9002.
 sequence-capacity  Identity and sequence allocation limits
                   SQL Server, PostgreSQL, MySQL/MariaDB · Non-cycling identities, sequences and auto-increment columns approaching their numeric bounds; cache allocation is not a forecast of remaining requests.
 operational-errors  Archive, replication and redo failures

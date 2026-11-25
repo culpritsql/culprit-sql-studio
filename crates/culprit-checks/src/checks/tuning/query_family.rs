@@ -20,7 +20,7 @@ check!(
     decide = query_family_cases,
     render = query_family_finding,
     case<'s> = FamilyCase<'s>,
-    evidence = &[Evidence::Query(QueryMeasure::Work)],
+    evidence = &[Evidence::Query(QueryMeasure::FamiliesOrPlanCache)],
 );
 
 /// What the workload's statement families and the plan cache establish.

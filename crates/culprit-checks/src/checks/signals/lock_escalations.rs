@@ -143,12 +143,20 @@ pub struct EscalatedTable<'s> {
     writes: Vec<&'s QueryStat>,
     /// With none, its reads that return the most rows a run, those that keep their row locks first.
     reads: Vec<(&'s QueryStat, Option<KeepsLocks>)>,
+    /// Unindexed foreign key on this child table whose parent deletes/updates scan it in full.
+    unindexed_fk: Option<UnindexedParentFk<'s>>,
     rcsi: bool,
     /// The likeliest write changes thousands of rows a run: the loop is the fix, in its verb.
     bulk: Option<BulkWrite>,
     severity: Severity,
     /// Totals that establish no new increase in the window: said, not graded.
     informational: bool,
+}
+
+struct UnindexedParentFk<'s> {
+    fk_columns: String,
+    parent: String,
+    parent_writes: Vec<&'s QueryStat>,
 }
 
 /// The verb of a write that changes thousands of rows a run, for the batching loop its fix shows.
@@ -253,6 +261,36 @@ fn escalated_tables(snapshot: &Snapshot) -> Vec<EscalatedTable<'_>> {
                     .then(rows_per_run(b).unwrap_or(0.0).total_cmp(&rows_per_run(a).unwrap_or(0.0)))
             });
             reads.truncate(3);
+            let unindexed_fk = if writes.is_empty() && reads.is_empty() && !historical {
+                let mut candidates: Vec<_> = crate::indexes::enforced_foreign_keys(snapshot)
+                    .filter(|fk| {
+                        fk.schema.eq_ignore_ascii_case(&schema)
+                            && fk.table.eq_ignore_ascii_case(&table)
+                            && !crate::indexes::fk_is_indexed(snapshot, fk)
+                    })
+                    .map(|fk| {
+                        let mut parent_writes: Vec<&QueryStat> = app_queries(snapshot)
+                            .filter(|q| writes_table(q, Engine::Mssql, &fk.ref_schema, &fk.ref_table))
+                            .collect();
+                        parent_writes.sort_by(|a, b| {
+                            rows_per_run(b)
+                                .unwrap_or(0.0)
+                                .total_cmp(&rows_per_run(a).unwrap_or(0.0))
+                                .then(b.total_time_ms.total_cmp(&a.total_time_ms))
+                        });
+                        parent_writes.truncate(3);
+                        UnindexedParentFk {
+                            fk_columns: fk.columns.join(", "),
+                            parent: format!("{}.{}", fk.ref_schema, fk.ref_table),
+                            parent_writes,
+                        }
+                    })
+                    .collect();
+                candidates.sort_by_key(|a| std::cmp::Reverse(a.parent_writes.len()));
+                candidates.into_iter().next()
+            } else {
+                None
+            };
             // One escalation is a lock on the whole table: every other writer waited for it, however briefly. New ones
             // since the previous scan are High; old ones with none since are history: worth preventing, not an
             // emergency. Without an earlier scan the count keeps no time, so only a measured rate raises it.
@@ -294,6 +332,7 @@ fn escalated_tables(snapshot: &Snapshot) -> Vec<EscalatedTable<'_>> {
                 counted_for,
                 writes,
                 reads,
+                unindexed_fk,
                 rcsi,
                 bulk,
                 severity,
@@ -471,6 +510,15 @@ fn lock_escalations_finding(snapshot: &Snapshot, e: EscalatedTable<'_>) -> Findi
                 });
                 said.join(" ")
             }
+            None if e.unindexed_fk.is_some() => {
+                let fk = e.unindexed_fk.as_ref().unwrap();
+                t!(
+                    "check.lock_escalations.suspects.unindexed_fk",
+                    table = &table,
+                    fk_columns = &fk.fk_columns,
+                    parent = &fk.parent
+                )
+            }
             None => t!("check.lock_escalations.suspects.none"),
         }
     });
@@ -492,6 +540,11 @@ fn lock_escalations_finding(snapshot: &Snapshot, e: EscalatedTable<'_>) -> Findi
                 }
                 None => t!("check.lock_escalations.note.returns", rows = rows_words(rows)),
             }),
+        }))
+        .chain(e.unindexed_fk.iter().flat_map(|fk| &fk.parent_writes).map(|q| QueryRef {
+            id: q.id.clone(),
+            plan_node: None,
+            note: rows_per_run(q).map(|rows| t!("check.lock_escalations.note.changes", rows = rows_words(rows))),
         }))
         .collect();
     f.last_seen = writes.first().or(reads.first().map(|(q, _)| q)).and_then(|q| q.last_seen.clone());
@@ -564,4 +617,55 @@ fn lock_escalations_finding(snapshot: &Snapshot, e: EscalatedTable<'_>) -> Findi
     f.verify = vec![t!("check.lock_escalations.verify", table = &table)];
     f.caveats.push(t!("check.lock_escalations.caveat.counted_since_loaded"));
     f
+}
+
+#[cfg(test)]
+mod unindexed_fk_escalation_tests {
+    use super::*;
+    use culprit_core::{ForeignKey, IndexContention, ResetMarker};
+
+    #[test]
+    fn child_table_escalation_without_direct_sql_names_unindexed_parent_foreign_key() {
+        let mut s: Snapshot =
+            serde_json::from_str(include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/mssql-demo.json")))
+                .unwrap();
+        s.indexes.retain(|idx| {
+            !(idx.schema == "shop"
+                && idx.table == "order_items"
+                && idx.columns.first().is_some_and(|c| c == "order_id"))
+        });
+        let target_idx = s.indexes.iter_mut().find(|idx| idx.schema == "shop" && idx.table == "order_items").unwrap();
+        target_idx.contention = Some(IndexContention {
+            lock_escalations: 12.0,
+            row_lock_waits: 40.0,
+            row_lock_wait_ms: 8_000.0,
+            reset: ResetMarker::Unknown,
+            ..Default::default()
+        });
+        if !s.foreign_keys.iter().any(|fk| fk.table == "order_items" && fk.columns == vec!["order_id".to_string()]) {
+            s.foreign_keys.push(ForeignKey {
+                name: "fk_order_items_order".into(),
+                schema: "shop".into(),
+                table: "order_items".into(),
+                columns: vec!["order_id".into()],
+                ref_schema: "shop".into(),
+                ref_table: "orders".into(),
+                ref_columns: vec!["id".into()],
+                delete_rule: None,
+            });
+        }
+        if let Some(w) = &mut s.workload {
+            w.queries.retain(|q| !q.text.contains("order_items"));
+            if let Some(q) = w.queries.first_mut() {
+                q.text = "DELETE FROM shop.orders WHERE created_at < @cutoff".into();
+                q.rows = Some(2_500.0);
+                q.executions = 1.0;
+            }
+        }
+        let findings = culprit_core::Check::run(&LockEscalationsCheck, &s);
+        let finding = findings.iter().find(|f| f.id == "lock-escalations:shop.order_items").unwrap();
+        assert!(finding.summary.contains("order_id"), "{}", finding.summary);
+        assert!(finding.summary.contains("shop.orders"), "{}", finding.summary);
+        assert!(!finding.queries.is_empty());
+    }
 }

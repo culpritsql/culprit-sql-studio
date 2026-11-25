@@ -367,3 +367,53 @@ fn undecoded_native_wait_address_preserves_the_original_participant_without_an_o
     assert_eq!(report.entries[0].resource, row.resource);
     assert!(!report.entries[0].explanation.contains("ix_orders"));
 }
+
+#[test]
+fn shared_tempdb_system_catalog_latch_distinguishes_metadata_contention_from_leaf_and_bitmap_waits() {
+    let mut row = observation("61", WaitResourceKind::MemoryPage);
+    row.resource.native.id = "2:1:3".into();
+    row.request.wait.as_mut().unwrap().identified_resources = vec![row.resource.clone()];
+    row.observed_address = Some(PageWaitAddress { database_id: 2, file_id: 1, page_id: 3 });
+    let resource = SharedResourceIdentity {
+        engine: Engine::Mssql,
+        kind: SharedResourceKind::Instance,
+        namespace: NativeIdentity::new("controlled-tempdb-machine"),
+        native: NativeIdentity::new("controlled-tempdb-instance"),
+    };
+    let scope = PageTargetScope::SharedResource {
+        context: Box::new(NativeReadContext {
+            target: CollectionTarget::Shared(resource.clone()),
+            partition: SourcePartition::InstanceLocal { member: Some(resource), epoch: Some("native-epoch".into()) },
+            observed_from: row.observed_from.clone(),
+            observed_until: row.observed_until.clone(),
+            database_writable: None,
+        }),
+    };
+    let (database, file) = scope
+        .bind_identities(
+            NativeIdentity::new("2").qualified("instance_epoch", "native-epoch"),
+            NativeIdentity::new("1").qualified("instance_epoch", "native-epoch"),
+        )
+        .unwrap();
+    let target = row.target.as_mut().unwrap();
+    target.scope = scope;
+    target.database = database;
+    target.file = file;
+    target.header.database_id = 2;
+    target.header.file_id = 1;
+    target.header.page_id = 3;
+    target.header.object_id = Some("34".into());
+    target.object = Some(PageWaitObject {
+        native: NativeIdentity::new("34"),
+        schema: "sys".into(),
+        name: "sysschobjs".into(),
+        index_name: Some("clst".into()),
+    });
+    assert!(row.is_valid());
+    let report = explain(&[&row], Some(&source(SourceState::Collected)), None).unwrap();
+    assert_eq!(report.entries.len(), 1);
+    assert!(report.entries[0].explanation.contains("sys.sysschobjs"));
+    assert!(report.entries[0].explanation.contains("object-metadata latch contention"));
+    assert_eq!(report.entries[0].investigation, t!("view.page_waits.investigation.tempdb_catalog"));
+    assert_eq!(report.entries[0].verify, t!("view.page_waits.verify.tempdb_catalog"));
+}

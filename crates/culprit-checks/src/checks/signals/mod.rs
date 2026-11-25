@@ -26,6 +26,7 @@ mod large_rows;
 mod last_page_insert;
 mod lock_escalations;
 mod lock_time;
+mod log_reuse_blocked;
 mod log_volume;
 mod missing_histogram;
 mod operational_errors;
@@ -61,6 +62,7 @@ pub use untrusted_constraint::*;
 /// The checks this area registers (`crate::all()` runs every area's), in the order their findings tie.
 pub(crate) const CHECKS: &[&dyn Check] = &[
     &storage_capacity::StorageCapacityCheck,
+    &log_reuse_blocked::LogReuseBlockedCheck,
     &sequence_capacity::SequenceCapacityCheck,
     &operational_errors::OperationalErrorsCheck,
     &cluster_health::ClusterHealthCheck,

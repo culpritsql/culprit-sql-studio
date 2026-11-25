@@ -31,6 +31,8 @@ pub enum DerivedFindingScope {
     Settings,
     /// Native cumulative points were assessed without pretending that their missing definitions are query history.
     StatementCounters,
+    /// Database-scoped operational, cleanup, or plan-cache point observations assessed without query history.
+    Operational,
 }
 
 #[derive(Serialize, Deserialize, TS, Clone, Debug, PartialEq, Eq)]
@@ -77,7 +79,7 @@ impl DerivedFindingEvaluations {
                         population: CollectedQueryPopulation::Population { identity },
                     } => identity.is_valid(),
                     DerivedFindingScope::QueryHistory { .. } => true,
-                    DerivedFindingScope::StatementCounters => inputs
+                    DerivedFindingScope::StatementCounters | DerivedFindingScope::Operational => inputs
                         .get(usize::from(assessment.input))
                         .is_some_and(|input| input.role == DerivedInputRole::Observation),
                     DerivedFindingScope::Settings => {

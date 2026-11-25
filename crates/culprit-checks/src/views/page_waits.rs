@@ -106,6 +106,7 @@ enum WaitKind {
 enum Investigation {
     Unresolved,
     Storage,
+    TempdbSystemCatalog,
     MemoryTarget(PageWaitTargetKind),
     MemoryLeaf(LeafPosition),
 }
@@ -116,12 +117,22 @@ impl Investigation {
         };
         if matches!(wait, WaitKind::Io) {
             Self::Storage
+        } else if is_tempdb_system_catalog(target) {
+            Self::TempdbSystemCatalog
         } else if let Some(position) = LeafPosition::from_target(target) {
             Self::MemoryLeaf(position)
         } else {
             Self::MemoryTarget(target.kind)
         }
     }
+}
+
+fn is_tempdb_system_catalog(target: &culprit_core::telemetry::MappedPageTarget) -> bool {
+    matches!(target.scope, culprit_core::telemetry::PageTargetScope::SharedResource { .. })
+        && target.header.database_id == 2
+        && target.object.as_ref().is_some_and(|object| {
+            object.schema.eq_ignore_ascii_case("sys") && object.name.to_ascii_lowercase().starts_with("sys")
+        })
 }
 enum IndexPoint<'a> {
     Measured { waits: &'a str, milliseconds: &'a str, relation: PageIndexOperationRelation },
@@ -230,6 +241,13 @@ fn render(
             } else {
                 t!("view.page_waits.target.object", schema = object.schema.as_str(), object = object.name.as_str())
             });
+            if matches!(case.investigation, Investigation::TempdbSystemCatalog) {
+                details.push(t!(
+                    "view.page_waits.tempdb_catalog.detail",
+                    schema = object.schema.as_str(),
+                    object = object.name.as_str()
+                ));
+            }
         }
     } else {
         details.push(culprit_core::i18n::t(unresolved_message(observation.resolution), &[]));
@@ -270,6 +288,7 @@ fn render(
         explanation: details.join(" "),
         investigation,
         verify: match case.investigation {
+            Investigation::TempdbSystemCatalog => t!("view.page_waits.verify.tempdb_catalog"),
             Investigation::MemoryTarget(
                 PageWaitTargetKind::Pfs | PageWaitTargetKind::Gam | PageWaitTargetKind::Sgam | PageWaitTargetKind::Iam,
             ) => t!("view.page_waits.verify.allocation"),
@@ -415,6 +434,7 @@ fn investigation_message(investigation: Investigation) -> &'static str {
     match investigation {
         Investigation::Unresolved => key!("view.page_waits.investigation.unresolved"),
         Investigation::Storage => key!("view.page_waits.investigation.io"),
+        Investigation::TempdbSystemCatalog => key!("view.page_waits.investigation.tempdb_catalog"),
         Investigation::MemoryLeaf(_) => key!("view.page_waits.investigation.leaf_position"),
         Investigation::MemoryTarget(kind) => match kind {
             PageWaitTargetKind::IndexLeaf => key!("view.page_waits.investigation.leaf"),
