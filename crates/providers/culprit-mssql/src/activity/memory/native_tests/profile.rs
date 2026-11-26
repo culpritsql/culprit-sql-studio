@@ -15,8 +15,8 @@ pub(super) struct PoolMemory {
 
 pub(super) const STANDARD_POOL_MEMORY: PoolMemory = PoolMemory { min_percent: 0, max_percent: 20 };
 // Keep `min_percent = 0` so `default` pool (`CACHESTORE_OBJCP`) retains full target memory, and size `grant_pool`
-// to 25% (`~641 MiB * 3 = 1.88 GiB <= 2.00 GiB` on the 4 GiB scalar-grant fixture) so both `grant_pool` and
-// `default` pool keep ample headroom while `WORKLOAD` holds its 70% sort grant.
+// to 25% (`~641 MiB * 3 = 1.88 GiB <= 2.00 GiB` on the 4 GiB scalar-grant fixture) while `WORKLOAD`'s 55% grant
+// (`41.25%` of `grant_pool`, below SQLOS's 50% pool cache-shrink threshold) leaves `MEMORYBROKER_FOR_CACHE` intact.
 pub(super) const SCALAR_QUEUE_POOL_MEMORY: PoolMemory = PoolMemory { min_percent: 0, max_percent: 25 };
 const REQUEST_GRANT_PERCENT: i64 = 100;
 

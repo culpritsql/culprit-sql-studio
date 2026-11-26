@@ -128,6 +128,8 @@ async fn local_blocking_uses_the_shared_reader_for_live_and_export_at_compatibil
     result.unwrap();
     drop(waiter);
     drop(blocker);
+    // Closed client sockets are not a synchronous server session-census acknowledgement.
+    batch(&mut admin, "WAITFOR DELAY '00:00:00.050'").await;
     let after = crate::live::collect(pool.clone(), "127.0.0.1".into(), port, false).await.unwrap();
     assert!(!after.sessions.iter().any(|session| session.id == waiter_id || session.id == blocker_id));
     // The shared source returns only fully drained statistics sessions to the existing pool.

@@ -21,7 +21,7 @@ const STATEMENT: &str =
     "SELECT SUM(CONVERT(bigint,LEN(r.pad))) AS scalar_original_probe FROM dbo.scalar_rows r WHERE r.bucket=@bucket";
 // A single same-result aggregation gives the existing scalar input a genuine execution grant. This is
 // nonce-fixture workload only; it changes neither production acquisition nor application advice.
-const GRANT_COUNTED_STATEMENT: &str = "SELECT COUNT_BIG(r.pad) AS scalar_original_probe FROM dbo.scalar_rows r WHERE r.bucket=@bucket GROUP BY r.pad OPTION(HASH GROUP,MAXDOP 1,MIN_GRANT_PERCENT=70,MAX_GRANT_PERCENT=70)";
+const GRANT_COUNTED_STATEMENT: &str = "SELECT COUNT_BIG(r.pad) AS scalar_original_probe FROM dbo.scalar_rows r WHERE r.bucket=@bucket GROUP BY r.pad OPTION(HASH GROUP,MAXDOP 1,MIN_GRANT_PERCENT=55,MAX_GRANT_PERCENT=55)";
 const COUNTED_STATEMENT: &str =
     "SELECT COUNT_BIG(r.pad) AS scalar_original_probe FROM dbo.scalar_rows r WHERE r.bucket=@bucket";
 

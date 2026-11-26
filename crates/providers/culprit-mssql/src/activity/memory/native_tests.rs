@@ -23,7 +23,7 @@ const CASE_TIMEOUT: Duration = Duration::from_secs(300);
 pub(crate) const CONTROL_TIMEOUT: Duration = Duration::from_secs(10);
 const ACTOR_DRAIN_TIMEOUT: Duration = Duration::from_secs(20);
 const OBSERVATION_INTERVAL: Duration = Duration::from_millis(100);
-const WORKLOAD: &str = "SELECT id,payload FROM dbo.request_memory_fixture ORDER BY payload,id OPTION(MAXDOP 1,MIN_GRANT_PERCENT=70,MAX_GRANT_PERCENT=70)";
+const WORKLOAD: &str = "SELECT id,payload FROM dbo.request_memory_fixture ORDER BY payload,id OPTION(MAXDOP 1,MIN_GRANT_PERCENT=55,MAX_GRANT_PERCENT=55)";
 
 #[derive(Clone, Copy)]
 enum Case {
