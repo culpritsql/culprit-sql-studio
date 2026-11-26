@@ -3,7 +3,7 @@
 FROM debian:bookworm-slim@sha256:734a72b3d6142a71993b4bc580ca01d8ca687f77a2c422d96a961d3376b179bc
 ARG TARGETARCH
 ARG OCI_SOURCE=https://github.com/culpritsql/culprit-sql-studio
-ARG OCI_VERSION=0.6.0
+ARG OCI_VERSION=0.6.1
 ARG OCI_REVISION=unknown
 LABEL org.opencontainers.image.title="Culprit Collector" \
       org.opencontainers.image.description="Bounded, read-only database telemetry collector and pure diagnostic synthesizer" \

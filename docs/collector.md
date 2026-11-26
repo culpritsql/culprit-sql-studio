@@ -2044,7 +2044,7 @@ on release tags). The image runs `/usr/local/bin/culprit` directly, so operators
 without installing a local CLI:
 
 ```sh
-docker run --rm ghcr.io/culpritsql/culprit-collector:v0.6.0 collect schema --store adx --format json
+docker run --rm ghcr.io/culpritsql/culprit-collector:v0.6.1 collect schema --store adx --format json
 ```
 
 The companion OCI Helm chart (`oci://ghcr.io/culpritsql/charts/culprit-collector`, source in

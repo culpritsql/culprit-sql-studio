@@ -2,6 +2,21 @@
 
 Each release's notes are its section below: the release workflow publishes them on GitHub, and the desktop app shows them when it offers the update. A release without a section here isn't drafted.
 
+## 0.6.1
+
+### Added
+
+- **Qualified automatic SQL Server recipes and bounded incident follow-ups.** Validated built-in safety policies for bounded SQL Server and Azure SQL Database baseline recipes (`activity`, `settings`, `cleanup`, `operational`, `memory-failures`, `wait-counters` and `deadlock-history`) alongside bounded root-cause follow-up investigations across SQL Server, PostgreSQL and MySQL (blocking chains, live execution profiles, cache-entry memory, worker starvation, compiler admission, request memory grants, page-latch hot targets/holders/writers, Hyperscale log components, retained plans, tempdb task space and query compilation).
+- **Six SQL Server production root-cause diagnoses and Gold deadlock synthesis.** Synthesize synchronous statistics refresh stalls (`sync-stats-refresh`), lock escalations (`lock-escalations`), blocked log reuse (`log-reuse-blocked`), operational pressure and configuration checks directly into `CulpritFindingsV1`, and synthesize bounded deadlock baselines into `CulpritIncidentsV1`.
+- **Cloud posture checks and standalone catalog synthesis.** Added `Category::Posture` checks (`public-endpoint`, `unencrypted-connections`, `password-auth-enabled`, `audit-disabled`, `backup-retention-short` and `integrity-check-overdue`), cloud posture adapters, `PostureSnapshot` collection and standalone catalog warehouse synthesis.
+- **Fleet triage, read-only archive web viewer and archived plan MCP tools.** Added warehouse-wide fleet summary views (`$NFleetSummary`), `culprit agent triage`, `fleet_attention` and archived execution plan MCP tools, archive compare views and the standalone `culprit-archive-web` viewer.
+- **Alert notification engine and cloud inventory shard planner.** Added pluggable alert evaluation over warehouse windows with five notification channel sinks (`culprit notify`) and `culprit collect sync-inventory` with Helm and JSON shard configuration renderers.
+
+### Fixes
+
+- **Azure SQL Database process-epoch qualification.** Qualify local source and elastic-pool startup epochs from `sys.dm_os_sys_info` when `SERVERPROPERTY('ProcessID')` returns `NULL` on Azure SQL Database (`EngineEdition = 5`), and check `VIEW DATABASE STATE` / `VIEW DATABASE PERFORMANCE STATE` alongside `##MS_ServerStateReader##` so contained database identities acquire verified source continuity on standalone tiers and server-state-enabled elastic pools.
+- **Packaging, cross-platform inventory rendering and mobile archive layout.** Dropped legacy Intel macOS desktop builds with parallelized release codegen, used OS-native secret token paths in `JsonConfigRenderer` on Windows, and fixed segmented archive filter wrapping on narrow viewports.
+
 ## 0.6.0
 
 ### Added

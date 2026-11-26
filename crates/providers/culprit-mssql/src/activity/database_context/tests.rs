@@ -84,9 +84,32 @@ async fn azure_context_reads_its_bounded_guarded_process_epoch_without_the_boxed
     assert!(reader.io.calls.iter().all(|call| !call.sql.contains("sys.database_recovery_status")));
     assert!(reader.io.calls[1].sql.contains("sys.dm_user_db_resource_governance"));
     assert!(reader.io.calls[1].sql.contains("FROM sys.dm_os_sys_info OPTION(MAXDOP 1)"));
+    assert!(reader.io.calls[1].sql.contains("HAS_PERMS_BY_NAME(DB_NAME(),'DATABASE','VIEW DATABASE STATE')=1"));
+    assert!(
+        reader.io.calls[1].sql.contains("HAS_PERMS_BY_NAME(DB_NAME(),'DATABASE','VIEW DATABASE PERFORMANCE STATE')=1")
+    );
     assert!(reader.io.calls[1].sql.contains("IS_SRVROLEMEMBER('##MS_ServerStateReader##')=1"));
     assert!(reader.io.calls[1].sql.contains("ERROR_NUMBER() NOT IN(229,297,300) THROW"));
     assert_eq!(initial.source_instance().unwrap().native.id, "91487244-730d-4b83-8e49-d482241c7288");
+}
+
+#[tokio::test]
+async fn azure_null_process_id_qualifies_epoch_from_sys_info_startup_ticks_and_rejects_zero_pid() {
+    let azure_null_pid = replace(&row(5), &[("local_process_id", Val::Null)]);
+    let mut owner =
+        reader(vec![Ok(vec![azure_null_pid.clone()]), Ok(vec![azure_null_pid])], IdentityDetail::AzureDatabase);
+    let before = initial(&mut owner).await.unwrap();
+    let after = recheck(&mut owner, &before).await.unwrap();
+    assert!(before.is_qualified());
+    assert!(before.same_source(&after));
+    assert!(before.capture_context().unwrap().epoch.is_some());
+    assert!(before.source_partition().unwrap().is_qualified());
+    assert_eq!(owner.query_count(), 2);
+
+    let zero_pid = replace(&row(5), &[("local_process_id", Val::Int(0))]);
+    let mut invalid = reader(vec![Ok(vec![zero_pid])], IdentityDetail::AzureDatabase);
+    let error = initial(&mut invalid).await.err().unwrap();
+    assert_eq!(CollectionStop::from_error(&error), CollectionStop::InvalidPage);
 }
 
 #[tokio::test]
@@ -94,7 +117,7 @@ async fn missing_or_masked_azure_member_process_and_role_facts_do_not_gain_autho
     for changes in [
         vec![("replica_id", Val::Null)],
         epoch_fields(false),
-        vec![("local_process_id", Val::Null)],
+        vec![("local_started_ticks", Val::Null)],
         vec![("updateability", Val::Null)],
     ] {
         let unqualified = replace(&row(5), &changes);

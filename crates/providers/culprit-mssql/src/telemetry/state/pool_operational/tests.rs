@@ -484,6 +484,33 @@ async fn a_native_error_that_retires_the_reader_stops_before_replacement_setup_o
     source.close().await;
 }
 
+#[tokio::test]
+async fn azure_null_process_id_qualifies_pool_epoch_and_matches_null_counter_witness() {
+    let mut data = replies();
+    for index in [2, 16, 19] {
+        data[index] = Ok(vec![replace(&process(), &[("local_process_id", Val::Null)])]);
+    }
+    for row in data[10].as_mut().unwrap() {
+        *row = replace(row, &[("process_id", Val::Null)]);
+    }
+    let mut source = scripted_source(data, 22);
+    let original = source.describe().await.unwrap();
+    let authority = mssql_pool_current_authority(&original).unwrap().unwrap();
+    assert!(authority.native.as_ref().unwrap().before.observed().is_some());
+    assert!(
+        original
+            .observation
+            .snapshot()
+            .unwrap()
+            .sources
+            .iter()
+            .all(|coverage| coverage.state != SourceState::Unavailable)
+    );
+    assert!(!drain(&mut source).await.is_empty());
+    assert_eq!(source.finish().await.unwrap(), SourceCompletion::Verified);
+    source.close().await;
+}
+
 #[test]
 fn the_closed_pool_route_is_only_an_unqualified_baseline_recipe_not_a_measured_or_automatic_admission() {
     let recipe = crate::telemetry::recipes().into_iter().find(|recipe| recipe.id == "mssql.pool-operational").unwrap();
