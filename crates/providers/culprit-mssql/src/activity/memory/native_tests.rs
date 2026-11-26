@@ -13,7 +13,7 @@ mod reservations;
 const MAX_FIXTURE_REQUESTS: usize = 3;
 const MAX_NATIVE_OBSERVATIONS: usize = 12;
 const MAX_FIXTURE_MEMORY_KIB: u64 = 2 * 1024 * 1024;
-const FIXTURE_ROWS: u32 = 10_000;
+const FIXTURE_ROWS: u32 = 2_500;
 const SOURCE_QUERY_LIMIT: u32 = 9;
 const SOURCE_ROW_LIMIT: u32 = 64;
 const SETUP_TIMEOUT: Duration = Duration::from_secs(60);

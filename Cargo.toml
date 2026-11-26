@@ -106,7 +106,11 @@ split-debuginfo = "off"
 [profile.dev.package."*"]
 debug = false
 
-# Keep pure-Rust TDS row decoding fast in unoptimized native smoke tests so draining 20 MiB of held
+# Keep pure-Rust TDS framing/decoding fast in unoptimized native smoke tests so draining held
 # sort output completes in tens of milliseconds instead of crossing SQLOS's 1-second ResourceMonitor tick.
+[profile.dev.package.bytes]
+opt-level = 2
+[profile.dev.package.tokio-util]
+opt-level = 2
 [profile.dev.package.tiberius]
 opt-level = 2
