@@ -689,7 +689,7 @@ server_version="$1"
 test -n "$server_version"
 binary_sha=$(sha256sum /opt/mssql/bin/sqlservr)
 sed 's|/prod|/mssql-server-2022|' /etc/apt/sources.list.d/microsoft-prod.list > /etc/apt/sources.list.d/mssql-server-2022.list
-apt_opts="-o Acquire::ForceIPv4=true -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30"
+apt_opts="-o Acquire::ForceIPv4=true -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 -o Dir::Etc::sourcelist=/etc/apt/sources.list.d/mssql-server-2022.list -o Dir::Etc::sourceparts=- -o APT::Get::List-Cleanup=0"
 apt-get $apt_opts update
 tmpdir=$(mktemp -d)
 chmod 0755 "$tmpdir"

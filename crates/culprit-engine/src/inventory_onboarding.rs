@@ -227,6 +227,7 @@ fn stored_connection_from_onboarded(conn: &OnboardedConnection) -> StoredConnect
 fn build_credentials_and_bindings(
     shard: &PlannedShard,
     target: &OnboardingTargetSpec,
+    token_file: &Path,
 ) -> (Map<String, Value>, BTreeMap<String, String>) {
     let mut credentials = Map::new();
     let mut source_credentials = BTreeMap::new();
@@ -240,7 +241,7 @@ fn build_credentials_and_bindings(
                 "kind": "workload-identity",
                 "tenant_id": tid,
                 "client_id": cid,
-                "token_file": "/var/run/secrets/culprit/token"
+                "token_file": token_file
             }
         }),
         _ => json!({
@@ -388,7 +389,8 @@ impl InventoryRenderer for HelmValuesRenderer {
         let limits = OutboxLimits::default();
 
         for shard in &plan.shards {
-            let (credentials, source_credentials) = build_credentials_and_bindings(shard, target);
+            let (credentials, source_credentials) =
+                build_credentials_and_bindings(shard, target, Path::new("/var/run/secrets/culprit/token"));
             let (recovery, target_cfg) = recovery_and_target_json(&shard.shard, target);
 
             let mut helm_connections = Map::new();
@@ -512,7 +514,13 @@ impl InventoryRenderer for JsonConfigRenderer {
             let shard_root = self.runtime_root.join(&shard.shard);
             let workspace_dir = shard_root.join("workspace");
             let state_dir = shard_root.join("state");
-            let (credentials, source_credentials) = build_credentials_and_bindings(shard, target);
+            let default_token = Path::new("/var/run/secrets/culprit/token");
+            let token_file = if self.runtime_root == Path::new("/var/lib/culprit") && default_token.is_absolute() {
+                default_token.to_path_buf()
+            } else {
+                shard_root.join("secrets").join("token")
+            };
+            let (credentials, source_credentials) = build_credentials_and_bindings(shard, target, &token_file);
             let (recovery, target_cfg) = recovery_and_target_json(&shard.shard, target);
 
             let collector_json = serde_json::to_string_pretty(&json!({

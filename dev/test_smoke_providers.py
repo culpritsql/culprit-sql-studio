@@ -834,6 +834,8 @@ class MssqlNativePrerequisites(unittest.TestCase):
         self.assertEqual(command[:8], ["docker", "exec", "--user", "0", "-i", database.name, "sh", "-ec"])
         self.assertEqual(command[-2:], ["fts-install", "16.0.4325.4"])
         self.assertIn('"mssql-server-fts=${server_version}-*"', command[8])
+        self.assertIn("Dir::Etc::sourcelist=/etc/apt/sources.list.d/mssql-server-2022.list", command[8])
+        self.assertIn("Dir::Etc::sourceparts=-", command[8])
         self.assertEqual(command[8].count("sha256sum /opt/mssql/bin/sqlservr"), 2)
         self.assertIn("dpkg-deb -x", command[8])
         self.assertIn("sqlservr.fts.sfp", command[8])
