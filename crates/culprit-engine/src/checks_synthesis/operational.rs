@@ -48,6 +48,9 @@ fn references(original: &dyn OriginalProjection, finding: &Finding) -> Result<Ve
             (TelemetryRecord::Operational(obs), "held-cleanup") => {
                 matches!(obs.fact, OperationalFact::MssqlCleanupHorizon(_))
             }
+            (TelemetryRecord::WaitCounter(obs), "sync-stats-refresh") => {
+                obs.wait_type == "WAIT_ON_SYNC_STATISTICS_REFRESH"
+            }
             (TelemetryRecord::Deadlock(_), "deadlocks") => true,
             _ => false,
         };

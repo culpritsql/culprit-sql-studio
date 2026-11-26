@@ -351,7 +351,7 @@ fn the_local_family_policy_is_closed_and_the_selected_catalog_stays_unqualified(
         .collect::<Vec<_>>();
     assert_eq!(admitted, OPERATIONAL_SOURCES);
     let recipe = crate::telemetry::recipes().into_iter().find(|recipe| recipe.id == "mssql.operational").unwrap();
-    assert!(matches!(recipe.admission, RecipeAdmission::Unqualified));
+    assert!(matches!(recipe.admission, RecipeAdmission::BuiltinSafety(_)));
     assert_eq!(recipe.purpose, RecipePurpose::Baseline);
     for max_queries in [1, 7, FULL_TOTAL_QUERIES - 1, FULL_TOTAL_QUERIES, 64] {
         let mut caller = full_request();

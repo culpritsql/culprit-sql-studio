@@ -784,7 +784,17 @@ fn standard_builtin_mssql_enrollment_needs_no_operator_receipt_and_never_constru
     assert_eq!(calls.load(Ordering::SeqCst), 0);
     let mut enrolled: Vec<&str> = plan.summary.automatic.iter().map(|entry| entry.recipe_id.as_str()).collect();
     enrolled.sort_unstable();
-    assert_eq!(enrolled, ["mssql.activity", "mssql.deadlock-history", "mssql.settings"]);
+    assert_eq!(
+        enrolled,
+        [
+            "mssql.activity",
+            "mssql.cleanup",
+            "mssql.deadlock-history",
+            "mssql.operational",
+            "mssql.settings",
+            "mssql.wait-counters",
+        ]
+    );
     assert!(
         plan.profiles.values().all(|profile| profile.qualification().is_none() && profile.builtin_policy().is_some())
     );
@@ -808,14 +818,23 @@ fn standard_builtin_mssql_enrollment_needs_no_operator_receipt_and_never_constru
     };
     config.inventory.targets.push(shared_target);
     let with_instance = Enrollment::resolve(&workspace, &config).unwrap();
-    let instance_enrolled: Vec<&str> = with_instance
+    let mut instance_enrolled: Vec<&str> = with_instance
         .summary
         .automatic
         .iter()
         .filter(|entry| entry.target == "fixture-instance")
         .map(|entry| entry.recipe_id.as_str())
         .collect();
-    assert_eq!(instance_enrolled, ["mssql.system-health-deadlocks"]);
+    instance_enrolled.sort_unstable();
+    assert_eq!(
+        instance_enrolled,
+        [
+            "mssql.instance-wait-counters",
+            "mssql.memory-failures",
+            "mssql.shared-operational",
+            "mssql.system-health-deadlocks",
+        ]
+    );
 }
 
 #[cfg(feature = "postgres")]

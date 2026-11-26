@@ -23,7 +23,7 @@ fn registered_source_versions_include_native_acquisition_policy_revisions() {
             ("mssql.database-performance-counters", 3),
             ("mssql.suspect-pages", 3),
             ("mssql.agent-jobs", 2),
-            ("mssql.hyperscale-log-components", 3),
+            ("mssql.hyperscale-log-components", 4),
             ("mssql.query-history", 8),
             ("mssql.resource-history", 4),
             ("mssql.pool-resource-history", 2),
@@ -32,7 +32,7 @@ fn registered_source_versions_include_native_acquisition_policy_revisions() {
             ("mssql.activity", 8),
             ("mssql.blocking", 3),
             ("mssql.page-wait-targets", 4),
-            ("mssql.page-wait-tasks", 4),
+            ("mssql.page-wait-tasks", 5),
             ("mssql.shared-tempdb-page-wait-targets", 5),
             ("mssql.focused-page-wait", 4),
             ("mssql.focused-page-task-holders", 4),
@@ -46,18 +46,19 @@ fn registered_source_versions_include_native_acquisition_policy_revisions() {
             ("mssql.focused-request-memory", 7),
             ("mssql.cache-entry-memory", 3),
             ("mssql.task-space", 6),
-            ("mssql.cleanup", 4),
+            ("mssql.cleanup", 5),
             ("mssql.columnstore-rowgroups", 3),
             ("mssql.cdc", 3),
             ("mssql.backup-history", 3),
-            ("mssql.operational", 12),
-            ("mssql.shared-operational", 12),
+            ("mssql.operational", 13),
+            ("mssql.shared-operational", 13),
             ("mssql.pool-operational", 2),
-            ("mssql.memory-failures", 2),
+            ("mssql.memory-failures", 3),
             ("mssql.plan-cache-summary", 2),
             ("mssql.missing-indexes", 3),
             ("mssql.tuning", 4),
-            ("mssql.wait-counters", 2),
+            ("mssql.wait-counters", 3),
+            ("mssql.instance-wait-counters", 2),
             ("mssql.replication", 4),
             ("mssql.settings", 8),
             ("mssql.statement-grants", 3),
@@ -483,7 +484,7 @@ fn hyperscale_component_source_is_independent_and_does_not_grant_automatic_produ
     let declarations = declarations();
     let recipe = declarations.iter().find(|recipe| recipe.id == "mssql.hyperscale-log-components").unwrap();
     assert_eq!(recipe.purpose, RecipePurpose::Investigation);
-    assert_eq!(recipe.admission, RecipeAdmission::Unqualified);
+    assert!(matches!(recipe.admission, RecipeAdmission::BuiltinSafety(_)));
     assert_eq!(recipe.budget.max_queries, 11, "ten reader queries and one possible session SET batch");
     assert_eq!(
         recipe.selector,
@@ -495,9 +496,9 @@ fn hyperscale_component_source_is_independent_and_does_not_grant_automatic_produ
 fn cleanup_recipe_keeps_its_local_three_family_envelope_separate_from_azure_operational() {
     let recipes = declarations();
     let cleanup = recipes.iter().find(|recipe| recipe.id == "mssql.cleanup").unwrap();
-    assert_eq!(cleanup.version, 4);
-    assert_eq!(cleanup.purpose, RecipePurpose::Investigation);
-    assert_eq!(cleanup.admission, RecipeAdmission::Unqualified);
+    assert_eq!(cleanup.version, 5);
+    assert_eq!(cleanup.purpose, RecipePurpose::Baseline);
+    assert!(matches!(cleanup.admission, RecipeAdmission::BuiltinSafety(_)));
     assert_eq!(cleanup.subjects, vec![RecipeSubject::Database]);
     assert_eq!(cleanup.budget.max_queries, super::super::cleanup::MAX_QUERIES);
     assert_eq!(cleanup.budget.max_snapshot_rows, 3);
@@ -836,9 +837,9 @@ fn local_file_census_registration_keeps_ordinary_bounds_and_unqualified_admissio
     assert_eq!(registration.subjects, [RecipeSubject::Database]);
     let descriptor = registration.descriptor();
     assert_eq!(descriptor.purpose, RecipePurpose::Baseline);
-    assert_eq!(descriptor.admission, RecipeAdmission::Unqualified);
-    assert_eq!(descriptor.budget, CollectionBudget::upper_limits());
-    assert_eq!(descriptor.version, 12);
+    assert!(matches!(descriptor.admission, RecipeAdmission::BuiltinSafety(_)));
+    assert_eq!(descriptor.budget, state::operational_budget(&CollectionBudget::upper_limits()));
+    assert_eq!(descriptor.version, 13);
 }
 
 #[test]
@@ -921,13 +922,15 @@ fn instance_waits_are_explicit_unqualified_and_share_the_original_pool_envelope_
     let database = declarations.iter().find(|recipe| recipe.id == "mssql.wait-counters").unwrap();
     assert_eq!(instance.subjects, [RecipeSubject::Shared(SharedResourceKind::Instance)]);
     assert_eq!(instance.purpose, RecipePurpose::Baseline);
-    assert_eq!(instance.admission, RecipeAdmission::Unqualified);
-    assert_eq!(instance.version, 1);
+    assert!(matches!(instance.admission, RecipeAdmission::BuiltinSafety(_)));
+    assert_eq!(instance.version, 2);
     assert_eq!(instance.budget, pool.budget, "the shared envelope retains every existing pool ceiling");
     assert_eq!(instance.budget.max_queries, 8);
     assert_eq!(instance.budget.max_snapshot_rows, 500);
     assert_eq!(database.subjects, [RecipeSubject::Database]);
-    assert_eq!(database.version, 2);
+    assert!(matches!(database.admission, RecipeAdmission::BuiltinSafety(_)));
+    assert_eq!(database.budget, instance.budget);
+    assert_eq!(database.version, 3);
     for kind in [
         RecipeSubject::Database,
         RecipeSubject::Shared(SharedResourceKind::Pool),

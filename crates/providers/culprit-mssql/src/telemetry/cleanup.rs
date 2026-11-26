@@ -43,14 +43,47 @@ struct CleanupReader<R: NativeRead> {
     host: String,
     port: u16,
     context: Option<Context>,
+    builtin_policy: Option<BuiltinRecipeSafety>,
 }
 impl CleanupSource {
     pub fn new(pool: Arc<Pool>, request: &CollectionRequest, host: String, port: u16) -> Result<Self> {
         Self::with_io(ReadSession::collection(pool, bounded_budget(&request.budget))?, request, host, port)
     }
 }
+pub(super) fn profile_source(
+    pool: Arc<Pool>,
+    request: &CollectionRequest,
+    host: String,
+    port: u16,
+    admission: &SourceProfileAdmission,
+) -> Result<Box<dyn TelemetrySource>> {
+    request.validate()?;
+    request.subject.require_database()?;
+    if request.selection != (CollectionSelection::Snapshot { dataset: SnapshotDataset::Cleanup }) {
+        return Err(invalid_data());
+    }
+    if bounded_budget(&request.budget) != request.budget {
+        return Err(culprit_core::Error::new(
+            culprit_core::ErrorCode::Unsupported,
+            culprit_core::t!("collection.unsupported"),
+        ));
+    }
+    let guard = culprit_read::SourceProfileGuard::new(request, admission)?;
+    let io = ReadSession::collection(pool, request.budget.clone())?.with_profile(guard.clone());
+    let inner = CleanupSource::with_io_and_policy(io, request, host, port, admission.builtin_policy().cloned())?;
+    Ok(Box::new(culprit_read::GuardedTelemetrySource::new(inner, guard)))
+}
 impl<R: NativeRead> CleanupSource<R> {
     fn with_io(io: R, request: &CollectionRequest, host: String, port: u16) -> Result<Self> {
+        Self::with_io_and_policy(io, request, host, port, None)
+    }
+    fn with_io_and_policy(
+        io: R,
+        request: &CollectionRequest,
+        host: String,
+        port: u16,
+        builtin_policy: Option<BuiltinRecipeSafety>,
+    ) -> Result<Self> {
         request.validate()?;
         request.subject.require_database()?;
         if request.selection != (CollectionSelection::Snapshot { dataset: SnapshotDataset::Cleanup }) {
@@ -59,7 +92,7 @@ impl<R: NativeRead> CleanupSource<R> {
         let mut request = request.clone();
         request.budget = bounded_budget(&request.budget);
         request.budget.validate()?;
-        let reader = CleanupReader { io, host, port, context: None };
+        let reader = CleanupReader { io, host, port, context: None, builtin_policy };
         Ok(Self { inner: culprit_read::FrozenSource::new(reader, &request)? })
     }
 }
@@ -69,6 +102,9 @@ impl<R: NativeRead> culprit_read::ObservationReader for CleanupReader<R> {
     async fn observe(&mut self, request: &CollectionRequest) -> Result<culprit_read::FrozenObservation> {
         let context = Context::read(&mut self.io, &self.host, self.port).await?;
         require_local_instance(&context)?;
+        if let Some(policy) = &self.builtin_policy {
+            crate::builtin_safety::verify_activity(policy, context.activity.edition, context.activity.major)?;
+        }
         let mut records = Vec::new();
         let mut sources = Vec::new();
         for family in FAMILIES {

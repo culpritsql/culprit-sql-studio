@@ -577,3 +577,48 @@ fn shared_and_database_deadlock_captures_project_both_gold_incidents_and_databas
         finding_gold.findings.iter().find(|row| row.finding.check == "deadlocks").expect("deadlocks finding");
     assert_eq!(deadlock_finding.inputs, vec![db_basis.reference(0).unwrap()]);
 }
+
+#[tokio::test]
+async fn database_wait_counters_capture_synthesizes_sync_stats_refresh_in_gold() {
+    let source = mssql_database_base(
+        SnapshotDataset::WaitCounters,
+        vec![StateSourceCoverage::collected(source_id::WAITS.into(), 2)],
+        2,
+    );
+    let records = vec![
+        TelemetryRecord::WaitCounter(WaitCounterObservation {
+            mechanism: None,
+            source: source_id::WAITS.into(),
+            wait_type: "WAIT_ON_SYNC_STATISTICS_REFRESH".into(),
+            scope: MeasurementScope::Database,
+            reset: ResetMarker::Unknown,
+            waiting_tasks_count: "18".into(),
+            wait_time_ms: "12000".into(),
+            signal_wait_time_ms: "120".into(),
+            max_wait_time_ms: "2400".into(),
+        }),
+        TelemetryRecord::WaitCounter(WaitCounterObservation {
+            mechanism: None,
+            source: source_id::WAITS.into(),
+            wait_type: "SLEEP_TASK".into(),
+            scope: MeasurementScope::Database,
+            reset: ResetMarker::Unknown,
+            waiting_tasks_count: "500".into(),
+            wait_time_ms: "900000".into(),
+            signal_wait_time_ms: "10".into(),
+            max_wait_time_ms: "5000".into(),
+        }),
+    ];
+    let fixture = Fixture::new(source, records).await;
+    let capture = fixture.read_families(&[EvidenceFamily::WaitCounterSamples]).await;
+    let output = policy().synthesize_captures(&capture, &[], RECORDED_AT, &display()).unwrap();
+    output.validate().unwrap();
+    assert_eq!(output.description.output_coverage.findings, DerivedOutputCoverage::Evaluated);
+    let finding = output
+        .findings
+        .iter()
+        .find(|row| row.finding.check == "sync-stats-refresh")
+        .expect("sync-stats-refresh synthesized from database WaitCounters capture");
+    assert_eq!(finding.inputs, vec![capture.verified_original().unwrap().reference(0).unwrap()]);
+    assert_eq!(finding.guidance, DerivedGuidance::HistoricalRequiresFreshVerification);
+}

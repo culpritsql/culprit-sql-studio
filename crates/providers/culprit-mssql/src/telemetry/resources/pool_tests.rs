@@ -58,7 +58,7 @@ async fn the_provider_admits_only_its_supported_shared_route_without_opening_a_c
     assert_eq!(instance_waits.query_count(), 0, "construction grants no native instance wait authority");
     assert_eq!(instance_waits.close().await, SourceShutdown::Quiescent);
     let recipe = recipes.iter().find(|recipe| recipe.id == "mssql.instance-wait-counters").unwrap();
-    assert_eq!(recipe.admission, RecipeAdmission::Unqualified);
+    assert!(matches!(recipe.admission, RecipeAdmission::BuiltinSafety(_)));
     assert_eq!(recipe.budget.max_queries, 8);
     let CollectionSubject::Shared { resource } = &mut wanted.subject else { unreachable!() };
     resource.kind = SharedResourceKind::Node;

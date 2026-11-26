@@ -6,6 +6,7 @@ pub(crate) const BUILTIN_SAFETY_IDS: &[&str] = &[
     "mssql.activity",
     "mssql.blocking",
     "mssql.cache-entry-memory",
+    "mssql.cleanup",
     "mssql.current-execution-profile",
     "mssql.current-request-memory",
     "mssql.current-request-work",
@@ -17,12 +18,19 @@ pub(crate) const BUILTIN_SAFETY_IDS: &[&str] = &[
     "mssql.focused-request-memory",
     "mssql.focused-shared-compiler-admission",
     "mssql.focused-shared-tempdb-page-wait",
+    "mssql.hyperscale-log-components",
+    "mssql.instance-wait-counters",
+    "mssql.memory-failures",
+    "mssql.operational",
+    "mssql.page-wait-tasks",
     "mssql.query-compilation",
     "mssql.readable-secondary-recovery",
     "mssql.retained-plans",
     "mssql.settings",
+    "mssql.shared-operational",
     "mssql.system-health-deadlocks",
     "mssql.task-space",
+    "mssql.wait-counters",
     "mssql.worker-starvation",
 ];
 
@@ -38,9 +46,20 @@ pub(crate) fn policy(
             "mssql.deadlock-history" | "mssql.system-health-deadlocks",
             RecipeSelector::Collection(TelemetryCollection::DeadlockHistory),
         ) => RecipePurpose::Baseline,
-        ("mssql.settings", RecipeSelector::Collection(TelemetryCollection::Snapshot(SnapshotDataset::Settings))) => {
-            RecipePurpose::Baseline
-        }
+        ("mssql.settings", RecipeSelector::Collection(TelemetryCollection::Snapshot(SnapshotDataset::Settings)))
+        | ("mssql.cleanup", RecipeSelector::Collection(TelemetryCollection::Snapshot(SnapshotDataset::Cleanup)))
+        | (
+            "mssql.operational" | "mssql.shared-operational",
+            RecipeSelector::Collection(TelemetryCollection::Snapshot(SnapshotDataset::Operational)),
+        )
+        | (
+            "mssql.memory-failures",
+            RecipeSelector::Collection(TelemetryCollection::Snapshot(SnapshotDataset::MemoryFailures)),
+        )
+        | (
+            "mssql.wait-counters" | "mssql.instance-wait-counters",
+            RecipeSelector::Collection(TelemetryCollection::Snapshot(SnapshotDataset::WaitCounters)),
+        ) => RecipePurpose::Baseline,
         ("mssql.blocking", RecipeSelector::FocusedBlocking)
         | ("mssql.cache-entry-memory", RecipeSelector::CacheEntryMemory)
         | (
@@ -63,6 +82,11 @@ pub(crate) fn policy(
         | ("mssql.focused-shared-tempdb-page-wait", RecipeSelector::FocusedPageWait)
         | ("mssql.focused-page-task-holders", RecipeSelector::FocusedPageTaskHolders)
         | ("mssql.focused-page-wait-writers", RecipeSelector::FocusedPageWaitWriters)
+        | ("mssql.page-wait-tasks", RecipeSelector::PageWaitTasks)
+        | (
+            "mssql.hyperscale-log-components",
+            RecipeSelector::Collection(TelemetryCollection::Snapshot(SnapshotDataset::HyperscaleLogComponents)),
+        )
         | ("mssql.current-request-work", RecipeSelector::CurrentRequestWork)
         | (
             "mssql.retained-plans",
@@ -100,6 +124,17 @@ fn template_fingerprint() -> String {
         include_str!("settings.rs"),
         include_str!("settings/frame.rs"),
         include_str!("database_properties.rs"),
+        include_str!("operations.rs"),
+        include_str!("operations/native.rs"),
+        include_str!("storage_io.rs"),
+        include_str!("queues.rs"),
+        include_str!("open_transactions.rs"),
+        include_str!("version_store.rs"),
+        include_str!("version_store/persistent.rs"),
+        include_str!("memory_failures.rs"),
+        include_str!("oom_events.rs"),
+        include_str!("waits.rs"),
+        include_str!("page_waits.rs"),
         include_str!("activity/mod.rs"),
         include_str!("activity/sql.rs"),
         include_str!("activity/capture.rs"),
@@ -120,10 +155,12 @@ fn template_fingerprint() -> String {
         include_str!("telemetry/mod.rs"),
         include_str!("telemetry/recipes.rs"),
         include_str!("telemetry/activity/mod.rs"),
+        include_str!("telemetry/cleanup.rs"),
         include_str!("telemetry/events.rs"),
         include_str!("telemetry/blocking.rs"),
         include_str!("telemetry/cache_entry_memory.rs"),
         include_str!("telemetry/current_execution_profile.rs"),
+        include_str!("telemetry/hyperscale_log_components.rs"),
         include_str!("telemetry/readable_secondary_recovery.rs"),
         include_str!("telemetry/worker_starvation.rs"),
         include_str!("telemetry/compiler_admission.rs"),
@@ -135,7 +172,9 @@ fn template_fingerprint() -> String {
         include_str!("telemetry/compilation.rs"),
         include_str!("telemetry/streamed.rs"),
         include_str!("telemetry/state.rs"),
+        include_str!("telemetry/state/local_operational.rs"),
         include_str!("telemetry/state/settings.rs"),
+        include_str!("telemetry/state/wait_counters.rs"),
         include_str!("telemetry/subject.rs"),
         include_str!("telemetry/point.rs"),
         include_str!("../../../culprit-read/src/profile.rs"),
@@ -247,7 +286,7 @@ mod tests {
                     "template" => changed.templates_sha256 = digest(b"not-the-reader"),
                     "component" => changed.component.version.as_mut().unwrap().push_str("-foreign"),
                     "budget" => changed.budget.max_queries += 1,
-                    "selector" => changed.selector = RecipeSelector::PageWaitTasks,
+                    "selector" => changed.selector = RecipeSelector::FocusedMetadataLocks,
                     "version" => changed.version += 1,
                     "recipe" => changed.recipe_id = "mssql.page-wait-targets".into(),
                     _ => unreachable!(),

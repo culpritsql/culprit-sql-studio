@@ -152,7 +152,7 @@ const REGISTRATIONS: &[Registration] = &[
     )
     .bounded(hyperscale_log_components::bounded_budget)
     .on_editions(&[5])
-    .version(3),
+    .version(4),
     Registration::database(
         "mssql.query-history",
         RecipeSelector::Collection(TelemetryCollection::QueryHistory),
@@ -233,7 +233,7 @@ const REGISTRATIONS: &[Registration] = &[
         Ok(Box::new(page_waits::PageWaitSource::new(pool, request, host, port)?))
     })
     .bounded(page_waits::bounded_budget)
-    .version(4),
+    .version(5),
     Registration::database(
         "mssql.shared-tempdb-page-wait-targets",
         RecipeSelector::Collection(TelemetryCollection::Snapshot(SnapshotDataset::PageWaitTargets)),
@@ -332,7 +332,8 @@ const REGISTRATIONS: &[Registration] = &[
     )
     .bounded(cleanup::bounded_budget)
     .on_editions(crate::instance::SUPPORTED_EDITIONS)
-    .version(4),
+    .baseline()
+    .version(5),
     Registration::database("mssql.table-memory", RecipeSelector::TableMemory, |pool, request, host, port| {
         Ok(Box::new(table_memory::TableMemorySource::new(pool, request, host, port)?))
     })
@@ -378,7 +379,11 @@ const REGISTRATIONS: &[Registration] = &[
     .bounded(backup_history::bounded_budget)
     .on_editions(&[2, 3, 4, 5, 8])
     .version(3),
-    state!("mssql.operational", Operational).baseline().on_editions(&[2, 3, 4, 5, 8]).version(12),
+    state!("mssql.operational", Operational)
+        .bounded(state::operational_budget)
+        .baseline()
+        .on_editions(&[2, 3, 4, 5, 8])
+        .version(13),
     state!("mssql.process-cpu", ProcessCpu)
         .shared(&[RecipeSubject::Shared(SharedResourceKind::Instance)])
         .on_editions(&[2, 3, 4])
@@ -395,14 +400,15 @@ const REGISTRATIONS: &[Registration] = &[
         .version(2),
     state!("mssql.shared-operational", Operational)
         .shared(&[RecipeSubject::Shared(SharedResourceKind::Instance)])
+        .bounded(state::operational_budget)
         .baseline()
-        .version(12),
+        .version(13),
     state!("mssql.memory-failures", MemoryFailures)
         .shared(&[RecipeSubject::Shared(SharedResourceKind::Instance), RecipeSubject::Shared(SharedResourceKind::Pool)])
         .bounded(state::memory_failure_budget)
         .on_editions(&[crate::probe::ENGINE_EDITION_AZURE_SQL_DATABASE, crate::probe::ENGINE_EDITION_MANAGED_INSTANCE])
         .baseline()
-        .version(2),
+        .version(3),
     Registration::database(
         "mssql.native-failures",
         RecipeSelector::Collection(TelemetryCollection::Snapshot(SnapshotDataset::NativeFailures)),
@@ -429,12 +435,17 @@ const REGISTRATIONS: &[Registration] = &[
         .shared(&[RecipeSubject::Shared(SharedResourceKind::Pool)])
         .on_editions(&[crate::probe::ENGINE_EDITION_AZURE_SQL_DATABASE])
         .bounded(state::pool_current_budget),
-    state!("mssql.wait-counters", WaitCounters).baseline().version(2),
+    state!("mssql.wait-counters", WaitCounters)
+        .on_editions(&[crate::probe::ENGINE_EDITION_AZURE_SQL_DATABASE])
+        .bounded(state::wait_counter_budget)
+        .baseline()
+        .version(3),
     state!("mssql.instance-wait-counters", WaitCounters)
         .shared(&[RecipeSubject::Shared(SharedResourceKind::Instance)])
         .on_editions(crate::instance::SUPPORTED_EDITIONS)
         .bounded(state::wait_counter_budget)
-        .baseline(),
+        .baseline()
+        .version(2),
     Registration::database(
         "mssql.replication",
         RecipeSelector::Collection(TelemetryCollection::Snapshot(SnapshotDataset::Replication)),
@@ -521,7 +532,11 @@ pub(super) fn profile_selectors() -> Vec<RecipeSelector> {
     vec![
         RecipeSelector::Collection(TelemetryCollection::Activity),
         RecipeSelector::Collection(TelemetryCollection::DeadlockHistory),
+        RecipeSelector::Collection(TelemetryCollection::Snapshot(SnapshotDataset::Cleanup)),
+        RecipeSelector::Collection(TelemetryCollection::Snapshot(SnapshotDataset::MemoryFailures)),
+        RecipeSelector::Collection(TelemetryCollection::Snapshot(SnapshotDataset::Operational)),
         RecipeSelector::Collection(TelemetryCollection::Snapshot(SnapshotDataset::Settings)),
+        RecipeSelector::Collection(TelemetryCollection::Snapshot(SnapshotDataset::WaitCounters)),
     ]
 }
 

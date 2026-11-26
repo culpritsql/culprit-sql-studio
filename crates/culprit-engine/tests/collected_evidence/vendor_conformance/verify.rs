@@ -894,7 +894,15 @@ async fn watcher_59_datasets_map_to_registered_recipes_sources_and_canonical_pro
         );
         let builtin = matches!(
             spec.recipe_id,
-            "mssql.activity" | "mssql.blocking" | "mssql.readable-secondary-recovery" | "mssql.settings"
+            "mssql.activity"
+                | "mssql.blocking"
+                | "mssql.instance-wait-counters"
+                | "mssql.memory-failures"
+                | "mssql.operational"
+                | "mssql.readable-secondary-recovery"
+                | "mssql.settings"
+                | "mssql.shared-operational"
+                | "mssql.wait-counters"
         );
         assert_eq!(
             matches!(recipe.admission, RecipeAdmission::BuiltinSafety(_)),

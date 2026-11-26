@@ -1,8 +1,8 @@
-//! Database-scoped Operational, Cleanup, and PlanCacheSummary captures feed pure checks without a connection.
+//! Database-scoped Operational, Cleanup, PlanCacheSummary, WaitCounters, and DeadlockHistory captures feed pure checks without a connection.
 use super::*;
 use culprit_core::{
     CleanupHolder, Deadlock, DeadlockReport, MeasurementScope, OpenTransaction, PlanCacheUse, Pressure, Report,
-    TransactionActivity, operations::SpaceUsage, telemetry::*,
+    TransactionActivity, WaitStat, operations::SpaceUsage, telemetry::*,
 };
 use std::collections::BTreeMap;
 
@@ -17,7 +17,10 @@ pub(crate) fn supports_operational(original: &dyn OriginalProjection) -> bool {
             || original.source().observation.snapshot().is_some_and(|snapshot| {
                 matches!(
                     snapshot.dataset,
-                    SnapshotDataset::Operational | SnapshotDataset::PlanCacheSummary | SnapshotDataset::Cleanup
+                    SnapshotDataset::Operational
+                        | SnapshotDataset::PlanCacheSummary
+                        | SnapshotDataset::Cleanup
+                        | SnapshotDataset::WaitCounters
                 )
             }))
 }
@@ -67,6 +70,7 @@ pub(crate) fn analyze_operational_original(
             SnapshotDataset::Operational => populate_operational(original, &mut snapshot)?,
             SnapshotDataset::PlanCacheSummary => populate_plan_cache(original, &mut snapshot)?,
             SnapshotDataset::Cleanup => populate_cleanup(original, &mut snapshot)?,
+            SnapshotDataset::WaitCounters => populate_wait_counters(original, &mut snapshot)?,
             _ => return Err(invalid()),
         }
     } else if let SourceObservation::RetainedEvents(events) = &source.observation {
@@ -176,6 +180,53 @@ fn populate_cleanup(original: &dyn OriginalProjection, snapshot: &mut Snapshot) 
         }
     }
     apply_mssql_cleanup_facts(&read.observations, snapshot);
+    Ok(())
+}
+
+fn populate_wait_counters(original: &dyn OriginalProjection, snapshot: &mut Snapshot) -> Result<()> {
+    let mut rows = Vec::with_capacity(original.records().len());
+    for row in original.records() {
+        let TelemetryRecord::WaitCounter(obs) = &row.row().record else { return Err(invalid()) };
+        rows.push(obs.clone());
+    }
+    let read = WaitCounterSnapshot::from_source(original.source(), rows, original.is_read_complete())?;
+    if !read.is_valid_for(snapshot.server.engine) {
+        return Err(invalid());
+    }
+    for coverage in &read.sources {
+        set_source_state(snapshot, &coverage.source, coverage.state, original.is_read_complete());
+    }
+    let mut waits = Vec::new();
+    for obs in &read.observations {
+        if obs.scope != MeasurementScope::Database || obs.wait_type.starts_with("SLEEP_") {
+            continue;
+        }
+        let wait_ms = obs.wait_time_ms.parse::<u64>().map_err(|_| invalid())? as f64;
+        if wait_ms <= 0.0 {
+            continue;
+        }
+        let tasks = obs.waiting_tasks_count.parse::<u64>().map_err(|_| invalid())? as f64;
+        let category = if let Some(mechanism) = obs.mechanism {
+            mechanism.class().category()
+        } else if matches!(
+            obs.wait_type.as_str(),
+            "WAIT_ON_SYNC_STATISTICS_REFRESH" | "RESOURCE_SEMAPHORE_QUERY_COMPILE"
+        ) {
+            "Compilation"
+        } else {
+            "Other"
+        };
+        waits.push(WaitStat {
+            mechanism: obs.mechanism,
+            category: category.into(),
+            wait_type: Some(obs.wait_type.clone()),
+            wait_ms,
+            tasks: (tasks > 0.0).then_some(tasks),
+        });
+    }
+    waits.sort_by(|a, b| b.wait_ms.total_cmp(&a.wait_ms).then_with(|| a.wait_type.cmp(&b.wait_type)));
+    snapshot.waits = waits;
+    snapshot.pressure.get_or_insert_with(Pressure::default).wait_counters = Some(Box::new(read));
     Ok(())
 }
 

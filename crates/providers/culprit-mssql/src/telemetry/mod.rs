@@ -76,8 +76,14 @@ pub(crate) fn profile_source(
         RecipeSelector::Collection(TelemetryCollection::DeadlockHistory) => {
             events::profile_source(pool, request, host, port, profile)
         }
-        RecipeSelector::Collection(TelemetryCollection::Snapshot(SnapshotDataset::Settings)) => {
-            Ok(Box::new(state::StateSource::for_profile(pool, request, host, port, profile)?))
+        RecipeSelector::Collection(TelemetryCollection::Snapshot(
+            SnapshotDataset::Settings
+            | SnapshotDataset::Operational
+            | SnapshotDataset::MemoryFailures
+            | SnapshotDataset::WaitCounters,
+        )) => state::profile_source(pool, request, host, port, profile),
+        RecipeSelector::Collection(TelemetryCollection::Snapshot(SnapshotDataset::Cleanup)) => {
+            cleanup::profile_source(pool, request, host, port, profile)
         }
         _ => Err(culprit_core::Error::new(
             culprit_core::ErrorCode::Unsupported,
@@ -99,9 +105,13 @@ pub(crate) fn safety_source(
     match profile.selector() {
         RecipeSelector::Collection(TelemetryCollection::Activity)
         | RecipeSelector::Collection(TelemetryCollection::DeadlockHistory)
-        | RecipeSelector::Collection(TelemetryCollection::Snapshot(SnapshotDataset::Settings)) => {
-            profile_source(pool, request, host, port, profile)
-        }
+        | RecipeSelector::Collection(TelemetryCollection::Snapshot(
+            SnapshotDataset::Settings
+            | SnapshotDataset::Operational
+            | SnapshotDataset::Cleanup
+            | SnapshotDataset::MemoryFailures
+            | SnapshotDataset::WaitCounters,
+        )) => profile_source(pool, request, host, port, profile),
         RecipeSelector::FocusedBlocking => blocking::profile_source(pool, request, host, port, profile),
         RecipeSelector::Collection(TelemetryCollection::Snapshot(SnapshotDataset::ReadableSecondaryRecovery)) => {
             readable_secondary_recovery::profile_source(pool, request, host, port, profile)
@@ -138,7 +148,8 @@ pub(crate) fn safety_source(
         }
         RecipeSelector::FocusedPageWait
         | RecipeSelector::FocusedPageTaskHolders
-        | RecipeSelector::FocusedPageWaitWriters => {
+        | RecipeSelector::FocusedPageWaitWriters
+        | RecipeSelector::PageWaitTasks => {
             let bounded = page_waits::bounded_request(request)?;
             if bounded.budget != request.budget {
                 return Err(crate::read::invalid_data());
@@ -147,6 +158,21 @@ pub(crate) fn safety_source(
             let options = ReadOptions { budget: request.budget.clone(), identity: IdentityDetail::Endpoint };
             let reader = ActivityReader::open_profiled_collection(pool, options, host, port, guard.clone())?;
             let inner = page_waits::PageWaitSource::from_reader(reader, request)?;
+            Ok(Box::new(GuardedTelemetrySource::new(inner, guard)))
+        }
+        RecipeSelector::Collection(TelemetryCollection::Snapshot(SnapshotDataset::HyperscaleLogComponents)) => {
+            if hyperscale_log_components::bounded_budget(&request.budget) != request.budget {
+                return Err(crate::read::invalid_data());
+            }
+            let guard = SourceProfileGuard::new(request, profile)?;
+            let io = Session::collection(pool, request.budget.clone())?.with_profile(guard.clone());
+            let inner = streamed::StreamedSnapshot::with_io(
+                io,
+                request,
+                host,
+                port,
+                hyperscale_log_components::HyperscaleLogComponents,
+            )?;
             Ok(Box::new(GuardedTelemetrySource::new(inner, guard)))
         }
         RecipeSelector::CurrentRequestWork => {
