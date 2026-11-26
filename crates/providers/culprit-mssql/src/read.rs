@@ -364,10 +364,10 @@ impl ReadSession {
         output: Output,
         dispatch: QueryDispatch,
     ) -> ReadResult<tokio::sync::oneshot::Sender<()>> {
-        let timeout = self.admit()?;
+        let acquire_timeout = self.admit()?;
         let client = match self.client.take() {
             Some(client) => client,
-            None => self.acquire(timeout).await?,
+            None => self.acquire(acquire_timeout).await?,
         };
         let timeout = self.remaining_statement_time()?;
         if let Some(profile) = &self.profile
@@ -433,7 +433,7 @@ impl ReadSession {
         if self.queries >= self.budget.max_queries {
             return Err(ReadError::Stopped(CollectionStop::QueryLimit));
         }
-        let remaining = self.remaining_statement_time()?;
+        let remaining = self.remaining_total_time()?;
         if let Some(admission) = &self.admission {
             admission.start().map_err(ReadError::Stopped)?;
         }
@@ -478,6 +478,11 @@ impl ReadSession {
             phase.finish(connection_work::outcome(&result));
         }
         result
+    }
+
+    fn remaining_total_time(&self) -> ReadResult<Duration> {
+        let timeout = self.deadline.saturating_duration_since(Instant::now());
+        if timeout.is_zero() { Err(ReadError::Stopped(CollectionStop::TimedOut)) } else { Ok(timeout) }
     }
 
     fn remaining_statement_time(&self) -> ReadResult<Duration> {
@@ -685,7 +690,7 @@ async fn read(
             Parameter::Text(value) => query.bind(value.as_str()),
         }
     }
-    let mut stream = query.query(client).await.map_err(map_error)?;
+    let mut stream = query.query(&mut **client).await.map_err(map_error)?;
     let mut budget = culprit_read::ReadBudget::new(row_limit, byte_limit);
     let mut sets = 0;
     while let Some(item) = stream.try_next().await.map_err(map_error)? {
@@ -920,13 +925,31 @@ mod tests {
     #[tokio::test]
     async fn timing_out_during_login_cannot_report_quiescence_or_admit_replacement_work() {
         let fixture = stalled_login().await;
-        let budget = CollectionBudget { statement_timeout_ms: 20, total_timeout_ms: 1000, ..Default::default() };
+        let budget = CollectionBudget { statement_timeout_ms: 20, total_timeout_ms: 20, ..Default::default() };
         let mut session = ReadSession::new(fixture.pool, budget);
         assert!(matches!(
             session.query("SELECT 1", vec![], 1).await,
             Err(ReadError::Stopped(CollectionStop::TimedOut))
         ));
         assert!(matches!(session.admit(), Err(ReadError::Stopped(CollectionStop::CancellationUnconfirmed))));
+        assert_eq!(session.close().await, culprit_core::telemetry::SourceShutdown::Unconfirmed);
+        let _ = fixture.release.send(());
+        fixture.server.await.unwrap();
+    }
+    #[tokio::test]
+    async fn login_uses_remaining_total_timeout_rather_than_short_statement_timeout() {
+        let fixture = stalled_login().await;
+        let budget = CollectionBudget { statement_timeout_ms: 15, total_timeout_ms: 80, ..Default::default() };
+        let started = Instant::now();
+        let mut session = ReadSession::new(fixture.pool, budget);
+        assert!(matches!(
+            session.query("SELECT 1", vec![], 1).await,
+            Err(ReadError::Stopped(CollectionStop::TimedOut))
+        ));
+        assert!(
+            started.elapsed() >= Duration::from_millis(50),
+            "connection acquisition must not abort at the 15 ms statement timeout while total_timeout_ms remains"
+        );
         assert_eq!(session.close().await, culprit_core::telemetry::SourceShutdown::Unconfirmed);
         let _ = fixture.release.send(());
         fixture.server.await.unwrap();

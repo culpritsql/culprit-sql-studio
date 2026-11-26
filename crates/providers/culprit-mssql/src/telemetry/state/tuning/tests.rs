@@ -330,7 +330,7 @@ fn native_query_row_byte_and_deadline_limits_intersect_the_callers_independent_b
     assert_eq!(upper.page_bytes, 64 * 1024);
     assert_eq!(upper.total_bytes, 256 * 1024);
     assert_eq!(upper.statement_timeout_ms, 1000);
-    assert_eq!(upper.total_timeout_ms, 5000);
+    assert_eq!(upper.total_timeout_ms, 15000);
     let requested = CollectionBudget {
         max_queries: 7,
         max_snapshot_rows: 4,

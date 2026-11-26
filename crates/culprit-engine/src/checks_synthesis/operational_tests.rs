@@ -468,6 +468,7 @@ fn shared_and_database_deadlock_captures_project_both_gold_incidents_and_databas
             observed_at: "2020-01-01T12:00:01Z".into(),
             retained_from: None,
             history_complete: false,
+            unavailable_error: None,
         }),
     };
     assert_eq!(
@@ -562,6 +563,7 @@ fn shared_and_database_deadlock_captures_project_both_gold_incidents_and_databas
             observed_at: "2020-01-01T12:00:01Z".into(),
             retained_from: None,
             history_complete: false,
+            unavailable_error: None,
         }),
     };
     assert_eq!(

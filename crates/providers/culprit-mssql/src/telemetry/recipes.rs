@@ -331,7 +331,7 @@ const REGISTRATIONS: &[Registration] = &[
         |pool, request, host, port| Ok(Box::new(cleanup::CleanupSource::new(pool, request, host, port)?)),
     )
     .bounded(cleanup::bounded_budget)
-    .on_editions(crate::instance::SUPPORTED_EDITIONS)
+    .on_editions(&[2, 3, 4, 5, 8])
     .baseline()
     .version(5),
     Registration::database("mssql.table-memory", RecipeSelector::TableMemory, |pool, request, host, port| {

@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from configure_ubuntu_mirror import UBUNTU_MIRROR, configure_mirror
+from configure_ubuntu_mirror import APT_NETWORK_CONF, MIRROR_LIST, UBUNTU_MIRROR, UBUNTU_MIRRORS, configure_mirror
 
 
 class UbuntuMirrorTests(unittest.TestCase):
@@ -44,10 +44,16 @@ class UbuntuMirrorTests(unittest.TestCase):
             reference = "deb mirror+file:/etc/apt/apt-mirrors.txt jammy main\n"
             source.write_text(reference)
             mirrors = apt / "apt-mirrors.txt"
-            mirrors.write_text("http://azure.archive.ubuntu.com/ubuntu\nhttps://archive.ubuntu.com/ubuntu\n")
+            mirrors.write_text(
+                "http://azure.archive.ubuntu.com/ubuntu/\tpriority:1\n"
+                "http://archive.ubuntu.com/ubuntu/\tpriority:2\n"
+                "http://security.ubuntu.com/ubuntu/\tpriority:3\n"
+            )
             self.assertEqual(configure_mirror(apt), 1)
             self.assertEqual(source.read_text(), reference)
-            self.assertEqual(mirrors.read_text(), f"{UBUNTU_MIRROR}\n{UBUNTU_MIRROR}\n")
+            self.assertEqual(mirrors.read_text(), MIRROR_LIST)
+            self.assertEqual(len(set(UBUNTU_MIRRORS)), len(UBUNTU_MIRRORS))
+            self.assertEqual(configure_mirror(apt), 0)
 
     def test_unrelated_repositories_remain_unchanged_and_reconfiguration_is_idempotent(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -55,13 +61,16 @@ class UbuntuMirrorTests(unittest.TestCase):
             source = apt / "sources.list"
             original = "deb https://packages.microsoft.com/ubuntu/26.04/prod resolute main\n"
             source.write_text(original)
+            unrelated_mirrors = apt / "custom-mirrors.txt"
+            unrelated_mirrors.write_text("https://packages.microsoft.com/ubuntu/26.04/prod\n")
             self.assertEqual(configure_mirror(apt), 0)
             self.assertEqual(source.read_text(), original)
+            self.assertEqual(unrelated_mirrors.read_text(), "https://packages.microsoft.com/ubuntu/26.04/prod\n")
             source.write_text(f"deb {UBUNTU_MIRROR} jammy main\n")
             self.assertEqual(configure_mirror(apt), 0)
             self.assertEqual(
                 (apt / "apt.conf.d" / "99culprit-network").read_text(),
-                'Acquire::ForceIPv4 "true";\nAcquire::Retries "3";\n',
+                APT_NETWORK_CONF,
             )
 
 

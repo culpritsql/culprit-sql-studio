@@ -73,7 +73,7 @@ pub(super) fn operational_budget(requested: &CollectionBudget) -> CollectionBudg
         total_bytes: requested.total_bytes.min(4 * 1024 * 1024),
         max_pages: requested.max_pages.min(64),
         statement_timeout_ms: requested.statement_timeout_ms.min(1_000),
-        total_timeout_ms: requested.total_timeout_ms.min(5_000),
+        total_timeout_ms: requested.total_timeout_ms.min(15_000),
         ..requested.clone()
     }
 }
@@ -104,6 +104,7 @@ pub(super) struct StateSource<R = ReadSession> {
     offset: usize,
     progress: Progress,
     profile: Option<culprit_read::SourceProfileGuard>,
+    profile_observed_from: Option<String>,
     builtin_policy: Option<BuiltinRecipeSafety>,
 }
 impl StateSource {
@@ -118,17 +119,31 @@ impl StateSource {
         admission: &SourceProfileAdmission,
     ) -> Result<Self> {
         request.validate()?;
-        request.subject.require_database()?;
-        if request.selection != (CollectionSelection::Snapshot { dataset: SnapshotDataset::Settings }) {
-            return Err(invalid_data());
-        }
-        if settings_budget(&request.budget) != request.budget {
+        let expected_budget = match request.selection {
+            CollectionSelection::Snapshot { dataset: SnapshotDataset::Settings } => {
+                request.subject.require_database()?;
+                settings_budget(&request.budget)
+            }
+            CollectionSelection::Snapshot { dataset: SnapshotDataset::Operational } => {
+                operational_budget(&request.budget)
+            }
+            CollectionSelection::Snapshot { dataset: SnapshotDataset::MemoryFailures } => {
+                memory_failure_budget(&request.budget)
+            }
+            CollectionSelection::Snapshot { dataset: SnapshotDataset::WaitCounters } => {
+                wait_counter_budget(&request.budget)
+            }
+            _ => return Err(invalid_data()),
+        };
+        if expected_budget != request.budget {
             return Err(culprit_core::Error::new(ErrorCode::Unsupported, culprit_core::t!("collection.unsupported")));
         }
         let profile = culprit_read::SourceProfileGuard::new(request, admission)?;
+        let builtin_policy = profile.builtin_policy().cloned();
         let io = ReadSession::collection(pool, request.budget.clone())?.with_profile(profile.clone());
         let mut source = Self::with_io(io, request, host, port)?;
         source.profile = Some(profile);
+        source.builtin_policy = builtin_policy;
         Ok(source)
     }
 }
@@ -140,28 +155,52 @@ pub(super) fn profile_source(
     port: u16,
     admission: &SourceProfileAdmission,
 ) -> Result<Box<dyn TelemetrySource>> {
-    request.validate()?;
-    let expected_budget = match request.selection {
-        CollectionSelection::Snapshot { dataset: SnapshotDataset::Settings } => {
-            return Ok(Box::new(StateSource::for_profile(pool, request, host, port, admission)?));
+    Ok(Box::new(StateSource::for_profile(pool, request, host, port, admission)?))
+}
+
+fn profile_read_context(
+    identity: &subject::Identity,
+    observed_from: &str,
+    observed_until: &str,
+) -> Result<NativeReadContext> {
+    let (target, partition, from, database_writable) = match identity {
+        subject::Identity::LocalDatabase(owner) => (
+            owner.activity.database.clone().into(),
+            owner.source_partition()?,
+            owner.activity.at.as_str(),
+            owner.activity.writable,
+        ),
+        subject::Identity::Database { database, .. } => {
+            (database.clone().into(), SourcePartition::Target, observed_from, Some(true))
         }
-        CollectionSelection::Snapshot { dataset: SnapshotDataset::Operational } => operational_budget(&request.budget),
-        CollectionSelection::Snapshot { dataset: SnapshotDataset::MemoryFailures } => {
-            memory_failure_budget(&request.budget)
+        subject::Identity::Instance(owner) => (
+            CollectionTarget::Shared(owner.identity.clone()),
+            SourcePartition::InstanceLocal {
+                member: Some(owner.identity.clone()),
+                epoch: Some(owner.capture_epoch()?),
+            },
+            observed_from,
+            None,
+        ),
+        subject::Identity::Pool(owner) => {
+            (CollectionTarget::Shared(owner.identity.clone()), SourcePartition::Target, observed_from, None)
         }
-        CollectionSelection::Snapshot { dataset: SnapshotDataset::WaitCounters } => {
-            wait_counter_budget(&request.budget)
+        subject::Identity::PoolCurrent(owner) => {
+            (CollectionTarget::Shared(owner.point.pool.clone()), SourcePartition::Target, observed_from, None)
         }
-        _ => return Err(invalid_data()),
+        subject::Identity::PoolNative(owner) => {
+            (CollectionTarget::Shared(owner.current.point.pool.clone()), SourcePartition::Target, observed_from, None)
+        }
+        _ => return Err(CollectionStop::SourceChanged.error()),
     };
-    if expected_budget != request.budget {
-        return Err(culprit_core::Error::new(ErrorCode::Unsupported, culprit_core::t!("collection.unsupported")));
-    }
-    let guard = culprit_read::SourceProfileGuard::new(request, admission)?;
-    let io = ReadSession::collection(pool, request.budget.clone())?.with_profile(guard.clone());
-    let mut inner = StateSource::with_io(io, request, host, port)?;
-    inner.builtin_policy = admission.builtin_policy().cloned();
-    Ok(Box::new(culprit_read::GuardedTelemetrySource::new(inner, guard)))
+    let context = NativeReadContext {
+        target,
+        partition,
+        observed_from: from.to_owned(),
+        observed_until: observed_until.to_owned(),
+        database_writable,
+    };
+    context.is_valid().then_some(context).ok_or_else(invalid_data)
 }
 
 fn verify_state_safety(identity: &subject::Identity, policy: &BuiltinRecipeSafety) -> Result<()> {
@@ -225,6 +264,7 @@ impl<R: NativeRead> StateSource<R> {
             offset: 0,
             progress: Progress::New,
             profile: None,
+            profile_observed_from: None,
             builtin_policy: None,
         })
     }
@@ -319,6 +359,9 @@ impl<R: NativeRead> StateSource<R> {
             && matches!(self.identity, Some(subject::Identity::LocalDatabase(_)))
     }
     fn check_local_transport(&self) -> Result<()> {
+        if let Some(profile) = &self.profile {
+            profile.check_connection(self.io.connection_generation())?;
+        }
         if matches!(
             self.request.collection(),
             TelemetryCollection::Snapshot(SnapshotDataset::Operational | SnapshotDataset::Settings)
@@ -394,8 +437,14 @@ impl<R: NativeRead> TelemetrySource for StateSource<R> {
                 return Err(invalid_data());
             }
             let identity = subject::Identity::PoolNative(Box::new(captured.owner));
-            if let Some(policy) = &self.builtin_policy {
+            if let Some(policy) = self.builtin_policy.as_ref().or_else(|| self.profile.as_ref()?.builtin_policy()) {
                 verify_state_safety(&identity, policy)?;
+            }
+            if let Some(profile) = &self.profile {
+                let snapshot = captured.read.source.observation.snapshot().ok_or_else(invalid_data)?;
+                let context = profile_read_context(&identity, &snapshot.observed_from, &snapshot.observed_until)?;
+                profile.bind_native(&context, self.io.connection_generation())?;
+                self.profile_observed_from = Some(context.observed_from);
             }
             self.rows = captured.read.observations.into_iter().map(TelemetryRecord::Operational).collect();
             self.identity = Some(identity);
@@ -434,22 +483,29 @@ impl<R: NativeRead> TelemetrySource for StateSource<R> {
             )
             .await?
         };
-        if let Some(policy) = &self.builtin_policy {
+        if let Some(policy) = self.builtin_policy.as_ref().or_else(|| self.profile.as_ref()?.builtin_policy()) {
             verify_state_safety(&read.identity, policy)?;
         }
         if dataset == SnapshotDataset::Settings {
             settings::require_profile(&read.identity)?;
             if let Some(profile) = &self.profile {
-                let subject::Identity::LocalDatabase(owner) = &read.identity else {
-                    return Err(culprit_core::Error::new(
-                        culprit_core::ErrorCode::Unsupported,
-                        culprit_core::t!("collection.unsupported"),
-                    ));
-                };
-                if let Some(policy) = profile.builtin_policy() {
-                    crate::builtin_safety::verify_settings(policy, owner)?;
+                match &read.identity {
+                    subject::Identity::LocalDatabase(owner) => {
+                        if let Some(policy) = profile.builtin_policy() {
+                            crate::builtin_safety::verify_settings(policy, owner)?;
+                        }
+                        let context = owner.completed(owner)?;
+                        profile.bind_native(&context, self.io.connection_generation())?;
+                        self.profile_observed_from = Some(context.observed_from);
+                    }
+                    subject::Identity::Database { .. } => {}
+                    _ => {
+                        return Err(culprit_core::Error::new(
+                            culprit_core::ErrorCode::Unsupported,
+                            culprit_core::t!("collection.unsupported"),
+                        ));
+                    }
                 }
-                profile.bind_native(&owner.completed(owner)?, self.io.connection_generation())?;
             }
         }
         if matches!(dataset, SnapshotDataset::DatabasePerformanceCounters | SnapshotDataset::SuspectPages) {
@@ -499,6 +555,14 @@ impl<R: NativeRead> TelemetrySource for StateSource<R> {
                 });
                 (at, visible, properties)
             };
+        if let Some(profile) = &self.profile
+            && self.profile_observed_from.is_none()
+        {
+            let identity = self.identity.as_ref().ok_or_else(invalid_data)?;
+            let context = profile_read_context(identity, &observed_from, &observed_from)?;
+            profile.bind_native(&context, self.io.connection_generation())?;
+            self.profile_observed_from = Some(context.observed_from);
+        }
         let mut sources = self.read_families(&families, metadata_visible).await?;
         if detail == crate::database_identity::log_rates::Detail::ConfiguredLogRates {
             sources.push(match read.configured_log_rates {
@@ -638,7 +702,10 @@ impl<R: NativeRead> TelemetrySource for StateSource<R> {
             }
             .into(),
             continuity: SourceContinuity::Unverified,
-            observation: if self.profile.is_some() && dataset == SnapshotDataset::Settings {
+            observation: if self.profile.is_some()
+                && dataset == SnapshotDataset::Settings
+                && matches!(self.identity, Some(subject::Identity::LocalDatabase(_)))
+            {
                 let subject::Identity::LocalDatabase(owner) = self.identity.as_ref().ok_or_else(invalid_data)? else {
                     return Err(invalid_data());
                 };
@@ -750,14 +817,6 @@ impl<R: NativeRead> TelemetrySource for StateSource<R> {
         } else {
             (owner.recheck(&mut self.io, &self.host, self.port).await?, None)
         };
-        if let Some(profile) = &self.profile {
-            let (subject::Identity::LocalDatabase(before), subject::Identity::LocalDatabase(after)) =
-                (owner, &identity)
-            else {
-                return Err(CollectionStop::SourceChanged.error());
-            };
-            profile.verify_final(&before.completed(after)?, self.io.connection_generation())?;
-        }
         let until = &self
             .description
             .as_ref()
@@ -768,8 +827,20 @@ impl<R: NativeRead> TelemetrySource for StateSource<R> {
         let confirmed = self.point_generation.is_none_or(|generation| {
             self.io.connection_generation() == Some(generation)
                 && final_at.as_deref().is_some_and(|at| ObservationBounds::new(until, at).is_some())
-        }) && self.identity.as_ref().ok_or_else(invalid_data)?.confirmed_by(&identity, until)
+        }) && owner.confirmed_by(&identity, until)
             && pool_settings::confirmed_by(description, &identity);
+        if confirmed && let Some(profile) = &self.profile {
+            let final_context = match (owner, &identity) {
+                (subject::Identity::LocalDatabase(before), subject::Identity::LocalDatabase(after)) => {
+                    before.completed(after)?
+                }
+                _ => {
+                    let from = self.profile_observed_from.as_deref().ok_or_else(invalid_data)?;
+                    profile_read_context(&identity, from, final_at.as_deref().unwrap_or(until))?
+                }
+            };
+            profile.verify_final(&final_context, self.io.connection_generation())?;
+        }
         self.progress = Progress::Finished;
         Ok(culprit_core::telemetry::SourceCompletion::verified_if(confirmed))
     }

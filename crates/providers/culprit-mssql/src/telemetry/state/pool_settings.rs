@@ -43,7 +43,7 @@ pub(in crate::telemetry) fn bounded_budget(caller: &CollectionBudget) -> Collect
         total_bytes: TOTAL_BYTES,
         max_pages: MSSQL_POOL_SETTING_NAMES.len() as u32,
         statement_timeout_ms: 1_000,
-        total_timeout_ms: 5_000,
+        total_timeout_ms: 15_000,
         ..CollectionBudget::upper_limits()
     })
 }

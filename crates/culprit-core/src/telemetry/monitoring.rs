@@ -203,9 +203,13 @@ impl SourceProfileAdmission {
             && self.budget == request.budget
             && self.selector().matches(request)
             && self.matches_native_selection(request)
-            && self
-                .scope()
-                .map_or(request.subject == CollectionSubject::Database, |scope| scope.subject() == request.subject)
+            && match &self.approval {
+                SourceProfileApproval::Measured(receipt) => receipt.scope.subject() == request.subject,
+                SourceProfileApproval::Builtin { scope: Some(scope), .. } => scope.subject() == request.subject,
+                SourceProfileApproval::Builtin { scope: None, .. } => {
+                    matches!(request.subject, CollectionSubject::Database | CollectionSubject::Shared { .. })
+                }
+            }
     }
     fn matches_native_selection(&self, request: &CollectionRequest) -> bool {
         let purpose = match &self.approval {
@@ -255,11 +259,30 @@ impl SourceProfileAdmission {
                         && context.target == CollectionTarget::Shared(target.clone())
                         && context.partition == *partition
                 }
-                None => {
-                    context.has_qualified_local_owner()
-                        && context.database_writable.is_some()
-                        && context.target.database().is_some()
-                }
+                None => match &context.target {
+                    CollectionTarget::Database(database) => {
+                        (context.has_qualified_local_owner() && context.database_writable.is_some())
+                            || (context.partition == SourcePartition::Target
+                                && context.database_writable == Some(true)
+                                && database.incarnation.is_some())
+                    }
+                    CollectionTarget::Shared(owner) => {
+                        context.database_writable.is_none()
+                            && match owner.kind {
+                                SharedResourceKind::Instance => {
+                                    context.has_qualified_local_owner()
+                                        && matches!(
+                                            &context.partition,
+                                            SourcePartition::InstanceLocal { member: Some(member), .. }
+                                                if member == owner
+                                        )
+                                }
+                                SharedResourceKind::Pool => context.partition == SourcePartition::Target,
+                                _ => false,
+                            }
+                    }
+                    CollectionTarget::ConfiguredConnection(_) => false,
+                },
             },
         }
     }

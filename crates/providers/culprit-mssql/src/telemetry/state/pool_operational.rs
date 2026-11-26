@@ -10,7 +10,7 @@ const MAX_CURRENT_ROWS: u32 = 10_000;
 const MAX_PAGE_BYTES: u32 = 512 * 1024;
 const MAX_TOTAL_BYTES: u32 = 8 * 1024 * 1024;
 const STATEMENT_TIMEOUT_MS: u32 = 1000;
-const TOTAL_TIMEOUT_MS: u32 = 8000;
+const TOTAL_TIMEOUT_MS: u32 = 15_000;
 const FAMILIES: [point::Family; 5] = [
     point::Family::MemoryClerks,
     point::Family::Schedulers,

@@ -17,7 +17,7 @@ pub(crate) fn bounded_budget(budget: &CollectionBudget) -> CollectionBudget {
     bounded.page_rows = bounded.page_rows.min(MAX_BASELINE_ROWS);
     bounded.max_queries = bounded.max_queries.min(MAX_BASELINE_QUERIES);
     bounded.statement_timeout_ms = bounded.statement_timeout_ms.min(1_000);
-    bounded.total_timeout_ms = bounded.total_timeout_ms.min(5_000);
+    bounded.total_timeout_ms = bounded.total_timeout_ms.min(15_000);
     bounded
 }
 

@@ -9,7 +9,7 @@ fn the_selected_schema_lock_envelope_pays_twelve_total_and_preserves_every_tight
     assert_eq!(super::super::activity::bounded_budget(&CollectionBudget::default()).max_queries, 8);
     assert_eq!(ReadSession::budget_after_setup(budget.clone()).unwrap().max_queries, 11);
     assert_eq!(budget.statement_timeout_ms, 1_000);
-    assert_eq!(budget.total_timeout_ms, 5_000);
+    assert_eq!(budget.total_timeout_ms, 15_000);
     assert_eq!(budget.max_snapshot_rows, 500);
     let strict = CollectionBudget {
         max_queries: 4,

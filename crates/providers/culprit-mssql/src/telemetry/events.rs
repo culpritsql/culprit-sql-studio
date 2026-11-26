@@ -16,14 +16,16 @@ const DATABASE_READER_QUERIES: u32 = 12;
 const DATABASE_QUERIES: u32 = DATABASE_READER_QUERIES + crate::read::ReadSession::SESSION_SETUP_QUERIES;
 const SHARED_TOTAL_BYTES: u32 = 16 * 1024 * 1024;
 const SHARED_STATEMENT_TIMEOUT_MS: u32 = 1_000;
-const SHARED_TOTAL_TIMEOUT_MS: u32 = 5_000;
+const SHARED_TOTAL_TIMEOUT_MS: u32 = 15_000;
 
 pub(super) struct EventSource<R = ReadSession> {
     request: CollectionRequest,
     host: String,
     port: u16,
     io: R,
+    profile: Option<culprit_read::SourceProfileGuard>,
     builtin_policy: Option<BuiltinRecipeSafety>,
+    initial_at: Option<String>,
     description: Option<CollectionDescription>,
     owner: Option<EventOwner>,
     positions: Option<Vec<String>>,
@@ -32,7 +34,7 @@ pub(super) struct EventSource<R = ReadSession> {
     progress: super::progress::PagedProgress,
 }
 enum EventOwner {
-    Database { physical: String },
+    Database { physical: String, session: Option<crate::deadlocks::ConfiguredDatabaseSession> },
     Instance { instance: Box<crate::instance::Context>, target: system_health::ConfiguredTarget },
 }
 
@@ -92,7 +94,7 @@ pub(super) fn profile_source(
     port: u16,
     profile: &SourceProfileAdmission,
 ) -> Result<Box<dyn TelemetrySource>> {
-    use culprit_read::{GuardedTelemetrySource, SourceProfileGuard};
+    use culprit_read::SourceProfileGuard;
     let bounded = bounded_request(request)?;
     if bounded.budget != request.budget {
         return Err(invalid_data());
@@ -101,8 +103,9 @@ pub(super) fn profile_source(
     let builtin_policy = guard.builtin_policy().cloned();
     let io = ReadSession::collection(pool, request.budget.clone())?.with_profile(guard.clone());
     let mut inner = EventSource::with_io(io, request, host, port)?;
+    inner.profile = Some(guard);
     inner.builtin_policy = builtin_policy;
-    Ok(Box::new(GuardedTelemetrySource::new(inner, guard)))
+    Ok(Box::new(inner))
 }
 
 impl EventSource {
@@ -122,7 +125,9 @@ impl<R: NativeRead> EventSource<R> {
             host,
             port,
             io,
+            profile: None,
             builtin_policy: None,
+            initial_at: None,
             description: None,
             owner: None,
             positions: None,
@@ -158,19 +163,13 @@ impl<R: NativeRead> EventSource<R> {
         let (from, until) = self.request.bounds()?;
         let limit = self.request.budget.max_snapshot_rows as usize + 1;
         let events = match self.owner.as_ref().ok_or_else(invalid_data)? {
-            EventOwner::Database { .. } => {
+            EventOwner::Database { session: Some(session), .. } => {
+                let session = session.clone();
+                let database = description.target.database().ok_or_else(invalid_data)?.database.clone();
                 crate::resources::admit_resources(&mut self.io).await.map_err(ReadError::into_error)?;
-                native::read(
-                    &mut self.io,
-                    native::Origin::DatabaseSession,
-                    &description.target.database().ok_or_else(invalid_data)?.database,
-                    &from.to_rfc3339(),
-                    &until.to_rfc3339(),
-                    limit,
-                    false,
-                )
-                .await?
+                session.events(&mut self.io, &database, &from.to_rfc3339(), &until.to_rfc3339(), limit, false).await?
             }
+            EventOwner::Database { session: None, .. } => vec![],
             EventOwner::Instance { target, .. } => {
                 target.events(&mut self.io, &from.to_rfc3339(), &until.to_rfc3339(), limit, false).await?
             }
@@ -209,7 +208,10 @@ impl<R: NativeRead> EventSource<R> {
 impl<R: NativeRead> TelemetrySource for EventSource<R> {
     async fn describe(&mut self) -> Result<CollectionDescription> {
         self.progress.describing()?;
-        let (target, partition, at, owner) = match &self.request.subject {
+        if let Some(profile) = &self.profile {
+            profile.ensure_active()?;
+        }
+        let (target, partition, initial_from, at, unavailable_error, owner) = match &self.request.subject {
             CollectionSubject::ConfiguredConnection { .. } => return Err(invalid_data()),
             CollectionSubject::Database => {
                 description::ensure_supported(&mut self.io).await?;
@@ -218,11 +220,37 @@ impl<R: NativeRead> TelemetrySource for EventSource<R> {
                 }
                 let (database, physical) = description::identity(&mut self.io, &self.host, self.port).await?;
                 let server = self.io.query(native::SERVER, vec![], 1).await.map_err(ReadError::into_error)?;
-                let at = canonical_time(&text(server.first().ok_or_else(invalid_data)?, "observed_at")?)?;
-                (database.into(), SourcePartition::Target, at, EventOwner::Database { physical })
+                let row = server.first().ok_or_else(invalid_data)?;
+                if crate::read::integer(row, "edition")? != 5 || text(row, "db")? != database.database {
+                    return Err(CollectionStop::SourceChanged.error());
+                }
+                let at = canonical_time(&text(row, "observed_at")?)?;
+                let target: CollectionTarget = database.into();
+                if let Some(profile) = &self.profile {
+                    profile.bind_native(
+                        &NativeReadContext {
+                            target: target.clone(),
+                            partition: SourcePartition::Target,
+                            observed_from: at.clone(),
+                            observed_until: at.clone(),
+                            database_writable: Some(true),
+                        },
+                        self.io.connection_generation(),
+                    )?;
+                }
+                let session = crate::deadlocks::ConfiguredDatabaseSession::probe(&mut self.io).await?;
+                let unavailable_error = session.is_none().then_some(culprit_core::ErrorCode::Unsupported);
+                (
+                    target,
+                    SourcePartition::Target,
+                    at.clone(),
+                    at,
+                    unavailable_error,
+                    EventOwner::Database { physical, session },
+                )
             }
             CollectionSubject::Shared { .. } => {
-                let (instance, at) = crate::instance::read(&mut self.io).await?;
+                let (instance, initial_at) = crate::instance::read(&mut self.io).await?;
                 if !system_health::supported(&instance) {
                     return Err(culprit_core::Error::new(
                         culprit_core::ErrorCode::Unsupported,
@@ -240,7 +268,7 @@ impl<R: NativeRead> TelemetrySource for EventSource<R> {
                 if self.builtin_policy.is_some() {
                     target.ensure_bounded_footprint()?;
                 }
-                if ObservationBounds::new(&at, target.observed_at()).is_none() {
+                if ObservationBounds::new(&initial_at, target.observed_at()).is_none() {
                     return Err(CollectionStop::SourceChanged.error());
                 }
                 let partition = SourcePartition::InstanceLocal {
@@ -248,7 +276,26 @@ impl<R: NativeRead> TelemetrySource for EventSource<R> {
                     epoch: Some(target.capture_epoch(&instance)?),
                 };
                 let at = target.observed_at().to_owned();
-                (resource, partition, at, EventOwner::Instance { instance: Box::new(instance), target })
+                if let Some(profile) = &self.profile {
+                    profile.bind_native(
+                        &NativeReadContext {
+                            target: resource.clone(),
+                            partition: partition.clone(),
+                            observed_from: initial_at.clone(),
+                            observed_until: at.clone(),
+                            database_writable: None,
+                        },
+                        self.io.connection_generation(),
+                    )?;
+                }
+                (
+                    resource,
+                    partition,
+                    initial_at,
+                    at,
+                    None,
+                    EventOwner::Instance { instance: Box::new(instance), target },
+                )
             }
         };
         let (from, until) = self.request.bounds()?;
@@ -262,12 +309,14 @@ impl<R: NativeRead> TelemetrySource for EventSource<R> {
                 observed_at: at,
                 retained_from: None,
                 history_complete: false,
+                unavailable_error,
             }),
             continuity: SourceContinuity::Unverified,
         };
         if !value.matches_request(&self.request) {
             return Err(invalid_data());
         }
+        self.initial_at = Some(initial_from);
         self.owner = Some(owner);
         self.description = Some(value.clone());
         self.progress.described();
@@ -280,6 +329,9 @@ impl<R: NativeRead> TelemetrySource for EventSource<R> {
         self.io.queries()
     }
     async fn read_page(&mut self, stream: TelemetryStream, cursor: Option<&str>) -> Result<CollectionRead> {
+        if let Some(profile) = &self.profile {
+            profile.check_connection(self.io.connection_generation())?;
+        }
         self.progress.reading(stream, cursor)?;
         let result = self.page().await;
         self.progress.read(stream, result)
@@ -287,29 +339,113 @@ impl<R: NativeRead> TelemetrySource for EventSource<R> {
 
     async fn finish(&mut self) -> Result<culprit_core::telemetry::SourceCompletion> {
         self.progress.verifying()?;
-        if let Some(EventOwner::Database { physical: expected }) = &self.owner {
+        if let Some(profile) = &self.profile {
+            profile.ensure_active()?;
+            profile.check_connection(self.io.connection_generation())?;
+        }
+        let database_owner = match self.owner.as_ref().ok_or_else(invalid_data)? {
+            EventOwner::Database { physical, session } => Some((physical.clone(), session.clone())),
+            EventOwner::Instance { .. } => None,
+        };
+        if let Some((expected, original_session)) = database_owner {
             let (database, physical) = description::identity(&mut self.io, &self.host, self.port).await?;
-            if expected != &physical
+            if expected != physical
                 || self.description.as_ref().is_none_or(|description| description.target.database() != Some(&database))
             {
                 self.progress.verified();
                 return Ok(SourceCompletion::Changed);
             }
+            if let Some(profile) = &self.profile {
+                let server = self.io.query(native::SERVER, vec![], 1).await.map_err(ReadError::into_error)?;
+                let row = server.first().ok_or_else(invalid_data)?;
+                if crate::read::integer(row, "edition")? != 5 || text(row, "db")? != database.database {
+                    self.progress.verified();
+                    return Ok(SourceCompletion::Changed);
+                }
+                let final_at = canonical_time(&text(row, "observed_at")?)?;
+                let initial_at = self.initial_at.as_ref().ok_or_else(invalid_data)?;
+                if ObservationBounds::new(initial_at, &final_at).is_none() {
+                    self.progress.verified();
+                    return Ok(SourceCompletion::Changed);
+                }
+                profile.verify_final(
+                    &NativeReadContext {
+                        target: database.clone().into(),
+                        partition: SourcePartition::Target,
+                        observed_from: initial_at.clone(),
+                        observed_until: final_at,
+                        database_writable: Some(true),
+                    },
+                    self.io.connection_generation(),
+                )?;
+            }
+            return match original_session {
+                Some(original_session) => {
+                    crate::resources::admit_resources(&mut self.io).await.map_err(ReadError::into_error)?;
+                    let Some(current_session) =
+                        crate::deadlocks::ConfiguredDatabaseSession::probe(&mut self.io).await?
+                    else {
+                        self.progress.verified();
+                        return Ok(SourceCompletion::Changed);
+                    };
+                    if current_session != original_session {
+                        self.progress.verified();
+                        return Ok(SourceCompletion::Changed);
+                    }
+                    let (from, until) = self.request.bounds()?;
+                    let limit = self.request.budget.max_snapshot_rows as usize + 1;
+                    let events = current_session
+                        .events(&mut self.io, &database.database, &from.to_rfc3339(), &until.to_rfc3339(), limit, false)
+                        .await?;
+                    if events.len() > self.request.budget.max_snapshot_rows as usize {
+                        return Err(CollectionStop::RowLimit.error());
+                    }
+                    self.progress.verified();
+                    Ok(culprit_core::telemetry::SourceCompletion::verified_if(
+                        self.positions.as_ref()
+                            == Some(&events.into_iter().map(|event| event.position).collect::<Vec<_>>()),
+                    ))
+                }
+                None => {
+                    let current_session = crate::deadlocks::ConfiguredDatabaseSession::probe(&mut self.io).await?;
+                    self.progress.verified();
+                    Ok(culprit_core::telemetry::SourceCompletion::verified_if(
+                        current_session.is_none() && self.positions.as_deref() == Some(&[]),
+                    ))
+                }
+            };
         }
         let events = self.read_native().await?;
-        let owner_matches = match self.owner.as_ref().ok_or_else(invalid_data)? {
-            EventOwner::Database { .. } => true,
-            EventOwner::Instance { instance: original, target: original_target } => {
-                let current_target = system_health::ConfiguredTarget::read(&mut self.io).await?;
-                if self.builtin_policy.is_some() {
-                    current_target.ensure_bounded_footprint()?;
-                }
-                let (current, at) = crate::instance::read(&mut self.io).await?;
-                original.as_ref() == &current
-                    && original_target.confirmed_by(&current_target)
-                    && ObservationBounds::new(current_target.observed_at(), &at).is_some()
-            }
+        let EventOwner::Instance { instance: original, target: original_target } =
+            self.owner.as_ref().ok_or_else(invalid_data)?
+        else {
+            return Err(invalid_data());
         };
+        let current_target = system_health::ConfiguredTarget::read(&mut self.io).await?;
+        if self.builtin_policy.is_some() {
+            current_target.ensure_bounded_footprint()?;
+        }
+        let (current, at) = crate::instance::read(&mut self.io).await?;
+        let owner_matches = original.as_ref() == &current
+            && original_target.confirmed_by(&current_target)
+            && ObservationBounds::new(current_target.observed_at(), &at).is_some();
+        if owner_matches && let Some(profile) = &self.profile {
+            let initial_at = self.initial_at.as_ref().ok_or_else(invalid_data)?;
+            let partition = SourcePartition::InstanceLocal {
+                member: Some(current.identity.clone()),
+                epoch: Some(current_target.capture_epoch(&current)?),
+            };
+            profile.verify_final(
+                &NativeReadContext {
+                    target: CollectionTarget::Shared(current.identity),
+                    partition,
+                    observed_from: initial_at.clone(),
+                    observed_until: at,
+                    database_writable: None,
+                },
+                self.io.connection_generation(),
+            )?;
+        }
         self.progress.verified();
         Ok(culprit_core::telemetry::SourceCompletion::verified_if(
             owner_matches
@@ -373,8 +509,8 @@ mod tests {
             Ok(vec![server()]),
             Ok(vec![identity()]),
             Ok(vec![server()]),
-            Ok(vec![pressure()]),
             Ok(vec![configuration()]),
+            Ok(vec![pressure()]),
             Ok(vec![target(&events)]),
             Ok(vec![identity()]),
             Ok(vec![pressure()]),
@@ -463,6 +599,61 @@ mod tests {
         assert_eq!(source.io.closed, 1);
         assert!(source.read_page(TelemetryStream::DeadlockEvents, None).await.is_err());
         assert_eq!(source.io.calls.len(), 6);
+    }
+
+    #[tokio::test]
+    async fn unconfigured_database_session_records_unavailable_coverage_under_standard_without_claiming_empty_history()
+    {
+        let recipe = crate::telemetry::recipes().into_iter().find(|r| r.id == "mssql.deadlock-history").unwrap();
+        let RecipeAdmission::BuiltinSafety(policy) = recipe.admission else { panic!() };
+        let mut bounded = request();
+        bounded.budget = recipe.budget.clone();
+        let admission = SourceProfileAdmission::for_builtin(
+            digest(b"azure-deadlock-route"),
+            *policy,
+            None,
+            bounded.budget.clone(),
+            || true,
+        )
+        .unwrap();
+        let guard = culprit_read::SourceProfileGuard::new(&bounded, &admission).unwrap();
+        let io = FakeRead::new(vec![
+            Ok(vec![server()]),
+            Ok(vec![identity()]),
+            Ok(vec![server()]),
+            Ok(vec![]),
+            Ok(vec![identity()]),
+            Ok(vec![replace(&server(), &[("observed_at", Val::Text("2020-01-01T06:02:05Z".into()))])]),
+            Ok(vec![]),
+        ])
+        .with_generation(1);
+        let mut source = EventSource::with_io(io, &bounded, "host".into(), 1433).unwrap();
+        source.builtin_policy = guard.builtin_policy().cloned();
+        source.profile = Some(guard);
+        let description = source.describe().await.unwrap();
+        assert_eq!(
+            description.observation.events().unwrap().unavailable_error,
+            Some(culprit_core::ErrorCode::Unsupported)
+        );
+        assert_eq!(
+            description.observation.native_coverage_state().unwrap(),
+            Some(culprit_core::SourceState::Unavailable)
+        );
+        assert_eq!(
+            diagnostic_original_input_qualification(Some(&description)),
+            DiagnosticInputQualification::Ineligible {
+                reason: DiagnosticInputIneligibility::OriginalSourceUnavailable,
+            }
+        );
+        let CollectionRead::Page { records, next_cursor } =
+            source.read_page(TelemetryStream::DeadlockEvents, None).await.unwrap()
+        else {
+            panic!("empty unavailable page")
+        };
+        assert!(records.is_empty());
+        assert!(next_cursor.is_none());
+        assert_eq!(source.finish().await.unwrap(), SourceCompletion::Verified);
+        assert_eq!(source.close().await, SourceShutdown::Quiescent);
     }
 }
 

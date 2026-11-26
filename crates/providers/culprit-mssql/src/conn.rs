@@ -15,13 +15,45 @@ use tokio_util::compat::{Compat, TokioAsyncWriteCompatExt};
 #[cfg(any(test, feature = "native-test-support"))]
 use crate::value::Rec;
 
-pub(crate) type MsClient = Client<Compat<TcpStream>>;
+pub(crate) struct MsClient {
+    inner: Client<Compat<TcpStream>>,
+    monitor: Option<Arc<std::net::TcpStream>>,
+}
+impl MsClient {
+    fn new(inner: Client<Compat<TcpStream>>, monitor: Option<Arc<std::net::TcpStream>>) -> Self {
+        Self { inner, monitor }
+    }
+    #[cfg(any(test, feature = "native-test-support"))]
+    pub(crate) async fn close(self) -> tiberius::Result<()> {
+        drop(self.monitor);
+        self.inner.close().await
+    }
+    fn is_healthy_idle(&self) -> bool {
+        let Some(monitor) = &self.monitor else {
+            return false;
+        };
+        let mut byte = [0u8; 1];
+        matches!(monitor.peek(&mut byte), Err(error) if error.kind() == std::io::ErrorKind::WouldBlock)
+    }
+}
+impl std::ops::Deref for MsClient {
+    type Target = Client<Compat<TcpStream>>;
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
+impl std::ops::DerefMut for MsClient {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.inner
+    }
+}
 #[cfg(test)]
 mod native_tests;
 
 const TCP_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(15);
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(60);
+const IDLE_TTL: Duration = Duration::from_secs(180);
 const MAX_IDLE: usize = 4;
 
 /// Bound lock waits and prefer this session as a deadlock victim. Read-uncommitted avoids shared data locks;
@@ -185,16 +217,30 @@ async fn open_tcp(
     if let Err(error) = tcp.set_nodelay(true) {
         return Ok(Err(error.into()));
     }
+    let (tcp, monitor) = match tcp.into_std() {
+        Ok(std_tcp) => {
+            let monitor = std_tcp
+                .try_clone()
+                .ok()
+                .and_then(|cloned| cloned.set_nonblocking(true).ok().map(|()| Arc::new(cloned)));
+            match TcpStream::from_std(std_tcp) {
+                Ok(tcp) => (tcp, monitor),
+                Err(error) => return Ok(Err(error.into())),
+            }
+        }
+        Err(error) => return Ok(Err(error.into())),
+    };
     if let Some(accounting) = accounting {
         accounting.check_profile()?;
     }
     work.begin_login();
-    Ok(native_phase(
+    let connected = native_phase(
         attempt,
         ReadConnectionStage::HandshakeAndLogin,
         Box::pin(Client::connect(config, tcp.compat_write())),
     )
-    .await)
+    .await;
+    Ok(connected.map(|client| MsClient::new(client, monitor)))
 }
 
 /// The TCP connection to `addr` didn't open in time: the message of the I/O error it becomes.
@@ -273,11 +319,16 @@ pub(crate) async fn query_one(client: &mut MsClient, sql: &str) -> tiberius::Res
     Ok(query(client, sql).await?.into_iter().next().unwrap_or_default())
 }
 
-/// Reuses statistics sessions so repeated calls (Live refreshes every couple of seconds) skip the TLS and login round-trips.
+struct IdleClient {
+    client: MsClient,
+    returned_at: std::time::Instant,
+}
+
+/// Reuses statistics sessions so repeated calls (Live refreshes and scheduled collector ticks) skip the TLS and login round-trips.
 pub(crate) struct Pool {
     config: Config,
     transport: Option<Arc<dyn ConnectionTransport>>,
-    idle: Mutex<Vec<MsClient>>,
+    idle: Mutex<Vec<IdleClient>>,
     uncertain: culprit_read::ReadFence,
     pub(crate) observation: culprit_core::ProviderReadContext,
 }
@@ -325,7 +376,13 @@ impl Pool {
     }
 
     fn take_idle(&self) -> Option<MsClient> {
-        self.idle.lock().ok()?.pop()
+        let mut idle = self.idle.lock().ok()?;
+        while let Some(entry) = idle.pop() {
+            if entry.returned_at.elapsed() < IDLE_TTL && entry.client.is_healthy_idle() {
+                return Some(entry.client);
+            }
+        }
+        None
     }
 
     pub(crate) async fn get_observed(
@@ -350,14 +407,15 @@ impl Pool {
     }
 
     pub(crate) fn put(&self, client: MsClient) {
-        if self.ensure_available().is_err() {
+        if self.ensure_available().is_err() || !client.is_healthy_idle() {
             return;
         }
         let Ok(mut idle) = self.idle.lock() else {
             return;
         };
+        idle.retain(|entry| entry.returned_at.elapsed() < IDLE_TTL && entry.client.is_healthy_idle());
         if idle.len() < MAX_IDLE {
-            idle.push(client);
+            idle.push(IdleClient { client, returned_at: std::time::Instant::now() });
         }
     }
 
@@ -552,5 +610,41 @@ mod tests {
         assert_eq!(build_config(&s).unwrap_err().code, ErrorCode::AuthFailed);
         s.token = Some("t".into());
         assert!(build_config(&s).is_ok());
+    }
+
+    #[tokio::test]
+    async fn socket_monitor_distinguishes_live_idle_sockets_from_peer_closed_or_unread_streams() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (first, _) = listener.accept().await.unwrap();
+            let (second, _) = listener.accept().await.unwrap();
+            (first, second, listener)
+        });
+        let client_one = TcpStream::connect(addr).await.unwrap();
+        let std_one = client_one.into_std().unwrap();
+        let monitor_one = Arc::new(std_one.try_clone().unwrap());
+        monitor_one.set_nonblocking(true).unwrap();
+        let _tokio_one = TcpStream::from_std(std_one).unwrap();
+
+        let client_two = TcpStream::connect(addr).await.unwrap();
+        let std_two = client_two.into_std().unwrap();
+        let monitor_two = Arc::new(std_two.try_clone().unwrap());
+        monitor_two.set_nonblocking(true).unwrap();
+        let _tokio_two = TcpStream::from_std(std_two).unwrap();
+
+        let (server_one, mut server_two, _listener) = server.await.unwrap();
+        let mut probe = [0u8; 1];
+        assert!(matches!(monitor_one.peek(&mut probe), Err(e) if e.kind() == std::io::ErrorKind::WouldBlock));
+        assert!(matches!(monitor_two.peek(&mut probe), Err(e) if e.kind() == std::io::ErrorKind::WouldBlock));
+
+        drop(server_one);
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        assert!(!matches!(monitor_one.peek(&mut probe), Err(e) if e.kind() == std::io::ErrorKind::WouldBlock));
+
+        use tokio::io::AsyncWriteExt;
+        server_two.write_all(b"x").await.unwrap();
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        assert!(!matches!(monitor_two.peek(&mut probe), Err(e) if e.kind() == std::io::ErrorKind::WouldBlock));
     }
 }

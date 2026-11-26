@@ -78,7 +78,7 @@ async fn constructing_shared_oom_and_pool_operational_profiles_is_read_free_with
     assert_eq!(limits.page_bytes, 512 * 1024);
     assert_eq!(limits.total_bytes, 8 * 1024 * 1024);
     assert_eq!(limits.statement_timeout_ms, 1000);
-    assert_eq!(limits.total_timeout_ms, 8000);
+    assert_eq!(limits.total_timeout_ms, 15000);
     assert_eq!(native_budget(&request()).max_queries, 9, "the OOM ledger remains independent");
     let mut source = StateSource::with_io(FakeRead::new(vec![]), &other, "route".into(), 1433).unwrap();
     assert_eq!(source.request.budget, limits);

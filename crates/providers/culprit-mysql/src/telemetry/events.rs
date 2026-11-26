@@ -141,6 +141,7 @@ impl ObservationReader for Reader {
                 observed_at: after.connection.at,
                 retained_from: None,
                 history_complete: false,
+                unavailable_error: None,
             }),
         };
         self.metadata = Some(meta);

@@ -21,6 +21,8 @@ const MAX_INSERTS: usize = 16_384;
 const _: () = assert!(ABBA_INSERTS_PER_WORKER <= MAX_INSERTS);
 #[cfg(test)]
 const RUN_MS: u32 = 4000;
+#[cfg(test)]
+const QUOTA_RUN_MS: u32 = 20_000;
 
 #[derive(Debug)]
 pub(crate) struct CompletedWorker {
@@ -37,12 +39,12 @@ struct WorkerStatement {
 impl Fixture {
     #[cfg(test)]
     pub async fn start_workload(&mut self, split_second: bool, unrelated_select: bool) -> Result<Instant> {
-        self.start_workload_with_limit(split_second, unrelated_select, MAX_INSERTS).await
+        self.start_workload_with_limit(split_second, unrelated_select, MAX_INSERTS, RUN_MS).await
     }
 
     #[cfg(test)]
     pub async fn start_abba_workload(&mut self, split_second: bool) -> Result<Instant> {
-        self.start_workload_with_limit(split_second, false, ABBA_INSERTS_PER_WORKER).await
+        self.start_workload_with_limit(split_second, false, ABBA_INSERTS_PER_WORKER, QUOTA_RUN_MS).await
     }
 
     #[cfg(test)]
@@ -51,12 +53,13 @@ impl Fixture {
         split_second: bool,
         unrelated_select: bool,
         inserts_per_worker: usize,
+        run_ms: u32,
     ) -> Result<Instant> {
         let count = WRITERS_PER_PATTERN * 2 + usize::from(unrelated_select);
         let workers = (0..count)
             .map(|index| {
                 let pattern = if index == WRITERS_PER_PATTERN * 2 { 0 } else { (index % 2 + 1) as u8 };
-                WorkerStatement { pattern, sql: statement(pattern, split_second, inserts_per_worker) }
+                WorkerStatement { pattern, sql: statement(pattern, split_second, inserts_per_worker, run_ms) }
             })
             .collect();
         self.start_workers(workers).await
@@ -116,7 +119,7 @@ fn holder_statement(pattern: u8) -> String {
     // The seed gate is inside the actual repeated INSERT, so original capture does not select a separate
     // gate statement. Count only inserted rows, bounded by both the existing native deadline and actor quota.
     format!(
-        "SET NOCOUNT ON; SET LOCK_TIMEOUT {HOLDER_LOCK_TIMEOUT_MS}; DECLARE @i int=0,@until datetime2=DATEADD(millisecond,{RUN_MS},SYSUTCDATETIME()); WHILE @i<{HOLDER_INSERTS_PER_WORKER} AND SYSUTCDATETIME()<@until BEGIN INSERT dbo.page_fixture_hot(marker) SELECT TOP (1) {pattern} FROM dbo.page_fixture_select WITH(READCOMMITTEDLOCK); SET @i+=@@ROWCOUNT; END; SELECT CONVERT(bigint,@i) AS completed;"
+        "SET NOCOUNT ON; SET LOCK_TIMEOUT {HOLDER_LOCK_TIMEOUT_MS}; DECLARE @i int=0,@until datetime2=DATEADD(millisecond,{QUOTA_RUN_MS},SYSUTCDATETIME()); WHILE @i<{HOLDER_INSERTS_PER_WORKER} AND SYSUTCDATETIME()<@until BEGIN INSERT dbo.page_fixture_hot(marker) SELECT TOP (1) {pattern} FROM dbo.page_fixture_select WITH(READCOMMITTEDLOCK); SET @i+=@@ROWCOUNT; END; SELECT CONVERT(bigint,@i) AS completed;"
     )
 }
 
@@ -139,7 +142,7 @@ pub(super) fn require_abba_completions(completed: &[CompletedWorker]) -> Result<
 }
 
 #[cfg(test)]
-fn statement(pattern: u8, split_second: bool, inserts_per_worker: usize) -> String {
+fn statement(pattern: u8, split_second: bool, inserts_per_worker: usize, run_ms: u32) -> String {
     let work=match pattern {
         1=>"INSERT dbo.page_fixture_hot(marker) VALUES(1)".to_string(),
         2=>format!("INSERT dbo.{}(marker,payload) VALUES(2,0x02)",if split_second{"page_fixture_split"}else{"page_fixture_hot"}),
@@ -147,7 +150,7 @@ fn statement(pattern: u8, split_second: bool, inserts_per_worker: usize) -> Stri
     };
     let limit = if pattern == 0 { 64 } else { inserts_per_worker };
     format!(
-        "SET NOCOUNT ON; DECLARE @i int=0,@sink bigint,@until datetime2=DATEADD(millisecond,{RUN_MS},SYSUTCDATETIME()); WHILE @i<{limit} AND SYSUTCDATETIME()<@until BEGIN {work}; SET @i+=1; END; SELECT @i AS completed;"
+        "SET NOCOUNT ON; DECLARE @i int=0,@sink bigint,@until datetime2=DATEADD(millisecond,{run_ms},SYSUTCDATETIME()); WHILE @i<{limit} AND SYSUTCDATETIME()<@until BEGIN {work}; SET @i+=1; END; SELECT @i AS completed;"
     )
 }
 
@@ -187,7 +190,7 @@ mod tests {
         for pattern in [1, 2] {
             let sql = holder_statement(pattern);
             assert!(sql.contains("WHILE @i<2048 AND SYSUTCDATETIME()<@until"));
-            assert!(sql.contains("DATEADD(millisecond,4000,SYSUTCDATETIME())"));
+            assert!(sql.contains(&format!("DATEADD(millisecond,{QUOTA_RUN_MS},SYSUTCDATETIME())")));
             assert!(sql.contains("SET LOCK_TIMEOUT 5000"));
             assert!(sql.contains(&format!("SELECT TOP (1) {pattern} FROM dbo.page_fixture_select")));
             assert!(sql.contains("SELECT CONVERT(bigint,@i) AS completed"));
@@ -204,12 +207,13 @@ mod tests {
     fn equal_work_comparison_retains_the_original_native_deadline_and_insert_patterns() {
         for pattern in [1, 2] {
             for separated in [false, true] {
-                let sql = statement(pattern, separated, ABBA_INSERTS_PER_WORKER);
+                let sql = statement(pattern, separated, ABBA_INSERTS_PER_WORKER, QUOTA_RUN_MS);
                 assert!(sql.contains("WHILE @i<2048 AND SYSUTCDATETIME()<@until"));
-                assert!(sql.contains("DATEADD(millisecond,4000,SYSUTCDATETIME())"));
+                assert!(sql.contains(&format!("DATEADD(millisecond,{QUOTA_RUN_MS},SYSUTCDATETIME())")));
                 let target = if pattern == 2 && separated { "page_fixture_split" } else { "page_fixture_hot" };
                 assert!(sql.contains(&format!("INSERT dbo.{target}(")));
             }
         }
+        assert!(statement(1, false, MAX_INSERTS, RUN_MS).contains("DATEADD(millisecond,4000,SYSUTCDATETIME())"));
     }
 }

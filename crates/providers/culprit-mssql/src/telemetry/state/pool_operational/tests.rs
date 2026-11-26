@@ -283,7 +283,7 @@ async fn twenty_and_twenty_one_cannot_pay_for_set_and_every_final_scope_check_an
     assert_eq!(maximum.max_queries, 22);
     assert_eq!(maximum.max_snapshot_rows, 10_000);
     assert_eq!((maximum.page_bytes, maximum.total_bytes), (512 * 1024, 8 * 1024 * 1024));
-    assert_eq!((maximum.statement_timeout_ms, maximum.total_timeout_ms), (1000, 8000));
+    assert_eq!((maximum.statement_timeout_ms, maximum.total_timeout_ms), (1000, 15000));
 }
 #[tokio::test]
 async fn changed_anchor_role_process_epoch_roster_and_reused_database_ids_refuse_before_publication() {

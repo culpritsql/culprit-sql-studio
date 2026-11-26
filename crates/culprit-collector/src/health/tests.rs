@@ -156,16 +156,26 @@ fn missing_attempts_unknown_completion_and_overdue_expected_work_do_not_claim_su
     );
 }
 #[test]
-fn an_operation_failure_or_native_debt_blocks_readiness_until_a_later_success_without_hiding_delivery_errors() {
+fn an_operation_failure_reports_schedule_metrics_while_only_native_debt_blocks_pod_readiness() {
     let health = health();
     health.initialized().unwrap();
     health.outbox(&status(0)).unwrap();
     let mut event = event(CollectionStatus::Incomplete(CollectionStop::SourceUnavailable));
     health.collection(&event).unwrap();
-    assert!(!health.ready().unwrap());
+    assert!(health.ready().unwrap(), "a remote target failure does not make the collector pod unready");
+    let failed_body = String::from_utf8(health.reply().unwrap().metrics).unwrap();
+    assert!(
+        failed_body.lines().any(|line| line.starts_with("culprit_collector_schedule_failed{") && line.ends_with(" 1"))
+    );
     event.status = CollectionStatus::Complete;
     health.collection(&event).unwrap();
     assert!(health.ready().unwrap());
+    let recovered_body = String::from_utf8(health.reply().unwrap().metrics).unwrap();
+    assert!(
+        recovered_body
+            .lines()
+            .any(|line| line.starts_with("culprit_collector_schedule_failed{") && line.ends_with(" 0"))
+    );
     health.outbox(&status(1)).unwrap();
     assert!(!health.ready().unwrap());
     health.delivery(&Err(DeliveryProblem::Transport.error())).unwrap();
@@ -198,7 +208,7 @@ fn expected_source_waits_have_bounded_startup_grace_and_never_count_as_completed
         })
         .unwrap();
     health.collection(&waiting).unwrap();
-    assert!(!health.ready().unwrap(), "fresh metadata attempts cannot extend startup grace");
+    assert!(health.ready().unwrap(), "active scheduler attempts keep pod readiness while reporting overdue metric");
     let metrics = String::from_utf8(health.reply().unwrap().metrics).unwrap();
     assert!(
         metrics.lines().any(|line| line.starts_with("culprit_collector_schedule_overdue{") && line.ends_with(" 1"))
@@ -223,7 +233,11 @@ fn expected_waits_preserve_prior_errors_and_cannot_hide_stale_completed_work() {
     health.collection(&event(CollectionStatus::Incomplete(CollectionStop::SourceUnavailable))).unwrap();
     let waiting = event(CollectionStatus::Incomplete(CollectionStop::SourceNotReady));
     health.collection(&waiting).unwrap();
-    assert!(!health.ready().unwrap(), "a wait is not proof that the previous error recovered");
+    let metrics = String::from_utf8(health.reply().unwrap().metrics).unwrap();
+    assert!(
+        metrics.lines().any(|line| line.starts_with("culprit_collector_schedule_failed{") && line.ends_with(" 1")),
+        "a wait is not proof that the previous error recovered"
+    );
     health
         .with(|state| {
             let schedule = state.schedules.values().next().unwrap();
@@ -241,9 +255,20 @@ fn expected_waits_preserve_prior_errors_and_cannot_hide_stale_completed_work() {
         })
         .unwrap();
     health.collection(&waiting).unwrap();
-    assert!(!health.ready().unwrap(), "fresh attempts cannot refresh stale completion evidence");
+    let stale_metrics = String::from_utf8(health.reply().unwrap().metrics).unwrap();
+    assert!(
+        stale_metrics
+            .lines()
+            .any(|line| line.starts_with("culprit_collector_schedule_overdue{") && line.ends_with(" 1")),
+        "fresh attempts cannot refresh stale completion evidence"
+    );
     health.collection(&event(CollectionStatus::Complete)).unwrap();
-    assert!(health.ready().unwrap());
+    let fresh_metrics = String::from_utf8(health.reply().unwrap().metrics).unwrap();
+    assert!(
+        fresh_metrics
+            .lines()
+            .any(|line| line.starts_with("culprit_collector_schedule_overdue{") && line.ends_with(" 0"))
+    );
 }
 
 #[test]
@@ -325,7 +350,7 @@ fn missing_native_evidence_on_a_later_capture_is_unknown_instead_of_reusing_old_
 }
 
 #[test]
-fn withheld_standard_sources_are_machine_visible_and_cannot_report_complete_monitoring_readiness() {
+fn withheld_standard_sources_are_machine_visible_without_blocking_pod_readiness() {
     let target = FleetTarget {
         id: "configured-target".into(),
         connection: "private-native-route-canary".into(),
@@ -352,7 +377,7 @@ fn withheld_standard_sources_are_machine_visible_and_cannot_report_complete_moni
     health.outbox(&status(0)).unwrap();
     health.initialized().unwrap();
     let reply = health.reply().unwrap();
-    assert!(!reply.ready);
+    assert!(reply.ready, "informational standard enrollment gaps must not block Kubernetes pod readiness");
     let lines = String::from_utf8(reply.metrics)
         .unwrap()
         .lines()

@@ -12,12 +12,18 @@ pub struct EventHistoryDescription {
     pub retained_from: Option<String>,
     /// False unless the native source establishes continuity throughout the requested history.
     pub history_complete: bool,
+    /// Native event source unavailable during this window (for example an unconfigured database XE session);
+    /// never interpreted as an empty deadlock history.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub unavailable_error: Option<crate::ErrorCode>,
 }
 impl EventHistoryDescription {
     pub(super) fn is_valid(&self) -> bool {
         let time = |value: &str| DateTime::parse_from_rfc3339(value).ok();
         matches!((time(&self.from),time(&self.until),time(&self.observed_at)),(Some(from),Some(until),Some(at)) if from<until && until<=at)
             && self.retained_from.as_deref().is_none_or(|value| time(value).is_some())
+            && (self.unavailable_error.is_none() || (!self.history_complete && self.retained_from.is_none()))
             && (!self.history_complete
                 || self
                     .retained_from

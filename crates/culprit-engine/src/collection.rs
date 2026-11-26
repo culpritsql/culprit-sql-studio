@@ -96,7 +96,9 @@ impl SourceFactory for AuthenticatedSource<'_> {
             SourceSelection::Ordinary { admitted: Some(admitted) } => {
                 connections.provider_admitted(self.name, admitted).await?
             }
-            SourceSelection::Ordinary { admitted: None } => connections.provider(self.name).await?,
+            SourceSelection::Ordinary { admitted: None } => {
+                std::sync::Arc::from(connections.provider(self.name).await?)
+            }
         };
         if let Some(admitted) = admitted {
             admitted.window.check_start()?;
@@ -201,7 +203,9 @@ impl Workspace {
         &self,
         observation_id: &str,
     ) -> Result<culprit_core::telemetry::CollectionAdmissionStatus> {
-        SourceAdmission::acknowledge(self.collection_admission_path(), observation_id).await
+        let status = SourceAdmission::acknowledge(self.collection_admission_path(), observation_id).await?;
+        self.connection_service().clear_cached_providers();
+        Ok(status)
     }
     pub async fn collect_once(
         &self,

@@ -1947,10 +1947,12 @@ Network policy/firewalls must allow only the selected SQL transport, Blob and Ku
 DNS, plus the chosen monitoring path. The examples do not install a cluster-specific network policy.
 
 Expose `/live`, `/ready` and `/metrics` only inside the monitoring network. `/live` is process liveness and stays
-independent of database/ADX availability. `/ready` also considers initialization, failed/overdue expected work,
-unconfirmed source shutdown and stale local health observations. Do not use readiness to force a replacement owner.
-Metrics show pending/quarantined deliveries, oldest backlog age and clock skew, local quota, native debts and
-per-schedule operations. Unknown completion age is absent. Schedule labels are SHA-256 of compact UTF-8 JSON
+independent of database/ADX availability. `/ready` reflects collector daemon readiness and safety: initialization,
+local synthesis liveness, unconfirmed source shutdown/fencing, fresh local outbox health, and initial scheduler
+liveness—staying independent of informational monitoring gaps or individual remote database failures. Do not use
+readiness to force a replacement owner.
+Metrics show pending/quarantined deliveries, oldest backlog age and clock skew, local quota, native debts, monitoring
+gaps and per-schedule operations (`failed`, `overdue`, attempts and completions). Unknown completion age is absent. Schedule labels are SHA-256 of compact UTF-8 JSON
 `[connection,schedule]`; metrics contain neither raw names nor SQL. An operation completing a historical backfill is
 not proof that current database telemetry is fresh: use the archived native coverage and measurement times for that.
 

@@ -195,7 +195,11 @@ jobs:
           if [ "$APPLE_SIGNING_IDENTITY" = "-" ]; then
             codesign --force --sign - dist/culprit
           else
-            codesign --force --timestamp --options runtime --sign "$APPLE_SIGNING_IDENTITY" dist/culprit
+            for attempt in 1 2 3 4 5; do
+              codesign --force --timestamp --options runtime --sign "$APPLE_SIGNING_IDENTITY" dist/culprit && break
+              [ "$attempt" -lt 5 ] || exit 1
+              sleep $((attempt * 3))
+            done
           fi
           ditto target/release/bundle/macos/Culprit.app dist/Culprit.app
 
@@ -233,7 +237,11 @@ jobs:
           mkdir dmg && ditto "$APP" "dmg/$APP" && ln -s /Applications dmg/Applications
           python3 ../.release-tools/.github/scripts/create_macos_dmg.py dmg Culprit-SQL-Studio-macOS.dmg
           rm -rf dmg
-          codesign --force --timestamp --sign "$SIGN_IDENTITY" Culprit-SQL-Studio-macOS.dmg
+          for attempt in 1 2 3 4 5; do
+            codesign --force --timestamp --sign "$SIGN_IDENTITY" Culprit-SQL-Studio-macOS.dmg && break
+            [ "$attempt" -lt 5 ] || exit 1
+            sleep $((attempt * 3))
+          done
           notarize Culprit-SQL-Studio-macOS.dmg
           xcrun stapler staple Culprit-SQL-Studio-macOS.dmg
           rm -f "$RUNNER_TEMP/api.p8"

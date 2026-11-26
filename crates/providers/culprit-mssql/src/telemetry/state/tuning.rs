@@ -19,7 +19,7 @@ pub(in crate::telemetry) fn bounded_budget(requested: &CollectionBudget) -> Coll
         max_pages: requested.max_pages.min(MAX_ROWS),
         total_bytes: requested.total_bytes.min(TOTAL_BYTES),
         statement_timeout_ms: requested.statement_timeout_ms.min(1_000),
-        total_timeout_ms: requested.total_timeout_ms.min(5_000),
+        total_timeout_ms: requested.total_timeout_ms.min(15_000),
         ..requested.clone()
     }
 }

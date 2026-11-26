@@ -322,6 +322,14 @@ fn populate_deadlocks(
     if seconds <= 0 {
         return Err(invalid());
     }
+    if events.unavailable_error.is_some() {
+        if !original.records().is_empty() {
+            return Err(invalid());
+        }
+        set_source_state(snapshot, source_id::DEADLOCKS, SourceState::Unavailable, false);
+        snapshot.deadlocks = None;
+        return Ok(());
+    }
     let since_hours = (seconds as f64 / 3600.0).max(1.0 / 3600.0);
     let mut deadlocks = Vec::new();
     for row in original.records() {

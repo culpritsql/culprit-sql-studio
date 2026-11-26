@@ -75,6 +75,9 @@ impl Schedule {
     fn overdue(&self, now: Instant, started: Instant) -> bool {
         now.duration_since(self.last_complete.unwrap_or(started)) > self.maximum_silence
     }
+    fn unattempted_overdue(&self, now: Instant, started: Instant) -> bool {
+        self.attempts == 0 && now.duration_since(started) > self.maximum_silence
+    }
 }
 #[derive(Clone)]
 struct OutboxHealth {
@@ -233,10 +236,12 @@ impl CollectorHealth {
         }
         for schedule in state.schedules.values() {
             let overdue = state.source_enabled && schedule.overdue(now, state.started);
+            let failed = state.source_enabled && schedule.last_failed;
             for (name, count) in [
                 ("attempts_total", schedule.attempts),
                 ("completed_operations_total", schedule.complete),
                 ("incomplete_operations_total", schedule.incomplete),
+                ("failed", u64::from(failed)),
                 ("overdue", u64::from(overdue)),
             ] {
                 writeln!(body, "culprit_collector_schedule_{name}{{schedule=\"{}\"}} {count}", schedule.id)
@@ -323,15 +328,11 @@ impl State {
         self.initialized
             && self.synthesis.as_ref().is_none_or(|synthesis| synthesis.ready(now))
             && !self.source_fenced
-            && (!self.source_enabled || self.monitoring_gaps == 0)
             && self.outbox.as_ref().is_some_and(|outbox| {
                 outbox.unconfirmed_sources == 0 && now.duration_since(outbox.updated_at) <= MAX_STATUS_AGE
             })
             && (!self.source_enabled
-                || self
-                    .schedules
-                    .values()
-                    .all(|schedule| !schedule.last_failed && !schedule.overdue(now, self.started)))
+                || self.schedules.values().all(|schedule| !schedule.unattempted_overdue(now, self.started)))
     }
 }
 fn metric_error(_: std::io::Error) -> culprit_core::Error {

@@ -44,6 +44,76 @@ WHERE s.name=@P1 AND c.event_session_id=@P2 AND {generation_matches}
     )
 }
 
+#[derive(Clone, PartialEq, Eq)]
+pub(crate) struct ConfiguredSession {
+    event_session_id: i64,
+    generation: String,
+    maximum_events: usize,
+}
+
+impl ConfiguredSession {
+    pub(crate) async fn probe<R: NativeRead>(io: &mut R) -> Result<Option<Self>> {
+        let configuration =
+            io.query(CONFIGURATION, vec![Parameter::Text(SESSION.into())], 2).await.map_err(ReadError::into_error)?;
+        if configuration.is_empty() {
+            return Ok(None);
+        }
+        let [configuration] = configuration.as_slice() else {
+            return Ok(None);
+        };
+        let memory = integer(configuration, "memory_kib")?;
+        let maximum_events = integer(configuration, "maximum_events")?;
+        if !(1..=MAX_MEMORY_KIB).contains(&memory) || !(1..=MAX_EVENTS as i64).contains(&maximum_events) {
+            return Ok(None);
+        }
+        let generation = crate::sql_time::native_time(&text(configuration, "generation")?)?;
+        Ok(Some(Self {
+            event_session_id: integer(configuration, "event_session_id")?,
+            generation,
+            maximum_events: maximum_events as usize,
+        }))
+    }
+
+    pub(crate) async fn events<R: NativeRead>(
+        &self,
+        io: &mut R,
+        database: &str,
+        from: &str,
+        until: &str,
+        limit: usize,
+        newest_first: bool,
+    ) -> Result<Vec<Event>> {
+        let rows = io
+            .query(
+                &target_sql(),
+                vec![
+                    Parameter::Text(SESSION.into()),
+                    Parameter::Integer(self.event_session_id),
+                    Parameter::Text(self.generation.clone()),
+                    Parameter::Integer(MAX_XML_BYTES),
+                ],
+                2,
+            )
+            .await
+            .map_err(ReadError::into_error)?;
+        let [target] = rows.as_slice() else { return Err(CollectionStop::SourceChanged.error()) };
+        if integer(target, "target_bytes")? > MAX_XML_BYTES {
+            return Err(CollectionStop::ByteLimit.error());
+        }
+        let xml = text(target, "target_xml")?;
+        if xml.len() > MAX_XML_BYTES as usize {
+            return Err(CollectionStop::ByteLimit.error());
+        }
+        let mut events = decode(&xml, database, &self.generation, from, until, self.maximum_events)?;
+        events.sort_by(|a, b| (&a.at, a.offset.len(), &a.offset).cmp(&(&b.at, b.offset.len(), &b.offset)));
+        if newest_first {
+            events.reverse();
+        }
+        events.truncate(limit);
+        Ok(events)
+    }
+}
+
 pub(super) async fn read<R: NativeRead>(
     io: &mut R,
     database: &str,
@@ -52,43 +122,11 @@ pub(super) async fn read<R: NativeRead>(
     limit: usize,
     newest_first: bool,
 ) -> Result<Vec<Event>> {
-    let configuration =
-        io.query(CONFIGURATION, vec![Parameter::Text(SESSION.into())], 2).await.map_err(ReadError::into_error)?;
-    let [configuration] = configuration.as_slice() else { return Err(setup_required()) };
-    let memory = integer(configuration, "memory_kib")?;
-    let maximum_events = integer(configuration, "maximum_events")?;
-    if !(1..=MAX_MEMORY_KIB).contains(&memory) || !(1..=MAX_EVENTS as i64).contains(&maximum_events) {
-        return Err(setup_required());
-    }
-    let generation = crate::sql_time::native_time(&text(configuration, "generation")?)?;
-    let rows = io
-        .query(
-            &target_sql(),
-            vec![
-                Parameter::Text(SESSION.into()),
-                Parameter::Integer(integer(configuration, "event_session_id")?),
-                Parameter::Text(generation.clone()),
-                Parameter::Integer(MAX_XML_BYTES),
-            ],
-            2,
-        )
+    ConfiguredSession::probe(io)
+        .await?
+        .ok_or_else(setup_required)?
+        .events(io, database, from, until, limit, newest_first)
         .await
-        .map_err(ReadError::into_error)?;
-    let [target] = rows.as_slice() else { return Err(CollectionStop::SourceChanged.error()) };
-    if integer(target, "target_bytes")? > MAX_XML_BYTES {
-        return Err(CollectionStop::ByteLimit.error());
-    }
-    let xml = text(target, "target_xml")?;
-    if xml.len() > MAX_XML_BYTES as usize {
-        return Err(CollectionStop::ByteLimit.error());
-    }
-    let mut events = decode(&xml, database, &generation, from, until, maximum_events as usize)?;
-    events.sort_by(|a, b| (&a.at, a.offset.len(), &a.offset).cmp(&(&b.at, b.offset.len(), &b.offset)));
-    if newest_first {
-        events.reverse();
-    }
-    events.truncate(limit);
-    Ok(events)
 }
 
 fn setup_required() -> Error {

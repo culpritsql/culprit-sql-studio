@@ -7,6 +7,7 @@ use culprit_core::{DeadlockReport, LockWait, MeasurementScope, Result, t};
 use crate::read::rows as query;
 use crate::read::{NativeRead, ReadError, integer, invalid_data, text};
 mod database;
+pub(crate) use database::ConfiguredSession as ConfiguredDatabaseSession;
 pub(crate) mod native;
 pub(crate) mod system_health;
 #[cfg(test)]

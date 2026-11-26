@@ -11,7 +11,7 @@ use std::{
 };
 use tokio::{sync::Barrier, task::JoinHandle};
 
-const COMPLETION_TIMEOUT: Duration = Duration::from_secs(10);
+const COMPLETION_TIMEOUT: Duration = Duration::from_secs(30);
 pub(super) const WORKER_CLEANUP_TIMEOUT: Duration = Duration::from_secs(2);
 type Slots<T> = Vec<Option<JoinHandle<Result<T>>>>;
 

@@ -24,7 +24,7 @@ pub(super) fn bounded_budget(caller: &CollectionBudget) -> CollectionBudget {
         page_bytes: 256 * 1024,
         total_bytes: 2 * 1024 * 1024,
         statement_timeout_ms: 1_000,
-        total_timeout_ms: 5_000,
+        total_timeout_ms: 15_000,
         ..CollectionBudget::default()
     })
 }

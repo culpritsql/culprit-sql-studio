@@ -323,7 +323,7 @@ fn configured_system_health_declares_bounded_shared_baseline_safety_with_finite_
     assert_eq!(recipe.budget.max_queries, 9, "eight reader queries and one possible session SET batch");
     assert_eq!(recipe.budget.max_snapshot_rows, 50);
     assert_eq!(recipe.budget.statement_timeout_ms, 1000);
-    assert_eq!(recipe.budget.total_timeout_ms, 5000);
+    assert_eq!(recipe.budget.total_timeout_ms, 15000);
 }
 
 #[test]
@@ -506,7 +506,7 @@ fn cleanup_recipe_keeps_its_local_three_family_envelope_separate_from_azure_oper
     assert_eq!(cleanup.budget.page_bytes, 32 * 1024);
     assert_eq!(cleanup.budget.total_bytes, 32 * 1024);
     assert_eq!(cleanup.budget.statement_timeout_ms, 1_000);
-    assert_eq!(cleanup.budget.total_timeout_ms, 5_000);
+    assert_eq!(cleanup.budget.total_timeout_ms, 15_000);
     assert_ne!(cleanup.selector, recipes.iter().find(|recipe| recipe.id == "mssql.operational").unwrap().selector);
 }
 
@@ -751,7 +751,7 @@ fn pool_current_wait_recipe_is_closed_bounded_unqualified_and_distinct_from_data
     assert_eq!(recipe.budget.max_queries, 8);
     assert_eq!(recipe.budget.max_snapshot_rows, 500);
     assert_eq!(recipe.budget.statement_timeout_ms, 1000);
-    assert_eq!(recipe.budget.total_timeout_ms, 5000);
+    assert_eq!(recipe.budget.total_timeout_ms, 15000);
     let database = all.iter().find(|recipe| recipe.id == "mssql.wait-counters").unwrap();
     assert_eq!(database.subjects, vec![RecipeSubject::Database]);
 }

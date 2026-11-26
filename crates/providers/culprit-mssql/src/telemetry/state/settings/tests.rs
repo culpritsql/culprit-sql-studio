@@ -373,7 +373,7 @@ fn settings_limits_intersect_every_independent_caller_bound() {
     assert_eq!(upper.max_snapshot_rows, 512);
     assert_eq!(upper.page_rows, 64);
     assert_eq!(upper.statement_timeout_ms, 1000);
-    assert_eq!(upper.total_timeout_ms, 5000);
+    assert_eq!(upper.total_timeout_ms, 15000);
     let requested = CollectionBudget {
         max_queries: 7,
         max_snapshot_rows: 4,
@@ -486,4 +486,92 @@ async fn profiled_settings_bind_builtin_safety_emit_snapshot_acquisition_and_ref
     assert_eq!(CollectionStop::from_error(&refused.describe().await.unwrap_err()), CollectionStop::SourceChanged);
     assert_eq!(refused.query_count(), 4);
     assert_eq!(refused.close().await, SourceShutdown::Quiescent);
+}
+
+#[tokio::test]
+async fn profiled_azure_sql_settings_operational_and_waits_bind_target_authority_and_verify_completion() {
+    let azure_identity = Rec::of(&[
+        ("database_name", Val::Text("sample".into())),
+        ("incarnation", Val::Text("logical-guid".into())),
+        ("physical_incarnation", Val::Text("physical-guid".into())),
+        ("updateability", Val::Text("READ_WRITE".into())),
+    ]);
+    // 1. Settings under Standard profile on Azure SQL Database (edition = 5).
+    let settings_recipe = crate::telemetry::recipes().into_iter().find(|r| r.id == "mssql.settings").unwrap();
+    let RecipeAdmission::BuiltinSafety(settings_policy) = settings_recipe.admission else { panic!() };
+    let settings_req = CollectionRequest {
+        subject: CollectionSubject::Database,
+        selection: CollectionSelection::Snapshot { dataset: SnapshotDataset::Settings },
+        budget: settings_recipe.budget.clone(),
+    };
+    let settings_admission = SourceProfileAdmission::for_builtin(
+        digest(b"azure-settings-route"),
+        *settings_policy,
+        None,
+        settings_req.budget.clone(),
+        || true,
+    )
+    .unwrap();
+    let mut settings_rows = vec![
+        Ok(vec![Rec::of(&[("edition", Val::Int(5))])]),
+        Ok(vec![azure_identity.clone()]),
+        Ok(vec![super::super::tests::clock(true, "2020-01-01T06:02:00Z")]),
+    ];
+    for row in [crate::settings::tests::database(), crate::settings::tests::scoped(), crate::settings::tests::options()]
+    {
+        settings_rows.extend([Ok(vec![super::super::tests::pressure(false)]), Ok(vec![row])]);
+    }
+    settings_rows
+        .extend([Ok(vec![super::super::tests::clock(true, "2020-01-01T06:02:01Z")]), Ok(vec![azure_identity.clone()])]);
+    let mut settings_src = settings_source(settings_rows, &settings_req);
+    let guard = culprit_read::SourceProfileGuard::new(&settings_req, &settings_admission).unwrap();
+    settings_src.builtin_policy = guard.builtin_policy().cloned();
+    settings_src.profile = Some(guard);
+    let desc = settings_src.describe().await.unwrap();
+    assert_eq!(desc.partition, SourcePartition::Target);
+    assert_eq!(desc.target.database().unwrap().incarnation.as_deref(), Some("logical-guid"));
+    assert!(!drain(&mut settings_src).await.is_empty());
+    assert_eq!(settings_src.finish().await.unwrap(), SourceCompletion::Verified);
+    assert_eq!(settings_src.close().await, SourceShutdown::Quiescent);
+
+    // 2. WaitCounters under Standard profile on Azure SQL Database (edition = 5).
+    let waits_recipe = crate::telemetry::recipes().into_iter().find(|r| r.id == "mssql.wait-counters").unwrap();
+    let RecipeAdmission::BuiltinSafety(waits_policy) = waits_recipe.admission else { panic!() };
+    let waits_req = CollectionRequest {
+        subject: CollectionSubject::Database,
+        selection: CollectionSelection::Snapshot { dataset: SnapshotDataset::WaitCounters },
+        budget: waits_recipe.budget.clone(),
+    };
+    let waits_admission = SourceProfileAdmission::for_builtin(
+        digest(b"azure-waits-route"),
+        *waits_policy,
+        None,
+        waits_req.budget.clone(),
+        || true,
+    )
+    .unwrap();
+    let waits_rows = vec![
+        Ok(vec![Rec::of(&[("edition", Val::Int(5))])]),
+        Ok(vec![azure_identity.clone()]),
+        Ok(vec![super::super::tests::clock(false, "2020-01-01T06:02:00Z")]),
+        Ok(vec![super::super::tests::pressure(false)]),
+        Ok(vec![]),
+        Ok(vec![super::super::tests::clock(false, "2020-01-01T06:02:01Z")]),
+        Ok(vec![azure_identity]),
+    ];
+    let mut waits_src = StateSource::with_io(
+        Reader { inner: FakeRead::new(waits_rows), generation: Some(1), change_at: None },
+        &waits_req,
+        "fixture.invalid".into(),
+        1433,
+    )
+    .unwrap();
+    let guard = culprit_read::SourceProfileGuard::new(&waits_req, &waits_admission).unwrap();
+    waits_src.builtin_policy = guard.builtin_policy().cloned();
+    waits_src.profile = Some(guard);
+    let waits_desc = waits_src.describe().await.unwrap();
+    assert_eq!(waits_desc.partition, SourcePartition::Target);
+    waits_src.read_page(TelemetryStream::WaitCounterSamples, None).await.unwrap();
+    assert_eq!(waits_src.finish().await.unwrap(), SourceCompletion::Verified);
+    assert_eq!(waits_src.close().await, SourceShutdown::Quiescent);
 }

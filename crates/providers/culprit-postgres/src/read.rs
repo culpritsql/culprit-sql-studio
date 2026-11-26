@@ -230,6 +230,10 @@ impl ReadSession {
             .min(Duration::from_millis(self.budget.statement_timeout_ms.into()));
         if time.is_zero() { Err(CollectionStop::TimedOut.error()) } else { Ok(time) }
     }
+    fn remaining_total(&self) -> Result<Duration> {
+        let time = self.deadline.saturating_duration_since(Instant::now());
+        if time.is_zero() { Err(CollectionStop::TimedOut.error()) } else { Ok(time) }
+    }
     async fn initialize(&mut self) -> Result<()> {
         if !self.initialized {
             let setup = self.setup_sql();
@@ -264,7 +268,7 @@ impl ReadSession {
         }
     }
     async fn acquire(&mut self) -> Result<Client> {
-        let timeout = self.remaining()?;
+        let timeout = self.remaining_total()?;
         self.acquiring = true;
         let attempt = self.connection_work.as_ref().map(|work| work.begin());
         let phase =
@@ -428,7 +432,7 @@ impl ReadSession {
         if self.queries >= self.budget.max_queries {
             return Err(CollectionStop::QueryLimit.error());
         }
-        self.remaining()?;
+        self.remaining_total()?;
         if let Some(scope) = &self.application_scope {
             scope.start()?;
         }

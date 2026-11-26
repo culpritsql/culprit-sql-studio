@@ -213,23 +213,23 @@ fn restore_resources(
         .map(|(key, saved)| {
             let limit = limits.get(key).ok_or_else(state_failed)?;
             let reservation = Duration::from_millis(saved.max_reservation_ms);
+            let max_reservation = if saved.attempts > 0 { reservation.max(limit.reservation) } else { reservation };
             if saved.attempts < limit.attempts
                 || u64::from(saved.pressure_failures) > saved.attempts
-                || reservation < limit.reservation
-                || reservation > native_reservation(&CollectionBudget::upper_limits())
+                || max_reservation > native_reservation(&CollectionBudget::upper_limits())
                 || (saved.attempts == 0) != reservation.is_zero()
             {
                 return Err(state_failed());
             }
             let pending = interrupted.is_some_and(|work| work.resource() == key);
-            let due = saved.delay.restore(&state.clock, now, wall, reservation + MAX_FAILURE_DELAY, pending)?;
+            let due = saved.delay.restore(&state.clock, now, wall, max_reservation + MAX_FAILURE_DELAY, pending)?;
             Ok((
                 key.clone(),
                 ResourceAdmission {
                     due,
                     pressure_failures: saved.pressure_failures,
                     attempts: saved.attempts,
-                    max_reservation: reservation,
+                    max_reservation,
                 },
             ))
         })

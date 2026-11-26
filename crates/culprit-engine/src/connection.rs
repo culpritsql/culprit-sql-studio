@@ -20,6 +20,15 @@ pub(crate) use route::SavedRoute;
 /// Conventional SQLite file suffixes, also exposed by the public workspace API.
 pub const DATABASE_FILE_EXTENSIONS: [&str; 4] = ["db", "sqlite", "sqlite3", "db3"];
 
+#[cfg(any(feature = "collector", test))]
+const MAX_CACHED_PROVIDERS: usize = 256;
+
+#[cfg_attr(not(any(feature = "collector", test)), allow(dead_code))]
+pub(crate) struct CachedProvider {
+    spec_digest: String,
+    provider: std::sync::Arc<dyn Provider>,
+}
+
 pub(crate) struct Connections<'a> {
     pub paths: &'a Paths,
     pub store: &'a Store,
@@ -30,6 +39,7 @@ pub(crate) struct Connections<'a> {
         &'a std::collections::BTreeMap<String, std::sync::Arc<dyn culprit_auth::DatabaseTokenProvider>>,
     pub database_tokens: Option<&'a dyn culprit_auth::DatabaseTokenProvider>,
     pub providers: &'a [(Engine, ProviderRegistration)],
+    pub provider_pool: &'a std::sync::Mutex<std::collections::BTreeMap<String, CachedProvider>>,
     pub ssh: &'a crate::ssh::Manager,
     pub source_gate: &'a culprit_read::admission::SourceGate,
     #[cfg(feature = "collector")]
@@ -37,9 +47,22 @@ pub(crate) struct Connections<'a> {
 }
 
 impl Connections<'_> {
+    pub(crate) fn evict_cached_provider(&self, name: &str) {
+        if let Ok(mut pool) = self.provider_pool.lock() {
+            pool.remove(name);
+        }
+    }
+
+    pub(crate) fn clear_cached_providers(&self) {
+        if let Ok(mut pool) = self.provider_pool.lock() {
+            pool.clear();
+        }
+    }
+
     /// Forget device-code sign-ins: in-memory tokens and stored refresh tokens for every tenant the saved connections use.
     /// The Azure CLI's own login is untouched (`az logout`). Returns how many stored sign-ins were removed.
     pub(crate) fn sign_out(&self) -> Result<usize> {
+        self.clear_cached_providers();
         let connections = self.store.list()?.into_iter().map(|(_, stored)| stored.spec()).collect::<Vec<_>>();
         self.authentication.sign_out(&connections, self.secrets)
     }
@@ -254,6 +277,7 @@ impl Connections<'_> {
             stored.environment = settings.environment;
             Ok(())
         })?;
+        self.evict_cached_provider(name);
         self.connection(name)
     }
 
@@ -312,6 +336,7 @@ impl Connections<'_> {
             no_query_log: false,
         };
         self.store.put(&new.name, stored)?;
+        self.evict_cached_provider(&new.name);
         self.discover_query_log(&new.name);
         self.connection(&new.name)
     }
@@ -330,6 +355,7 @@ impl Connections<'_> {
             stored.password_saved = Some(true);
             stored.password_env = None;
         })?;
+        self.evict_cached_provider(name);
         self.connection(name)
     }
 
@@ -346,6 +372,7 @@ impl Connections<'_> {
                 deleted?;
             }
         }
+        self.evict_cached_provider(name);
         self.store.remove(name)
     }
 
@@ -381,6 +408,7 @@ impl Connections<'_> {
     /// anything that changes data.
     pub(crate) fn set_environment(&self, name: &str, environment: Environment) -> Result<ConnectionInfo> {
         self.store.update(name, |stored| stored.environment = environment)?;
+        self.evict_cached_provider(name);
         self.connection(name)
     }
 
@@ -392,6 +420,7 @@ impl Connections<'_> {
             stored.ssh = spec.ssh;
             Ok(())
         })?;
+        self.evict_cached_provider(name);
         self.connection(name)
     }
 
@@ -401,6 +430,8 @@ impl Connections<'_> {
         store::validate_name(new)?;
         self.retire_reports(new)?;
         self.store.rename(old, new)?;
+        self.evict_cached_provider(old);
+        self.evict_cached_provider(new);
         if stored.auth == AuthKind::Password && stored.password_env.is_none() && stored.password_saved != Some(false) {
             if let Some(secret) = self.secrets.get(old)? {
                 self.secrets.set(new, &secret)?;
@@ -638,6 +669,47 @@ impl Connections<'_> {
         self.provider_from_saved(name, &stored, stored.ssh.clone()).await
     }
 
+    #[cfg(test)]
+    pub(crate) async fn cached_provider(&self, name: &str) -> Result<std::sync::Arc<dyn Provider>> {
+        let route = self.saved_route(name)?;
+        let spec = self.spec_at_route(&route).await?;
+        self.open_or_reuse_provider(name, &route.revision, &spec)
+    }
+
+    #[cfg(any(feature = "collector", test))]
+    fn open_or_reuse_provider(
+        &self,
+        name: &str,
+        route_revision: &str,
+        spec: &ConnectionSpec,
+    ) -> Result<std::sync::Arc<dyn Provider>> {
+        if spec.transport.is_some() {
+            return Ok(std::sync::Arc::from(self.open_provider(spec)?));
+        }
+        let digest = spec_cache_digest(route_revision, spec);
+        if let Ok(pool) = self.provider_pool.lock()
+            && let Some(cached) = pool.get(name)
+            && cached.spec_digest == digest
+            && cached.provider.source_shutdown() == culprit_core::telemetry::SourceShutdown::Quiescent
+        {
+            return Ok(cached.provider.clone());
+        }
+        let provider: std::sync::Arc<dyn Provider> = std::sync::Arc::from(self.open_provider(spec)?);
+        if let Ok(mut pool) = self.provider_pool.lock() {
+            pool.retain(|_, entry| {
+                entry.provider.source_shutdown() == culprit_core::telemetry::SourceShutdown::Quiescent
+            });
+            if !pool.contains_key(name)
+                && pool.len() >= MAX_CACHED_PROVIDERS
+                && let Some(evict) = pool.keys().next().cloned()
+            {
+                pool.remove(&evict);
+            }
+            pool.insert(name.to_owned(), CachedProvider { spec_digest: digest, provider: provider.clone() });
+        }
+        Ok(provider)
+    }
+
     pub(crate) fn route_revision(&self, name: &str) -> Result<String> {
         let route = route::revision(&self.store.get(name)?)?;
         #[cfg(feature = "collector")]
@@ -690,7 +762,7 @@ impl Connections<'_> {
         &self,
         name: &str,
         admission: &culprit_collector::fleet::FleetSourceAdmission,
-    ) -> Result<Box<dyn Provider>> {
+    ) -> Result<std::sync::Arc<dyn Provider>> {
         admission.window.check_start()?;
         let stored = self.store.get(name)?;
         let current = self.route_revision(name)?;
@@ -705,7 +777,7 @@ impl Connections<'_> {
         .await
         .map_err(|_| culprit_core::telemetry::CollectionStop::TimedOut.error())??;
         admission.window.check_start()?;
-        self.open_provider(&spec)
+        self.open_or_reuse_provider(name, &current, &spec)
     }
 
     async fn provider_from_saved(
@@ -815,6 +887,7 @@ impl Connections<'_> {
     pub(crate) fn forget_rejected<T>(&self, name: &str, result: Result<T>) -> Result<T> {
         if matches!(&result, Err(e) if e.code == ErrorCode::AuthFailed) {
             self.secrets.forget(name);
+            self.evict_cached_provider(name);
         }
         result
     }
@@ -868,6 +941,44 @@ impl Connections<'_> {
         }
         Ok(())
     }
+}
+
+#[cfg(any(feature = "collector", test))]
+fn spec_cache_digest(route_revision: &str, spec: &ConnectionSpec) -> String {
+    let mut bytes = Vec::new();
+    let push = |out: &mut Vec<u8>, value: &[u8]| {
+        out.extend_from_slice(&(value.len() as u64).to_le_bytes());
+        out.extend_from_slice(value);
+    };
+    let push_opt = |out: &mut Vec<u8>, value: Option<&str>| match value {
+        Some(value) => {
+            out.push(1);
+            push(out, value.as_bytes());
+        }
+        None => out.push(0),
+    };
+    push(&mut bytes, route_revision.as_bytes());
+    push_opt(&mut bytes, spec.engine.map(Engine::label));
+    push(&mut bytes, format!("{:?}", spec.environment).as_bytes());
+    push(&mut bytes, spec.host.as_bytes());
+    match spec.port {
+        Some(port) => {
+            bytes.push(1);
+            bytes.extend_from_slice(&port.to_le_bytes());
+        }
+        None => bytes.push(0),
+    }
+    push_opt(&mut bytes, spec.database.as_deref());
+    push_opt(&mut bytes, spec.user.as_deref());
+    push(&mut bytes, format!("{:?}", spec.auth).as_bytes());
+    push_opt(&mut bytes, spec.password.as_deref());
+    push_opt(&mut bytes, spec.token.as_deref());
+    bytes.extend_from_slice(&(spec.options.len() as u64).to_le_bytes());
+    for (key, value) in &spec.options {
+        push(&mut bytes, key.as_bytes());
+        push(&mut bytes, value.as_bytes());
+    }
+    culprit_core::telemetry::digest(&bytes)
 }
 
 /// What a chosen database file is as a connection's input: its path when the extension says SQLite (`.db`, `.sqlite`,
@@ -1096,5 +1207,82 @@ mod tests {
         assert_eq!(name("~/code/blog/instance/app.db"), "blog-app");
         assert_eq!(name("~/app.db"), "app");
         assert_eq!(name("app.db"), "app");
+    }
+
+    #[tokio::test]
+    async fn cached_provider_reuses_quiescent_pool_until_secret_route_or_shutdown_changes() {
+        use std::sync::{
+            Arc,
+            atomic::{AtomicBool, AtomicUsize, Ordering},
+        };
+        struct CountingProvider {
+            uncertain: Arc<AtomicBool>,
+        }
+        #[async_trait::async_trait]
+        impl Provider for CountingProvider {
+            fn engine(&self) -> Engine {
+                Engine::Mssql
+            }
+            async fn probe(&self) -> Result<ServerInfo> {
+                unreachable!()
+            }
+            async fn snapshot(&self, _: &str, _: &culprit_core::SnapshotOptions) -> Result<culprit_core::Snapshot> {
+                unreachable!()
+            }
+            async fn live(&self) -> Result<culprit_core::LiveState> {
+                unreachable!()
+            }
+            async fn explain(&self, _: &str, _: culprit_core::ExplainMode) -> Result<culprit_core::Plan> {
+                unreachable!()
+            }
+            async fn run(&self, _: &str, _: usize) -> Result<culprit_core::ResultSet> {
+                unreachable!()
+            }
+            fn source_shutdown(&self) -> culprit_core::telemetry::SourceShutdown {
+                if self.uncertain.load(Ordering::SeqCst) {
+                    culprit_core::telemetry::SourceShutdown::Unconfirmed
+                } else {
+                    culprit_core::telemetry::SourceShutdown::Quiescent
+                }
+            }
+        }
+
+        let dir = tempfile::tempdir().unwrap();
+        let opened = Arc::new(AtomicUsize::new(0));
+        let uncertain = Arc::new(AtomicBool::new(false));
+        let opened_clone = opened.clone();
+        let uncertain_clone = uncertain.clone();
+        let registration = ProviderRegistration::new(
+            Arc::new(move |_, _| {
+                opened_clone.fetch_add(1, Ordering::SeqCst);
+                Ok(Box::new(CountingProvider { uncertain: uncertain_clone.clone() }))
+            }),
+            crate::ProviderConstructionPolicy::DeferredNativeWork,
+            vec![],
+        )
+        .unwrap();
+        let ws = Workspace::open_in(dir.path()).with_provider(Engine::Mssql, registration);
+        ws.add_connection(NewConnection {
+            name: "eus-db".into(),
+            input: "Server=tcp:rcs-eus.database.windows.net,1433;Database=rcs;User ID=reader;Password=first".into(),
+            engine: Some(Engine::Mssql),
+            ..Default::default()
+        })
+        .unwrap();
+
+        let p1 = ws.connection_service().cached_provider("eus-db").await.unwrap();
+        let p2 = ws.connection_service().cached_provider("eus-db").await.unwrap();
+        assert_eq!(opened.load(Ordering::SeqCst), 1, "unchanged route and secret must reuse warm provider");
+        assert!(Arc::ptr_eq(&p1, &p2));
+
+        ws.set_password("eus-db", "second").unwrap();
+        let p3 = ws.connection_service().cached_provider("eus-db").await.unwrap();
+        assert_eq!(opened.load(Ordering::SeqCst), 2, "rotated secret must open a new provider");
+        assert!(!Arc::ptr_eq(&p2, &p3));
+
+        uncertain.store(true, Ordering::SeqCst);
+        let p4 = ws.connection_service().cached_provider("eus-db").await.unwrap();
+        assert_eq!(opened.load(Ordering::SeqCst), 3, "unconfirmed shutdown must never be reused");
+        assert!(!Arc::ptr_eq(&p3, &p4));
     }
 }

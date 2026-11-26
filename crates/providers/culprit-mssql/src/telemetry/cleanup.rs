@@ -30,7 +30,7 @@ pub(super) fn bounded_budget(requested: &CollectionBudget) -> CollectionBudget {
         max_pages: requested.max_pages.min(MAX_RECORDS),
         max_queries: requested.max_queries.min(MAX_QUERIES),
         statement_timeout_ms: requested.statement_timeout_ms.min(1_000),
-        total_timeout_ms: requested.total_timeout_ms.min(5_000),
+        total_timeout_ms: requested.total_timeout_ms.min(15_000),
         ..requested.clone()
     }
 }
@@ -43,6 +43,7 @@ struct CleanupReader<R: NativeRead> {
     host: String,
     port: u16,
     context: Option<Context>,
+    profile: Option<culprit_read::SourceProfileGuard>,
     builtin_policy: Option<BuiltinRecipeSafety>,
 }
 impl CleanupSource {
@@ -70,18 +71,20 @@ pub(super) fn profile_source(
     }
     let guard = culprit_read::SourceProfileGuard::new(request, admission)?;
     let io = ReadSession::collection(pool, request.budget.clone())?.with_profile(guard.clone());
-    let inner = CleanupSource::with_io_and_policy(io, request, host, port, admission.builtin_policy().cloned())?;
-    Ok(Box::new(culprit_read::GuardedTelemetrySource::new(inner, guard)))
+    let inner =
+        CleanupSource::with_io_and_policy(io, request, host, port, Some(guard), admission.builtin_policy().cloned())?;
+    Ok(Box::new(inner))
 }
 impl<R: NativeRead> CleanupSource<R> {
     fn with_io(io: R, request: &CollectionRequest, host: String, port: u16) -> Result<Self> {
-        Self::with_io_and_policy(io, request, host, port, None)
+        Self::with_io_and_policy(io, request, host, port, None, None)
     }
     fn with_io_and_policy(
         io: R,
         request: &CollectionRequest,
         host: String,
         port: u16,
+        profile: Option<culprit_read::SourceProfileGuard>,
         builtin_policy: Option<BuiltinRecipeSafety>,
     ) -> Result<Self> {
         request.validate()?;
@@ -92,7 +95,7 @@ impl<R: NativeRead> CleanupSource<R> {
         let mut request = request.clone();
         request.budget = bounded_budget(&request.budget);
         request.budget.validate()?;
-        let reader = CleanupReader { io, host, port, context: None, builtin_policy };
+        let reader = CleanupReader { io, host, port, context: None, profile, builtin_policy };
         Ok(Self { inner: culprit_read::FrozenSource::new(reader, &request)? })
     }
 }
@@ -100,14 +103,24 @@ impl<R: NativeRead> CleanupSource<R> {
 #[async_trait::async_trait]
 impl<R: NativeRead> culprit_read::ObservationReader for CleanupReader<R> {
     async fn observe(&mut self, request: &CollectionRequest) -> Result<culprit_read::FrozenObservation> {
+        if let Some(profile) = &self.profile {
+            profile.ensure_active()?;
+        }
         let context = Context::read(&mut self.io, &self.host, self.port).await?;
-        require_local_instance(&context)?;
+        require_cleanup_owner(&context)?;
         if let Some(policy) = &self.builtin_policy {
             crate::builtin_safety::verify_activity(policy, context.activity.edition, context.activity.major)?;
+        }
+        if let Some(profile) = &self.profile {
+            profile
+                .bind_native(&cleanup_read_context(&context, &context.activity.at)?, context.connection_generation())?;
         }
         let mut records = Vec::new();
         let mut sources = Vec::new();
         for family in FAMILIES {
+            if let Some(profile) = &self.profile {
+                profile.check_connection(self.io.connection_generation())?;
+            }
             let remaining = (request.budget.max_snapshot_rows as usize).saturating_sub(records.len());
             if remaining == 0 {
                 return Err(CollectionStop::RowLimit.error());
@@ -127,34 +140,61 @@ impl<R: NativeRead> culprit_read::ObservationReader for CleanupReader<R> {
         if ObservationBounds::new(&context.activity.at, &until).is_none() {
             return Err(CollectionStop::SourceChanged.error());
         }
+        let snapshot = StateSnapshotDescription {
+            dataset: SnapshotDataset::Cleanup,
+            observed_from: context.activity.at.clone(),
+            observed_until: until,
+            records: records.len().try_into().map_err(|_| invalid_data())?,
+            sources,
+        };
+        let (partition, observation) = if context.is_qualified() {
+            (
+                context.source_partition()?,
+                SourceObservation::LocalResource {
+                    snapshot,
+                    database_writable: context.activity.writable.ok_or_else(invalid_data)?,
+                },
+            )
+        } else {
+            (SourcePartition::Target, SourceObservation::Snapshot(snapshot))
+        };
         let description = CollectionDescription {
             target: context.activity.database.clone().into(),
-            partition: context.source_partition()?,
+            partition,
             source: "mssql-cleanup".into(),
             continuity: SourceContinuity::Unverified,
-            observation: SourceObservation::LocalResource {
-                snapshot: StateSnapshotDescription {
-                    dataset: SnapshotDataset::Cleanup,
-                    observed_from: context.activity.at.clone(),
-                    observed_until: until,
-                    records: records.len().try_into().map_err(|_| invalid_data())?,
-                    sources,
-                },
-                database_writable: context.activity.writable.ok_or_else(invalid_data)?,
-            },
+            observation,
         };
         self.context = Some(context);
         Ok(culprit_read::FrozenObservation { description, records })
     }
     async fn verify(&mut self, description: &CollectionDescription) -> Result<bool> {
+        if let Some(profile) = &self.profile {
+            profile.ensure_active()?;
+            profile.check_connection(self.io.connection_generation())?;
+        }
         let original = self.context.as_ref().ok_or_else(invalid_data)?;
         let after = original.recheck(&mut self.io, &self.host, self.port).await?;
-        require_local_instance(&after)?;
+        if require_cleanup_owner(&after).is_err() {
+            return Ok(false);
+        }
         let until = &description.observation.snapshot().ok_or_else(invalid_data)?.observed_until;
-        Ok(original.database_wide == after.database_wide
-            && original.same_source(&after)
-            && original.completed(&after).is_ok()
-            && ObservationBounds::new(until, &after.activity.at).is_some())
+        let same_owner = if original.is_qualified() {
+            original.same_source(&after) && original.completed(&after).is_ok()
+        } else {
+            !after.is_qualified() && original.same_observed_source(&after)
+        };
+        if original.database_wide != after.database_wide
+            || !same_owner
+            || ObservationBounds::new(until, &after.activity.at).is_none()
+        {
+            return Ok(false);
+        }
+        if let Some(profile) = &self.profile {
+            profile
+                .verify_final(&cleanup_read_context(original, &after.activity.at)?, after.connection_generation())?;
+        }
+        Ok(true)
     }
     fn query_count(&self) -> u32 {
         self.io.queries()
@@ -167,14 +207,48 @@ impl<R: NativeRead> culprit_read::ObservationReader for CleanupReader<R> {
     }
 }
 
-fn require_local_instance(context: &Context) -> Result<()> {
+fn cleanup_read_context(before: &Context, observed_until: &str) -> Result<NativeReadContext> {
+    let partition = if before.is_qualified() { before.source_partition()? } else { SourcePartition::Target };
+    let context = NativeReadContext {
+        target: before.activity.database.clone().into(),
+        partition,
+        observed_from: before.activity.at.clone(),
+        observed_until: observed_until.into(),
+        database_writable: before.activity.writable,
+    };
+    context.is_valid().then_some(context).ok_or_else(invalid_data)
+}
+
+fn require_cleanup_owner(context: &Context) -> Result<()> {
+    if context.connection_generation().is_none_or(|generation| generation == 0) {
+        return Err(CollectionStop::SourceUnavailable.error());
+    }
+    if context.activity.edition == crate::probe::ENGINE_EDITION_AZURE_SQL_DATABASE {
+        if context.is_qualified() {
+            return Ok(());
+        }
+        if context.activity.writable == Some(false) {
+            return Err(culprit_core::Error::new(
+                culprit_core::ErrorCode::Unsupported,
+                culprit_core::t!("collection.unsupported"),
+            ));
+        }
+        if context.qualification_error.is_none()
+            && context.activity.writable == Some(true)
+            && context.activity.database.incarnation.is_some()
+            && context.physical_database.is_some()
+        {
+            return Ok(());
+        }
+        return Err(CollectionStop::SourceUnavailable.error());
+    }
     if !matches!(context.source_instance(), Some(member) if member.kind == SharedResourceKind::Instance) {
         return Err(culprit_core::Error::new(
             culprit_core::ErrorCode::Unsupported,
             culprit_core::t!("collection.unsupported"),
         ));
     }
-    if !context.is_qualified() || context.connection_generation().is_none_or(|generation| generation == 0) {
+    if !context.is_qualified() {
         return Err(CollectionStop::SourceUnavailable.error());
     }
     Ok(())

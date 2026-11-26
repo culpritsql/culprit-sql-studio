@@ -80,6 +80,9 @@ fn qualify(source: &CollectionDescription) -> std::result::Result<DiagnosticSour
             .ok_or(Issue::InvalidSource);
     }
     if let SourceObservation::RetainedEvents(events) = &source.observation {
+        if events.unavailable_error.is_some() {
+            return Err(Issue::OriginalSourceUnavailable);
+        }
         if !matches!(source.target.engine(), crate::Engine::Mssql | crate::Engine::Mysql | crate::Engine::Postgres) {
             return Err(Issue::UnsupportedSource);
         }

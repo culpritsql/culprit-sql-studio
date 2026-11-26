@@ -16,17 +16,28 @@ pub(crate) fn admission_path(paths: &Paths) -> std::path::PathBuf {
     paths.data.join("collection-admission")
 }
 
+enum ProviderRef {
+    Owned(Box<dyn culprit_core::Provider>),
+    #[cfg(feature = "collector")]
+    Shared(std::sync::Arc<dyn culprit_core::Provider>),
+}
+
 #[must_use]
 pub(crate) struct ObservedProvider<'a> {
-    provider: Box<dyn culprit_core::Provider>,
+    provider: ProviderRef,
     operation: SourceOperation<'a>,
 }
 impl ObservedProvider<'_> {
     pub fn provider(&self) -> &dyn culprit_core::Provider {
-        self.provider.as_ref()
+        match &self.provider {
+            ProviderRef::Owned(provider) => provider.as_ref(),
+            #[cfg(feature = "collector")]
+            ProviderRef::Shared(provider) => provider.as_ref(),
+        }
     }
     pub async fn finish<T>(self, result: Result<T>) -> Result<T> {
-        self.operation.finish(result, self.provider.source_shutdown()).await
+        let shutdown = self.provider().source_shutdown();
+        self.operation.finish(result, shutdown).await
     }
 }
 impl<'a> Connections<'a> {
@@ -36,7 +47,7 @@ impl<'a> Connections<'a> {
     ) -> Result<ObservedProvider<'a>> {
         let operation = self.source_operation(&route.name, None).await?;
         match self.provider_at_route(route).await {
-            Ok(provider) => Ok(ObservedProvider { provider, operation }),
+            Ok(provider) => Ok(ObservedProvider { provider: ProviderRef::Owned(provider), operation }),
             Err(error) => operation.finish(Err(error), SourceShutdown::Quiescent).await,
         }
     }
@@ -44,7 +55,7 @@ impl<'a> Connections<'a> {
     pub(crate) async fn observed_provider(&self, name: &str) -> Result<ObservedProvider<'a>> {
         let operation = self.source_operation(name, None).await?;
         match self.provider(name).await {
-            Ok(provider) => Ok(ObservedProvider { provider, operation }),
+            Ok(provider) => Ok(ObservedProvider { provider: ProviderRef::Owned(provider), operation }),
             Err(error) => operation.finish(Err(error), SourceShutdown::Quiescent).await,
         }
     }
@@ -61,7 +72,7 @@ impl<'a> Connections<'a> {
             Err(error) => Err(error),
         };
         match result {
-            Ok(provider) => Ok(ObservedProvider { provider, operation }),
+            Ok(provider) => Ok(ObservedProvider { provider: ProviderRef::Shared(provider), operation }),
             Err(error) => operation.finish(Err(error), SourceShutdown::Quiescent).await,
         }
     }

@@ -130,6 +130,7 @@ pub struct Workspace {
     database_tokens: Option<Arc<dyn culprit_auth::DatabaseTokenProvider>>,
     extra_checks: Vec<Arc<dyn Check>>,
     providers: Vec<(Engine, ProviderRegistration)>,
+    provider_pool: std::sync::Mutex<std::collections::BTreeMap<String, connection::CachedProvider>>,
     ssh: ssh::Manager,
     previews: tokio::sync::Semaphore,
     source_gate: culprit_read::admission::SourceGate,
@@ -179,6 +180,7 @@ impl Workspace {
             database_tokens: None,
             extra_checks: Vec::new(),
             providers: Vec::new(),
+            provider_pool: Default::default(),
             ssh: ssh::Manager::default(),
             previews: tokio::sync::Semaphore::new(1),
             source_gate: culprit_read::admission::SourceGate::default(),
@@ -197,6 +199,7 @@ impl Workspace {
             connection_tokens: &self.connection_tokens,
             database_tokens: self.database_tokens.as_deref(),
             providers: &self.providers,
+            provider_pool: &self.provider_pool,
             ssh: &self.ssh,
             source_gate: &self.source_gate,
             #[cfg(feature = "collector")]

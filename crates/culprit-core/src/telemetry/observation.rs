@@ -789,6 +789,9 @@ impl SourceObservation {
 
     pub fn native_coverage_state(&self) -> Result<Option<crate::SourceState>> {
         match self {
+            Self::RetainedEvents(history) if history.unavailable_error.is_some() => {
+                Ok(Some(crate::SourceState::Unavailable))
+            }
             Self::MssqlManagedInstanceResources(history) => Ok(Some(history.coverage.state)),
             Self::MssqlReadableResources(history) => {
                 if !history.is_valid() {
@@ -1031,7 +1034,10 @@ impl SourceObservation {
             |stream| files.iter().filter(|file| file.stream == stream).map(|file| u64::from(file.rows)).sum::<u64>();
         match self {
             Self::CollectorConnection(_) => count(TelemetryStream::CollectorConnections) == 1,
-            Self::QueryHistory(_) | Self::RetainedEvents(_) => true,
+            Self::QueryHistory(_) => true,
+            Self::RetainedEvents(history) => {
+                history.unavailable_error.is_none() || count(TelemetryStream::DeadlockEvents) == 0
+            }
             Self::RetainedSamples(history) => {
                 count(TelemetryStream::ResourceSamples) == u64::from(history.expected_samples)
             }

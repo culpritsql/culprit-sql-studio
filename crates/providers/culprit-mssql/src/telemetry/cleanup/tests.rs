@@ -309,13 +309,82 @@ async fn limited_session_visibility_keeps_positive_facts_partial_and_final_visib
 }
 
 #[tokio::test]
-async fn azure_database_profile_keeps_its_existing_operational_route_and_is_not_an_instance_cleanup_alias() {
+async fn azure_database_cleanup_supports_hyperscale_and_primary_database_under_builtin_safety_while_refusing_unqualified_replicas()
+ {
     let platform =
         replace(&metadata(), &[("edition", Val::Int(5)), ("machine_name", Val::Null), ("process_id", Val::Null)]);
-    let azure = crate::activity::database_context::tests::row(5);
-    let (mut source, trace) = source(vec![Ok(vec![platform]), Ok(vec![azure])], &request());
-    assert_eq!(source.describe().await.unwrap_err().code, ErrorCode::Unsupported);
-    assert_eq!(source.query_count(), 2);
-    assert_eq!(source.close().await, SourceShutdown::Quiescent);
+    let recipe = crate::telemetry::recipes().into_iter().find(|r| r.id == "mssql.cleanup").unwrap();
+    let RecipeAdmission::BuiltinSafety(policy) = recipe.admission else { panic!() };
+    let mut bounded = request();
+    bounded.budget = recipe.budget.clone();
+    let admission = SourceProfileAdmission::for_builtin(
+        digest(b"azure-cleanup-route"),
+        *policy,
+        None,
+        bounded.budget.clone(),
+        || true,
+    )
+    .unwrap();
+
+    // 1. Hyperscale Azure SQL Database (replica_id + ProcessEpoch) uses InstanceLocal(Node) + LocalResource,
+    // while primary non-Hyperscale Azure SQL Database (replica_id = NULL) uses Target + Snapshot.
+    for hyperscale in [true, false] {
+        let azure_primary = if hyperscale {
+            crate::activity::database_context::tests::row(5)
+        } else {
+            replace(&crate::activity::database_context::tests::row(5), &[("replica_id", Val::Null)])
+        };
+        let azure_final = replace(&azure_primary, &[("observed_at", Val::Text("2020-01-01T06:00:02Z".into()))]);
+        let rows = vec![
+            Ok(vec![platform.clone()]),
+            Ok(vec![azure_primary.clone()]),
+            Ok(vec![crate::open_transactions::tests::row()]),
+            Err(ReadError::Source(Error::new(ErrorCode::PermissionDenied, "tempdb version store unavailable"))),
+            Ok(vec![crate::version_store::persistent::tests::layout(5, 12, 1, 1)]),
+            Ok(vec![Rec::of(&[("adr", Val::Int(1))])]),
+            Ok(vec![crate::version_store::persistent::tests::row()]),
+            Ok(vec![Rec::of(&[
+                ("observed_at", Val::Text("2020-01-01T06:00:01Z".into())),
+                ("metadata_visibility", Val::Int(1)),
+            ])]),
+            Ok(vec![azure_final]),
+        ];
+        let guard = culprit_read::SourceProfileGuard::new(&bounded, &admission).unwrap();
+        let io = Reader {
+            inner: FakeRead::new(rows).with_query_limit(bounded.budget.max_queries),
+            trace: Arc::new(Trace::default()),
+            generation: Some(1),
+            change_at: None,
+        };
+        let mut src = CleanupSource::with_io_and_policy(
+            io,
+            &bounded,
+            "fixture.invalid".into(),
+            1433,
+            Some(guard.clone()),
+            guard.builtin_policy().cloned(),
+        )
+        .unwrap();
+        let description = src.describe().await.unwrap();
+        assert_eq!(description.partition == SourcePartition::Target, !hyperscale);
+        assert!(description.partition_is_consistent());
+        let snapshot = description.observation.snapshot().unwrap();
+        assert_eq!(snapshot.sources[0].state, SourceState::Collected);
+        assert_eq!(snapshot.sources[1].state, SourceState::Unavailable);
+        assert_eq!(snapshot.sources[2].state, SourceState::Collected);
+        assert_eq!(drain(&mut src).await.len(), 2);
+        assert_eq!(src.finish().await.unwrap(), SourceCompletion::Verified);
+        assert_eq!(src.close().await, SourceShutdown::Quiescent);
+    }
+
+    // 2. Non-Hyperscale READ_ONLY secondary without ReplicaID is refused before family reads.
+    let readonly = replace(
+        &crate::activity::database_context::tests::row(5),
+        &[("replica_id", Val::Null), ("updateability", Val::Text("READ_ONLY".into()))],
+    );
+    let (mut refused, trace) = source(vec![Ok(vec![platform]), Ok(vec![readonly])], &request());
+    assert_eq!(refused.describe().await.unwrap_err().code, ErrorCode::Unsupported);
+    assert_eq!(refused.query_count(), 2);
+    assert_eq!(refused.close().await, SourceShutdown::Quiescent);
     assert!(trace.sql.lock().unwrap().iter().all(|sql| !sql.contains("sys.dm_tran_database_transactions")));
 }
