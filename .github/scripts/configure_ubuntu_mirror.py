@@ -7,12 +7,18 @@ import re
 # Canonical's DNS outage on 2026-11-11 blocked all three default runner mirrors.
 # This mirror serves Ubuntu's signed archive, including the security pockets.
 UBUNTU_MIRROR = "https://mirrors.edge.kernel.org/ubuntu"
+APT_NETWORK_CONF = 'Acquire::ForceIPv4 "true";\nAcquire::Retries "3";\n'
 DEFAULT_ARCHIVE = re.compile(
     r"https?://(?:azure\.archive|archive|security)\.ubuntu\.com/ubuntu/?(?=\s|$)"
 )
 
 
 def configure_mirror(apt_directory: Path) -> int:
+    conf_dir = apt_directory / "apt.conf.d"
+    conf_dir.mkdir(parents=True, exist_ok=True)
+    conf_file = conf_dir / "99culprit-network"
+    if not conf_file.is_file() or conf_file.read_text() != APT_NETWORK_CONF:
+        conf_file.write_text(APT_NETWORK_CONF)
     sources = [apt_directory / "sources.list"]
     sources.extend(apt_directory.glob("sources.list.d/*.list"))
     sources.extend(apt_directory.glob("sources.list.d/*.sources"))

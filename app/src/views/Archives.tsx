@@ -57,7 +57,7 @@ export default function Archives({ load = client }: { load?: () => Promise<Wareh
   const [connections, setConnections] = useState<WarehouseConnectionInfo[]>([]);
   const [selected, setSelected] = useState<WarehouseConnectionInfo | null>(null);
   const [adding, setAdding] = useState(false);
-  const [mode, setMode] = useState<BrowseMode>("fleet");
+  const [mode, setMode] = useState<BrowseMode>(webReadOnly ? "fleet" : "publications");
   const [fleet, setFleet] = useState<WarehouseFleetReport | null>(null);
   const [page, setPage] = useState<PublishedResources | null>(null);
   const [target, setTarget] = useState<SelectedTarget | null>(null);

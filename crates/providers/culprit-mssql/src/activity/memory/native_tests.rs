@@ -13,7 +13,7 @@ mod reservations;
 const MAX_FIXTURE_REQUESTS: usize = 3;
 const MAX_NATIVE_OBSERVATIONS: usize = 12;
 const MAX_FIXTURE_MEMORY_KIB: u64 = 2 * 1024 * 1024;
-const FIXTURE_ROWS: u32 = 2_500;
+const FIXTURE_ROWS: u32 = 10_000;
 const SOURCE_QUERY_LIMIT: u32 = 9;
 const SOURCE_ROW_LIMIT: u32 = 64;
 const SETUP_TIMEOUT: Duration = Duration::from_secs(60);
@@ -77,7 +77,7 @@ async fn draining_the_original_output_wait_holder_admits_the_same_native_waiter_
     Box::pin(fixture::run(Case::DrainOutput)).await;
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test]
 #[ignore = "requires nonce-owned loopback SQL Server and fresh receipt directory; one original scalar grant incident, unchanged execution and original-holder drain; no exclusive parameter cause or production cost qualification"]
 async fn original_scalar_grant_queue_and_unchanged_work_survive_holder_release_and_retained_recovery() {
     Box::pin(fixture::run(Case::OriginalScalarGrant)).await;

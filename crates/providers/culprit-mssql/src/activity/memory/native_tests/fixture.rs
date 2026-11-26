@@ -30,9 +30,8 @@ use tokio::time::Instant;
 
 mod body;
 
-// Keep ~5 MiB of 2,000-byte rows (~10x loopback TCP socket buffers) so the sort stays suspended in
-// ASYNC_NETWORK_IO holding its grant, while draining well inside SQLOS's 1-second ResourceMonitor tick.
-const SEED: &str = "CREATE TABLE dbo.request_memory_fixture(id int NOT NULL PRIMARY KEY,payload varchar(2000) NOT NULL);INSERT dbo.request_memory_fixture SELECT TOP(2500) ROW_NUMBER() OVER(ORDER BY a.object_id,b.object_id),REPLICATE('x',2000) FROM sys.all_objects a CROSS JOIN sys.all_objects b";
+// The table, finite population, ordering and grant hints are unchanged from the existing reservation fixture.
+const SEED: &str = "CREATE TABLE dbo.request_memory_fixture(id int NOT NULL PRIMARY KEY,payload varchar(2000) NOT NULL);INSERT dbo.request_memory_fixture SELECT TOP(10000) ROW_NUMBER() OVER(ORDER BY a.object_id,b.object_id),REPLICATE('x',2000) FROM sys.all_objects a CROSS JOIN sys.all_objects b";
 
 enum AdministrativePurpose {
     Setup,

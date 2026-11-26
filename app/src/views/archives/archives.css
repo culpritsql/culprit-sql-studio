@@ -25,6 +25,8 @@
 .archives .field input:focus-visible,
 .archives .field select:focus-visible { outline: 2px solid var(--focus); }
 .archives .btn { max-inline-size: 100%; min-block-size: 26px; height: auto; padding: 4px 10px; white-space: normal; overflow-wrap: anywhere; }
+.archives .seg { display: flex; flex-wrap: wrap; width: fit-content; max-inline-size: 100%; }
+.archives .seg button { max-inline-size: 100%; min-block-size: 22px; height: auto; padding: 2px 9px; white-space: normal; overflow-wrap: anywhere; }
 .archives .conn-grid { margin-block: 16px; }
 .archives .conn-grid > button { display: block; padding: 8px 10px; line-height: 1.5; text-align: start; }
 .archives pre { white-space: pre-wrap; overflow-wrap: anywhere; }

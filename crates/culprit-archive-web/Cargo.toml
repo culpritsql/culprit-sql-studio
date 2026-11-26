@@ -25,7 +25,7 @@ culprit-plans.workspace = true
 culprit-read.workspace = true
 culprit-evidence.workspace = true
 culprit-auth.workspace = true
-culprit-engine = { workspace = true, default-features = false, features = ["warehouse-adx", "evidence-azure", "warehouse-clickhouse", "evidence-s3"] }
+culprit-engine = { path = "../culprit-engine", default-features = false, features = ["warehouse-adx", "evidence-azure", "warehouse-clickhouse", "evidence-s3"] }
 clap.workspace = true
 serde.workspace = true
 serde_json.workspace = true

@@ -59,6 +59,10 @@ class UbuntuMirrorTests(unittest.TestCase):
             self.assertEqual(source.read_text(), original)
             source.write_text(f"deb {UBUNTU_MIRROR} jammy main\n")
             self.assertEqual(configure_mirror(apt), 0)
+            self.assertEqual(
+                (apt / "apt.conf.d" / "99culprit-network").read_text(),
+                'Acquire::ForceIPv4 "true";\nAcquire::Retries "3";\n',
+            )
 
 
 if __name__ == "__main__":

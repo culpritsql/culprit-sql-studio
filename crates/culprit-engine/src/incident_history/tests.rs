@@ -16,7 +16,8 @@ fn bytes(case: IncidentHistoryCase) -> Vec<u8> {
     bytes
 }
 fn read(bytes: &[u8]) -> Result<IncidentHistoryReport> {
-    let guard = OperationGuard::new(HISTORY_IMPORT_TIMEOUT).unwrap();
+    // Allow sufficient headroom when 4,097 records are parsed and SHA-256-checked under llvm-cov instrumentation.
+    let guard = OperationGuard::new(std::time::Duration::from_secs(60)).unwrap();
     import_reader(bytes, &guard.handle())
 }
 #[test]

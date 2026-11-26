@@ -26,7 +26,7 @@ pub(crate) enum CollectCommand {
     #[command(subcommand,about=culprit_core::t!("notify.cli.about"))]
     Notify(crate::notify_cmd::NotifyCommand),
     #[command(about=culprit_core::t!("onboarding.cli.about"))]
-    SyncInventory(crate::sync_inventory_cmd::SyncInventoryArgs),
+    SyncInventory(Box<crate::sync_inventory_cmd::SyncInventoryArgs>),
     #[command(about=culprit_core::t!("collection.cli.once"))]
     Once(OnceArgs),
     #[command(subcommand,about=culprit_core::t!("outbox.cli.about"))]
@@ -395,7 +395,7 @@ pub(crate) fn run(command: CollectCommand, out: &Out) -> crate::CommandTask<'_> 
             crate::command_task(|| async move { crate::notify_cmd::run(command, out).await })
         }
         CollectCommand::SyncInventory(args) => {
-            crate::command_task(|| async move { crate::sync_inventory_cmd::run(args, out).await })
+            crate::command_task(|| async move { crate::sync_inventory_cmd::run(*args, out).await })
         }
     }
 }

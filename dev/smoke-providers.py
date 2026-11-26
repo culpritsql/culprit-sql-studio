@@ -689,12 +689,13 @@ server_version="$1"
 test -n "$server_version"
 binary_sha=$(sha256sum /opt/mssql/bin/sqlservr)
 sed 's|/prod|/mssql-server-2022|' /etc/apt/sources.list.d/microsoft-prod.list > /etc/apt/sources.list.d/mssql-server-2022.list
-apt-get update
+apt_opts="-o Acquire::ForceIPv4=true -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30"
+apt-get $apt_opts update
 tmpdir=$(mktemp -d)
 chmod 0755 "$tmpdir"
 trap 'rm -rf "$tmpdir"' EXIT
 cd "$tmpdir"
-apt-get download "mssql-server-fts=${server_version}-*"
+apt-get $apt_opts download "mssql-server-fts=${server_version}-*"
 deb=$(ls mssql-server-fts_*.deb)
 pkg_version=$(dpkg-deb -f "$deb" Version)
 case "$pkg_version" in
