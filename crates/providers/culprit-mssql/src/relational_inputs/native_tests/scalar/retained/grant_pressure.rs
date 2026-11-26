@@ -308,8 +308,8 @@ fn capture_waiter_and_release<'a>(
         let captured = AssertUnwindSafe(Box::pin(capture_waiter(fixture, owner, submitting, basis, native_work)))
             .catch_unwind()
             .await;
-        // Always attempt cleanup of the SAME held stream immediately after in-memory waiter capture so disk fsync
-        // does not extend the native RESOURCE_SEMAPHORE wait across a 1-second SQLOS ResourceMonitor tick.
+        // Always attempt cleanup of the SAME held stream immediately after waiter capture before writing the
+        // diagnostic receipt below.
         let drained = AssertUnwindSafe(Box::pin(fixture.drain_original_holder()))
             .catch_unwind()
             .await

@@ -14,10 +14,12 @@ pub(super) struct PoolMemory {
 }
 
 pub(super) const STANDARD_POOL_MEMORY: PoolMemory = PoolMemory { min_percent: 0, max_percent: 20 };
-// Keep `min_percent = 0` so `default` pool (`CACHESTORE_OBJCP`) retains full target memory, and size `grant_pool`
-// to 25% (`~641 MiB * 3 = 1.88 GiB <= 2.00 GiB` on the 4 GiB scalar-grant fixture) while `WORKLOAD`'s 55% grant
-// (`41.25%` of `grant_pool`, below SQLOS's 50% pool cache-shrink threshold) leaves `MEMORYBROKER_FOR_CACHE` intact.
-pub(super) const SCALAR_QUEUE_POOL_MEMORY: PoolMemory = PoolMemory { min_percent: 0, max_percent: 25 };
+// `probe` executes inside `grant_pool`, so SQLOS binds `dbo.scalar_probe`'s `CACHESTORE_OBJCP` entry to `grant_pool`
+// (`pool_id = 256`), not `default` pool. With `min_percent = 0`, `grant_pool`'s guaranteed floor (`min_memory_kb`) is 0
+// and SQLOS's 1-second `ResourceMonitor` flushes `grant_pool`'s plan cache whenever a `RESOURCE_SEMAPHORE` wait crosses
+// a tick. Setting `min_percent = 25` (`~641 MiB * 3 = 1.88 GiB <= 2.00 GiB` on the 4 GiB fixture) gives `grant_pool` an
+// unshared floor so `MEMORYBROKER_FOR_CACHE` retains `dbo.scalar_probe` even across multi-second semaphore waits.
+pub(super) const SCALAR_QUEUE_POOL_MEMORY: PoolMemory = PoolMemory { min_percent: 25, max_percent: 25 };
 const REQUEST_GRANT_PERCENT: i64 = 100;
 
 const INITIAL: &str = "SELECT /* culprit */ DB_NAME() AS database_name,c.classifier_function_id AS configured_classifier,d.classifier_function_id AS effective_classifier,c.is_enabled,d.is_reconfiguration_pending,CASE WHEN EXISTS(SELECT 1 FROM sys.resource_governor_resource_pools WHERE name NOT IN(N'internal',N'default')) OR EXISTS(SELECT 1 FROM sys.resource_governor_workload_groups WHERE name NOT IN(N'internal',N'default')) OR OBJECT_ID(@P3) IS NOT NULL THEN 1 ELSE 0 END AS collision FROM sys.resource_governor_configuration c CROSS JOIN sys.dm_resource_governor_configuration d";

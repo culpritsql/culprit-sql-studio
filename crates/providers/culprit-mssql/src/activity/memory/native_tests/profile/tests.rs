@@ -137,7 +137,7 @@ fn larger_scalar_queue_pool_keeps_exact_native_policy_and_the_two_gib_capacity_c
         Case::OriginalScalarGrant.pool_memory(),
     )
     .unwrap();
-    assert!(profile.create_resources().contains("WITH(MIN_MEMORY_PERCENT=0,MAX_MEMORY_PERCENT=25)"));
+    assert!(profile.create_resources().contains("WITH(MIN_MEMORY_PERCENT=25,MAX_MEMORY_PERCENT=25)"));
     let native = effective(&profile);
     profile.proof = Some(profile.validate_effective(&native).unwrap());
     let route = profile.route(MAX_FIXTURE_REQUESTS - 1).unwrap();

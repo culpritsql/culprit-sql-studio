@@ -717,9 +717,9 @@ class EmptyCatalogDatabase(Database):
 
 class ScalarGrantDatabase(EmptyCatalogDatabase):
     def __init__(self, fixture):
-        # Cached module plans (`CACHESTORE_OBJCP`) live in `default` pool, not the workload's Resource Governor pool.
-        # Give the dedicated container 4 GiB (~3.28 GiB SQLOS limit vs 2.40 GiB on 3g) so `default` pool never sweeps
-        # `dbo.scalar_probe` while `CurrentRequestMemory` and the 70%-grant sort actor execute.
+        # Give the dedicated container 4 GiB (~3.28 GiB SQLOS target memory) so `SCALAR_QUEUE_POOL_MEMORY`'s dedicated
+        # 25% `MIN_MEMORY_PERCENT = MAX_MEMORY_PERCENT = 25` pool (`~641 MiB * 3 = 1.88 GiB <= 2.00 GiB`) retains an
+        # unshared floor for `dbo.scalar_probe`'s `CACHESTORE_OBJCP` entry even across multi-second semaphore waits.
         super().__init__(replace(fixture, memory="4g"))
 
     def readiness_query(self):
