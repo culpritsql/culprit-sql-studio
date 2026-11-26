@@ -77,7 +77,7 @@ async fn draining_the_original_output_wait_holder_admits_the_same_native_waiter_
     Box::pin(fixture::run(Case::DrainOutput)).await;
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "requires nonce-owned loopback SQL Server and fresh receipt directory; one original scalar grant incident, unchanged execution and original-holder drain; no exclusive parameter cause or production cost qualification"]
 async fn original_scalar_grant_queue_and_unchanged_work_survive_holder_release_and_retained_recovery() {
     Box::pin(fixture::run(Case::OriginalScalarGrant)).await;

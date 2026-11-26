@@ -302,17 +302,37 @@ fn capture_waiter_and_release<'a>(
     native_work: &'a probe::NativeWork,
 ) -> LocalBoxFuture<'a, WaiterOutcome> {
     Box::pin(async move {
+        let holder = basis.holder;
         // One unwind owner while the original native capture is active. Return its completed outcome instead
         // of rethrowing it into a second caller-side unwind poll frame.
         let captured = AssertUnwindSafe(Box::pin(capture_waiter(fixture, owner, submitting, basis, native_work)))
             .catch_unwind()
             .await;
-        // Always attempt cleanup of the SAME held stream, after capture settlement. Cleanup's separate unwind
-        // boundary is sequential; neither its panic nor its error replaces the original capture failure.
+        // Always attempt cleanup of the SAME held stream immediately after in-memory waiter capture so disk fsync
+        // does not extend the native RESOURCE_SEMAPHORE wait across a 1-second SQLOS ResourceMonitor tick.
         let drained = AssertUnwindSafe(Box::pin(fixture.drain_original_holder()))
             .catch_unwind()
             .await
             .map(|result| result.map(|_| ()));
+        let captured = match captured {
+            Ok(Ok(pair)) => match crate::test_support::save_cost_receipt(
+                &fixture.directory,
+                "original-memory-before-holder-drain",
+                &json!({
+                    "phase":"original-waiter-observed-before-intervention",
+                    "manifest":pair.0.manifest,
+                    "original_records":pair.0.records,
+                    "same_original_holder":holder,
+                    "original_scalar_waiter":pair.1,
+                    "intervention_performed":false,
+                    "native_cost_approved":false,
+                }),
+            ) {
+                Ok(()) => Ok(Ok(pair)),
+                Err(error) => Ok(Err(error)),
+            },
+            other => other,
+        };
         after_holder_cleanup(captured, drained)
     })
 }
@@ -354,19 +374,6 @@ async fn capture_waiter(
     another_statement.identity.sql_handle = "0x01020304".into();
     assert!(!matches_native_statement(request, &another_statement));
     fixture.record_observed_request_demand(native_actor(actor), &waiter)?;
-    crate::test_support::save_cost_receipt(
-        &fixture.directory,
-        "original-memory-before-holder-drain",
-        &json!({
-            "phase":"original-waiter-observed-before-intervention",
-            "manifest":captured.manifest,
-            "original_records":captured.records,
-            "same_original_holder":holder,
-            "original_scalar_waiter":waiter,
-            "intervention_performed":false,
-            "native_cost_approved":false,
-        }),
-    )?;
     Ok(Box::new((captured, waiter)))
 }
 
