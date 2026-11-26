@@ -659,7 +659,7 @@ $ culprit --format sarif drift <repo>/fixtures/mssql-demo.report.json <repo>/fix
               }
             }
           ],
-          "version": "0.6.1"
+          "version": "0.6.2"
         }
       }
     }

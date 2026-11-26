@@ -940,7 +940,7 @@ dependencies = [
 
 [[package]]
 name = "culprit-app"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "block2",
  "culprit-auth",
@@ -964,7 +964,7 @@ dependencies = [
 
 [[package]]
 name = "culprit-archive-web"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "clap",
  "culprit-auth",
@@ -980,7 +980,7 @@ dependencies = [
 
 [[package]]
 name = "culprit-auth"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "async-trait",
  "culprit-core",
@@ -991,7 +991,7 @@ dependencies = [
 
 [[package]]
 name = "culprit-auth-aws"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "async-trait",
  "chrono",
@@ -1005,7 +1005,7 @@ dependencies = [
 
 [[package]]
 name = "culprit-auth-azure"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "async-trait",
  "base64 0.23.1",
@@ -1021,7 +1021,7 @@ dependencies = [
 
 [[package]]
 name = "culprit-blob-azure"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "async-trait",
  "base64 0.23.1",
@@ -1041,7 +1041,7 @@ dependencies = [
 
 [[package]]
 name = "culprit-blob-s3"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "async-trait",
  "chrono",
@@ -1062,7 +1062,7 @@ dependencies = [
 
 [[package]]
 name = "culprit-checks"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "chrono",
  "culprit-core",
@@ -1073,7 +1073,7 @@ dependencies = [
 
 [[package]]
 name = "culprit-cli"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "async-trait",
  "chrono",
@@ -1102,7 +1102,7 @@ dependencies = [
 
 [[package]]
 name = "culprit-cloud"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "async-trait",
  "chrono",
@@ -1118,7 +1118,7 @@ dependencies = [
 
 [[package]]
 name = "culprit-collector"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "async-trait",
  "chrono",
@@ -1138,7 +1138,7 @@ dependencies = [
 
 [[package]]
 name = "culprit-core"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "async-trait",
  "chrono",
@@ -1153,7 +1153,7 @@ dependencies = [
 
 [[package]]
 name = "culprit-engine"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "async-trait",
  "base64 0.23.1",
@@ -1204,7 +1204,7 @@ dependencies = [
 
 [[package]]
 name = "culprit-evidence"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "async-trait",
  "chrono",
@@ -1218,7 +1218,7 @@ dependencies = [
 
 [[package]]
 name = "culprit-mcp"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "async-trait",
  "chrono",
@@ -1237,7 +1237,7 @@ dependencies = [
 
 [[package]]
 name = "culprit-mssql"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "async-trait",
  "chrono",
@@ -1259,7 +1259,7 @@ dependencies = [
 
 [[package]]
 name = "culprit-mysql"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "async-trait",
  "culprit-collector",
@@ -1278,7 +1278,7 @@ dependencies = [
 
 [[package]]
 name = "culprit-notify"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "async-trait",
  "chrono",
@@ -1295,7 +1295,7 @@ dependencies = [
 
 [[package]]
 name = "culprit-notify-github"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "async-trait",
  "culprit-auth",
@@ -1310,7 +1310,7 @@ dependencies = [
 
 [[package]]
 name = "culprit-notify-pagerduty"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "async-trait",
  "culprit-auth",
@@ -1325,7 +1325,7 @@ dependencies = [
 
 [[package]]
 name = "culprit-notify-slack"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "async-trait",
  "culprit-auth",
@@ -1340,7 +1340,7 @@ dependencies = [
 
 [[package]]
 name = "culprit-notify-teams"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "async-trait",
  "culprit-auth",
@@ -1355,7 +1355,7 @@ dependencies = [
 
 [[package]]
 name = "culprit-notify-webhook"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "async-trait",
  "culprit-auth",
@@ -1371,7 +1371,7 @@ dependencies = [
 
 [[package]]
 name = "culprit-plans"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "culprit-core",
  "roxmltree",
@@ -1381,7 +1381,7 @@ dependencies = [
 
 [[package]]
 name = "culprit-postgres"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "async-trait",
  "culprit-checks",
@@ -1404,7 +1404,7 @@ dependencies = [
 
 [[package]]
 name = "culprit-querylog"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "culprit-core",
  "serde_json",
@@ -1412,7 +1412,7 @@ dependencies = [
 
 [[package]]
 name = "culprit-read"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "async-trait",
  "culprit-core",
@@ -1426,7 +1426,7 @@ dependencies = [
 
 [[package]]
 name = "culprit-sqlite"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "async-trait",
  "culprit-core",
@@ -1440,7 +1440,7 @@ dependencies = [
 
 [[package]]
 name = "culprit-store-adx"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "async-trait",
  "base64 0.23.1",
@@ -1461,7 +1461,7 @@ dependencies = [
 
 [[package]]
 name = "culprit-store-clickhouse"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "async-trait",
  "chrono",
@@ -1480,7 +1480,7 @@ dependencies = [
 
 [[package]]
 name = "culprit-wasm"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "culprit-core",
  "culprit-plans",
@@ -1491,7 +1491,7 @@ dependencies = [
 
 [[package]]
 name = "culprit-yugabyte"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "async-trait",
  "culprit-core",

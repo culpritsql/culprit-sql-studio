@@ -113,10 +113,18 @@ mod tests {
         let lifecycle_timeout = crate::read::preview_lifecycle_timeout(OPTIONAL_SETUP_DELAY);
         let started = Instant::now();
         // Stream a large Cartesian product of tiny derived tables: no fixture data or SLEEP shortcut in the query.
+        // Materialize a 10,001-row outer probe first (`STRAIGHT_JOIN` + `UNION ALL`) so MySQL 8.4's HashJoinIterator
+        // calls `temptable::rnd_next` (checking `max_execution_time` / `KILL QUERY`) every 10^6 rows instead of 10^8.
         let digits = "(SELECT 0 n UNION ALL SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5 UNION ALL SELECT 6 UNION ALL SELECT 7 UNION ALL SELECT 8 UNION ALL SELECT 9)";
-        let tables = (0..9).map(|i| format!("{digits} AS n{i}")).collect::<Vec<_>>().join(" CROSS JOIN ");
-        let sum = (0..9).map(|i| format!("n{i}.n")).collect::<Vec<_>>().join(" + ");
-        let sql = format!("SELECT COUNT(*) AS culprit_preview_cancel_test FROM {tables} WHERE MOD({sum}, 2) = 0");
+        let probe = format!(
+            "(SELECT a.n + b.n + c.n + d.n AS n FROM {digits} AS a CROSS JOIN {digits} AS b CROSS JOIN {digits} AS c CROSS JOIN {digits} AS d UNION ALL SELECT 0)"
+        );
+        let tables = (0..6).map(|i| format!("{digits} AS n{i}")).collect::<Vec<_>>().join(" CROSS JOIN ");
+        let sum =
+            std::iter::once("p.n".to_string()).chain((0..6).map(|i| format!("n{i}.n"))).collect::<Vec<_>>().join(" + ");
+        let sql = format!(
+            "SELECT STRAIGHT_JOIN COUNT(*) AS culprit_preview_cancel_test FROM {probe} AS p CROSS JOIN {tables} WHERE MOD({sum}, 2) = 0"
+        );
         let setup = format!("SELECT SLEEP({})", OPTIONAL_SETUP_DELAY.as_secs_f64());
         let error = worker(connector.clone(), conn, control, &sql, 1, &setup, canceled).await.unwrap_err();
         drop(owner);
