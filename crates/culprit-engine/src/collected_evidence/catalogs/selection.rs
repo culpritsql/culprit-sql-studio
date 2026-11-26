@@ -128,6 +128,60 @@ pub(super) fn heads<'a>(
     }
     Ok(CatalogSelection { originals: selected, issues })
 }
+
+pub(super) fn heads_including_primary<'a>(
+    primary: &'a dyn OriginalProjection,
+    originals: &[&'a dyn OriginalProjection],
+) -> Result<CatalogSelection<'a>> {
+    let as_of = validation::time(primary.collected_until())?;
+    let primary_dataset = dataset(primary).ok_or_else(invalid)?;
+    let mut heads: Vec<(SnapshotDataset, u16, &'a dyn OriginalProjection, bool)> =
+        vec![(primary_dataset, 0, primary, false)];
+    let mut issues = Vec::new();
+    for (index, &original) in originals.iter().enumerate().skip(1) {
+        if original.capture() == primary.capture() {
+            continue;
+        }
+        let Some(ds) = dataset(original) else {
+            continue;
+        };
+        if !same_scope(primary, original) {
+            issue(&mut issues, Issue::UnqualifiedCatalogScope);
+            continue;
+        }
+        let Ok(until) = validation::time(original.collected_until()) else {
+            issue(&mut issues, Issue::UnknownCatalogClock);
+            continue;
+        };
+        if until > as_of {
+            issue(&mut issues, Issue::CatalogNotRetainedAsOf);
+            continue;
+        }
+        if ds == primary_dataset {
+            continue;
+        }
+        let index = index.try_into().map_err(|_| invalid())?;
+        if let Some(head) = heads.iter_mut().find(|head| head.0 == ds) {
+            let current = validation::time(head.2.collected_until())?;
+            if until > current {
+                *head = (ds, index, original, false);
+            } else if until == current {
+                head.3 = true;
+            }
+        } else {
+            heads.push((ds, index, original, false));
+        }
+    }
+    let mut selected = Vec::new();
+    for (_, index, original, ambiguous) in heads {
+        if ambiguous {
+            issue(&mut issues, Issue::AmbiguousCatalog);
+        } else {
+            selected.push((index, original));
+        }
+    }
+    Ok(CatalogSelection { originals: selected, issues })
+}
 fn issue(issues: &mut Vec<Issue>, issue: Issue) {
     if !issues.contains(&issue) {
         issues.push(issue);

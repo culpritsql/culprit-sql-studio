@@ -235,6 +235,13 @@ impl CollectedPopulationScan {
         evidence.attach(&mut self.requested.snapshot)
     }
 
+    pub(crate) fn attach_cloud_posture(&mut self, result: Result<culprit_core::PostureSnapshot>) {
+        apply_cloud_posture(&mut self.requested.snapshot, &result);
+        for population in &mut self.populations {
+            apply_cloud_posture(&mut population.snapshot, &result);
+        }
+    }
+
     pub async fn finish(self) -> Result<PopulationReports> {
         let requested = self.requested.finish().await?;
         let mut populations = Vec::with_capacity(self.populations.len());
@@ -276,6 +283,54 @@ fn record_unreported_optional_sources(snapshot: &mut Snapshot, options: &Snapsho
             state: SourceState::Unavailable,
             reason: Some(culprit_core::LocalizedText::new(reason)),
         });
+    }
+}
+
+fn apply_cloud_posture(snapshot: &mut Snapshot, result: &Result<culprit_core::PostureSnapshot>) {
+    use culprit_core::{LocalizedText, POSTURE_SOURCE, SourceOutcome, SourceState, t};
+    match result {
+        Ok(cloud_posture) => {
+            if cloud_posture.has_any_observation() {
+                snapshot.operations.posture.get_or_insert_with(Default::default).merge(cloud_posture.clone());
+                if let Some(existing) = snapshot.sources.iter_mut().find(|s| s.source == POSTURE_SOURCE) {
+                    existing.state = SourceState::Collected;
+                    existing.reason = None;
+                } else {
+                    snapshot.sources.push(SourceOutcome {
+                        source: POSTURE_SOURCE.into(),
+                        state: SourceState::Collected,
+                        reason: None,
+                    });
+                }
+            }
+        }
+        Err(e) if e.code == ErrorCode::Unsupported => {}
+        Err(e) => {
+            let note = match &e.hint {
+                Some(hint) => {
+                    t!("engine.events.cloud_unavailable_hint", error = e.message.trim_end_matches('.'), hint = hint)
+                }
+                None => t!("engine.events.cloud_unavailable", error = e.message.trim_end_matches('.')),
+            };
+            snapshot.notes.push(CollectorNote {
+                collector: POSTURE_SOURCE.into(),
+                message: LocalizedText::raw(note.clone()),
+                table: None,
+            });
+            if let Some(existing) = snapshot.operations.posture.as_mut()
+                && existing.has_any_observation()
+            {
+                if !existing.coverage_notes.contains(&note) {
+                    existing.coverage_notes.push(note);
+                }
+            } else if !snapshot.sources.iter().any(|s| s.source == POSTURE_SOURCE) {
+                snapshot.sources.push(SourceOutcome {
+                    source: POSTURE_SOURCE.into(),
+                    state: SourceState::Unavailable,
+                    reason: Some(LocalizedText::raw(note)),
+                });
+            }
+        }
     }
 }
 

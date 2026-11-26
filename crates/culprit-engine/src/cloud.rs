@@ -70,6 +70,12 @@ pub(crate) async fn signals(
 ) -> Result<CloudSignals> {
     services.signals(&Cache(dir), &metadata(info), start, end, refresh).await
 }
+pub(crate) fn recognizes_posture(services: &CloudServices, info: &ConnectionInfo) -> bool {
+    services.recognizes_posture(&metadata(info))
+}
+pub(crate) async fn posture(services: &CloudServices, info: &ConnectionInfo) -> Result<culprit_core::PostureSnapshot> {
+    services.posture(&metadata(info)).await
+}
 
 #[cfg(test)]
 mod tests;

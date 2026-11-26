@@ -33,6 +33,8 @@ pub enum DerivedFindingScope {
     StatementCounters,
     /// Database-scoped operational, cleanup, or plan-cache point observations assessed without query history.
     Operational,
+    /// Standalone database catalog, index, constraint, or statistics snapshots assessed without query history.
+    Catalog,
 }
 
 #[derive(Serialize, Deserialize, TS, Clone, Debug, PartialEq, Eq)]
@@ -88,6 +90,9 @@ impl DerivedFindingEvaluations {
                             .is_some_and(|input| input.role == DerivedInputRole::Catalog)
                             && assessment.catalog_inputs.is_empty()
                     }
+                    DerivedFindingScope::Catalog => inputs
+                        .get(usize::from(assessment.input))
+                        .is_some_and(|input| input.role == DerivedInputRole::Catalog),
                 }
                 && assessment.checks.iter().all(|index| usize::from(*index) < self.checks.len())
                 && assessment.catalog_inputs.iter().all(|index| {

@@ -53,8 +53,37 @@ impl CatalogContext {
         }
         Ok(context)
     }
+    pub fn from_catalog_primary(
+        primary: &dyn OriginalProjection,
+        originals: &[&dyn OriginalProjection],
+    ) -> Result<Self> {
+        let selection::CatalogSelection { originals: mut heads, mut issues } =
+            selection::heads_including_primary(primary, originals)?;
+        heads.retain(|(_, original)| {
+            let complete = complete(*original)
+                && (selection::dataset(*original) != Some(SnapshotDataset::Partitions)
+                    || partition_scope::complete(*original));
+            if !complete && !issues.contains(&culprit_core::DerivedContextIssue::PartialCatalog) {
+                issues.push(culprit_core::DerivedContextIssue::PartialCatalog);
+            }
+            complete
+        });
+        if !subjects::coherent(&heads) {
+            heads.retain(|(_, original)| selection::dataset(*original) == Some(SnapshotDataset::Settings));
+            issues.push(culprit_core::DerivedContextIssue::ChangedCatalogSubject);
+        }
+        let mut context = Self { issues, ..Default::default() };
+        for (index, original) in heads {
+            context.project(index, original)?;
+        }
+        context.finish_relational_projection();
+        Ok(context)
+    }
     pub fn inputs(&self) -> &[u16] {
         &self.inputs
+    }
+    pub fn projected_datasets(&self) -> &[SnapshotDataset] {
+        &self.projected_datasets
     }
     pub fn issues(&self) -> &[culprit_core::DerivedContextIssue] {
         &self.issues

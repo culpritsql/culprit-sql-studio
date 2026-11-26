@@ -711,3 +711,126 @@ async fn recorded_plan_request_preserves_opaque_model_id_and_every_native_dimens
 async fn query_log_plan_continuation_remains_explicitly_unscoped_without_native_identity() {
     recorded_request(true).await;
 }
+
+struct CloudPostureStub {
+    fail: bool,
+}
+
+#[async_trait]
+impl culprit_cloud::PostureProvider for CloudPostureStub {
+    fn name(&self) -> &str {
+        "stub-cloud-posture"
+    }
+    fn recognizes(&self, conn: &culprit_cloud::CloudConnection) -> bool {
+        conn.host.ends_with(".posture.invalid")
+    }
+    async fn read_posture(&self, _: &culprit_cloud::CloudConnection) -> Result<culprit_core::PostureSnapshot> {
+        if self.fail {
+            return Err(Error::new(ErrorCode::PermissionDenied, "ARM Resource Graph access denied")
+                .with_hint("Sign in with az login"));
+        }
+        Ok(culprit_core::PostureSnapshot {
+            public_network_access: Some(true),
+            tls_enforced: Some(false),
+            backup_retention_days: Some(2),
+            ..Default::default()
+        })
+    }
+}
+
+struct DbPostureReplay;
+
+#[async_trait]
+impl Provider for DbPostureReplay {
+    fn engine(&self) -> Engine {
+        Engine::Postgres
+    }
+    async fn probe(&self) -> Result<ServerInfo> {
+        Replay.probe().await
+    }
+    async fn snapshot(&self, connection: &str, options: &SnapshotOptions) -> Result<Snapshot> {
+        let mut s = Replay.snapshot(connection, options).await?;
+        s.environment = Environment::Production;
+        s.operations.posture =
+            Some(Box::new(culprit_core::PostureSnapshot { unencrypted_sessions: Some(3), ..Default::default() }));
+        Ok(s)
+    }
+    async fn explain(&self, sql: &str, mode: ExplainMode) -> Result<Plan> {
+        Replay.explain(sql, mode).await
+    }
+    async fn live(&self) -> Result<LiveState> {
+        Replay.live().await
+    }
+    async fn run(&self, sql: &str, limit: usize) -> Result<ResultSet> {
+        Replay.run(sql, limit).await
+    }
+}
+
+#[tokio::test]
+async fn plugged_in_posture_provider_merges_with_db_posture_and_never_fails_scans_on_cloud_error() {
+    let home = temp_home("posture-provider");
+    let ws = Workspace::open_in(&home)
+        .with_provider(
+            Engine::Postgres,
+            culprit_engine::ProviderRegistration::new(
+                Arc::new(|_, _| Ok(Box::new(DbPostureReplay) as Box<dyn Provider>)),
+                culprit_engine::ProviderConstructionPolicy::DeferredNativeWork,
+                Vec::new(),
+            )
+            .unwrap(),
+        )
+        .with_posture_provider(Arc::new(CloudPostureStub { fail: false }));
+    ws.add_connection(NewConnection {
+        name: "cloud-prod".into(),
+        input: "postgres://reader@orders.posture.invalid:5432/demo".into(),
+        auth: Some(AuthKind::None),
+        environment: Environment::Production,
+        ..Default::default()
+    })
+    .unwrap();
+
+    let report = crate::observed::run(&ws, culprit_core::ProviderReadKind::Scan, async |operation| {
+        ws.scan("cloud-prod", &SnapshotOptions::default(), operation).await
+    })
+    .await
+    .expect("scan succeeds with merged posture");
+    let posture = report.snapshot.posture().expect("posture populated");
+    assert_eq!(posture.unencrypted_sessions, Some(3), "DB-observed unencrypted sessions preserved");
+    assert_eq!(posture.public_network_access, Some(true), "cloud-observed public endpoint merged");
+    assert_eq!(posture.backup_retention_days, Some(2));
+    assert!(report.findings.iter().any(|f| f.check == "public-endpoint"));
+    assert!(report.findings.iter().any(|f| f.check == "unencrypted-connections"));
+    assert!(report.findings.iter().any(|f| f.check == "backup-retention-short"));
+
+    let failing_ws = Workspace::open_in(home.join("failing"))
+        .with_provider(
+            Engine::Postgres,
+            culprit_engine::ProviderRegistration::new(
+                Arc::new(|_, _| Ok(Box::new(DbPostureReplay) as Box<dyn Provider>)),
+                culprit_engine::ProviderConstructionPolicy::DeferredNativeWork,
+                Vec::new(),
+            )
+            .unwrap(),
+        )
+        .with_posture_provider(Arc::new(CloudPostureStub { fail: true }));
+    failing_ws
+        .add_connection(NewConnection {
+            name: "cloud-denied".into(),
+            input: "postgres://reader@orders.posture.invalid:5432/demo".into(),
+            auth: Some(AuthKind::None),
+            environment: Environment::Production,
+            ..Default::default()
+        })
+        .unwrap();
+    let degraded = crate::observed::run(&failing_ws, culprit_core::ProviderReadKind::Scan, async |operation| {
+        failing_ws.scan("cloud-denied", &SnapshotOptions::default(), operation).await
+    })
+    .await
+    .expect("cloud posture failure must never fail a scan");
+    assert!(degraded.snapshot.notes.iter().any(|n| n.collector == culprit_core::POSTURE_SOURCE));
+    assert!(
+        degraded.findings.iter().any(|f| f.check == "unencrypted-connections"),
+        "DB-observed posture findings still evaluate when cloud control-plane posture is denied"
+    );
+    let _ = std::fs::remove_dir_all(home);
+}

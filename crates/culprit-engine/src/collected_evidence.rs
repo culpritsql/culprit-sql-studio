@@ -10,6 +10,7 @@ use culprit_core::{
 use culprit_evidence::analytical::evidence::EvidenceCapture;
 use culprit_evidence::original_projection::OriginalProjection;
 
+pub(crate) mod catalog_findings;
 pub(crate) mod catalogs;
 mod groups;
 mod operational;
@@ -18,6 +19,7 @@ mod settings;
 pub(crate) mod statement_counters;
 mod validation;
 mod waits;
+pub(crate) use catalog_findings::{RetainedCatalogAnalysis, analyze_catalog_originals, supports_catalog_findings};
 pub(crate) use operational::{RetainedOperationalAnalysis, analyze_operational_original, supports_operational};
 pub(crate) use settings::{RetainedSettingsAnalysis, analyze_settings_original, settings_read};
 mod window;

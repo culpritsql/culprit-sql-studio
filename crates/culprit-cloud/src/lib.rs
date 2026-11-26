@@ -94,6 +94,9 @@ impl CloudServices {
     pub fn recognizes(&self, connection: &CloudConnection) -> bool {
         self.metrics.iter().any(|provider| provider.recognizes(connection))
     }
+    pub fn recognizes_posture(&self, connection: &CloudConnection) -> bool {
+        self.posture.iter().any(|provider| provider.recognizes(connection))
+    }
     pub async fn signals(
         &self,
         cache: &dyn MetricsCache,

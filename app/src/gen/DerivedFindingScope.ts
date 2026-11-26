@@ -4,4 +4,4 @@ import type { CollectedQueryPopulation } from "./CollectedQueryPopulation";
 /**
  * The captured input assessed by the installed checks; settings never impersonate query history.
  */
-export type DerivedFindingScope = { "kind": "query-history", population: CollectedQueryPopulation, } | { "kind": "settings" } | { "kind": "statement-counters" } | { "kind": "operational" };
+export type DerivedFindingScope = { "kind": "query-history", population: CollectedQueryPopulation, } | { "kind": "settings" } | { "kind": "statement-counters" } | { "kind": "operational" } | { "kind": "catalog" };

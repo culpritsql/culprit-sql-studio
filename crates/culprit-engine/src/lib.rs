@@ -246,6 +246,10 @@ impl Workspace {
         self.cloud = self.cloud.with_metrics_provider(provider);
         self
     }
+    pub fn with_posture_provider(mut self, provider: Arc<dyn culprit_cloud::PostureProvider>) -> Workspace {
+        self.cloud = self.cloud.with_posture_provider(provider);
+        self
+    }
     /// Register or replace an authentication mode, using the same lifecycle contract as built-in providers.
     pub fn with_authentication_provider(
         mut self,
@@ -562,6 +566,14 @@ impl Workspace {
         }
         if let Some(captured) = captured {
             collected.attach_captured(captured)?;
+        }
+        if let Ok(info) = self.connection_service().connection(name)
+            && cloud::recognizes_posture(&self.cloud, &info)
+        {
+            let posture =
+                crate::operation::within(culprit_core::limits::OBSERVE_TIMEOUT, cloud::posture(&self.cloud, &info))
+                    .await;
+            collected.attach_cloud_posture(posture);
         }
         Ok(culprit_core::ProviderCall::completed(collected.finish().await, finalization, acquisition))
     }

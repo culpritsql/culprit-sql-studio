@@ -57,6 +57,14 @@ pub(crate) async fn collect(
     {
         pressure.files = files;
     }
+    if probe.performance_schema
+        && let Some(unencrypted_sessions) = unencrypted_tcp_sessions(conn, &probe.database).await
+    {
+        snapshot.operations.posture.get_or_insert_with(Default::default).merge(culprit_core::PostureSnapshot {
+            unencrypted_sessions: Some(unencrypted_sessions),
+            ..Default::default()
+        });
+    }
     let connections = connection_outcomes::read(conn, target).await;
     // What replication and connection advice depend on: whether this server takes writes, and its thread cache.
     let variables =
@@ -272,6 +280,25 @@ async fn files(conn: &mut impl crate::read::QueryRead) -> culprit_core::Result<V
 async fn server_variables(conn: &mut impl crate::read::QueryRead) -> culprit_core::Result<HashMap<String, String>> {
     let rows = query(conn, "SHOW GLOBAL VARIABLES WHERE Variable_name IN ('read_only', 'thread_cache_size')").await?;
     Ok(rows.iter().filter_map(|r| Some((r.string("variable_name").to_ascii_lowercase(), r.text("value")?))).collect())
+}
+
+async fn unencrypted_tcp_sessions(conn: &mut impl crate::read::QueryRead, database: &str) -> Option<u64> {
+    let rows = query_with(
+        conn,
+        "SELECT COUNT(*) AS unencrypted_sessions \
+           FROM performance_schema.threads AS t \
+           JOIN performance_schema.status_by_thread AS s \
+             ON s.THREAD_ID = t.THREAD_ID AND s.VARIABLE_NAME = 'Ssl_cipher' \
+          WHERE t.TYPE = 'FOREGROUND' \
+            AND t.PROCESSLIST_DB = ? \
+            AND t.PROCESSLIST_ID <> CONNECTION_ID() \
+            AND t.CONNECTION_TYPE = 'TCP/IP' \
+            AND (s.VARIABLE_VALUE IS NULL OR s.VARIABLE_VALUE = '')",
+        vec![Value::from(database.to_string())],
+    )
+    .await
+    .ok()?;
+    rows.first()?.unsigned("unencrypted_sessions").ok().flatten()
 }
 
 /// One row of SHOW REPLICA STATUS, as far as replica-lag reads it.

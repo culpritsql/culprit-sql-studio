@@ -6,6 +6,7 @@ use culprit_core::{telemetry::*, *};
 use culprit_evidence::analytical::evidence::EvidenceCapture;
 use culprit_evidence::original_projection::OriginalProjection;
 use std::sync::Arc;
+mod catalog_findings;
 mod causal_actors;
 mod changes;
 mod evaluation;
@@ -22,7 +23,7 @@ mod incidents;
 mod queries;
 
 // Advance this policy when retained interpretation changes, including builds sharing a package version.
-pub(crate) const BUILTIN_RULES_VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "/retained-diagnosis-17");
+pub(crate) const BUILTIN_RULES_VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "/retained-diagnosis-18");
 
 pub struct ChecksSynthesizer {
     pipeline: Arc<culprit_checks::Pipeline>,
@@ -106,10 +107,20 @@ impl ChecksSynthesizer {
         }
         let mut description = description(originals, recorded_at, self.analyzer(), &self.rules_version, display)?;
         description.context_issues = context_issues;
-        let catalogs = crate::collected_evidence::catalogs::CatalogContext::from_originals(primary, originals)?;
+        let standalone_catalog = if catalog_findings::supports(primary) {
+            Some(catalog_findings::analyze(primary, originals, &self.pipeline)?)
+        } else {
+            None
+        };
+        let catalogs = if standalone_catalog.is_some() {
+            crate::collected_evidence::catalogs::CatalogContext::default()
+        } else {
+            crate::collected_evidence::catalogs::CatalogContext::from_originals(primary, originals)?
+        };
         let changes = changes::ComparisonPlan::select(primary, originals)?;
         let job_executions = job_executions::JobExecutionPlan::select(primary)?;
-        for &issue in catalogs.issues().iter().chain(&changes.issues) {
+        let catalog_issues = standalone_catalog.as_ref().map_or(catalogs.issues(), |c| c.issues.as_slice());
+        for &issue in catalog_issues.iter().chain(&changes.issues) {
             if !description.context_issues.contains(&issue) {
                 description.context_issues.push(issue);
             }
@@ -137,6 +148,12 @@ impl ChecksSynthesizer {
         }
         if settings::supports(primary) {
             let projected = settings::findings(primary, &description, &self.pipeline, &mut budget)?;
+            output.findings = projected.findings;
+            description.finding_evaluations = projected.evaluations;
+            description.output_coverage.findings = DerivedOutputCoverage::Evaluated;
+        }
+        if let Some(catalog_analysis) = standalone_catalog {
+            let projected = catalog_findings::project(primary, originals, catalog_analysis, &description, &mut budget)?;
             output.findings = projected.findings;
             description.finding_evaluations = projected.evaluations;
             description.output_coverage.findings = DerivedOutputCoverage::Evaluated;

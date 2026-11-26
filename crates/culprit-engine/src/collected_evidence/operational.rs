@@ -21,6 +21,7 @@ pub(crate) fn supports_operational(original: &dyn OriginalProjection) -> bool {
                         | SnapshotDataset::PlanCacheSummary
                         | SnapshotDataset::Cleanup
                         | SnapshotDataset::WaitCounters
+                        | SnapshotDataset::BackupHistory
                 )
             }))
 }
@@ -71,6 +72,7 @@ pub(crate) fn analyze_operational_original(
             SnapshotDataset::PlanCacheSummary => populate_plan_cache(original, &mut snapshot)?,
             SnapshotDataset::Cleanup => populate_cleanup(original, &mut snapshot)?,
             SnapshotDataset::WaitCounters => populate_wait_counters(original, &mut snapshot)?,
+            SnapshotDataset::BackupHistory => populate_backup_history(original, &mut snapshot)?,
             _ => return Err(invalid()),
         }
     } else if let SourceObservation::RetainedEvents(events) = &source.observation {
@@ -134,7 +136,86 @@ fn populate_operational(original: &dyn OriginalProjection, snapshot: &mut Snapsh
         snapshot.operations.storage = Some(Box::new(storage));
     }
     apply_mssql_cleanup_facts(&read.observations, snapshot);
+    if original.is_read_complete() {
+        let is_azure_sql_db = original.source().partition == SourcePartition::Target;
+        if let Some(days) = read.observations.iter().find_map(|row| match &row.fact {
+            OperationalFact::DatabaseProperties(props) => {
+                culprit_core::posture::mssql_integrity_check_age_days(props, is_azure_sql_db)
+            }
+            _ => None,
+        }) {
+            snapshot.operations.posture.get_or_insert_with(Default::default).last_integrity_check_days = Some(days);
+            record_posture_collected(snapshot);
+        }
+    }
     Ok(())
+}
+
+fn populate_backup_history(original: &dyn OriginalProjection, snapshot: &mut Snapshot) -> Result<()> {
+    let mut observations = Vec::with_capacity(original.records().len());
+    for row in original.records() {
+        let TelemetryRecord::Operational(obs) = &row.row().record else { return Err(invalid()) };
+        observations.push(obs);
+    }
+    let report = culprit_checks::backup_history::explain(culprit_checks::backup_history::BackupHistoryEvidence {
+        source: original.source(),
+        observations: &observations,
+        read_complete: original.is_read_complete(),
+    })?;
+    set_source_state(snapshot, MSSQL_BACKUP_HISTORY_SOURCE, report.source_state, original.is_read_complete());
+    if !original.is_read_complete()
+        || report.source_state == SourceState::Unavailable
+        || report.source.error_code.is_some()
+        || matches!(report.source.stopped, Some(CollectionStop::TimedOut | CollectionStop::Cancelled))
+        || (report.scope.profile == MssqlBackupHistoryProfile::AzureSqlDatabase
+            && report.scope.hyperscale != Some(false))
+    {
+        return Ok(());
+    }
+    let youngest_full_age = report
+        .entries
+        .iter()
+        .filter(|entry| {
+            entry.native.backup_type() == Some(MssqlBackupType::Database)
+                && !matches!(&entry.native, MssqlBackupRecord::Msdb(b) if b.flags.damaged == Some(true))
+        })
+        .filter_map(|entry| match &entry.native {
+            MssqlBackupRecord::AzureSqlDatabase(b) => Some(b.finished_without_offset.as_str()),
+            MssqlBackupRecord::Msdb(b) => b.finished_without_offset.as_deref(),
+        })
+        .filter_map(|finished| {
+            culprit_core::posture::conservative_offset_free_age_days(finished, &report.context.observed_until)
+        })
+        .min_by(|a, b| a.total_cmp(b));
+
+    let last_full_backup_days = youngest_full_age.or_else(|| {
+        if report.source.stopped.is_some() {
+            return None;
+        }
+        let created = report.scope.native_database.qualifiers.get("database_created_without_offset")?;
+        let created_age =
+            culprit_core::posture::conservative_offset_free_age_days(created, &report.context.observed_until)?;
+        (created_age > 7.0).then_some(created_age)
+    });
+
+    if let Some(days) = last_full_backup_days {
+        snapshot.operations.posture.get_or_insert_with(Default::default).last_full_backup_days = Some(days);
+        record_posture_collected(snapshot);
+    }
+    Ok(())
+}
+
+fn record_posture_collected(snapshot: &mut Snapshot) {
+    if let Some(existing) = snapshot.sources.iter_mut().find(|entry| entry.source == culprit_core::POSTURE_SOURCE) {
+        existing.state = SourceState::Collected;
+        existing.reason = None;
+    } else {
+        snapshot.sources.push(SourceOutcome {
+            source: culprit_core::POSTURE_SOURCE.into(),
+            state: SourceState::Collected,
+            reason: None,
+        });
+    }
 }
 
 fn populate_plan_cache(original: &dyn OriginalProjection, snapshot: &mut Snapshot) -> Result<()> {

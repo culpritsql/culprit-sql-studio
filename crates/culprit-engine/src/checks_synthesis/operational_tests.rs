@@ -622,3 +622,203 @@ async fn database_wait_counters_capture_synthesizes_sync_stats_refresh_in_gold()
     assert_eq!(finding.inputs, vec![capture.verified_original().unwrap().reference(0).unwrap()]);
     assert_eq!(finding.guidance, DerivedGuidance::HistoricalRequiresFreshVerification);
 }
+
+#[tokio::test]
+async fn backup_history_and_database_properties_captures_synthesize_posture_findings_while_withholding_hyperscale_and_azure_checkdb()
+ {
+    // 1. Stale full backup on Azure SQL Database (non-Hyperscale) synthesizes `backup-retention-short`.
+    let mut azure_db = DatabaseIdentity::server(Engine::Mssql, "AppDb", "sql.database.windows.net", 1433, None);
+    azure_db.incarnation = Some("11111111-2222-3333-4444-555555555555".into());
+    let scope = MssqlBackupHistoryScope {
+        profile: MssqlBackupHistoryProfile::AzureSqlDatabase,
+        database_id: 5,
+        native_database: NativeIdentity::new("11111111-2222-3333-4444-555555555555")
+            .qualified("kind", "azure-sql-logical-database")
+            .qualified("physical_database_guid", "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"),
+        hyperscale: Some(false),
+    };
+    let backup_source = CollectionDescription {
+        target: CollectionTarget::Database(azure_db.clone()),
+        partition: SourcePartition::Target,
+        source: MSSQL_BACKUP_HISTORY_SOURCE.into(),
+        continuity: SourceContinuity::Unverified,
+        observation: SourceObservation::BackupHistory {
+            snapshot: StateSnapshotDescription {
+                dataset: SnapshotDataset::BackupHistory,
+                observed_from: "2026-03-25T12:00:00Z".into(),
+                observed_until: "2026-03-25T12:00:01Z".into(),
+                records: 1,
+                sources: vec![StateSourceCoverage {
+                    source: MSSQL_BACKUP_HISTORY_SOURCE.into(),
+                    state: SourceState::Partial,
+                    records: 1,
+                    complete_scope: false,
+                    error_code: None,
+                    stopped: None,
+                }],
+            },
+            scope: Box::new(scope.clone()),
+            database_writable: true,
+        },
+    };
+    let backup_obs = MssqlBackupHistoryObservation {
+        context: backup_history_context(&backup_source).unwrap(),
+        scope,
+        observed_at: "2026-03-25T12:00:00Z".into(),
+        position: 1,
+        record: MssqlBackupRecord::AzureSqlDatabase(Box::new(MssqlAzureSqlBackup {
+            backup_file_id: "backup-001".into(),
+            logical_database_id: "11111111-2222-3333-4444-555555555555".into(),
+            physical_database_name: "phys-db".into(),
+            logical_server_name: "sql".into(),
+            logical_database_name: "AppDb".into(),
+            started_without_offset: "2026-03-01T01:00:00.0000000".into(),
+            finished_without_offset: "2026-03-01T01:15:00.0000000".into(),
+            backup_type: MssqlBackupType::Database,
+            in_retention: true,
+        })),
+    };
+    let backup_row = TelemetryRecord::Operational(OperationalObservation {
+        source: MSSQL_BACKUP_HISTORY_SOURCE.into(),
+        key: backup_obs.key().unwrap(),
+        fact: OperationalFact::MssqlBackupHistory(Box::new(backup_obs)),
+    });
+    let backup_buf = DeadlockCaptureBuffer::new(backup_source, "azure-stale-backup-1", vec![backup_row]);
+    let backup_proj = backup_buf.projection();
+    let backup_gold = policy()
+        .analyze_originals(&[&backup_proj as &dyn OriginalProjection], "2026-03-25T12:02:00Z", &display(), vec![])
+        .unwrap();
+    backup_gold.validate().unwrap();
+    let stale_finding = backup_gold
+        .findings
+        .iter()
+        .find(|row| row.finding.check == "backup-retention-short")
+        .expect("stale full backup finding synthesized");
+    assert_eq!(stale_finding.finding.severity, Severity::High);
+    assert_eq!(stale_finding.inputs, vec![backup_proj.reference(0).unwrap()]);
+
+    // 2. Hyperscale backup history stays unmeasured (never false-flagged).
+    let hs_scope = MssqlBackupHistoryScope {
+        profile: MssqlBackupHistoryProfile::AzureSqlDatabase,
+        database_id: 5,
+        native_database: NativeIdentity::new("11111111-2222-3333-4444-555555555555")
+            .qualified("kind", "azure-sql-logical-database")
+            .qualified("physical_database_guid", "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"),
+        hyperscale: Some(true),
+    };
+    let hs_source = CollectionDescription {
+        target: CollectionTarget::Database(azure_db.clone()),
+        partition: SourcePartition::Target,
+        source: MSSQL_BACKUP_HISTORY_SOURCE.into(),
+        continuity: SourceContinuity::Unverified,
+        observation: SourceObservation::BackupHistory {
+            snapshot: StateSnapshotDescription {
+                dataset: SnapshotDataset::BackupHistory,
+                observed_from: "2026-03-25T12:00:00Z".into(),
+                observed_until: "2026-03-25T12:00:01Z".into(),
+                records: 0,
+                sources: vec![StateSourceCoverage {
+                    source: MSSQL_BACKUP_HISTORY_SOURCE.into(),
+                    state: SourceState::Unavailable,
+                    records: 0,
+                    complete_scope: false,
+                    error_code: Some(ErrorCode::Unsupported),
+                    stopped: None,
+                }],
+            },
+            scope: Box::new(hs_scope),
+            database_writable: true,
+        },
+    };
+    let hs_buf = DeadlockCaptureBuffer::new(hs_source, "azure-hyperscale-backup-1", vec![]);
+    let hs_proj = hs_buf.projection();
+    let hs_gold = policy()
+        .analyze_originals(&[&hs_proj as &dyn OriginalProjection], "2026-03-25T12:02:00Z", &display(), vec![])
+        .unwrap();
+    hs_gold.validate().unwrap();
+    assert!(!hs_gold.findings.iter().any(|row| row.finding.check == "backup-retention-short"));
+
+    // 3. Overdue DBCC CHECKDB on local SQL Server Operational capture synthesizes `integrity-check-overdue`,
+    //    whereas Azure SQL Database (`SourcePartition::Target`) skips it.
+    let props_obs = DatabasePropertiesObservation {
+        profile: DatabasePropertiesProfile::MssqlSysDatabases,
+        database: "AppDb".into(),
+        native_database_id: "7".into(),
+        catalog_database_id: "7".into(),
+        catalog_created_without_offset: Some("2019-01-01T00:00:00".into()),
+        local_replica_role: Some(MssqlDatabaseReplicaRole::NotInAvailabilityGroup {
+            observed_at: "2020-01-01T12:00:00Z".into(),
+        }),
+        observed_at: "2020-01-01T12:00:00Z".into(),
+        catalog_state: DatabasePropertyCode { code: Some(0), description: Some("ONLINE".into()) },
+        user_access: DatabasePropertyCode { code: Some(0), description: Some("MULTI_USER".into()) },
+        updateability: Some("READ_WRITE".into()),
+        catalog_read_only: Some(false),
+        in_standby: Some(false),
+        collation: None,
+        compatibility_level: Some(160),
+        snapshot_isolation: DatabasePropertyCode { code: None, description: None },
+        read_committed_snapshot: None,
+        auto_shrink: None,
+        auto_create_statistics: None,
+        auto_update_statistics: None,
+        auto_update_statistics_async: None,
+        forced_parameterization: None,
+        query_store_enabled: None,
+        broker_enabled: None,
+        page_verify: DatabasePropertyCode { code: Some(2), description: Some("CHECKSUM".into()) },
+        recovery_model: DatabasePropertyCode { code: Some(1), description: Some("FULL".into()) },
+        delayed_durability: DatabasePropertyCode { code: None, description: None },
+        containment: DatabasePropertyCode { code: None, description: None },
+        encrypted: None,
+        ledger_enabled: None,
+        change_feed_enabled: None,
+        published: None,
+        subscribed: None,
+        merge_published: None,
+        distributor: None,
+        accelerated_recovery_enabled: None,
+        last_good_checkdb_without_offset: Some("2019-11-15T00:00:00".into()),
+        target_recovery_time_seconds: Some(60),
+    };
+    let local_source = mssql_database_base(
+        SnapshotDataset::Operational,
+        vec![StateSourceCoverage::collected(DATABASE_PROPERTIES_SOURCE.into(), 1)],
+        1,
+    );
+    let mut local_props = props_obs.clone();
+    local_props.database = local_source.target.database().unwrap().database.clone();
+    let local_row = TelemetryRecord::Operational(OperationalObservation {
+        source: DATABASE_PROPERTIES_SOURCE.into(),
+        key: local_props.key().unwrap(),
+        fact: OperationalFact::DatabaseProperties(Box::new(local_props)),
+    });
+    let local_capture = seal_operational(local_source.clone(), vec![local_row.clone()]).await;
+    let local_gold = policy().synthesize_captures(&local_capture, &[], RECORDED_AT, &display()).unwrap();
+    local_gold.validate().unwrap();
+    let overdue = local_gold
+        .findings
+        .iter()
+        .find(|row| row.finding.check == "integrity-check-overdue")
+        .expect("integrity-check-overdue synthesized on local SQL Server");
+    assert_eq!(overdue.finding.severity, Severity::High);
+    assert_eq!(overdue.inputs, vec![local_capture.verified_original().unwrap().reference(0).unwrap()]);
+
+    let mut azure_props_source = local_source;
+    azure_props_source.target = CollectionTarget::Database(azure_db);
+    azure_props_source.partition = SourcePartition::Target;
+    let mut azure_props = props_obs;
+    azure_props.database = "AppDb".into();
+    let azure_row = TelemetryRecord::Operational(OperationalObservation {
+        source: DATABASE_PROPERTIES_SOURCE.into(),
+        key: azure_props.key().unwrap(),
+        fact: OperationalFact::DatabaseProperties(Box::new(azure_props)),
+    });
+    let azure_capture = seal_operational(azure_props_source, vec![azure_row]).await;
+    let azure_gold = policy().synthesize_captures(&azure_capture, &[], RECORDED_AT, &display()).unwrap();
+    azure_gold.validate().unwrap();
+    assert!(
+        !azure_gold.findings.iter().any(|row| row.finding.check == "integrity-check-overdue"),
+        "Azure SQL Database must never synthesize integrity-check-overdue"
+    );
+}

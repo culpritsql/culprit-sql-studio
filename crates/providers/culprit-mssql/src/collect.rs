@@ -642,6 +642,7 @@ async fn acquire(
     let mut participants = workloads.participants();
     signals::collect(&mut client, provider, &probe, &mut participants, compilation, &mut snapshot).await;
     drop(participants);
+    collect_posture(&mut client, &probe, &mut snapshot).await;
     if client.close().await == culprit_core::telemetry::SourceShutdown::Unconfirmed {
         return Err(culprit_core::telemetry::CollectionStop::CancellationUnconfirmed.error());
     }
@@ -700,6 +701,47 @@ async fn acquire(
     snapshot.bind_identity(identity);
     snapshot.duration_ms = started.elapsed().as_secs_f64() * 1_000.0;
     Ok((snapshot, workloads))
+}
+
+async fn collect_posture(client: &mut ReadSession, probe: &Probe, snapshot: &mut Snapshot) {
+    let last_integrity_check_days = snapshot
+        .operations
+        .database_properties
+        .as_ref()
+        .filter(|read| read.read_complete)
+        .and_then(|read| read.observation.as_deref())
+        .and_then(|props| culprit_core::posture::mssql_integrity_check_age_days(props, probe.is_azure_sql_database()));
+
+    let unencrypted_sessions = if probe.can_read_dmvs() {
+        client
+            .query(
+                "SELECT /* culprit */ COUNT_BIG(*) AS unencrypted_sessions \
+                   FROM sys.dm_exec_connections AS c \
+                   JOIN sys.dm_exec_sessions AS s ON s.session_id = c.session_id \
+                  WHERE s.is_user_process = 1 \
+                    AND s.database_id = DB_ID() \
+                    AND c.session_id <> @@SPID \
+                    AND c.encrypt_option = N'FALSE' \
+                 OPTION (MAXDOP 1)",
+                vec![],
+                2,
+            )
+            .await
+            .ok()
+            .and_then(|rows| rows.first().and_then(|row| crate::read::integer(row, "unencrypted_sessions").ok()))
+            .and_then(|count| u64::try_from(count).ok())
+    } else {
+        None
+    };
+
+    if last_integrity_check_days.is_some() || unencrypted_sessions.is_some() {
+        let posture = snapshot.operations.posture.get_or_insert_with(Default::default);
+        posture.merge(culprit_core::PostureSnapshot {
+            unencrypted_sessions,
+            last_integrity_check_days,
+            ..Default::default()
+        });
+    }
 }
 
 #[cfg(test)]

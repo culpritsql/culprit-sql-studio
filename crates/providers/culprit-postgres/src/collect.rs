@@ -55,15 +55,36 @@ pub async fn snapshot(
                 Ok(settings) => settings.failure.as_ref(),
                 Err(error) => Some(error),
             };
-            let pressure = if let Some(error) = failure {
+            let (pressure, unencrypted_sessions) = if let Some(error) = failure {
                 // Keep already-read settings, but never start more source work after failed settlement.
                 let mut coverage = Coverage::default();
                 coverage.sources_failed(sources::MISC, error);
-                (culprit_core::Pressure::default(), coverage)
+                ((culprit_core::Pressure::default(), coverage), None)
             } else {
-                crate::pressure::collect(&mut client, &probe, target).await
+                let pressure = crate::pressure::collect(&mut client, &probe, target).await;
+                let unencrypted = if probe.privileged && probe.version_num >= 90_500 {
+                    crate::read::query_one(
+                        &mut client,
+                        "SELECT COUNT(*)::bigint AS unencrypted_sessions \
+                           FROM pg_catalog.pg_stat_activity AS a \
+                           JOIN pg_catalog.pg_stat_ssl AS s ON s.pid = a.pid \
+                          WHERE a.datname = pg_catalog.current_database() \
+                            AND a.backend_type = 'client backend' \
+                            AND a.pid <> pg_catalog.pg_backend_pid() \
+                            AND a.client_addr IS NOT NULL \
+                            AND s.ssl IS FALSE",
+                    )
+                    .await
+                    .ok()
+                    .flatten()
+                    .and_then(|row| row.unsigned_text("unencrypted_sessions").ok().flatten())
+                    .and_then(|raw| raw.parse::<u64>().ok())
+                } else {
+                    None
+                };
+                (pressure, unencrypted)
             };
-            let result = Ok::<_, culprit_core::Error>((settings, pressure));
+            let result = Ok::<_, culprit_core::Error>((settings, pressure, unencrypted_sessions));
             client.finish(result).await
         },
         async {
@@ -148,26 +169,29 @@ pub async fn snapshot(
         }
     };
 
-    let (mut settings_out, postgres_settings, mut pressure_out) = match misc {
-        Ok((settings, (pressure, read))) => {
+    let (mut settings_out, postgres_settings, mut pressure_out, posture_out) = match misc {
+        Ok((settings, (pressure, read), unencrypted_sessions)) => {
             coverage.merge(read);
+            let posture = unencrypted_sessions.map(|count| {
+                Box::new(culprit_core::PostureSnapshot { unencrypted_sessions: Some(count), ..Default::default() })
+            });
             match settings {
                 Ok(settings) => {
                     let values = coverage.read_rows(&sources::SETTINGS, Ok(settings.values)).unwrap_or_default();
                     if let Some(error) = &settings.failure {
                         coverage.source_failed(&sources::SETTINGS, error);
                     }
-                    (values, Some(Box::new(settings.read)), Some(pressure))
+                    (values, Some(Box::new(settings.read)), Some(pressure), posture)
                 }
                 Err(error) => {
                     coverage.source_failed(&sources::SETTINGS, &error);
-                    (Vec::new(), None, Some(pressure))
+                    (Vec::new(), None, Some(pressure), posture)
                 }
             }
         }
         Err(e) => {
             coverage.sources_failed(sources::MISC, &e);
-            (Vec::new(), None, None)
+            (Vec::new(), None, None, None)
         }
     };
     let (resource_counters, resource_coverage) = shared_resources;
@@ -250,6 +274,7 @@ pub async fn snapshot(
         sizes_before: None,
         operations: culprit_core::operations::OperationalStats {
             postgres_settings,
+            posture: posture_out,
             index_usage_scope: Some(culprit_core::operations::IndexUsageScope::ConnectedMember),
             ..Default::default()
         },

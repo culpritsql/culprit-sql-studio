@@ -385,3 +385,298 @@ async fn real_local_originals_pass_writer_provenance_checks_and_seal_settings_ch
     assert!(selected(&after).catalog.as_ref().unwrap().native_time.is_some());
     assert!(sealed.files.iter().any(|file| file.stream == TelemetryStream::DerivedChanges && file.rows == 1));
 }
+
+#[tokio::test]
+async fn standalone_mssql_postgres_and_mysql_catalog_captures_synthesize_schema_findings_without_query_history() {
+    // 1. Standalone SQL Server catalog sweep (primary = CheckConstraints, context = Tables + Columns + ForeignKeys)
+    //    synthesizes `untrusted-constraint` directly into CulpritFindingsV1 with zero QueryHistory input.
+    let query = query().await;
+    let anchor = query.verified_original().unwrap();
+    let tbl = table(&anchor, "2020-01-01T10:00:00Z", 210, false).await;
+    let cols = columns(&anchor, "2020-01-01T10:01:00Z", 211).await;
+    let mut schema_frames = Vec::new();
+    for (pos, (mut src, rows)) in
+        test_support::mssql_schema_catalog_evidence(test_support::MssqlSchemaCatalogCase::Exact).into_iter().enumerate()
+    {
+        src.target = anchor.source().target.clone();
+        schema_frames.push(
+            capture(src, rows, 220 + pos as u64, "2020-01-01T10:05:00Z", EvidenceFamily::ObjectDefinitions).await,
+        );
+    }
+    let primary_idx = schema_frames
+        .iter()
+        .position(|c| {
+            c.verified_original()
+                .unwrap()
+                .source()
+                .observation
+                .snapshot()
+                .is_some_and(|s| s.dataset == SnapshotDataset::CheckConstraints)
+        })
+        .unwrap();
+    let primary_capture = schema_frames.remove(primary_idx);
+    let mut context_captures: Vec<&EvidenceCapture> = vec![&tbl, &cols];
+    context_captures.extend(schema_frames.iter());
+    let mssql_gold =
+        policy().synthesize_captures(&primary_capture, &context_captures, "2020-01-01T12:02:00Z", &display()).unwrap();
+    mssql_gold.validate().unwrap();
+    assert_eq!(mssql_gold.description.output_coverage.findings, DerivedOutputCoverage::Evaluated);
+    assert_eq!(mssql_gold.description.finding_evaluations.assessments[0].scope, DerivedFindingScope::Catalog);
+    assert!(!mssql_gold.description.finding_evaluations.assessments[0].catalog_inputs.is_empty());
+    let untrusted = mssql_gold
+        .findings
+        .iter()
+        .find(|row| row.finding.check == "untrusted-constraint")
+        .expect("untrusted-constraint synthesized from standalone catalog captures without QueryHistory");
+    assert!(!untrusted.inputs.is_empty(), "catalog finding retains authenticated object-definition row references");
+    assert!(untrusted.finding.fix.as_ref().is_none_or(|fix| fix.sql.is_none()));
+    assert_eq!(untrusted.guidance, DerivedGuidance::HistoricalRequiresFreshVerification);
+
+    // 2. Standalone PostgreSQL `Tables` capture with severe dead-tuple bloat synthesizes `dead-rows`
+    //    without requiring pg_stat_statements.
+    let mut pg_db = DatabaseIdentity::server(Engine::Postgres, "orders_db", "pg.internal", 5432, None);
+    pg_db.incarnation = Some("16384".into());
+    let pg_set = NativeCounterSet {
+        ratios: vec![],
+        ratio_gaps: vec![],
+        identity: NativeIdentity::new("24576").qualified("database_oid", "16384"),
+        scope: MeasurementScope::Database,
+        counters: vec![
+            NativeCounterSample::gauge(
+                "rows",
+                100_000,
+                CounterUnit::Count,
+                MeasurementScope::Database,
+                "pg_class",
+                "rows",
+            ),
+            NativeCounterSample::gauge(
+                "n_dead_tup",
+                150_000,
+                CounterUnit::Count,
+                MeasurementScope::Database,
+                "pg_stat_user_tables",
+                "n_dead_tup",
+            ),
+            NativeCounterSample::gauge(
+                "total_bytes",
+                268_435_456,
+                CounterUnit::Bytes,
+                MeasurementScope::Database,
+                "pg_class",
+                "total_bytes",
+            ),
+            NativeCounterSample::gauge(
+                "data_bytes",
+                201_326_592,
+                CounterUnit::Bytes,
+                MeasurementScope::Database,
+                "pg_class",
+                "data_bytes",
+            ),
+        ],
+        properties: std::collections::BTreeMap::from([
+            ("schema_name".into(), "public".into()),
+            ("table_name".into(), "events".into()),
+            ("relation_kind".into(), "r".into()),
+            ("has_pk".into(), "true".into()),
+            ("size_basis".into(), "catalog-estimate".into()),
+        ]),
+    };
+    let pg_source = CollectionDescription {
+        target: CollectionTarget::Database(pg_db),
+        partition: SourcePartition::Target,
+        source: "pg_stat_user_tables".into(),
+        continuity: SourceContinuity::Unverified,
+        observation: SourceObservation::Snapshot(StateSnapshotDescription {
+            dataset: SnapshotDataset::Tables,
+            observed_from: "2020-01-01T10:00:00Z".into(),
+            observed_until: "2020-01-01T10:00:01Z".into(),
+            records: 1,
+            sources: vec![StateSourceCoverage::collected("pg_stat_user_tables".into(), 1)],
+        }),
+    };
+    let pg_row = TelemetryRecord::Operational(OperationalObservation {
+        source: "pg_stat_user_tables".into(),
+        key: pg_set.key().unwrap(),
+        fact: OperationalFact::CounterSet(Box::new(pg_set)),
+    });
+    let pg_capture =
+        capture(pg_source, vec![pg_row], 240, "2020-01-01T10:00:00Z", EvidenceFamily::OperationalSamples).await;
+    let pg_gold = policy().synthesize_captures(&pg_capture, &[], "2020-01-01T12:02:00Z", &display()).unwrap();
+    pg_gold.validate().unwrap();
+    assert_eq!(pg_gold.description.finding_evaluations.assessments[0].scope, DerivedFindingScope::Catalog);
+    assert!(pg_gold.description.context_issues.is_empty(), "{:?}", pg_gold.description.context_issues);
+    let dead = pg_gold
+        .findings
+        .iter()
+        .find(|row| row.finding.check == "dead-rows")
+        .expect("dead-rows synthesized from standalone Postgres Tables capture");
+    assert_eq!(dead.inputs, vec![pg_capture.verified_original().unwrap().reference(0).unwrap()]);
+
+    // 3. Standalone MySQL catalog sweep (`Indexes` + `Tables` + `Columns` + `ForeignKeys`) synthesizes
+    //    `duplicate-index` without requiring performance_schema statement digests.
+    let mysql_db = DatabaseIdentity::server(Engine::Mysql, "shop", "mysql.internal", 3306, None);
+    let mysql_snap = |dataset: SnapshotDataset, src_name: &str, records: u32| CollectionDescription {
+        target: CollectionTarget::Database(mysql_db.clone()),
+        partition: SourcePartition::Target,
+        source: src_name.into(),
+        continuity: SourceContinuity::Unverified,
+        observation: SourceObservation::Snapshot(StateSnapshotDescription {
+            dataset,
+            observed_from: "2020-01-01T10:00:00Z".into(),
+            observed_until: "2020-01-01T10:00:01Z".into(),
+            records,
+            sources: vec![StateSourceCoverage::collected(src_name.into(), records)],
+        }),
+    };
+    let mysql_table_id = NativeIdentity::new("[\"audit_events\"]").qualified("schema", "shop");
+    let mysql_table = NativeCatalogCounters {
+        catalog: NativeCatalogDefinition {
+            identity: mysql_table_id.clone(),
+            object_type: "table".into(),
+            properties: std::collections::BTreeMap::from([
+                ("name".into(), "audit_events".into()),
+                ("engine".into(), "InnoDB".into()),
+                ("table_type".into(), "BASE TABLE".into()),
+                ("has_pk".into(), "1".into()),
+            ]),
+            definition: None,
+            predicate: None,
+        },
+        counters: NativeCounterSet {
+            ratios: vec![],
+            ratio_gaps: vec![],
+            identity: mysql_table_id,
+            scope: MeasurementScope::Database,
+            counters: vec![NativeCounterSample::gauge(
+                "row_estimate",
+                250_000,
+                CounterUnit::Count,
+                MeasurementScope::Database,
+                "information_schema.tables",
+                "row_estimate",
+            )],
+            properties: std::collections::BTreeMap::from([("object_type".into(), "table".into())]),
+        },
+    };
+    let mysql_tbl_cap = capture(
+        mysql_snap(SnapshotDataset::Tables, "information_schema.tables", 1),
+        vec![TelemetryRecord::Operational(OperationalObservation {
+            source: "information_schema.tables".into(),
+            key: mysql_table.catalog.key().unwrap(),
+            fact: OperationalFact::CatalogCounters(Box::new(mysql_table)),
+        })],
+        241,
+        "2020-01-01T10:00:00Z",
+        EvidenceFamily::OperationalSamples,
+    )
+    .await;
+
+    let mysql_col = |name: &str, ord: &str| {
+        let def = NativeCatalogDefinition {
+            identity: NativeIdentity::new(format!("[\"audit_events\",\"{name}\"]")).qualified("schema", "shop"),
+            object_type: "column".into(),
+            properties: std::collections::BTreeMap::from([
+                ("table_name".into(), "audit_events".into()),
+                ("name".into(), name.into()),
+                ("data_type".into(), "bigint".into()),
+                ("nullable".into(), "NO".into()),
+                ("extra".into(), String::new()),
+                ("ordinal".into(), ord.into()),
+            ]),
+            definition: None,
+            predicate: None,
+        };
+        TelemetryRecord::ObjectDefinition(
+            ObjectDefinitionRecord::new(
+                "information_schema.columns".into(),
+                ObjectDefinitionFact::NativeCatalog(Box::new(def)),
+            )
+            .unwrap(),
+        )
+    };
+    let mysql_col_cap = capture(
+        mysql_snap(SnapshotDataset::Columns, "information_schema.columns", 2),
+        vec![mysql_col("customer_id", "1"), mysql_col("created_at", "2")],
+        242,
+        "2020-01-01T10:00:00Z",
+        EvidenceFamily::ObjectDefinitions,
+    )
+    .await;
+
+    let mysql_fk_cap = capture(
+        mysql_snap(SnapshotDataset::ForeignKeys, "information_schema.key_column_usage", 0),
+        vec![],
+        243,
+        "2020-01-01T10:00:00Z",
+        EvidenceFamily::ObjectDefinitions,
+    )
+    .await;
+
+    let mysql_idx_part = |idx_name: &str, seq: &str, col: &str| {
+        let id =
+            NativeIdentity::new(format!("[\"audit_events\",\"{idx_name}\",\"{seq}\"]")).qualified("schema", "shop");
+        let rec = NativeCatalogCounters {
+            catalog: NativeCatalogDefinition {
+                identity: id.clone(),
+                object_type: "index-column".into(),
+                properties: std::collections::BTreeMap::from([
+                    ("table_name".into(), "audit_events".into()),
+                    ("index_name".into(), idx_name.into()),
+                    ("non_unique".into(), "1".into()),
+                    ("seq".into(), seq.into()),
+                    ("column_name".into(), col.into()),
+                    ("collation".into(), "A".into()),
+                    ("index_type".into(), "BTREE".into()),
+                    ("visible".into(), "YES".into()),
+                ]),
+                definition: None,
+                predicate: None,
+            },
+            counters: NativeCounterSet {
+                ratios: vec![],
+                ratio_gaps: vec![],
+                identity: id,
+                scope: MeasurementScope::Database,
+                counters: vec![],
+                properties: std::collections::BTreeMap::from([("object_type".into(), "index-column".into())]),
+            },
+        };
+        TelemetryRecord::Operational(OperationalObservation {
+            source: "information_schema.statistics".into(),
+            key: rec.catalog.key().unwrap(),
+            fact: OperationalFact::CatalogCounters(Box::new(rec)),
+        })
+    };
+    let mysql_idx_cap = capture(
+        mysql_snap(SnapshotDataset::Indexes, "information_schema.statistics", 3),
+        vec![
+            mysql_idx_part("ix_customer", "1", "customer_id"),
+            mysql_idx_part("ix_customer_created", "1", "customer_id"),
+            mysql_idx_part("ix_customer_created", "2", "created_at"),
+        ],
+        244,
+        "2020-01-01T10:01:00Z",
+        EvidenceFamily::OperationalSamples,
+    )
+    .await;
+
+    let mysql_gold = policy()
+        .synthesize_captures(
+            &mysql_idx_cap,
+            &[&mysql_tbl_cap, &mysql_col_cap, &mysql_fk_cap],
+            "2020-01-01T12:02:00Z",
+            &display(),
+        )
+        .unwrap();
+    mysql_gold.validate().unwrap();
+    assert_eq!(mysql_gold.description.finding_evaluations.assessments[0].catalog_inputs, vec![1, 2, 3]);
+    let dup = mysql_gold
+        .findings
+        .iter()
+        .find(|row| row.finding.check == "duplicate-index")
+        .expect("duplicate-index synthesized from standalone MySQL catalog captures");
+    assert!(!dup.inputs.is_empty());
+    assert!(dup.finding.fix.as_ref().is_none_or(|fix| fix.sql.is_none()));
+}
