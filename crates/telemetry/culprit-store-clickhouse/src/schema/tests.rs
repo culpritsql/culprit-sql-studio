@@ -17,6 +17,21 @@ fn schema() -> Schema {
     .unwrap()
 }
 #[test]
+fn verification_casts_keep_native_columns_visible_to_filters_and_sorting() {
+    let schema = schema();
+    let native_names = schema.columns().iter().map(|c| c.name.as_str()).collect::<Vec<_>>();
+    let projection = schema.verification_projection();
+    for (native, output) in schema.columns().iter().zip(schema.verification_columns()) {
+        if matches!(native.kind, ScalarType::Timestamp | ScalarType::ExactCounter) {
+            assert!(!native_names.contains(&output.name.as_str()));
+            assert!(projection.contains(&format!(" AS {}", quote(&output.name))));
+        } else {
+            assert_eq!(output.name, native.name);
+        }
+    }
+}
+
+#[test]
 fn logical_nulls_exact_counters_and_nanoseconds_survive_the_native_layout() {
     let schema = schema();
     let input = json!({"counter":"18446744073709551615","label":null,"at":"2026-11-11T10:00:00.123456789+02:00","details":{"unicode":"字段","n":1}});
