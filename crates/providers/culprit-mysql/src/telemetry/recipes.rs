@@ -53,7 +53,8 @@ impl Acquisition {
             Self::GroupReplication => crate::group_replication::bounded_budget(&budget),
             Self::Galera => crate::galera::bounded_budget(&budget),
             Self::CurrentRequestWork => crate::progress::bounded_budget(&budget),
-            Self::Deadlocks | Self::Snapshot(_) => budget,
+            Self::Deadlocks => events::bounded_budget(&budget),
+            Self::Snapshot(_) => budget,
         }
     }
     fn open(self, connector: Arc<Connector>, request: &CollectionRequest) -> Result<Box<dyn TelemetrySource>> {
@@ -144,7 +145,7 @@ const REGISTRATIONS: &[Registration] = &[
     Registration { version: 3, ..Registration::baseline("mysql.activity", Acquisition::Activity) },
     Registration::investigation("mysql.blocking", Acquisition::Blocking),
     Registration::investigation("mysql.metadata-lock-context", Acquisition::MetadataLocks),
-    Registration::baseline("mysql.deadlock-history", Acquisition::Deadlocks),
+    Registration { version: 2, ..Registration::baseline("mysql.deadlock-history", Acquisition::Deadlocks) },
     Registration::baseline("mysql.statement-counters", Acquisition::Snapshot(Recipe::Statements)),
     Registration {
         version: 2,
@@ -214,7 +215,10 @@ pub(super) fn profile_selectors() -> Vec<RecipeSelector> {
         .iter()
         .filter(|registration| {
             registration.purpose == RecipePurpose::Baseline
-                && matches!(registration.acquisition, Acquisition::Activity | Acquisition::Snapshot(Recipe::Settings))
+                && matches!(
+                    registration.acquisition,
+                    Acquisition::Activity | Acquisition::Deadlocks | Acquisition::Snapshot(Recipe::Settings)
+                )
         })
         .map(Registration::selector)
         .collect()

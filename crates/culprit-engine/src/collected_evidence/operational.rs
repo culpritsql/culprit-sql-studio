@@ -1,8 +1,8 @@
 //! Database-scoped Operational, Cleanup, and PlanCacheSummary captures feed pure checks without a connection.
 use super::*;
 use culprit_core::{
-    CleanupHolder, OpenTransaction, PlanCacheUse, Pressure, Report, TransactionActivity, operations::SpaceUsage,
-    telemetry::*,
+    CleanupHolder, Deadlock, DeadlockReport, MeasurementScope, OpenTransaction, PlanCacheUse, Pressure, Report,
+    TransactionActivity, operations::SpaceUsage, telemetry::*,
 };
 use std::collections::BTreeMap;
 
@@ -13,12 +13,13 @@ pub(crate) struct RetainedOperationalAnalysis {
 
 pub(crate) fn supports_operational(original: &dyn OriginalProjection) -> bool {
     original.source().target.database().is_some()
-        && original.source().observation.snapshot().is_some_and(|snapshot| {
-            matches!(
-                snapshot.dataset,
-                SnapshotDataset::Operational | SnapshotDataset::PlanCacheSummary | SnapshotDataset::Cleanup
-            )
-        })
+        && (original.source().observation.events().is_some()
+            || original.source().observation.snapshot().is_some_and(|snapshot| {
+                matches!(
+                    snapshot.dataset,
+                    SnapshotDataset::Operational | SnapshotDataset::PlanCacheSummary | SnapshotDataset::Cleanup
+                )
+            }))
 }
 
 pub(crate) fn analyze_operational_original(
@@ -28,15 +29,19 @@ pub(crate) fn analyze_operational_original(
 ) -> Result<RetainedOperationalAnalysis> {
     let source = original.source();
     let database = source.target.database().ok_or_else(invalid)?.clone();
-    let header = source.observation.snapshot().ok_or_else(invalid)?;
-    if !supports_operational(original)
-        || !source.partition_is_consistent()
-        || !header.is_valid()
-        || !original.original().is_valid()
-        || original.records().len() > header.records as usize
-    {
+    if !supports_operational(original) || !source.partition_is_consistent() || !original.original().is_valid() {
         return Err(invalid());
     }
+    let taken_at = if let Some(header) = source.observation.snapshot() {
+        if !header.is_valid() || original.records().len() > header.records as usize {
+            return Err(invalid());
+        }
+        header.observed_until.clone()
+    } else if let SourceObservation::RetainedEvents(events) = &source.observation {
+        events.observed_at.clone()
+    } else {
+        return Err(invalid());
+    };
     let mut limitations = vec![
         limit(None, CollectedAnalysisLimit::MissingCurrentServerMetadata),
         limit(None, CollectedAnalysisLimit::MissingSchema),
@@ -51,17 +56,23 @@ pub(crate) fn analyze_operational_original(
         catalogs,
     };
     let mut snapshot = super::snapshot(original, database, None, !original.is_read_complete(), &policy);
-    snapshot.taken_at = header.observed_until.clone();
+    snapshot.taken_at = taken_at;
     catalogs.apply(&mut snapshot);
     if catalogs.settings_complete() {
         limitations.retain(|limitation| limitation.reason != CollectedAnalysisLimit::MissingSettings);
     }
 
-    match header.dataset {
-        SnapshotDataset::Operational => populate_operational(original, &mut snapshot)?,
-        SnapshotDataset::PlanCacheSummary => populate_plan_cache(original, &mut snapshot)?,
-        SnapshotDataset::Cleanup => populate_cleanup(original, &mut snapshot)?,
-        _ => return Err(invalid()),
+    if let Some(header) = source.observation.snapshot() {
+        match header.dataset {
+            SnapshotDataset::Operational => populate_operational(original, &mut snapshot)?,
+            SnapshotDataset::PlanCacheSummary => populate_plan_cache(original, &mut snapshot)?,
+            SnapshotDataset::Cleanup => populate_cleanup(original, &mut snapshot)?,
+            _ => return Err(invalid()),
+        }
+    } else if let SourceObservation::RetainedEvents(events) = &source.observation {
+        populate_deadlocks(original, events, &mut snapshot)?;
+    } else {
+        return Err(invalid());
     }
 
     let report =
@@ -165,6 +176,47 @@ fn populate_cleanup(original: &dyn OriginalProjection, snapshot: &mut Snapshot) 
         }
     }
     apply_mssql_cleanup_facts(&read.observations, snapshot);
+    Ok(())
+}
+
+fn populate_deadlocks(
+    original: &dyn OriginalProjection,
+    events: &EventHistoryDescription,
+    snapshot: &mut Snapshot,
+) -> Result<()> {
+    let from = chrono::DateTime::parse_from_rfc3339(&events.from).map_err(|_| invalid())?;
+    let until = chrono::DateTime::parse_from_rfc3339(&events.until).map_err(|_| invalid())?;
+    let seconds = (until - from).num_seconds();
+    if seconds <= 0 {
+        return Err(invalid());
+    }
+    let since_hours = (seconds as f64 / 3600.0).max(1.0 / 3600.0);
+    let mut deadlocks = Vec::new();
+    for row in original.records() {
+        let TelemetryRecord::Deadlock(event) = &row.row().record else { return Err(invalid()) };
+        if !event.is_valid() {
+            return Err(invalid());
+        }
+        let mut graph = Deadlock::new(
+            &original.source().source,
+            Some(event.at.clone()),
+            event.processes.clone(),
+            event.resources.clone(),
+        );
+        graph.redact(snapshot.server.engine);
+        deadlocks.push(graph);
+    }
+    deadlocks.sort_by(|a, b| b.at.cmp(&a.at));
+    let state = if deadlocks.is_empty() { SourceState::Empty } else { SourceState::Collected };
+    set_source_state(snapshot, source_id::DEADLOCKS, state, original.is_read_complete());
+    snapshot.deadlocks = Some(DeadlockReport {
+        scope: Some(MeasurementScope::Database),
+        deadlocks,
+        source: original.source().source.clone(),
+        since_hours,
+        recent_only: !events.history_complete,
+        ..Default::default()
+    });
     Ok(())
 }
 

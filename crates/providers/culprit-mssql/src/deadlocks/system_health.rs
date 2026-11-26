@@ -12,6 +12,10 @@ use culprit_core::{
 
 const MIN_NATIVE_MAJOR: u32 = 14;
 const MAX_CONFIGURED_PATH_BYTES: i64 = 8_000;
+const MAX_SAFE_FILE_SIZE_MB: i64 = 10;
+const MAX_SAFE_ROLLOVER_FILES: i64 = 10;
+const MAX_SAFE_TOTAL_FILE_MB: i64 = 50;
+const DEFAULT_ROLLOVER_FILES: i64 = 4;
 
 // https://learn.microsoft.com/en-us/sql/relational-databases/system-dynamic-management-objects/sys-dm-xe-session-targets-transact-sql
 // Persistent catalog configuration remains readable when the emitter is stopped. It does not read target_data.
@@ -21,11 +25,17 @@ const CONFIGURATION: &str = r#"SELECT TOP(2) /* culprit */
  c.event_session_id,target.target_id,target.package AS target_package,
  CONVERT(varchar(128),SQL_VARIANT_PROPERTY(f.value,'BaseType')) AS file_path_type,
  DATALENGTH(CONVERT(nvarchar(max),f.value)) AS file_path_bytes,
- CASE WHEN DATALENGTH(CONVERT(nvarchar(max),f.value))<=8000 THEN CONVERT(nvarchar(4000),f.value) END AS file_path
+ CASE WHEN DATALENGTH(CONVERT(nvarchar(max),f.value))<=8000 THEN CONVERT(nvarchar(4000),f.value) END AS file_path,
+ TRY_CONVERT(bigint,sz.value) AS max_file_size_mb,
+ TRY_CONVERT(bigint,rf.value) AS max_rollover_files
 FROM sys.server_event_sessions c
 JOIN sys.server_event_session_targets target ON target.event_session_id=c.event_session_id
 JOIN sys.server_event_session_fields f ON f.event_session_id=c.event_session_id
  AND f.object_id=target.target_id AND f.name=N'filename'
+LEFT JOIN sys.server_event_session_fields sz ON sz.event_session_id=c.event_session_id
+ AND sz.object_id=target.target_id AND sz.name=N'max_file_size'
+LEFT JOIN sys.server_event_session_fields rf ON rf.event_session_id=c.event_session_id
+ AND rf.object_id=target.target_id AND rf.name=N'max_rollover_files'
 WHERE c.name=N'system_health' AND target.name=N'event_file' AND target.package=N'package0'
  AND EXISTS(SELECT 1 FROM sys.server_event_session_events e
   WHERE e.event_session_id=c.event_session_id AND e.name=N'xml_deadlock_report' AND e.package=N'sqlserver')
@@ -39,6 +49,8 @@ pub(crate) struct ConfiguredTarget {
     at: String,
     configuration_fingerprint: String,
     pattern: String,
+    max_file_size_mb: Option<i64>,
+    max_rollover_files: Option<i64>,
 }
 
 impl ConfiguredTarget {
@@ -64,11 +76,36 @@ impl ConfiguredTarget {
         }
         let path = optional_text(row, "file_path")?.ok_or_else(unavailable)?;
         let pattern = configured_pattern(&path)?;
+        let max_file_size_mb = optional_integer(row, "max_file_size_mb")?;
+        let max_rollover_files = optional_integer(row, "max_rollover_files")?;
         let configuration_fingerprint = digest(
-            &serde_json::to_vec(&("system-health-configured-file-v2", session_id, target_id, "package0", path))
-                .map_err(|_| invalid_data())?,
+            &serde_json::to_vec(&(
+                "system-health-configured-file-v3",
+                session_id,
+                target_id,
+                "package0",
+                path,
+                max_file_size_mb,
+                max_rollover_files,
+            ))
+            .map_err(|_| invalid_data())?,
         );
-        Ok(Self { at, configuration_fingerprint, pattern })
+        Ok(Self { at, configuration_fingerprint, pattern, max_file_size_mb, max_rollover_files })
+    }
+
+    /// Pre-verify bounded `.xel` target footprint before touching `sys.fn_xe_file_target_read_file`.
+    pub(crate) fn ensure_bounded_footprint(&self) -> Result<()> {
+        let Some(size_mb) = self.max_file_size_mb else {
+            return Err(culprit_core::telemetry::CollectionStop::ByteLimit.error());
+        };
+        let rollover = self.max_rollover_files.unwrap_or(DEFAULT_ROLLOVER_FILES);
+        if !(1..=MAX_SAFE_FILE_SIZE_MB).contains(&size_mb)
+            || !(1..=MAX_SAFE_ROLLOVER_FILES).contains(&rollover)
+            || size_mb.checked_mul(rollover).is_none_or(|total| total > MAX_SAFE_TOTAL_FILE_MB)
+        {
+            return Err(culprit_core::telemetry::CollectionStop::ByteLimit.error());
+        }
+        Ok(())
     }
 
     pub(crate) fn observed_at(&self) -> &str {

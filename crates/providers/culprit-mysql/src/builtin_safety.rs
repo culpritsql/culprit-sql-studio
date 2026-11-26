@@ -6,6 +6,7 @@ pub(crate) const BUILTIN_SAFETY_IDS: &[&str] = &[
     "mysql.activity",
     "mysql.blocking",
     "mysql.current-request-work",
+    "mysql.deadlock-history",
     "mysql.metadata-lock-context",
     "mysql.settings",
 ];
@@ -18,6 +19,9 @@ pub(crate) fn policy(
 ) -> Option<BuiltinRecipeSafety> {
     let purpose = match (id, selector) {
         ("mysql.activity", RecipeSelector::Collection(TelemetryCollection::Activity)) => RecipePurpose::Baseline,
+        ("mysql.deadlock-history", RecipeSelector::Collection(TelemetryCollection::DeadlockHistory)) => {
+            RecipePurpose::Baseline
+        }
         ("mysql.settings", RecipeSelector::Collection(TelemetryCollection::Snapshot(SnapshotDataset::Settings))) => {
             RecipePurpose::Baseline
         }
@@ -74,6 +78,8 @@ fn templates() -> String {
         include_str!("telemetry/blocking.rs"),
         include_str!("telemetry/blocking/participants.rs"),
         include_str!("telemetry/blocking/edges.rs"),
+        include_str!("deadlocks.rs"),
+        include_str!("telemetry/events.rs"),
         include_str!("progress.rs"),
     ];
     let mut bytes = Vec::new();

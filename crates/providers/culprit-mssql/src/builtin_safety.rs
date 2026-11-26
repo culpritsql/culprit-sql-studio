@@ -9,6 +9,7 @@ pub(crate) const BUILTIN_SAFETY_IDS: &[&str] = &[
     "mssql.current-execution-profile",
     "mssql.current-request-memory",
     "mssql.current-request-work",
+    "mssql.deadlock-history",
     "mssql.focused-compiler-admission",
     "mssql.focused-page-task-holders",
     "mssql.focused-page-wait",
@@ -20,6 +21,7 @@ pub(crate) const BUILTIN_SAFETY_IDS: &[&str] = &[
     "mssql.readable-secondary-recovery",
     "mssql.retained-plans",
     "mssql.settings",
+    "mssql.system-health-deadlocks",
     "mssql.task-space",
     "mssql.worker-starvation",
 ];
@@ -32,6 +34,10 @@ pub(crate) fn policy(
 ) -> Option<BuiltinRecipeSafety> {
     let purpose = match (recipe_id, selector) {
         ("mssql.activity", RecipeSelector::Collection(TelemetryCollection::Activity)) => RecipePurpose::Baseline,
+        (
+            "mssql.deadlock-history" | "mssql.system-health-deadlocks",
+            RecipeSelector::Collection(TelemetryCollection::DeadlockHistory),
+        ) => RecipePurpose::Baseline,
         ("mssql.settings", RecipeSelector::Collection(TelemetryCollection::Snapshot(SnapshotDataset::Settings))) => {
             RecipePurpose::Baseline
         }
@@ -107,9 +113,14 @@ fn template_fingerprint() -> String {
         include_str!("activity/readable_secondary_recovery/redo.rs"),
         include_str!("cache_entry_memory.rs"),
         include_str!("cache_entry_memory/sql.rs"),
+        include_str!("deadlocks.rs"),
+        include_str!("deadlocks/native.rs"),
+        include_str!("deadlocks/database.rs"),
+        include_str!("deadlocks/system_health.rs"),
         include_str!("telemetry/mod.rs"),
         include_str!("telemetry/recipes.rs"),
         include_str!("telemetry/activity/mod.rs"),
+        include_str!("telemetry/events.rs"),
         include_str!("telemetry/blocking.rs"),
         include_str!("telemetry/cache_entry_memory.rs"),
         include_str!("telemetry/current_execution_profile.rs"),

@@ -299,3 +299,281 @@ async fn idle_open_transaction_and_mssql_object_lock_escalation_enrich_verified_
     );
     assert!(mssql_exp.action.as_deref().is_some_and(|text| text.contains("TOP (1000)")));
 }
+
+struct DeadlockCaptureBuffer {
+    source: CollectionDescription,
+    original: DiagnosticCaptureRef,
+    exported: Vec<ExportedRecord>,
+    coverage: ReferenceCoverage,
+}
+
+impl DeadlockCaptureBuffer {
+    fn new(source: CollectionDescription, observation_id: &str, records: Vec<TelemetryRecord>) -> Self {
+        static SEQ: AtomicU64 = AtomicU64::new(9_100_000);
+        let capture = CaptureIdentity {
+            observation_id: observation_id.into(),
+            revision: Some(CaptureRevision {
+                outbox_id: "deadlock-test-outbox".into(),
+                owner_epoch: "1".into(),
+                sequence: SEQ.fetch_add(1, Ordering::SeqCst).to_string(),
+            }),
+        };
+        let manifest_sha256 = digest(observation_id.as_bytes());
+        let original = DiagnosticCaptureRef {
+            capture: capture.clone(),
+            manifest_sha256,
+            source_scope_id: source.captured_range().unwrap().scope_id,
+        };
+        let exported = records
+            .into_iter()
+            .map(|record| ExportedRecord::new(&source, &capture, record).unwrap())
+            .collect::<Vec<_>>();
+        Self {
+            source,
+            original,
+            exported,
+            coverage: ReferenceCoverage { integrity_complete: true, complete: true, ..Default::default() },
+        }
+    }
+
+    fn projection(&self) -> RetainedDeadlockProjection<'_> {
+        let mut ordinals = std::collections::BTreeMap::<&'static str, u32>::new();
+        let rows = self
+            .exported
+            .iter()
+            .map(|row| {
+                let ord = ordinals.entry(row.record.stream().file_name()).or_insert(0);
+                let current = *ord;
+                *ord += 1;
+                culprit_evidence::original_projection::OriginalProjectionRecord::new(
+                    row,
+                    current,
+                    row.payload_sha256().unwrap(),
+                )
+            })
+            .collect();
+        RetainedDeadlockProjection { buffer: self, rows }
+    }
+}
+
+struct RetainedDeadlockProjection<'a> {
+    buffer: &'a DeadlockCaptureBuffer,
+    rows: Vec<culprit_evidence::original_projection::OriginalProjectionRecord<'a>>,
+}
+
+impl OriginalProjection for RetainedDeadlockProjection<'_> {
+    fn source(&self) -> &CollectionDescription {
+        &self.buffer.source
+    }
+    fn original(&self) -> &DiagnosticCaptureRef {
+        &self.buffer.original
+    }
+    fn records(&self) -> &[culprit_evidence::original_projection::OriginalProjectionRecord<'_>] {
+        &self.rows
+    }
+    fn reference_coverage(&self) -> &ReferenceCoverage {
+        &self.buffer.coverage
+    }
+    fn captured_rows(&self, stream: TelemetryStream) -> Option<u32> {
+        self.buffer
+            .source
+            .observation
+            .collection()
+            .streams()
+            .contains(&stream)
+            .then(|| self.rows.iter().filter(|row| row.row().record.stream() == stream).count() as u32)
+    }
+    fn selected_streams(&self) -> Box<dyn Iterator<Item = TelemetryStream> + '_> {
+        Box::new(self.buffer.source.observation.collection().streams().iter().copied())
+    }
+    fn collected_from(&self) -> &str {
+        "2020-01-01T12:00:00Z"
+    }
+    fn collected_until(&self) -> &str {
+        "2020-01-01T12:00:01Z"
+    }
+    fn gaps(&self) -> &[culprit_core::collected_analysis::EvidenceGap] {
+        &[]
+    }
+}
+
+fn sample_deadlock_record() -> TelemetryRecord {
+    let mut event = DeadlockEvent {
+        position: digest(b"deadlock-occurrence-1"),
+        file_id: digest(b"system_health_0_1.xel"),
+        file_offset: "4096".into(),
+        graph_ordinal: 0,
+        at: "2020-01-01T11:55:00.000000000Z".into(),
+        processes: vec![
+            culprit_core::DeadlockProcess {
+                id: "process1".into(),
+                session: Some("52".into()),
+                victim: true,
+                statement: Some("SELECT OrderTotal FROM dbo.Orders WHERE CustomerId = 42".into()),
+                wait_mode: Some("S".into()),
+                ..Default::default()
+            },
+            culprit_core::DeadlockProcess {
+                id: "process2".into(),
+                session: Some("67".into()),
+                victim: false,
+                statement: Some("UPDATE dbo.Orders SET Status = 'PAID' WHERE OrderId = 99".into()),
+                wait_mode: Some("X".into()),
+                ..Default::default()
+            },
+        ],
+        resources: vec![
+            culprit_core::DeadlockResource {
+                id: "keylock1".into(),
+                kind: "keylock".into(),
+                object: Some("dbo.Orders".into()),
+                index: Some("PK_Orders".into()),
+                holders: vec![culprit_core::LockHolder { process: "process2".into(), mode: Some("X".into()) }],
+                waiters: vec![culprit_core::LockHolder { process: "process1".into(), mode: Some("S".into()) }],
+            },
+            culprit_core::DeadlockResource {
+                id: "keylock2".into(),
+                kind: "keylock".into(),
+                object: Some("dbo.Orders".into()),
+                index: Some("IX_Orders_CustomerId".into()),
+                holders: vec![culprit_core::LockHolder { process: "process1".into(), mode: Some("S".into()) }],
+                waiters: vec![culprit_core::LockHolder { process: "process2".into(), mode: Some("X".into()) }],
+            },
+        ],
+        pattern: culprit_core::DeadlockPattern::KeyLookup,
+    };
+    event.redact(Engine::Mssql);
+    TelemetryRecord::Deadlock(event)
+}
+
+#[test]
+fn shared_and_database_deadlock_captures_project_both_gold_incidents_and_database_findings() {
+    let instance = SharedResourceIdentity {
+        engine: Engine::Mssql,
+        kind: SharedResourceKind::Instance,
+        namespace: NativeIdentity::new("sql-host").qualified("kind", "sql-server-network-machine"),
+        native: NativeIdentity::new("sql-host\\PROD").qualified("kind", "sql-server-instance"),
+    };
+    let shared_source = CollectionDescription {
+        target: CollectionTarget::Shared(instance.clone()),
+        partition: SourcePartition::InstanceLocal {
+            member: Some(instance),
+            epoch: Some(digest(b"system-health-epoch-v3")),
+        },
+        source: source_id::DEADLOCKS.into(),
+        continuity: SourceContinuity::Unverified,
+        observation: SourceObservation::RetainedEvents(EventHistoryDescription {
+            from: "2020-01-01T11:00:00Z".into(),
+            until: "2020-01-01T12:00:00Z".into(),
+            observed_at: "2020-01-01T12:00:01Z".into(),
+            retained_from: None,
+            history_complete: false,
+        }),
+    };
+    assert_eq!(
+        diagnostic_original_input_qualification(Some(&shared_source)),
+        DiagnosticInputQualification::Qualified { source: DiagnosticSourceKind::Deadlocks }
+    );
+    let shared_buf =
+        DeadlockCaptureBuffer::new(shared_source, "shared-deadlock-capture-1", vec![sample_deadlock_record()]);
+    let shared_basis = shared_buf.projection();
+    let shared_ref = shared_basis.reference(0).unwrap();
+    let update = observe_diagnostic_original(
+        shared_basis.source(),
+        shared_basis.original(),
+        &[DiagnosticOriginalRow { reference: &shared_ref, record: &shared_basis.records()[0].row().record }],
+        None,
+        &[],
+        "2020-01-01T12:00:02Z",
+    )
+    .unwrap();
+    assert_eq!(update.revisions.len(), 1);
+    let settled = update.revisions[0].episode.finish_original_observation_planning().unwrap();
+    let revision = DiagnosticRevision::between(None, settled.clone(), "2020-01-01T12:00:03Z").unwrap().unwrap();
+    let mut checkpoint = DiagnosticCheckpointPart {
+        id: String::new(),
+        controller_version: DIAGNOSTIC_CONTROLLER_VERSION,
+        target: settled.scope.target.clone(),
+        input: shared_basis.original().clone(),
+        part: 0,
+        parts: 1,
+        episodes: vec![],
+    };
+    checkpoint.id = checkpoint.expected_id().unwrap();
+    let diag_source = CollectionDescription {
+        target: settled.scope.target.clone(),
+        partition: SourcePartition::Target,
+        source: DIAGNOSTICS_SOURCE.into(),
+        continuity: SourceContinuity::Unverified,
+        observation: SourceObservation::Diagnostics(DiagnosticCaptureDescription {
+            controller_version: DIAGNOSTIC_CONTROLLER_VERSION,
+            parent: shared_basis.original().clone(),
+            step_id: digest(b"deadlock-gold-step"),
+            analyzed_at: revision.analyzed_at.clone(),
+            records: 1,
+            checkpoint_records: 1,
+            scope_bindings: [(settled.scope.key().unwrap(), settled.scope.clone())].into(),
+        }),
+    };
+    let diag_buf = DeadlockCaptureBuffer::new(
+        diag_source,
+        "shared-deadlock-diag-1",
+        vec![
+            TelemetryRecord::Operational(OperationalObservation {
+                source: DIAGNOSTICS_SOURCE.into(),
+                key: revision.id.clone(),
+                fact: OperationalFact::DiagnosticRevision(Box::new(revision)),
+            }),
+            TelemetryRecord::DiagnosticCheckpoint(checkpoint),
+        ],
+    );
+    let diag_projection = diag_buf.projection();
+    let shared_display = DerivedDisplayContext {
+        connection_alias: "Approved instance alias".into(),
+        environment: None,
+        database_name: None,
+    };
+    let incident_gold = policy()
+        .analyze_originals(
+            &[&diag_projection as &dyn OriginalProjection, &shared_basis as &dyn OriginalProjection],
+            RECORDED_AT,
+            &shared_display,
+            vec![],
+        )
+        .unwrap();
+    incident_gold.validate().unwrap();
+    assert_eq!(incident_gold.incidents.len(), 1);
+    let incident = &incident_gold.incidents[0];
+    assert!(incident.victim_summary.contains("dbo.Orders"), "{}", incident.victim_summary);
+    assert!(incident.mechanism.as_deref().is_some_and(|m| m.contains("IX_Orders_CustomerId")));
+    assert_eq!(incident.affected_queries.len(), 1);
+    assert_eq!(incident.candidate_queries.len(), 1);
+    assert_eq!(incident.attribution_status, DerivedAttributionStatus::CandidatesOnly);
+
+    let (base_db, _) = test_support::cleanup_evidence(CleanupCase::LocalLoggedGenerator);
+    let db_source = CollectionDescription {
+        target: base_db.target,
+        partition: SourcePartition::Target,
+        source: source_id::DEADLOCKS.into(),
+        continuity: SourceContinuity::Unverified,
+        observation: SourceObservation::RetainedEvents(EventHistoryDescription {
+            from: "2020-01-01T11:00:00Z".into(),
+            until: "2020-01-01T12:00:00Z".into(),
+            observed_at: "2020-01-01T12:00:01Z".into(),
+            retained_from: None,
+            history_complete: false,
+        }),
+    };
+    assert_eq!(
+        diagnostic_original_input_qualification(Some(&db_source)),
+        DiagnosticInputQualification::Qualified { source: DiagnosticSourceKind::Deadlocks }
+    );
+    let db_buf = DeadlockCaptureBuffer::new(db_source, "db-deadlock-capture-1", vec![sample_deadlock_record()]);
+    let db_basis = db_buf.projection();
+    let finding_gold =
+        policy().analyze_originals(&[&db_basis as &dyn OriginalProjection], RECORDED_AT, &display(), vec![]).unwrap();
+    finding_gold.validate().unwrap();
+    let deadlock_finding =
+        finding_gold.findings.iter().find(|row| row.finding.check == "deadlocks").expect("deadlocks finding");
+    assert_eq!(deadlock_finding.inputs, vec![db_basis.reference(0).unwrap()]);
+}

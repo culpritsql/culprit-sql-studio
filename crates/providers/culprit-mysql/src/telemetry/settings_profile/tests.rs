@@ -372,6 +372,7 @@ fn profile_caps_are_strict_and_do_not_qualify_cost_or_enable_statements_or_defin
         crate::telemetry_profile_selectors(),
         vec![
             RecipeSelector::Collection(TelemetryCollection::Activity),
+            RecipeSelector::Collection(TelemetryCollection::DeadlockHistory),
             RecipeSelector::Collection(TelemetryCollection::Snapshot(SnapshotDataset::Settings))
         ]
     );

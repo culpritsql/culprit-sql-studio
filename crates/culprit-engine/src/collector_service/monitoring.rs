@@ -261,12 +261,16 @@ impl Enrollment {
                     self.gap(&candidate.target, Some(&candidate.schedule.id), MonitoringGapReason::ConflictingSchedule);
                     continue;
                 }
-                if matches!(target.subject, CollectionSubject::Shared { .. }) {
-                    let scope = candidate.profile.scope().ok_or_else(invalid)?;
-                    let scope_key = digest(
-                        &serde_json::to_vec(&(scope.target(), scope.partition(), candidate.profile.selector()))
-                            .map_err(|_| invalid())?,
-                    );
+                if let CollectionSubject::Shared { resource } = &target.subject {
+                    let scope_key = match candidate.profile.scope() {
+                        Some(scope) => digest(
+                            &serde_json::to_vec(&(scope.target(), scope.partition(), candidate.profile.selector()))
+                                .map_err(|_| invalid())?,
+                        ),
+                        None => digest(
+                            &serde_json::to_vec(&(resource, candidate.profile.selector())).map_err(|_| invalid())?,
+                        ),
+                    };
                     if !shared.insert(scope_key) {
                         self.gap(
                             &candidate.target,

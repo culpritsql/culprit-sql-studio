@@ -517,6 +517,9 @@ fn chain_contains_session(node: &culprit_core::blocking::BlockNode, session_id: 
     node.session == session_id || node.children.iter().any(|child| chain_contains_session(child, session_id))
 }
 pub(super) fn original_observation(original: &dyn OriginalProjection, position: usize) -> Result<Explanation> {
+    if matches!(original.source().observation, SourceObservation::RetainedEvents(_)) {
+        return deadlock_observation(original, position);
+    }
     let Some(header) = original.source().observation.snapshot() else { return Ok(Explanation::default()) };
     match header.dataset {
         SnapshotDataset::TaskSpace => task_space_observation(original, position),
@@ -525,6 +528,58 @@ pub(super) fn original_observation(original: &dyn OriginalProjection, position: 
         SnapshotDataset::NativeFailures => native_failure_observation(original, position),
         _ => Ok(Explanation::default()),
     }
+}
+
+fn deadlock_observation(original: &dyn OriginalProjection, position: usize) -> Result<Explanation> {
+    let TelemetryRecord::Deadlock(event) = &original.records().get(position).ok_or_else(invalid)?.row().record else {
+        return Err(invalid());
+    };
+    let engine = original.source().target.engine();
+    let mut graph = culprit_core::Deadlock::new(
+        &original.source().source,
+        Some(event.at.clone()),
+        event.processes.clone(),
+        event.resources.clone(),
+    );
+    graph.redact(engine);
+    let mut actions = Vec::new();
+    for fix in &graph.fixes {
+        let entry = match &fix.sql {
+            Some(sql) if !sql.trim().is_empty() => format!("{}: {}\n{}", fix.title, fix.detail, sql),
+            _ => format!("{}: {}", fix.title, fix.detail),
+        };
+        push_unique(&mut actions, entry);
+    }
+    let reference = original.reference(position)?;
+    let mut explanation = Explanation {
+        victim_summary: (!graph.headline.trim().is_empty()).then_some(graph.headline),
+        mechanism: (!graph.explanation.trim().is_empty()).then_some(graph.explanation),
+        action: (!actions.is_empty()).then(|| actions.join("\n\n")),
+        verify: Some(t!("check.deadlocks.verify.graph")),
+        ..Default::default()
+    };
+    for process in &graph.processes {
+        let Some(statement) =
+            process.statement.as_deref().filter(|sql| !sql.trim().is_empty() && sql.len() <= MAX_DERIVED_SQL_BYTES)
+        else {
+            continue;
+        };
+        let query = DerivedIncidentQuery {
+            causal_role: None,
+            identity: None,
+            sql: DefinitionPayload::sql(statement, engine),
+            caller: None,
+            evidence: vec![reference.clone()],
+        };
+        if process.victim {
+            explanation.affected.push(query);
+        } else {
+            explanation.candidates.push(query);
+        }
+    }
+    explanation.affected = super::incidents::distinct(explanation.affected)?;
+    explanation.candidates = super::incidents::distinct(explanation.candidates)?;
+    Ok(explanation)
 }
 
 fn memory_failure_observation(original: &dyn OriginalProjection, position: usize) -> Result<Explanation> {

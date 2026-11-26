@@ -920,7 +920,9 @@ impl DiagnosticReport {
                 Self::Blocking { .. } => matches!(self.evidence().native_key, NativeRecordIdentity::Activity(_)),
                 Self::OriginalObservation { .. } => matches!(
                     self.evidence().native_key,
-                    NativeRecordIdentity::Operational { .. } | NativeRecordIdentity::Runtime(_)
+                    NativeRecordIdentity::Operational { .. }
+                        | NativeRecordIdentity::Runtime(_)
+                        | NativeRecordIdentity::Deadlock { .. }
                 ),
                 _ => matches!(self.evidence().native_key, NativeRecordIdentity::Operational { .. }),
             }

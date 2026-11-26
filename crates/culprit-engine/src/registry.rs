@@ -320,6 +320,7 @@ mod builtin_safety_tests {
                     "mssql.current-execution-profile",
                     "mssql.current-request-memory",
                     "mssql.current-request-work",
+                    "mssql.deadlock-history",
                     "mssql.focused-compiler-admission",
                     "mssql.focused-page-task-holders",
                     "mssql.focused-page-wait",
@@ -331,6 +332,7 @@ mod builtin_safety_tests {
                     "mssql.readable-secondary-recovery",
                     "mssql.retained-plans",
                     "mssql.settings",
+                    "mssql.system-health-deadlocks",
                     "mssql.task-space",
                     "mssql.worker-starvation",
                 ]
@@ -393,6 +395,7 @@ mod mysql_safety_tests {
                 "mysql.activity",
                 "mysql.blocking",
                 "mysql.current-request-work",
+                "mysql.deadlock-history",
                 "mysql.metadata-lock-context",
                 "mysql.settings",
             ]

@@ -130,6 +130,9 @@ pub(crate) fn safety_source(
         RecipeSelector::Collection(TelemetryCollection::Activity) => {
             activity::profile_source(connector, request, profile)
         }
+        RecipeSelector::Collection(TelemetryCollection::DeadlockHistory) => {
+            events::profile_source(connector, request, profile)
+        }
         RecipeSelector::Collection(TelemetryCollection::Snapshot(SnapshotDataset::Settings)) => {
             settings_profile::source(connector, request, profile)
         }

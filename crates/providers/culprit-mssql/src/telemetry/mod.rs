@@ -73,6 +73,9 @@ pub(crate) fn profile_source(
         RecipeSelector::Collection(TelemetryCollection::Activity) => {
             Ok(Box::new(activity::ActivitySource::for_profile(pool, request, host, port, profile)?))
         }
+        RecipeSelector::Collection(TelemetryCollection::DeadlockHistory) => {
+            events::profile_source(pool, request, host, port, profile)
+        }
         RecipeSelector::Collection(TelemetryCollection::Snapshot(SnapshotDataset::Settings)) => {
             Ok(Box::new(state::StateSource::for_profile(pool, request, host, port, profile)?))
         }
@@ -95,6 +98,7 @@ pub(crate) fn safety_source(
     use culprit_read::{GuardedTelemetrySource, SourceProfileGuard};
     match profile.selector() {
         RecipeSelector::Collection(TelemetryCollection::Activity)
+        | RecipeSelector::Collection(TelemetryCollection::DeadlockHistory)
         | RecipeSelector::Collection(TelemetryCollection::Snapshot(SnapshotDataset::Settings)) => {
             profile_source(pool, request, host, port, profile)
         }

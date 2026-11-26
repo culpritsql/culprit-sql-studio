@@ -12,6 +12,8 @@ const ENVELOPE_ALLOWANCE: usize = 4096;
 const SHARED_EVENT_ROWS: u32 = 50;
 const SHARED_READER_QUERIES: u32 = 8;
 const SHARED_QUERIES: u32 = SHARED_READER_QUERIES + crate::read::ReadSession::SESSION_SETUP_QUERIES;
+const DATABASE_READER_QUERIES: u32 = 12;
+const DATABASE_QUERIES: u32 = DATABASE_READER_QUERIES + crate::read::ReadSession::SESSION_SETUP_QUERIES;
 const SHARED_TOTAL_BYTES: u32 = 16 * 1024 * 1024;
 const SHARED_STATEMENT_TIMEOUT_MS: u32 = 1_000;
 const SHARED_TOTAL_TIMEOUT_MS: u32 = 5_000;
@@ -21,6 +23,7 @@ pub(super) struct EventSource<R = ReadSession> {
     host: String,
     port: u16,
     io: R,
+    builtin_policy: Option<BuiltinRecipeSafety>,
     description: Option<CollectionDescription>,
     owner: Option<EventOwner>,
     positions: Option<Vec<String>>,
@@ -30,7 +33,7 @@ pub(super) struct EventSource<R = ReadSession> {
 }
 enum EventOwner {
     Database { physical: String },
-    Instance { instance: crate::instance::Context, target: system_health::ConfiguredTarget },
+    Instance { instance: Box<crate::instance::Context>, target: system_health::ConfiguredTarget },
 }
 
 pub(super) fn shared_budget(requested: &CollectionBudget) -> CollectionBudget {
@@ -46,20 +49,60 @@ pub(super) fn shared_budget(requested: &CollectionBudget) -> CollectionBudget {
     }
 }
 
+pub(super) fn database_budget(requested: &CollectionBudget) -> CollectionBudget {
+    CollectionBudget {
+        page_rows: requested.page_rows.min(SHARED_EVENT_ROWS),
+        max_snapshot_rows: requested.max_snapshot_rows.min(SHARED_EVENT_ROWS),
+        max_pages: requested.max_pages.min(SHARED_EVENT_ROWS),
+        total_bytes: requested.total_bytes.min(SHARED_TOTAL_BYTES),
+        max_queries: requested.max_queries.min(DATABASE_QUERIES),
+        statement_timeout_ms: requested.statement_timeout_ms.min(SHARED_STATEMENT_TIMEOUT_MS),
+        total_timeout_ms: requested.total_timeout_ms.min(SHARED_TOTAL_TIMEOUT_MS),
+        ..requested.clone()
+    }
+}
+
 fn bounded_request(request: &CollectionRequest) -> Result<CollectionRequest> {
     request.validate()?;
     let mut request = request.clone();
-    if let CollectionSubject::Shared { resource } = &request.subject {
-        if resource.engine != culprit_core::Engine::Mssql || resource.kind != SharedResourceKind::Instance {
-            return Err(culprit_core::Error::new(
-                culprit_core::ErrorCode::Unsupported,
-                culprit_core::t!("collection.unsupported"),
-            ));
+    match &request.subject {
+        CollectionSubject::Shared { resource } => {
+            if resource.engine != culprit_core::Engine::Mssql || resource.kind != SharedResourceKind::Instance {
+                return Err(culprit_core::Error::new(
+                    culprit_core::ErrorCode::Unsupported,
+                    culprit_core::t!("collection.unsupported"),
+                ));
+            }
+            request.budget = shared_budget(&request.budget);
+            request.budget.validate()?;
         }
-        request.budget = shared_budget(&request.budget);
-        request.budget.validate()?;
+        CollectionSubject::Database => {
+            request.budget = database_budget(&request.budget);
+            request.budget.validate()?;
+        }
+        CollectionSubject::ConfiguredConnection { .. } => {}
     }
     Ok(request)
+}
+
+pub(super) fn profile_source(
+    pool: Arc<Pool>,
+    request: &CollectionRequest,
+    host: String,
+    port: u16,
+    profile: &SourceProfileAdmission,
+) -> Result<Box<dyn TelemetrySource>> {
+    use culprit_read::{GuardedTelemetrySource, SourceProfileGuard};
+    let bounded = bounded_request(request)?;
+    if bounded.budget != request.budget {
+        return Err(invalid_data());
+    }
+    let guard = SourceProfileGuard::new(request, profile)?;
+    let builtin_policy = guard.builtin_policy().cloned();
+    let io = ReadSession::collection(pool, request.budget.clone())?.with_profile(guard.clone());
+    let mut inner = EventSource::with_io(io, request, host, port)?;
+    inner.builtin_policy = builtin_policy;
+    Ok(Box::new(GuardedTelemetrySource::new(inner, guard)))
 }
 
 impl EventSource {
@@ -79,6 +122,7 @@ impl<R: NativeRead> EventSource<R> {
             host,
             port,
             io,
+            builtin_policy: None,
             description: None,
             owner: None,
             positions: None,
@@ -169,6 +213,9 @@ impl<R: NativeRead> TelemetrySource for EventSource<R> {
             CollectionSubject::ConfiguredConnection { .. } => return Err(invalid_data()),
             CollectionSubject::Database => {
                 description::ensure_supported(&mut self.io).await?;
+                if let Some(policy) = &self.builtin_policy {
+                    crate::builtin_safety::verify_activity(policy, 5, 12)?;
+                }
                 let (database, physical) = description::identity(&mut self.io, &self.host, self.port).await?;
                 let server = self.io.query(native::SERVER, vec![], 1).await.map_err(ReadError::into_error)?;
                 let at = canonical_time(&text(server.first().ok_or_else(invalid_data)?, "observed_at")?)?;
@@ -182,11 +229,17 @@ impl<R: NativeRead> TelemetrySource for EventSource<R> {
                         culprit_core::t!("collection.unsupported"),
                     ));
                 }
+                if let Some(policy) = &self.builtin_policy {
+                    crate::builtin_safety::verify_activity(policy, instance.engine_edition(), instance.major)?;
+                }
                 let resource = CollectionTarget::Shared(instance.identity.clone());
                 if !self.request.subject.accepts(&resource) {
                     return Err(CollectionStop::SourceChanged.error());
                 }
                 let target = system_health::ConfiguredTarget::read(&mut self.io).await?;
+                if self.builtin_policy.is_some() {
+                    target.ensure_bounded_footprint()?;
+                }
                 if ObservationBounds::new(&at, target.observed_at()).is_none() {
                     return Err(CollectionStop::SourceChanged.error());
                 }
@@ -195,7 +248,7 @@ impl<R: NativeRead> TelemetrySource for EventSource<R> {
                     epoch: Some(target.capture_epoch(&instance)?),
                 };
                 let at = target.observed_at().to_owned();
-                (resource, partition, at, EventOwner::Instance { instance, target })
+                (resource, partition, at, EventOwner::Instance { instance: Box::new(instance), target })
             }
         };
         let (from, until) = self.request.bounds()?;
@@ -248,8 +301,11 @@ impl<R: NativeRead> TelemetrySource for EventSource<R> {
             EventOwner::Database { .. } => true,
             EventOwner::Instance { instance: original, target: original_target } => {
                 let current_target = system_health::ConfiguredTarget::read(&mut self.io).await?;
+                if self.builtin_policy.is_some() {
+                    current_target.ensure_bounded_footprint()?;
+                }
                 let (current, at) = crate::instance::read(&mut self.io).await?;
-                original == &current
+                original.as_ref() == &current
                     && original_target.confirmed_by(&current_target)
                     && ObservationBounds::new(current_target.observed_at(), &at).is_some()
             }

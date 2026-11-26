@@ -13,6 +13,7 @@ pub enum DiagnosticSourceKind {
     TaskSpace,
     QueryHistory,
     WorkerQueues,
+    Deadlocks,
 }
 impl DiagnosticSourceKind {
     /// Eligible collection families only; native original headers/rows still establish actual applicability.
@@ -20,6 +21,7 @@ impl DiagnosticSourceKind {
         matches!(
             collection,
             TelemetryCollection::QueryHistory
+                | TelemetryCollection::DeadlockHistory
                 | TelemetryCollection::Snapshot(
                     SnapshotDataset::Operational
                         | SnapshotDataset::Cleanup
@@ -46,7 +48,13 @@ impl DiagnosticPopulation {
                 source: DiagnosticSourceKind::QueryHistory,
                 range: TelemetryRange::NativeInterval { interval },
             } => valid_key(&interval.native_id) && ObservationBounds::new(&interval.from, &interval.until).is_some(),
-            Self::Source { source, range: TelemetryRange::Current } => *source != DiagnosticSourceKind::QueryHistory,
+            Self::Source {
+                source: DiagnosticSourceKind::Deadlocks,
+                range: TelemetryRange::TimeWindow { from, until },
+            } => ObservationBounds::new(from, until).is_some(),
+            Self::Source { source, range: TelemetryRange::Current } => {
+                !matches!(source, DiagnosticSourceKind::QueryHistory | DiagnosticSourceKind::Deadlocks)
+            }
             _ => false,
         }
     }
@@ -64,6 +72,8 @@ pub enum DiagnosticOriginalCondition {
     PostgresFailure,
     /// Qualified failure, deadlock or client-attention Extended Event; routine handled user errors are excluded.
     MssqlExtendedEvent,
+    /// Retained deadlock graph occurrence from a qualified shared or database deadlock source.
+    DeadlockEvent,
     MssqlCleanupBoundary {
         session: NativeActivityIdentity,
         transaction: NativeActivityIdentity,
@@ -87,6 +97,7 @@ impl DiagnosticOriginalCondition {
             Self::MssqlOutOfMemory => DiagnosticSourceKind::MemoryFailures,
             Self::MssqlWorkerQueue => DiagnosticSourceKind::WorkerQueues,
             Self::MysqlError | Self::PostgresFailure | Self::MssqlExtendedEvent => DiagnosticSourceKind::NativeFailures,
+            Self::DeadlockEvent => DiagnosticSourceKind::Deadlocks,
             Self::MssqlCleanupBoundary { .. } => DiagnosticSourceKind::Cleanup,
             Self::MssqlTemporarySpace { .. } => DiagnosticSourceKind::TaskSpace,
             Self::MssqlQueryHistory { .. } => DiagnosticSourceKind::QueryHistory,
@@ -119,7 +130,8 @@ impl DiagnosticOriginalCondition {
             | Self::MssqlWorkerQueue
             | Self::MysqlError
             | Self::PostgresFailure
-            | Self::MssqlExtendedEvent => true,
+            | Self::MssqlExtendedEvent
+            | Self::DeadlockEvent => true,
         }
     }
     pub(super) fn accepts_identity(&self, key: &NativeRecordIdentity) -> bool {
@@ -132,6 +144,7 @@ impl DiagnosticOriginalCondition {
                 expected.insert("plan_id".into(), plan.id.clone());
                 positive(&native.id).is_some() && native.qualifiers == expected
             }
+            (Self::DeadlockEvent, NativeRecordIdentity::Deadlock { .. }) => true,
             (
                 Self::MssqlOutOfMemory
                 | Self::MssqlWorkerQueue
@@ -235,6 +248,7 @@ impl DiagnosticOriginalCondition {
                 }
                 Self::MssqlQueryHistory { execution_type, query, plan, cohort }
             }
+            (DiagnosticSourceKind::Deadlocks, TelemetryRecord::Deadlock(row)) if row.is_valid() => Self::DeadlockEvent,
             _ => return None,
         };
         condition.is_valid().then_some(condition)
@@ -281,12 +295,15 @@ pub(super) fn scope(source: &CollectionDescription) -> Result<DiagnosticScope> {
         source: source.source.clone(),
         population: DiagnosticPopulation::Source { source: kind, range: source.observation.range()?.canonical()? },
         measurement_scope: match (&source.target, kind) {
-            (CollectionTarget::Database(_), DiagnosticSourceKind::NativeFailures) => crate::MeasurementScope::Database,
+            (CollectionTarget::Database(_), DiagnosticSourceKind::NativeFailures | DiagnosticSourceKind::Deadlocks) => {
+                crate::MeasurementScope::Database
+            }
             (
                 _,
                 DiagnosticSourceKind::MemoryFailures
                 | DiagnosticSourceKind::NativeFailures
-                | DiagnosticSourceKind::WorkerQueues,
+                | DiagnosticSourceKind::WorkerQueues
+                | DiagnosticSourceKind::Deadlocks,
             ) => crate::MeasurementScope::Server,
             _ => crate::MeasurementScope::Database,
         },
@@ -344,7 +361,8 @@ impl DiagnosticEpisode {
                     SourcePartition::InstanceLocal { member: Some(member), epoch: Some(_) },
                     DiagnosticSourceKind::MemoryFailures
                     | DiagnosticSourceKind::NativeFailures
-                    | DiagnosticSourceKind::WorkerQueues,
+                    | DiagnosticSourceKind::WorkerQueues
+                    | DiagnosticSourceKind::Deadlocks,
                 ) => {
                     owner == member
                         && (owner.kind == SharedResourceKind::Instance
@@ -361,6 +379,9 @@ impl DiagnosticEpisode {
                         && self.scope.source == MSSQL_DATABASE_EVENTS_SOURCE
                         && db.incarnation.is_some()
                         && self.scope.measurement_scope == crate::MeasurementScope::Database
+                }
+                (CollectionTarget::Database(_), SourcePartition::Target, DiagnosticSourceKind::Deadlocks) => {
+                    self.scope.measurement_scope == crate::MeasurementScope::Database
                 }
                 (
                     CollectionTarget::Database(_),
@@ -394,6 +415,7 @@ pub fn diagnostic_original_observed_until(source: &CollectionDescription) -> Opt
         .observation
         .snapshot()
         .map(|snapshot| snapshot.observed_until.as_str())
+        .or_else(|| source.observation.events().map(|events| events.observed_at.as_str()))
         .or_else(|| source.query_history()?.acquisition_owner.as_deref().map(|owner| owner.observed_until.as_str()))
 }
 impl DiagnosticEpisode {

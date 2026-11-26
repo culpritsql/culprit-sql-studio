@@ -88,7 +88,7 @@ fn native_projection_revisions_invalidate_only_changed_recipe_identities_without
     for recipe in &declarations {
         let expected = match recipe.id.as_str() {
             "mysql.activity" => 3,
-            "mysql.current-request-work" | "mysql.operational" | "mysql.settings" => 2,
+            "mysql.current-request-work" | "mysql.deadlock-history" | "mysql.operational" | "mysql.settings" => 2,
             _ => 1,
         };
         assert_eq!(recipe.version, expected, "{}", recipe.id);
@@ -189,7 +189,7 @@ async fn ordinary_catalog_and_retained_history_routes_keep_valid_above_default_b
         ..defaults
     };
     larger.validate().unwrap();
-    for id in ["mysql.tables", "mysql.deadlock-history", "mysql.statement-counters"] {
+    for id in ["mysql.tables", "mysql.statement-counters"] {
         let registration = REGISTRATIONS.iter().find(|recipe| recipe.id == id).unwrap();
         let mut request = request(registration).await;
         request.budget = larger.clone();

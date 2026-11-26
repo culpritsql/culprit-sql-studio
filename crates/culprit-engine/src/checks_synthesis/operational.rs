@@ -40,11 +40,15 @@ pub(super) fn findings(
 fn references(original: &dyn OriginalProjection, finding: &Finding) -> Result<Vec<DiagnosticEvidenceRef>> {
     let mut refs = Vec::new();
     for (position, row) in original.records().iter().enumerate() {
-        let TelemetryRecord::Operational(obs) = &row.row().record else { continue };
-        let matches = match finding.check.as_str() {
-            "storage-capacity" | "log-reuse-blocked" => matches!(obs.fact, OperationalFact::Space(_)),
-            "query-family" => obs.source == source_id::PLAN_CACHE_USE,
-            "held-cleanup" => matches!(obs.fact, OperationalFact::MssqlCleanupHorizon(_)),
+        let matches = match (&row.row().record, finding.check.as_str()) {
+            (TelemetryRecord::Operational(obs), "storage-capacity" | "log-reuse-blocked") => {
+                matches!(obs.fact, OperationalFact::Space(_))
+            }
+            (TelemetryRecord::Operational(obs), "query-family") => obs.source == source_id::PLAN_CACHE_USE,
+            (TelemetryRecord::Operational(obs), "held-cleanup") => {
+                matches!(obs.fact, OperationalFact::MssqlCleanupHorizon(_))
+            }
+            (TelemetryRecord::Deadlock(_), "deadlocks") => true,
             _ => false,
         };
         if matches {

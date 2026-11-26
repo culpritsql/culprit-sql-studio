@@ -188,8 +188,9 @@ const REGISTRATIONS: &[Registration] = &[
         RecipeSelector::Collection(TelemetryCollection::DeadlockHistory),
         |pool, request, host, port| Ok(Box::new(events::EventSource::new(pool, request, host, port)?)),
     )
+    .bounded(events::database_budget)
     .baseline()
-    .version(2),
+    .version(3),
     Registration::database(
         "mssql.system-health-deadlocks",
         RecipeSelector::Collection(TelemetryCollection::DeadlockHistory),
@@ -198,7 +199,8 @@ const REGISTRATIONS: &[Registration] = &[
     .shared(&[RecipeSubject::Shared(SharedResourceKind::Instance)])
     .on_editions(crate::instance::SUPPORTED_EDITIONS)
     .bounded(events::shared_budget)
-    .version(2),
+    .baseline()
+    .version(3),
     Registration::database(
         "mssql.activity",
         RecipeSelector::Collection(TelemetryCollection::Activity),
@@ -518,6 +520,7 @@ pub(super) fn declarations() -> Vec<RecipeDescriptor> {
 pub(super) fn profile_selectors() -> Vec<RecipeSelector> {
     vec![
         RecipeSelector::Collection(TelemetryCollection::Activity),
+        RecipeSelector::Collection(TelemetryCollection::DeadlockHistory),
         RecipeSelector::Collection(TelemetryCollection::Snapshot(SnapshotDataset::Settings)),
     ]
 }

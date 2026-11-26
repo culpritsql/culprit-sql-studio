@@ -784,7 +784,7 @@ fn standard_builtin_mssql_enrollment_needs_no_operator_receipt_and_never_constru
     assert_eq!(calls.load(Ordering::SeqCst), 0);
     let mut enrolled: Vec<&str> = plan.summary.automatic.iter().map(|entry| entry.recipe_id.as_str()).collect();
     enrolled.sort_unstable();
-    assert_eq!(enrolled, ["mssql.activity", "mssql.settings"]);
+    assert_eq!(enrolled, ["mssql.activity", "mssql.deadlock-history", "mssql.settings"]);
     assert!(
         plan.profiles.values().all(|profile| profile.qualification().is_none() && profile.builtin_policy().is_some())
     );
@@ -795,6 +795,27 @@ fn standard_builtin_mssql_enrollment_needs_no_operator_receipt_and_never_constru
             .unwrap()
             .is_some()
     );
+
+    let mut shared_target = config.inventory.targets[0].clone();
+    shared_target.id = "fixture-instance".into();
+    shared_target.subject = CollectionSubject::Shared {
+        resource: SharedResourceIdentity {
+            engine: Engine::Mssql,
+            kind: SharedResourceKind::Instance,
+            namespace: NativeIdentity::new("sql-host").qualified("kind", "sql-server-network-machine"),
+            native: NativeIdentity::new("sql-host\\PROD").qualified("kind", "sql-server-instance"),
+        },
+    };
+    config.inventory.targets.push(shared_target);
+    let with_instance = Enrollment::resolve(&workspace, &config).unwrap();
+    let instance_enrolled: Vec<&str> = with_instance
+        .summary
+        .automatic
+        .iter()
+        .filter(|entry| entry.target == "fixture-instance")
+        .map(|entry| entry.recipe_id.as_str())
+        .collect();
+    assert_eq!(instance_enrolled, ["mssql.system-health-deadlocks"]);
 }
 
 #[cfg(feature = "postgres")]

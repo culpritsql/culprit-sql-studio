@@ -13,6 +13,8 @@ pub(crate) fn configuration() -> Rec {
         ("file_path_type", Val::Text("nvarchar".into())),
         ("file_path_bytes", Val::Int(82)),
         ("file_path", Val::Text("/var/opt/mssql/log/system_health.xel".into())),
+        ("max_file_size_mb", Val::Int(5)),
+        ("max_rollover_files", Val::Int(4)),
     ])
 }
 
@@ -119,6 +121,35 @@ async fn malformed_native_witness_or_oversized_path_is_not_an_available_empty_so
         let mut io = FakeRead::new(vec![Ok(vec![replace(&configuration(), &[(field, value)])])]);
         assert!(ConfiguredTarget::read(&mut io).await.is_err(), "{field}");
         assert_eq!(io.calls.len(), 1);
+    }
+}
+
+#[tokio::test]
+async fn builtin_safety_footprint_guard_refuses_oversized_or_unbounded_xel_targets_before_reading_files() {
+    let mut io = FakeRead::new(vec![Ok(vec![configuration()])]);
+    let standard = ConfiguredTarget::read(&mut io).await.unwrap();
+    assert!(standard.ensure_bounded_footprint().is_ok());
+
+    let mut io = FakeRead::new(vec![Ok(vec![replace(&configuration(), &[("max_rollover_files", Val::Null)])])]);
+    let default_rollover = ConfiguredTarget::read(&mut io).await.unwrap();
+    assert!(default_rollover.ensure_bounded_footprint().is_ok());
+
+    for (label, overrides) in [
+        ("missing_file_size", vec![("max_file_size_mb", Val::Null)]),
+        ("oversized_file", vec![("max_file_size_mb", Val::Int(100))]),
+        ("excessive_rollovers", vec![("max_rollover_files", Val::Int(20))]),
+        ("oversized_product", vec![("max_file_size_mb", Val::Int(10)), ("max_rollover_files", Val::Int(8))]),
+        ("zero_rollover_unlimited", vec![("max_rollover_files", Val::Int(0))]),
+    ] {
+        let mut io = FakeRead::new(vec![Ok(vec![replace(&configuration(), &overrides)])]);
+        let target = ConfiguredTarget::read(&mut io).await.unwrap();
+        let err = target.ensure_bounded_footprint().unwrap_err();
+        assert_eq!(
+            culprit_core::telemetry::CollectionStop::from_error(&err),
+            culprit_core::telemetry::CollectionStop::ByteLimit,
+            "{label}"
+        );
+        assert_eq!(io.calls.len(), 1, "no fn_xe_file_target_read_file query issued for {label}");
     }
 }
 

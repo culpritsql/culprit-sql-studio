@@ -27,8 +27,8 @@ fn registered_source_versions_include_native_acquisition_policy_revisions() {
             ("mssql.query-history", 8),
             ("mssql.resource-history", 4),
             ("mssql.pool-resource-history", 2),
-            ("mssql.deadlock-history", 2),
-            ("mssql.system-health-deadlocks", 2),
+            ("mssql.deadlock-history", 3),
+            ("mssql.system-health-deadlocks", 3),
             ("mssql.activity", 8),
             ("mssql.blocking", 3),
             ("mssql.page-wait-targets", 4),
@@ -314,11 +314,11 @@ fn unregistered_datasets_or_subjects_return_unsupported_without_a_native_connect
 }
 
 #[test]
-fn configured_system_health_remains_an_explicit_unqualified_shared_investigation_with_finite_client_fences() {
+fn configured_system_health_declares_bounded_shared_baseline_safety_with_finite_client_fences() {
     let recipe = declarations().into_iter().find(|recipe| recipe.id == "mssql.system-health-deadlocks").unwrap();
     assert_eq!(recipe.subjects, [RecipeSubject::Shared(SharedResourceKind::Instance)]);
-    assert_eq!(recipe.purpose, RecipePurpose::Investigation);
-    assert_eq!(recipe.admission, RecipeAdmission::Unqualified);
+    assert_eq!(recipe.purpose, RecipePurpose::Baseline);
+    assert!(matches!(recipe.admission, RecipeAdmission::BuiltinSafety(_)));
     assert_eq!(recipe.budget.max_queries, 9, "eight reader queries and one possible session SET batch");
     assert_eq!(recipe.budget.max_snapshot_rows, 50);
     assert_eq!(recipe.budget.statement_timeout_ms, 1000);
@@ -450,7 +450,8 @@ async fn native_resource_discovery_derives_its_routes_from_registrations_and_obs
                 budget: CollectionBudget::default(),
             };
             let registration = REGISTRATIONS.iter().find(|entry| entry.accepts(&request)).unwrap();
-            assert_eq!(registration.descriptor().admission, RecipeAdmission::Unqualified);
+            let builtin = crate::builtin_safety::BUILTIN_SAFETY_IDS.contains(&registration.id);
+            assert_eq!(matches!(registration.descriptor().admission, RecipeAdmission::BuiltinSafety(_)), builtin);
             let mut source = open(
                 Arc::new(Pool::new(tiberius::Config::new(), None)),
                 &request,

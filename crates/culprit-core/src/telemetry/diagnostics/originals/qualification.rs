@@ -79,6 +79,38 @@ fn qualify(source: &CollectionDescription) -> std::result::Result<DiagnosticSour
             .then_some(DiagnosticSourceKind::QueryHistory)
             .ok_or(Issue::InvalidSource);
     }
+    if let SourceObservation::RetainedEvents(events) = &source.observation {
+        if !matches!(source.target.engine(), crate::Engine::Mssql | crate::Engine::Mysql | crate::Engine::Postgres) {
+            return Err(Issue::UnsupportedSource);
+        }
+        if !events.is_valid() || !source.partition.is_valid_for(&source.target) {
+            return Err(Issue::InvalidSource);
+        }
+        match &source.target {
+            CollectionTarget::Shared(owner) => {
+                if owner.kind != SharedResourceKind::Instance {
+                    return Err(Issue::SharedOwnershipUnavailable);
+                }
+                let SourcePartition::InstanceLocal { member, epoch } = &source.partition else {
+                    return Err(Issue::SharedOwnershipUnavailable);
+                };
+                let member = member.as_ref().ok_or(Issue::SharedOwnershipUnavailable)?;
+                if member != owner {
+                    return Err(Issue::SharedOwnerMismatch);
+                }
+                if epoch.is_none() {
+                    return Err(Issue::NativeEpochUnavailable);
+                }
+            }
+            CollectionTarget::Database(_) => {
+                if source.partition != SourcePartition::Target || !source.is_partition_qualified() {
+                    return Err(Issue::DatabaseReadOwnerUnavailable);
+                }
+            }
+            CollectionTarget::ConfiguredConnection(_) => return Err(Issue::UnsupportedSource),
+        }
+        return source.partition_is_consistent().then_some(DiagnosticSourceKind::Deadlocks).ok_or(Issue::InvalidSource);
+    }
     let snapshot = source.observation.snapshot().ok_or(Issue::UnsupportedSource)?;
     let kind = match snapshot.dataset {
         SnapshotDataset::Operational if source.target.engine() == crate::Engine::Mssql => {
