@@ -26,9 +26,15 @@ unencrypted_sessions?: bigint,
  */
 password_auth_enabled?: boolean, 
 /**
- * `true` when server or database security auditing / audit log export is enabled.
+ * `true` when server or database security auditing is confirmed enabled in the engine or server policy.
  */
 auditing_enabled?: boolean, 
+/**
+ * Cloud-exported database log streams observed on the control plane (e.g. RDS `EnabledCloudwatchLogsExports`).
+ * Kept separate from `auditing_enabled`: exporting general engine logs is not security auditing, and in-engine
+ * extensions such as `pgaudit` may audit locally when CloudWatch log export is empty.
+ */
+exported_log_types?: Array<string>, 
 /**
  * Configured point-in-time / automated backup retention window in days.
  */

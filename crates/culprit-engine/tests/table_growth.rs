@@ -105,7 +105,7 @@ async fn each_scan_keeps_the_sizes_a_scan_a_day_before_read() {
     assert!(!finding(&second).metrics.iter().any(|m| m.label == "Growth a day"));
 
     // A scan a day and more before, of the same database, is the baseline; a newer one of another database isn't.
-    let dir = home.join("reports").join("shop");
+    let dir = ws.connection_reports_dir("shop");
     let backdated = |hours: i64, database: &str| {
         let mut r = first.clone();
         let at = chrono::Utc::now() - chrono::Duration::hours(hours);

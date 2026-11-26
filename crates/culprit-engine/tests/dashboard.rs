@@ -168,7 +168,7 @@ async fn a_dashboard_is_pinned_to_the_displayed_report_when_another_window_finis
     w.window_hours = 1.0;
     let end = culprit_core::format::epoch_seconds(w.window_end.as_deref().unwrap()).unwrap();
     w.window_start = Some(culprit_core::format::iso_from_epoch(end - 3600.0));
-    let directory = f.ws.paths().reports_dir("windowed");
+    let directory = f.ws.connection_reports_dir("windowed");
     culprit_engine::reports::save(&directory, &selected).unwrap();
     culprit_engine::reports::save(&directory, &newer).unwrap();
     let latest = f.ws.dashboard("windowed", None, false).await.unwrap();
@@ -184,7 +184,7 @@ async fn renaming_a_connection_keeps_its_saved_dashboard_refreshable() {
     let f = fixture("renamed", Ok(recorded()));
     let mut report: Report = serde_json::from_str(include_str!("../../../fixtures/pg-demo.report.json")).unwrap();
     report.snapshot.connection = "replayed".into();
-    culprit_engine::reports::save(&f.ws.paths().reports_dir("replayed"), &report).unwrap();
+    culprit_engine::reports::save(&f.ws.connection_reports_dir("replayed"), &report).unwrap();
     f.ws.rename_connection("replayed", "renamed").unwrap();
     let pinned = f.ws.dashboard_for_report("renamed", &report.snapshot.id).unwrap();
     assert_eq!(pinned.connection, "renamed");

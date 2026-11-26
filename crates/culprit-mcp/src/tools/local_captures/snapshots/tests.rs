@@ -195,7 +195,7 @@ fn bounded_database_property_disclosure_retains_recorded_check_metadata_without_
         }));
         std::fs::write(&path, serde_json::to_vec(&snapshot).unwrap()).unwrap();
         // File reanalysis invokes the production pure interpretation without a provider or new dependency.
-        let report = workspace.analyze_file(&path).unwrap().database_properties.unwrap();
+        let report = workspace.analyze_file(&path).unwrap().operational.database_properties.unwrap();
         let value = database_properties(&report);
         assert_eq!(value["fields_available"], 37);
         assert_eq!(value["fields_presented"], ENTRY_LIMIT);

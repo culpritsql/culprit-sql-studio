@@ -53,7 +53,7 @@ pub(crate) async fn lint_sql(ws: Ws<'_>, name: String, sql: String) -> Result<Ve
     blocking_workspace(ws.inner().clone(), move |ws| {
         static CACHE: std::sync::Mutex<Option<(String, String, std::sync::Arc<culprit_core::Snapshot>)>> =
             std::sync::Mutex::new(None);
-        let latest_id = culprit_engine::reports::latest_summary(&ws.paths().reports_dir(&name), None)
+        let latest_id = culprit_engine::reports::latest_summary(&ws.connection_reports_dir(&name), None)
             .map(|summary| summary.id)
             .unwrap_or_default();
         let cached = CACHE.lock().ok().and_then(|guard| {

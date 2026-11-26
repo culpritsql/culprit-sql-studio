@@ -34,7 +34,6 @@ import type { QueryRuntimeFragmentReport } from "./QueryRuntimeFragmentReport";
 import type { QueryWaitFragmentReport } from "./QueryWaitFragmentReport";
 import type { RefinementDecision } from "./RefinementDecision";
 import type { ReplicationReport } from "./ReplicationReport";
-import type { ReportEvidence } from "./ReportEvidence";
 import type { RetainedFailureReport } from "./RetainedFailureReport";
 import type { Snapshot } from "./Snapshot";
 import type { StatementWorkReport } from "./StatementWorkReport";
@@ -51,7 +50,7 @@ import type { WaitCounterReport } from "./WaitCounterReport";
 /**
  * A snapshot together with everything derived from it. This is what a scan produces and what gets stored.
  */
-export type Report = { 
+export type Report = { snapshot: Snapshot, findings: Array<Finding>, locked: Array<LockedCheck>, summary: Summary, assessments: Array<CheckAssessment>, refinement?: Array<RefinementDecision>, provenance?: AnalysisProvenance, 
 /**
  * Independent current catalog points and authenticated historical originals remain separate.
  */
@@ -95,4 +94,4 @@ maintenance_progress?: MaintenanceProgressReport,
 /**
  * Native replication points retain original scope, clocks and availability independently of legacy summaries.
  */
-replication?: ReplicationReport, connection_outcomes?: ConnectionOutcomeReport, configured_log_rates?: ConfiguredLogRateReport, hyperscale_log_components?: HyperscaleLogComponentReport, cleanup?: CleanupReport, snapshot: Snapshot, findings: Array<Finding>, locked: Array<LockedCheck>, summary: Summary, assessments: Array<CheckAssessment>, refinement?: Array<RefinementDecision>, provenance?: AnalysisProvenance, evidence?: ReportEvidence, };
+replication?: ReplicationReport, connection_outcomes?: ConnectionOutcomeReport, configured_log_rates?: ConfiguredLogRateReport, hyperscale_log_components?: HyperscaleLogComponentReport, cleanup?: CleanupReport, };

@@ -186,7 +186,7 @@ async fn actual_cli_scan_attachment_saves_original_shared_capture_for_offline_de
             .as_deref(),
         Some("9007199254740993")
     );
-    let path = workspace.paths().reports_dir("local-evidence").join(format!("{}.json", report.snapshot.id));
+    let path = workspace.connection_reports_dir("local-evidence").join(format!("{}.json", report.snapshot.id));
     let no_source = Workspace::open_in(fixture.directory.parent().unwrap().join("offline-workspace")).with_provider(
         Engine::Mssql,
         ProviderRegistration::new(

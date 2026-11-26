@@ -275,7 +275,7 @@ fn server_scoped_slot_or_walsender_context_can_name_another_database_without_bec
         global.holder = kind;
         install_retention(&mut snapshot, vec![global.clone()]);
         let report = crate::analyze(snapshot);
-        let explained = report.cleanup.unwrap();
+        let explained = report.cleanup.as_ref().unwrap();
         assert_eq!(explained.entries.len(), 1);
         assert_eq!(explained.entries[0].reference.identity.as_ref(), Some(&global.identity));
         assert!(
@@ -313,7 +313,7 @@ fn explicit_zero_row_custom_source_keeps_its_failure_but_unrelated_sources_do_no
     }];
     snapshot.sources = vec![source.clone(), outcome("unrelated-native-cpu", SourceState::Unavailable)];
     let report = crate::analyze(snapshot.clone());
-    assert_eq!(report.cleanup.unwrap().sources, vec![source]);
+    assert_eq!(report.cleanup.as_ref().unwrap().sources, vec![source]);
     snapshot.operations.cleanup.clear();
     snapshot.sources.remove(0);
     assert!(crate::analyze(snapshot).cleanup.is_none());

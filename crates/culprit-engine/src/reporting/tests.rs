@@ -27,7 +27,8 @@ fn default_digest_keeps_its_anchor_and_baseline_across_interleaved_selected_scan
     save(&paths, "2026-11-01T11:00:00Z", Some(NativeIdentity::new("7")));
     save(&paths, "2026-11-01T12:00:00Z", None);
     save(&paths, "2026-11-01T13:00:00Z", Some(NativeIdentity::new("18")));
-    let service = Reports { paths: &paths, checks: &[] };
+    let store = crate::store::Store::new(&paths);
+    let service = Reports { paths: &paths, store: &store, checks: &[] };
     let latest = service.latest_report("shop", None).unwrap().unwrap();
     let digest = service.digest(Some("shop"), None, None, 5, 5).unwrap();
     assert_eq!(latest.snapshot.taken_at, "2026-11-01T12:00:00Z");
@@ -41,7 +42,8 @@ fn selected_reports_need_an_explicit_file_when_no_default_digest_exists() {
     let home = tempfile::tempdir().unwrap();
     let paths = paths(home.path());
     let (path, report) = save(&paths, "2026-11-01T11:00:00Z", Some(NativeIdentity::new("7")));
-    let service = Reports { paths: &paths, checks: &[] };
+    let store = crate::store::Store::new(&paths);
+    let service = Reports { paths: &paths, store: &store, checks: &[] };
     assert!(service.latest_report("shop", None).unwrap().is_none());
     let error = service.digest(Some("shop"), None, None, 5, 5).unwrap_err();
     assert_eq!(error.code, culprit_core::ErrorCode::NotFound);

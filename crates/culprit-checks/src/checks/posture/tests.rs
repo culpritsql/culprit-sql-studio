@@ -43,6 +43,7 @@ fn posture_checks_emit_actionable_posture_findings_with_zero_db_time_share() {
         backup_retention_days: Some(0),
         last_full_backup_days: Some(12.0),
         last_integrity_check_days: Some(45.0),
+        exported_log_types: None,
         coverage_notes: Vec::new(),
     }));
 

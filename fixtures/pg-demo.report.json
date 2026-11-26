@@ -1070,6 +1070,25 @@
           "upkeep_on_connection_close": false
         },
         "bloat": null,
+        "catalog_refs": [
+          {
+            "kind": "table",
+            "schema": "public",
+            "table": "order_items"
+          },
+          {
+            "kind": "foreign-key",
+            "name": "order_items_order_id_fkey",
+            "schema": "public",
+            "table": "order_items"
+          },
+          {
+            "column": "order_id",
+            "kind": "column",
+            "schema": "public",
+            "table": "order_items"
+          }
+        ],
         "histogram_columns": [],
         "index_keys": [
           "order_id"
@@ -1142,13 +1161,33 @@
           "upkeep_on_connection_close": false
         },
         "bloat": null,
+        "catalog_refs": [
+          {
+            "index": "orders_status_idx",
+            "kind": "index",
+            "schema": "public",
+            "table": "orders"
+          },
+          {
+            "index": "orders_status_created_idx",
+            "kind": "index",
+            "schema": "public",
+            "table": "orders"
+          },
+          {
+            "kind": "table",
+            "schema": "public",
+            "table": "orders"
+          }
+        ],
         "histogram_columns": [],
         "index_keys": [],
         "large_rows": null,
         "lock_wait": null,
         "log_write": null,
         "plan_change": null,
-        "recommended_plan": null
+        "recommended_plan": null,
+        "table": "public.orders"
       },
       "fix": {
         "cost": "Frees 13.3 MB.",
@@ -1204,13 +1243,33 @@
           "upkeep_on_connection_close": false
         },
         "bloat": null,
+        "catalog_refs": [
+          {
+            "index": "products_sku_idx",
+            "kind": "index",
+            "schema": "public",
+            "table": "products"
+          },
+          {
+            "index": "products_sku_key",
+            "kind": "index",
+            "schema": "public",
+            "table": "products"
+          },
+          {
+            "kind": "table",
+            "schema": "public",
+            "table": "products"
+          }
+        ],
         "histogram_columns": [],
         "index_keys": [],
         "large_rows": null,
         "lock_wait": null,
         "log_write": null,
         "plan_change": null,
-        "recommended_plan": null
+        "recommended_plan": null,
+        "table": "public.products"
       },
       "fix": {
         "cost": "Frees 328 KB.",
@@ -1289,6 +1348,29 @@
       "caveats": [],
       "check": "untrusted-constraint",
       "confidence": "high",
+      "facts": {
+        "bloat": null,
+        "catalog_refs": [
+          {
+            "kind": "table",
+            "schema": "archive",
+            "table": "wide"
+          },
+          {
+            "kind": "constraint",
+            "name": "wide_touched_positive",
+            "schema": "archive",
+            "table": "wide"
+          }
+        ],
+        "histogram_columns": [],
+        "index_keys": [],
+        "large_rows": null,
+        "lock_wait": null,
+        "log_write": null,
+        "plan_change": null,
+        "recommended_plan": null
+      },
       "fix": {
         "cost": "Reads the whole table",
         "sql": "ALTER TABLE archive.wide VALIDATE CONSTRAINT wide_touched_positive;",
@@ -1627,7 +1709,7 @@
     "analyzer": {
       "component": "culprit-checks",
       "revision": null,
-      "version": "0.6.0"
+      "version": "0.6.2"
     },
     "baselines": [],
     "collection": null,
@@ -1751,7 +1833,7 @@
     "previous_analyzer": {
       "component": "culprit-checks",
       "revision": null,
-      "version": "0.5.6"
+      "version": "0.6.0"
     }
   },
   "refinement": [

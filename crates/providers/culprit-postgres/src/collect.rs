@@ -63,22 +63,12 @@ pub async fn snapshot(
             } else {
                 let pressure = crate::pressure::collect(&mut client, &probe, target).await;
                 let unencrypted = if probe.privileged && probe.version_num >= 90_500 {
-                    crate::read::query_one(
-                        &mut client,
-                        "SELECT COUNT(*)::bigint AS unencrypted_sessions \
-                           FROM pg_catalog.pg_stat_activity AS a \
-                           JOIN pg_catalog.pg_stat_ssl AS s ON s.pid = a.pid \
-                          WHERE a.datname = pg_catalog.current_database() \
-                            AND a.backend_type = 'client backend' \
-                            AND a.pid <> pg_catalog.pg_backend_pid() \
-                            AND a.client_addr IS NOT NULL \
-                            AND s.ssl IS FALSE",
-                    )
-                    .await
-                    .ok()
-                    .flatten()
-                    .and_then(|row| row.unsigned_text("unencrypted_sessions").ok().flatten())
-                    .and_then(|raw| raw.parse::<u64>().ok())
+                    crate::read::query_one(&mut client, unencrypted_sessions_sql(probe.version_num))
+                        .await
+                        .ok()
+                        .flatten()
+                        .and_then(|row| row.unsigned_text("unencrypted_sessions").ok().flatten())
+                        .and_then(|raw| raw.parse::<u64>().ok())
                 } else {
                     None
                 };
@@ -293,4 +283,44 @@ pub async fn snapshot(
     }
     snapshot.duration_ms = started.elapsed().as_secs_f64() * 1000.0;
     primary.finish(Ok(snapshot)).await
+}
+
+pub(crate) fn unencrypted_sessions_sql(version_num: u32) -> &'static str {
+    if version_num >= 120_000 {
+        "SELECT COUNT(*)::bigint AS unencrypted_sessions \
+           FROM pg_catalog.pg_stat_activity AS a \
+           JOIN pg_catalog.pg_stat_ssl AS s ON s.pid = a.pid \
+           LEFT JOIN pg_catalog.pg_stat_gssapi AS g ON g.pid = a.pid \
+          WHERE a.datname = pg_catalog.current_database() \
+            AND a.backend_type = 'client backend' \
+            AND a.pid <> pg_catalog.pg_backend_pid() \
+            AND a.client_addr IS NOT NULL \
+            AND s.ssl IS FALSE \
+            AND COALESCE(g.encrypted, FALSE) IS FALSE"
+    } else {
+        "SELECT COUNT(*)::bigint AS unencrypted_sessions \
+           FROM pg_catalog.pg_stat_activity AS a \
+           JOIN pg_catalog.pg_stat_ssl AS s ON s.pid = a.pid \
+          WHERE a.datname = pg_catalog.current_database() \
+            AND a.backend_type = 'client backend' \
+            AND a.pid <> pg_catalog.pg_backend_pid() \
+            AND a.client_addr IS NOT NULL \
+            AND s.ssl IS FALSE"
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::unencrypted_sessions_sql;
+
+    #[test]
+    fn unencrypted_session_census_excludes_gssapi_encrypted_backends_from_pg12_onward() {
+        let pg11 = unencrypted_sessions_sql(110_019);
+        assert!(pg11.contains("pg_stat_ssl"));
+        assert!(!pg11.contains("pg_stat_gssapi"));
+
+        let pg16 = unencrypted_sessions_sql(160_004);
+        assert!(pg16.contains("LEFT JOIN pg_catalog.pg_stat_gssapi AS g ON g.pid = a.pid"));
+        assert!(pg16.contains("COALESCE(g.encrypted, FALSE) IS FALSE"));
+    }
 }

@@ -60,7 +60,7 @@ async fn real_cli_component_attachment_saves_exact_originals_and_reloads_without
     let view = report.hyperscale_log_components.as_ref().unwrap();
     assert_eq!(view.entries[0].current_max_log_rate_bps, "9007199254740993");
     assert_eq!(view.entries[0].last_reported_time_without_offset.as_deref(), Some("2026-11-18T12:00:00.003"));
-    let path = workspace.paths().reports_dir("local-evidence").join(format!("{}.json", report.snapshot.id));
+    let path = workspace.connection_reports_dir("local-evidence").join(format!("{}.json", report.snapshot.id));
     let offline = Workspace::open_in(fixture.directory.parent().unwrap().join("offline-workspace")).with_provider(
         Engine::Mssql,
         ProviderRegistration::new(
@@ -73,7 +73,7 @@ async fn real_cli_component_attachment_saves_exact_originals_and_reloads_without
     let reopened = offline.analyze_file(&path).unwrap();
     assert_eq!(reopened.snapshot.operations.hyperscale_log_components.as_deref(), Some(read));
     assert_eq!(
-        serde_json::to_value(reopened.hyperscale_log_components).unwrap(),
+        serde_json::to_value(&reopened.hyperscale_log_components).unwrap(),
         serde_json::to_value(&report.hyperscale_log_components).unwrap()
     );
     assert_eq!(calls.load(Ordering::SeqCst), 1);

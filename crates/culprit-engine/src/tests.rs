@@ -19,15 +19,18 @@ fn passwords_live_in_the_workspace_secret_store_not_the_keychain_or_the_file() {
     })
     .unwrap();
     assert!(ws.connection("shop").unwrap().has_secret);
-    assert_eq!(ws.secrets.get("shop").unwrap().as_deref(), Some("s3cret"));
+    let shop_id = ws.connection_id("shop").unwrap();
+    assert!(shop_id.starts_with("conn-"));
+    assert_eq!(ws.secrets.get(&shop_id).unwrap().as_deref(), Some("s3cret"));
+    assert_eq!(ws.secrets.get("shop").unwrap(), None, "keychain entries are keyed by immutable ID, not editable alias");
     let file = std::fs::read_to_string(home.join("connections.toml")).unwrap();
     assert!(!file.contains("s3cret"));
 
     ws.rename_connection("shop", "shop-main").unwrap();
-    assert_eq!(ws.secrets.get("shop").unwrap(), None);
-    assert_eq!(ws.secrets.get("shop-main").unwrap().as_deref(), Some("s3cret"));
+    assert_eq!(ws.connection_id("shop-main").unwrap(), shop_id, "renaming preserves the immutable connection ID");
+    assert_eq!(ws.secrets.get(&shop_id).unwrap().as_deref(), Some("s3cret"));
     ws.remove_connection("shop-main").unwrap();
-    assert_eq!(ws.secrets.get("shop-main").unwrap(), None);
+    assert_eq!(ws.secrets.get(&shop_id).unwrap(), None);
     let _ = std::fs::remove_dir_all(home);
 }
 
@@ -62,11 +65,16 @@ fn a_refused_password_delete_keeps_the_whole_connection_so_removing_it_again_wor
         ws.add_connection(NewConnection { name: name.into(), input: input.into(), ..Default::default() }).unwrap()
     };
     add("shop", "postgres://app:s3cret@db.example:5432/shop");
+    let shop_id = ws.connection_id("shop").unwrap();
     keychain.refuse.store(true, std::sync::atomic::Ordering::SeqCst);
+
+    // Renaming only updates connections.toml and never touches the keychain, so a refusing keychain cannot break rename.
+    ws.rename_connection("shop", "shop-renamed").unwrap();
+    ws.rename_connection("shop-renamed", "shop").unwrap();
 
     assert!(ws.remove_connection("shop").is_err());
     assert!(ws.connection("shop").unwrap().has_secret);
-    assert_eq!(keychain.get("shop").unwrap().as_deref(), Some("s3cret"));
+    assert_eq!(keychain.get(&shop_id).unwrap().as_deref(), Some("s3cret"));
 
     // Nothing was saved for a connection added without a password: the keychain's answer doesn't hold it up.
     let imported = add("imported", "postgres://app@db.example:5432/shop");
@@ -77,7 +85,7 @@ fn a_refused_password_delete_keeps_the_whole_connection_so_removing_it_again_wor
     keychain.refuse.store(false, std::sync::atomic::Ordering::SeqCst);
     ws.remove_connection("shop").unwrap();
     assert_eq!(ws.connection("shop").unwrap_err().code, ErrorCode::NotFound);
-    assert_eq!(keychain.get("shop").unwrap(), None);
+    assert_eq!(keychain.get(&shop_id).unwrap(), None);
     let _ = std::fs::remove_dir_all(home);
 }
 
@@ -104,8 +112,10 @@ async fn a_connection_saved_without_a_password_never_sends_one_left_under_its_na
         ..Default::default()
     })
     .unwrap();
-    // A password a removed connection named "shop" left behind, for another server.
+    // A password left behind under either the alias or the ID must never be sent while password_saved == Some(false).
+    let shop_id = ws.connection_id("shop").unwrap();
     ws.secrets.set("shop", "old-server-password").unwrap();
+    ws.secrets.set(&shop_id, "old-id-password").unwrap();
     let _ = crate::tests::observe_provider(&ws, culprit_core::ProviderReadKind::Probe, async |operation| {
         ws.probe("shop", operation).await
     })
@@ -120,7 +130,7 @@ async fn a_connection_saved_without_a_password_never_sends_one_left_under_its_na
 }
 
 fn leave_report(ws: &Workspace, name: &str, id: &str) {
-    let dir = ws.paths.reports_dir(name);
+    let dir = ws.connection_reports_dir(name);
     std::fs::create_dir_all(&dir).unwrap();
     let format = culprit_core::SNAPSHOT_FORMAT;
     let summary = format!(
@@ -155,33 +165,66 @@ fn a_name_given_to_another_connection_never_shows_the_removed_ones_reports() {
     };
 
     add("prod", "old-server.example");
+    let old_prod_id = ws.connection_id("prod").unwrap();
     leave_report(&ws, "prod", "old-server-scan");
-    ws.remove_connection("prod").unwrap();
-    // Removing keeps the reports where `culprit report` and `culprit digest` read them.
-    assert!(ws.paths.reports_dir("prod").join("latest.json").exists());
-    add("prod", "new-server.example");
-    assert_eq!(last_report_id(&ws, "prod"), None);
+
+    // Reusing an active alias without `replace: true` is refused and leaves the existing connection & report intact.
+    let duplicate_err = ws
+        .add_connection(NewConnection {
+            name: "prod".into(),
+            input: "postgres://app@accidental-overwrite.example:5432/other".into(),
+            auth: Some(AuthKind::None),
+            ..Default::default()
+        })
+        .unwrap_err();
+    assert_eq!(duplicate_err.code, ErrorCode::InvalidInput);
+    assert_eq!(ws.connection_id("prod").unwrap(), old_prod_id);
+    assert_eq!(last_report_id(&ws, "prod").as_deref(), Some("old-server-scan"));
+
+    // Explicit `replace_connection` retires the old connection's reports to `.removed/` and assigns a fresh connection ID.
+    ws.replace_connection(NewConnection {
+        name: "prod".into(),
+        input: "postgres://app@replaced-server.example:5432/shop".into(),
+        auth: Some(AuthKind::None),
+        ..Default::default()
+    })
+    .unwrap();
+    let replaced_id = ws.connection_id("prod").unwrap();
+    assert_ne!(replaced_id, old_prod_id);
+    assert_eq!(last_report_id(&ws, "prod"), None, "replaced alias must never inherit previous database's report");
     let moved = retired();
     assert!(moved.len() == 1 && moved[0].starts_with("prod-"), "{moved:?}");
     let kept = ws.paths.removed_reports_dir().join(&moved[0]).join("latest.json");
     assert!(std::fs::read_to_string(kept).unwrap().contains("old-server-scan"));
 
-    // Renaming into a name a removed connection left reports under brings the connection's own reports along.
+    // Removing and re-adding under the same alias also assigns a fresh ID and retires the removed reports.
+    leave_report(&ws, "prod", "replaced-scan");
+    ws.remove_connection("prod").unwrap();
+    add("prod", "new-server.example");
+    assert_eq!(last_report_id(&ws, "prod"), None);
+    assert_eq!(retired().len(), 2);
+
+    // Renaming into a name a removed connection used keeps the renamed connection's own ID and reports untouched.
     add("gone", "old-server.example");
     leave_report(&ws, "gone", "gone-scan");
     ws.remove_connection("gone").unwrap();
+    assert_eq!(retired().len(), 3);
     add("staging", "staging.example");
+    let staging_id = ws.connection_id("staging").unwrap();
+    let staging_dir = ws.connection_reports_dir("staging");
     leave_report(&ws, "staging", "staging-scan");
     ws.rename_connection("staging", "gone").unwrap();
+    assert_eq!(ws.connection_id("gone").unwrap(), staging_id);
+    assert_eq!(ws.connection_reports_dir("gone"), staging_dir, "report directory does not move on rename");
     assert_eq!(last_report_id(&ws, "gone").as_deref(), Some("staging-scan"));
-    assert_eq!(retired().len(), 2);
 
-    // A folder a saved connection reads is never moved, even under a name that differs only in case.
+    // Distinct-case aliases get distinct immutable IDs and never collide even on case-insensitive filesystems.
     add("Shop", "shop.example");
     leave_report(&ws, "Shop", "shop-scan");
     add("shop", "other.example");
+    assert_ne!(ws.connection_id("Shop").unwrap(), ws.connection_id("shop").unwrap());
     assert_eq!(last_report_id(&ws, "Shop").as_deref(), Some("shop-scan"));
-    assert_eq!(retired().len(), 2);
+    assert_eq!(last_report_id(&ws, "shop"), None);
     let _ = std::fs::remove_dir_all(home);
 }
 

@@ -7,17 +7,29 @@ use std::sync::Arc;
 
 pub(crate) struct Reports<'a> {
     pub paths: &'a Paths,
+    pub store: &'a crate::store::Store,
     pub checks: &'a [Arc<dyn Check>],
 }
 
 impl Reports<'_> {
+    pub(crate) fn reports_dir(&self, name: &str) -> std::path::PathBuf {
+        match self.store.get_optional(name) {
+            Ok(Some(stored)) => self.paths.reports_dir(&stored.id),
+            _ => self.paths.reports_dir(name),
+        }
+    }
+
     pub(crate) async fn background<T: Send + 'static>(
         &self,
         read: impl for<'a> FnOnce(Reports<'a>) -> Result<T> + Send + 'static,
     ) -> Result<T> {
         let paths = Paths { config: self.paths.config.clone(), data: self.paths.data.clone() };
         let checks = self.checks.to_vec();
-        crate::run_blocking(move || read(Reports { paths: &paths, checks: &checks })).await
+        crate::run_blocking(move || {
+            let store = crate::store::Store::new(&paths);
+            read(Reports { paths: &paths, store: &store, checks: &checks })
+        })
+        .await
     }
 
     /// Re-run the checks on a snapshot or report file, so improved checks apply to old scans and shared snapshots.
@@ -47,7 +59,7 @@ impl Reports<'_> {
         window_minutes: Option<u32>,
         population: Option<&culprit_core::telemetry::NativeIdentity>,
     ) -> Result<Option<Report>> {
-        let dir = self.paths.reports_dir(name);
+        let dir = self.reports_dir(name);
         let Some(summary) = reports::latest_selected_summary(&dir, window_minutes, population)? else {
             return Ok(None);
         };
@@ -58,13 +70,13 @@ impl Reports<'_> {
 
     /// The newest saved snapshot for `name`, without re-parsing execution plans or re-running the check pipeline.
     pub(crate) fn latest_snapshot(&self, name: &str) -> Result<Option<culprit_core::Snapshot>> {
-        let dir = self.paths.reports_dir(name);
+        let dir = self.reports_dir(name);
         let Some(summary) = reports::latest_summary(&dir, None) else { return Ok(None) };
         reports::load_snapshot(&dir.join(format!("{}.json", summary.id))).map(Some)
     }
 
     pub(crate) fn report_history(&self, name: &str) -> Result<Vec<ReportSummary>> {
-        reports::list(&self.paths.reports_dir(name))
+        reports::list(&self.reports_dir(name))
     }
 
     /// The digest of a scan: `report` (a report or snapshot file) or the connection's latest saved scan, compared with
@@ -82,7 +94,7 @@ impl Reports<'_> {
         // redacted snapshot, so titles, headlines and details can only quote SQL the lexer has already redacted.
         let recheck = |input: analysis::Input| analysis::shared(input, self.checks);
         let load = |name: &str, id: &str| {
-            let dir = self.paths.reports_dir(name);
+            let dir = self.reports_dir(name);
             reports::load_analysis_input(&dir.join(format!("{id}.json"))).map(|mut input| {
                 reports::rebase_on_scans(&dir, &mut input.snapshot);
                 input
@@ -96,7 +108,7 @@ impl Reports<'_> {
             Ok(input)
         };
         let history = match (name, report) {
-            (Some(name), None) => reports::list(&self.paths.reports_dir(name))?
+            (Some(name), None) => reports::list(&self.reports_dir(name))?
                 .into_iter()
                 .filter(|summary| summary.workload_population.is_none())
                 .collect(),
@@ -178,7 +190,7 @@ impl Reports<'_> {
     }
 
     pub(crate) fn report_at(&self, name: &str, report_id: &str) -> Result<Report> {
-        let dir = self.paths.reports_dir(name);
+        let dir = self.reports_dir(name);
         if !reports::report_ids(&dir).iter().any(|id| id == report_id) {
             return Err(Error::not_found(t!("engine.reporting.no_report_id", id = report_id, name = name)));
         }

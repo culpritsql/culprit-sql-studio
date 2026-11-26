@@ -112,6 +112,25 @@
           "upkeep_on_connection_close": false
         },
         "bloat": null,
+        "catalog_refs": [
+          {
+            "kind": "table",
+            "schema": "main",
+            "table": "orders"
+          },
+          {
+            "kind": "foreign-key",
+            "name": "orders_fk_0",
+            "schema": "main",
+            "table": "orders"
+          },
+          {
+            "column": "customer_id",
+            "kind": "column",
+            "schema": "main",
+            "table": "orders"
+          }
+        ],
         "histogram_columns": [],
         "index_keys": [
           "customer_id"
@@ -203,6 +222,25 @@
           "upkeep_on_connection_close": false
         },
         "bloat": null,
+        "catalog_refs": [
+          {
+            "kind": "table",
+            "schema": "main",
+            "table": "order_items"
+          },
+          {
+            "kind": "foreign-key",
+            "name": "order_items_fk_0",
+            "schema": "main",
+            "table": "order_items"
+          },
+          {
+            "column": "product_id",
+            "kind": "column",
+            "schema": "main",
+            "table": "order_items"
+          }
+        ],
         "histogram_columns": [],
         "index_keys": [
           "product_id"
@@ -273,13 +311,33 @@
           "upkeep_on_connection_close": false
         },
         "bloat": null,
+        "catalog_refs": [
+          {
+            "index": "ix_orders_status_again",
+            "kind": "index",
+            "schema": "main",
+            "table": "orders"
+          },
+          {
+            "index": "ix_orders_status",
+            "kind": "index",
+            "schema": "main",
+            "table": "orders"
+          },
+          {
+            "kind": "table",
+            "schema": "main",
+            "table": "orders"
+          }
+        ],
         "histogram_columns": [],
         "index_keys": [],
         "large_rows": null,
         "lock_wait": null,
         "log_write": null,
         "plan_change": null,
-        "recommended_plan": null
+        "recommended_plan": null,
+        "table": "main.orders"
       },
       "fix": {
         "cost": "Frees 3.5 MB.",
@@ -437,7 +495,7 @@
     "analyzer": {
       "component": "culprit-checks",
       "revision": null,
-      "version": "0.6.0"
+      "version": "0.6.2"
     },
     "baselines": [],
     "collection": null,
@@ -561,7 +619,7 @@
     "previous_analyzer": {
       "component": "culprit-checks",
       "revision": null,
-      "version": "0.5.6"
+      "version": "0.6.0"
     }
   },
   "refinement": [

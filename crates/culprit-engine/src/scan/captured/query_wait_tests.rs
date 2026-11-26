@@ -38,11 +38,11 @@ async fn saved_wait_original_replays_with_original_database_interval_and_fragmen
     CapturedScanEvidence::query_wait_fragments(read).unwrap().attach(&mut snapshot).unwrap();
     let saved: Snapshot = serde_json::from_slice(&serde_json::to_vec(&snapshot).unwrap()).unwrap();
     let report = culprit_checks::analyze(saved);
-    let waits = report.query_wait_fragments.unwrap();
+    let waits = report.query_wait_fragments.as_ref().unwrap();
     assert_eq!(waits.description.as_deref(), Some(&expected));
     assert_eq!(waits.entries.len(), 2);
     assert_eq!(
-        waits.description.unwrap().query_history().unwrap().interval.native_id,
+        waits.description.as_ref().unwrap().query_history().unwrap().interval.native_id,
         expected.query_history().unwrap().interval.native_id
     );
     assert!(
@@ -70,7 +70,7 @@ async fn conflicting_selected_originals_refuse_and_sharing_withdraws_native_hist
         Some(RecordedQueryHistoryRead::Unavailable { .. })
     ));
     let replay = culprit_checks::analyze(serde_json::from_slice(&serde_json::to_vec(&shared).unwrap()).unwrap());
-    let report = replay.query_wait_fragments.unwrap();
+    let report = replay.query_wait_fragments.as_ref().unwrap();
     assert_eq!(report.source_state, SourceState::Unavailable);
     assert!(report.read.is_none() && report.description.is_none() && report.entries.is_empty());
     let twice = culprit_core::redact::redact_snapshot(&shared);
@@ -112,12 +112,18 @@ async fn saved_runtime_and_wait_originals_coexist_with_independent_capture_clock
     assert!(CapturedScanEvidence::runtime_fragments(waits).is_err());
     assert!(CapturedScanEvidence::query_wait_fragments(runtime.clone()).is_err());
     let replay = culprit_checks::analyze(serde_json::from_slice(&serde_json::to_vec(&snapshot).unwrap()).unwrap());
-    let native = replay.runtime_fragments.unwrap();
-    let native_wait = replay.query_wait_fragments.unwrap();
+    let native = replay.runtime_fragments.as_ref().unwrap();
+    let native_wait = replay.query_wait_fragments.as_ref().unwrap();
     assert_eq!(native.description.as_deref(), Some(&runtime_source));
     assert_eq!(native_wait.description.as_deref(), Some(&wait_source));
-    assert_eq!((native.collected_from, native.collected_until), (Some(runtime_bounds.0), Some(runtime_bounds.1)));
-    assert_eq!((native_wait.collected_from, native_wait.collected_until), (Some(wait_bounds.0), Some(wait_bounds.1)));
+    assert_eq!(
+        (native.collected_from.as_ref(), native.collected_until.as_ref()),
+        (Some(&runtime_bounds.0), Some(&runtime_bounds.1))
+    );
+    assert_eq!(
+        (native_wait.collected_from.as_ref(), native_wait.collected_until.as_ref()),
+        (Some(&wait_bounds.0), Some(&wait_bounds.1))
+    );
     assert_eq!(native.entries.len(), 2);
     assert!(!native_wait.entries.is_empty());
     let shared = culprit_core::redact::redact_snapshot(&snapshot);

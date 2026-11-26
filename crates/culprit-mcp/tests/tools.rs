@@ -114,7 +114,7 @@ fn fixture_with_factory(tag: &str, factory: Option<culprit_engine::ProviderFacto
     }
     // The saved scan is the demo as today's checks see it, so a replayed scan reports the same findings.
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/mssql-demo.report.json");
-    reports::save(&ws.paths().reports_dir("replay-demo"), &ws.analyze_file(&path).unwrap()).unwrap();
+    reports::save(&ws.connection_reports_dir("replay-demo"), &ws.analyze_file(&path).unwrap()).unwrap();
     ws.set_agent_access("replay-hidden", AgentAccess::Off).unwrap();
     Fixture { ws: Arc::new(ws), dir }
 }

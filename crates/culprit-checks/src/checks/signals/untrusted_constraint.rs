@@ -82,6 +82,14 @@ fn untrusted_constraint_finding(snapshot: &Snapshot, u: UntrustedTable<'_>) -> F
     let UntrustedTable { schema, table, list, disabled, engine } = u;
     let name = format!("{schema}.{table}");
     let mut f = finding("untrusted-constraint", &name, Category::Maintenance, subject(SubjectKind::Table, &name));
+    f.facts.catalog_refs.push(culprit_core::CatalogObjectRef::Table { schema: schema.clone(), table: table.clone() });
+    for c in &list {
+        f.facts.catalog_refs.push(culprit_core::CatalogObjectRef::Constraint {
+            schema: c.schema.clone(),
+            table: c.table.clone(),
+            name: c.name.clone(),
+        });
+    }
     let kind = |c: &ConstraintIssue| match c.kind {
         ConstraintKind::ForeignKey => "foreign_key",
         ConstraintKind::Check => "check",

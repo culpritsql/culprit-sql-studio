@@ -151,6 +151,23 @@ fn unread_finding(snapshot: &Snapshot, u: UnreadIndexes<'_>) -> Finding {
         None => since_phrase(snapshot),
     };
     let mut f = finding("unused-index", &table_name, Category::Indexes, subject(SubjectKind::Table, &table_name));
+    f.facts
+        .catalog_refs
+        .push(culprit_core::CatalogObjectRef::Table { schema: schema.to_owned(), table: table.to_owned() });
+    for i in &u.indexes {
+        f.facts.catalog_refs.push(culprit_core::CatalogObjectRef::Index {
+            schema: i.schema.clone(),
+            table: i.table.clone(),
+            index: i.name.clone(),
+        });
+    }
+    for (_, fk) in &u.foreign_keys {
+        f.facts.catalog_refs.push(culprit_core::CatalogObjectRef::ForeignKey {
+            schema: fk.schema.clone(),
+            table: fk.table.clone(),
+            name: fk.name.clone(),
+        });
+    }
     f.title = match u.indexes.as_slice() {
         [one] => t!("check.unused_index.title.one", index = &one.name, table = table),
         many => t!("check.unused_index.title.many", count = many.len().to_string(), table = table),
@@ -301,6 +318,15 @@ fn invalid_finding(snapshot: &Snapshot, v: InvalidIndex<'_>) -> Finding {
         Category::Indexes,
         subject(SubjectKind::Index, &index_name),
     );
+    f.facts.table = Some(table_name.clone());
+    f.facts.catalog_refs = vec![
+        culprit_core::CatalogObjectRef::Index {
+            schema: i.schema.clone(),
+            table: i.table.clone(),
+            index: i.name.clone(),
+        },
+        culprit_core::CatalogObjectRef::Table { schema: i.schema.clone(), table: i.table.clone() },
+    ];
     f.title = t!("check.unused_index.title.invalid", index = &i.name, table = &i.table);
     f.summary = [
         t!("check.unused_index.summary.invalid", index = &i.name),

@@ -7,6 +7,7 @@ pub mod blocking;
 pub mod blocking_report;
 pub mod cache_entry_memory_report;
 pub mod cached_plan_report;
+pub mod catalog_projection;
 pub use backup_history_report::{BackupHistoryEntry, BackupHistoryReport};
 mod cdc_report;
 mod columnstore_rowgroup_report;

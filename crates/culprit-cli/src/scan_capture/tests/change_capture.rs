@@ -56,7 +56,7 @@ async fn both_cli_histories_retain_original_scope_sources_and_clocks_through_off
         assert_eq!(read.origin.capture.capture, fixture.manifest.capture);
         assert_eq!(view[0]["context"]["observed_from"], source.observation.snapshot().unwrap().observed_from);
         assert_eq!(view[0]["sources"].as_array().unwrap().len(), 3);
-        let path = workspace.paths().reports_dir("local-evidence").join(format!("{}.json", report.snapshot.id));
+        let path = workspace.connection_reports_dir("local-evidence").join(format!("{}.json", report.snapshot.id));
         let offline = Workspace::open_in(fixture.directory.parent().unwrap().join("offline")).with_provider(
             Engine::Mssql,
             ProviderRegistration::new(
@@ -68,9 +68,9 @@ async fn both_cli_histories_retain_original_scope_sources_and_clocks_through_off
         );
         let saved = offline.analyze_file(&path).unwrap();
         let reopened = if flag == "--cdc-capture" {
-            serde_json::to_value(saved.change_capture.cdc).unwrap()
+            serde_json::to_value(&saved.change_capture.cdc).unwrap()
         } else {
-            serde_json::to_value(saved.change_capture.change_feed).unwrap()
+            serde_json::to_value(&saved.change_capture.change_feed).unwrap()
         };
         assert_eq!(reopened, view);
         assert_eq!(calls.load(Ordering::SeqCst), 1);

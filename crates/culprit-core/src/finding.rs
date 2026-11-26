@@ -374,140 +374,155 @@ pub struct SeverityCount {
     pub count: u32,
 }
 
+/// Typed operational explanations derived during preparation before checks read the snapshot.
+/// Kept in one shared structure so adding a diagnostic family never requires duplicating field lists across
+/// core model, check pipeline, and display projection.
+#[derive(Serialize, Deserialize, TS, Clone, Debug, Default)]
+#[ts(export)]
+pub struct OperationalReports {
+    /// Independent current catalog points and authenticated historical originals remain separate.
+    #[serde(default)]
+    pub index_configuration: Vec<crate::IndexConfigurationReport>,
+    #[serde(default)]
+    pub indexed_views: Vec<crate::IndexedViewsReport>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub numa_nodes: Option<Vec<crate::InstanceResourceReport>>,
+    #[serde(default)]
+    pub change_capture: crate::ChangeCaptureReports,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub runtime_fragments: Option<Box<crate::query_runtime_report::QueryRuntimeFragmentReport>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub query_wait_fragments: Option<Box<crate::query_wait_report::QueryWaitFragmentReport>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub table_full_text: Option<Box<crate::TableFullTextReport>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub table_temporal: Option<Box<crate::TableTemporalReport>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub instance_resources: Option<Box<crate::InstanceResourceReport>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub storage: Option<Box<crate::StorageReport>>,
+    #[serde(default)]
+    pub source_acquisitions: Vec<crate::HistoricalSourceOverhead>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub provider_acquisition: Option<Box<crate::ProviderAcquisitionReport>>,
+    #[serde(default)]
+    pub performance_counters: Vec<crate::PerformanceCounterReport>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub memory_clerks: Option<Box<crate::MemoryClerkReport>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub tempdb_metadata_memory: Option<Box<crate::TempdbMetadataMemoryReport>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub table_memory: Option<Vec<crate::TableMemoryReport>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub group_replication: Option<Vec<crate::GroupReplicationReport>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub galera: Option<Vec<crate::GaleraReport>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub full_text_populations: Option<Vec<crate::FullTextPopulationReport>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub database_properties: Option<Box<crate::DatabasePropertiesReport>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub pool_settings: Option<Box<crate::PoolSettingsReport>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub managed_instance_resources: Option<Box<crate::ManagedInstanceResourceReport>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub suspect_pages: Option<Box<crate::SuspectPageHistoryReport>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub wait_counters: Option<Box<crate::WaitCounterReport>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub counter_ratios: Option<Box<crate::CounterRatioReport>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub completed_spills: Option<Box<crate::CompletedSpillReport>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub jobs: Option<Box<crate::JobsReport>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub statement_work: Option<Box<crate::StatementWorkReport>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub page_server_reads: Option<Box<crate::page_server_read_report::PageServerReadReport>>,
+    /// A localized view of retained memory-failure observations; raw native documents remain in the snapshot.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub memory_failures: Option<crate::retained_failure_report::RetainedFailureReport>,
+    /// Explanations refer to retained native diagnostic rows in the input snapshot.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub native_failures: Option<crate::retained_failure_report::RetainedFailureReport>,
+    /// Native current-request reservations, explained without inferring their allocating statement.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub request_memory: Option<crate::MemoryParticipantsReport>,
+    /// Native tracked session allocations remain separate from execution reservations and process RSS.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub session_memory: Option<crate::MemoryParticipantsReport>,
+    /// Observed waiting participants and bounded page metadata remain separate from latch-owner evidence.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub page_waits: Option<crate::PageWaitReport>,
+    /// Capture-local task counters and independently qualified request context, never allocator ownership.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub task_space: Option<crate::TaskSpaceReport>,
+    /// Native compilation lifetimes and working-memory observations, independent of execution and current ownership.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub query_compilation: Option<crate::CompilationReport>,
+    /// Current compiler admission participants and independently scoped gateway context.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub compiler_admission: Option<crate::CompilerAdmissionReport>,
+    /// Generation-bound native progress is a point observation, not completion or incident causality.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub maintenance_progress: Option<crate::MaintenanceProgressReport>,
+    /// Native replication points retain original scope, clocks and availability independently of legacy summaries.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub replication: Option<Box<crate::ReplicationReport>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub connection_outcomes: Option<Box<crate::ConnectionOutcomeReport>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub configured_log_rates: Option<Box<crate::ConfiguredLogRateReport>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub hyperscale_log_components: Option<Box<crate::HyperscaleLogComponentReport>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub cleanup: Option<crate::CleanupReport>,
+}
+
 /// A snapshot together with everything derived from it. This is what a scan produces and what gets stored.
 #[derive(Serialize, Deserialize, TS, Clone, Debug)]
 #[ts(export)]
 pub struct Report {
-    /// Independent current catalog points and authenticated historical originals remain separate.
-    pub index_configuration: Vec<crate::IndexConfigurationReport>,
-    pub indexed_views: Vec<crate::IndexedViewsReport>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub numa_nodes: Option<Vec<crate::InstanceResourceReport>>,
-    pub change_capture: crate::ChangeCaptureReports,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub runtime_fragments: Option<Box<crate::query_runtime_report::QueryRuntimeFragmentReport>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub query_wait_fragments: Option<Box<crate::query_wait_report::QueryWaitFragmentReport>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub table_full_text: Option<Box<crate::TableFullTextReport>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub table_temporal: Option<Box<crate::TableTemporalReport>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub instance_resources: Option<Box<crate::InstanceResourceReport>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub storage: Option<Box<crate::StorageReport>>,
-    pub source_acquisitions: Vec<crate::HistoricalSourceOverhead>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub provider_acquisition: Option<Box<crate::ProviderAcquisitionReport>>,
-    pub performance_counters: Vec<crate::PerformanceCounterReport>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub memory_clerks: Option<Box<crate::MemoryClerkReport>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub tempdb_metadata_memory: Option<Box<crate::TempdbMetadataMemoryReport>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub table_memory: Option<Vec<crate::TableMemoryReport>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub group_replication: Option<Vec<crate::GroupReplicationReport>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub galera: Option<Vec<crate::GaleraReport>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub full_text_populations: Option<Vec<crate::FullTextPopulationReport>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub database_properties: Option<Box<crate::DatabasePropertiesReport>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub pool_settings: Option<Box<crate::PoolSettingsReport>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub managed_instance_resources: Option<Box<crate::ManagedInstanceResourceReport>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub suspect_pages: Option<Box<crate::SuspectPageHistoryReport>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub wait_counters: Option<Box<crate::WaitCounterReport>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub counter_ratios: Option<Box<crate::CounterRatioReport>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub completed_spills: Option<Box<crate::CompletedSpillReport>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub jobs: Option<Box<crate::JobsReport>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub statement_work: Option<Box<crate::StatementWorkReport>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub page_server_reads: Option<Box<crate::page_server_read_report::PageServerReadReport>>,
-    /// A localized view of retained memory-failure observations; raw native documents remain in the snapshot.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub memory_failures: Option<crate::retained_failure_report::RetainedFailureReport>,
-    /// Explanations refer to retained native diagnostic rows in the input snapshot.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub native_failures: Option<crate::retained_failure_report::RetainedFailureReport>,
-    /// Native current-request reservations, explained without inferring their allocating statement.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub request_memory: Option<crate::MemoryParticipantsReport>,
-    /// Native tracked session allocations remain separate from execution reservations and process RSS.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub session_memory: Option<crate::MemoryParticipantsReport>,
-    /// Observed waiting participants and bounded page metadata remain separate from latch-owner evidence.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub page_waits: Option<crate::PageWaitReport>,
-    /// Capture-local task counters and independently qualified request context, never allocator ownership.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub task_space: Option<crate::TaskSpaceReport>,
-    /// Native compilation lifetimes and working-memory observations, independent of execution and current ownership.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub query_compilation: Option<crate::CompilationReport>,
-    /// Current compiler admission participants and independently scoped gateway context.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub compiler_admission: Option<crate::CompilerAdmissionReport>,
-    /// Generation-bound native progress is a point observation, not completion or incident causality.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub maintenance_progress: Option<crate::MaintenanceProgressReport>,
-    /// Native replication points retain original scope, clocks and availability independently of legacy summaries.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub replication: Option<Box<crate::ReplicationReport>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub connection_outcomes: Option<Box<crate::ConnectionOutcomeReport>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub configured_log_rates: Option<Box<crate::ConfiguredLogRateReport>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub hyperscale_log_components: Option<Box<crate::HyperscaleLogComponentReport>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub cleanup: Option<crate::CleanupReport>,
+    #[serde(flatten)]
+    pub operational: OperationalReports,
     pub snapshot: Snapshot,
     pub findings: Vec<Finding>,
     pub locked: Vec<LockedCheck>,
@@ -519,8 +534,22 @@ pub struct Report {
     #[ts(optional)]
     pub provenance: Option<crate::AnalysisProvenance>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
+    #[ts(skip)]
     pub evidence: Option<crate::ReportEvidence>,
+}
+
+impl std::ops::Deref for Report {
+    type Target = OperationalReports;
+
+    fn deref(&self) -> &Self::Target {
+        &self.operational
+    }
+}
+
+impl std::ops::DerefMut for Report {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.operational
+    }
 }
 
 impl Report {

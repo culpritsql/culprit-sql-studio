@@ -119,6 +119,7 @@ pub(crate) fn decode(row: Row, database_oid: Option<&str>) -> Result<IndexReadin
         "native_opclasses",
         "native_collations",
         "native_options",
+        "key_opclasses",
         "partition_of",
         "predicate_md5",
         "expressions_md5",
@@ -209,8 +210,7 @@ pub(crate) fn project(reading: &IndexReading) -> IndexStat {
 /// Per key, its operator class and collation when they aren't the defaults (`key_opclasses`, chr(31)-separated, empty
 /// for a key on the defaults). `None` when every key uses the defaults.
 fn opclasses(list: Option<&str>) -> Option<Vec<String>> {
-    let keys: Vec<String> = list?.split(crate::rows::LIST_SEPARATOR).map(|k| k.trim().to_string()).collect();
-    keys.iter().any(|k| !k.is_empty()).then_some(keys)
+    culprit_core::catalog_projection::pg_opclasses_from_list(list)
 }
 
 #[cfg(test)]

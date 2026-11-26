@@ -70,15 +70,5 @@ pub(crate) fn decode(row: Row) -> Result<NativeCatalogCounters> {
     Ok(reading)
 }
 pub(crate) fn project(reading: NativeCatalogCounters) -> Option<SequenceCapacity> {
-    let values = &reading.catalog.properties;
-    Some(SequenceCapacity {
-        name: values.get("name")?.clone(),
-        table: values.get("table_name").cloned(),
-        current: values.get("current_value")?.clone(),
-        increment: values.get("step")?.clone(),
-        minimum: values.get("min_value")?.clone(),
-        maximum: values.get("max_value")?.clone(),
-        cycles: values.get("cycle").is_some_and(|value| value == "t" || value == "true"),
-        allocated: true,
-    })
+    culprit_core::catalog_projection::pg_sequence_capacity(&reading)
 }

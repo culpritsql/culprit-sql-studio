@@ -11,6 +11,10 @@ use crate::private_fs;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct StoredConnection {
+    /// Immutable internal identifier used for report directories and keychain entries so alias renames and
+    /// replacements never leak reports or credentials across databases.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub id: String,
     pub engine: Engine,
     pub environment: Environment,
     pub host: String,
@@ -140,6 +144,20 @@ pub(crate) fn windows_safe(mut name: String) -> String {
     name
 }
 
+pub fn new_connection_id() -> String {
+    use ring::rand::{SecureRandom, SystemRandom};
+    let mut bytes = [0u8; 16];
+    if SystemRandom::new().fill(&mut bytes).is_ok() {
+        let hex: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
+        return format!("conn-{hex}");
+    }
+    static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+    let seq = SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
+    let fallback = format!("conn-{}-{now}-{seq}", std::process::id());
+    format!("conn-{}", &culprit_core::telemetry::digest(fallback.as_bytes())[..32])
+}
+
 pub fn validate_name(name: &str) -> Result<()> {
     // No leading dot: names become folder names, and `.`/`..` would point at the reports folder itself or its parent.
     let ok = !name.is_empty()
@@ -167,13 +185,21 @@ impl Store {
             return Ok(ConnectionsFile::default());
         }
         let text = fs::read_to_string(&self.file).map_err(|e| io_error(&self.file, e))?;
-        toml::from_str(&text).map_err(|e| {
+        let mut parsed: ConnectionsFile = toml::from_str(&text).map_err(|e| {
             Error::invalid(culprit_core::t!(
                 "engine.store.file_invalid",
                 file = self.file.display().to_string(),
                 why = e.to_string()
             ))
-        })
+        })?;
+        for (name, conn) in &mut parsed.connections {
+            if conn.id.is_empty() {
+                conn.id = safe_file_name(name);
+            } else {
+                validate_name(&conn.id)?;
+            }
+        }
+        Ok(parsed)
     }
 
     fn save(&self, file: &ConnectionsFile) -> Result<()> {
@@ -195,12 +221,44 @@ impl Store {
         })
     }
 
-    pub fn put(&self, name: &str, connection: StoredConnection) -> Result<()> {
+    pub fn get_optional(&self, name: &str) -> Result<Option<StoredConnection>> {
+        Ok(self.load()?.connections.remove(name))
+    }
+
+    pub fn put(&self, name: &str, mut connection: StoredConnection) -> Result<()> {
         let _lock = private_fs::lock(&self.file).map_err(|e| io_error(&self.file, e))?;
         validate_name(name)?;
+        if connection.id.is_empty() {
+            connection.id = new_connection_id();
+        } else {
+            validate_name(&connection.id)?;
+        }
         let mut file = self.load()?;
         file.connections.insert(name.to_string(), connection);
         self.save(&file)
+    }
+
+    pub(crate) fn insert_or_replace(
+        &self,
+        name: &str,
+        mut connection: StoredConnection,
+        replace: bool,
+    ) -> Result<Option<StoredConnection>> {
+        let _lock = private_fs::lock(&self.file).map_err(|e| io_error(&self.file, e))?;
+        validate_name(name)?;
+        if connection.id.is_empty() {
+            connection.id = new_connection_id();
+        } else {
+            validate_name(&connection.id)?;
+        }
+        let mut file = self.load()?;
+        if !replace && file.connections.contains_key(name) {
+            return Err(Error::invalid(culprit_core::t!("engine.connection.name_taken", name = name))
+                .with_hint(culprit_core::t!("engine.connection.replace_hint")));
+        }
+        let previous = file.connections.insert(name.to_string(), connection);
+        self.save(&file)?;
+        Ok(previous)
     }
 
     pub fn update(&self, name: &str, edit: impl FnOnce(&mut StoredConnection)) -> Result<()> {

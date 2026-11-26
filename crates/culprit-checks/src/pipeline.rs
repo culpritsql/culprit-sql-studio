@@ -295,7 +295,7 @@ impl Pipeline {
         for step in &self.prepare {
             step.prepare(&mut snapshot);
         }
-        let operational = operational_reports::OperationalReports::explain(&mut snapshot);
+        let operational = operational_reports::explain(&mut snapshot);
         let mut findings = Vec::new();
         let mut locked = Vec::new();
         let mut assessments = Vec::new();
@@ -389,59 +389,7 @@ impl Pipeline {
                 assessment.status = culprit_core::CheckStatus::Findings;
             }
         }
-        Report {
-            table_full_text: operational.table_full_text,
-            table_temporal: operational.table_temporal,
-            index_configuration: operational.index_configuration,
-            indexed_views: operational.indexed_views,
-            storage: operational.storage,
-            instance_resources: operational.instance_resources,
-            numa_nodes: operational.numa_nodes,
-            snapshot,
-            findings,
-            locked,
-            summary,
-            assessments,
-            refinement,
-            provenance,
-            evidence,
-            memory_failures: operational.memory_failures,
-            native_failures: operational.native_failures,
-            request_memory: operational.request_memory,
-            session_memory: operational.session_memory,
-            page_waits: operational.page_waits,
-            task_space: operational.task_space,
-            query_compilation: operational.query_compilation,
-            compiler_admission: operational.compiler_admission,
-            counter_ratios: operational.counter_ratios,
-            source_acquisitions: operational.source_acquisitions,
-            provider_acquisition: operational.provider_acquisition,
-            performance_counters: operational.performance_counters,
-            wait_counters: operational.wait_counters,
-            maintenance_progress: operational.maintenance_progress,
-            jobs: operational.jobs,
-            replication: operational.replication,
-            connection_outcomes: operational.connection_outcomes,
-            configured_log_rates: operational.configured_log_rates,
-            hyperscale_log_components: operational.hyperscale_log_components,
-            memory_clerks: operational.memory_clerks,
-            tempdb_metadata_memory: operational.tempdb_metadata_memory,
-            managed_instance_resources: operational.managed_instance_resources,
-            table_memory: operational.table_memory,
-            group_replication: operational.group_replication,
-            galera: operational.galera,
-            full_text_populations: operational.full_text_populations,
-            change_capture: operational.change_capture,
-            database_properties: operational.database_properties,
-            pool_settings: operational.pool_settings,
-            suspect_pages: operational.suspect_pages,
-            statement_work: operational.statement_work,
-            page_server_reads: operational.page_server_reads,
-            query_wait_fragments: operational.query_wait_fragments,
-            runtime_fragments: operational.runtime_fragments,
-            completed_spills: operational.completed_spills,
-            cleanup: operational.cleanup,
-        }
+        Report { operational, snapshot, findings, locked, summary, assessments, refinement, provenance, evidence }
     }
 }
 
@@ -919,7 +867,7 @@ mod tests {
         page.resolution = PageWaitResolution::OutsideDatabase;
         let unowned = crate::analyze(snapshot);
         assert!(unowned.request_memory.is_some() && unowned.page_waits.is_some());
-        assert_eq!(unowned.page_waits.unwrap().entries.len(), 1);
+        assert_eq!(unowned.page_waits.as_ref().unwrap().entries.len(), 1);
     }
 }
 

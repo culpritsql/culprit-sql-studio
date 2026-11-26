@@ -57,7 +57,7 @@ async fn original_node_attachment_is_idempotent_and_a_changed_same_identity_with
     let raw = snapshot.operations.numa_nodes.clone();
     let report = culprit_checks::analyze(snapshot);
     assert_eq!(report.snapshot.operations.numa_nodes, raw);
-    let report = report.numa_nodes.unwrap();
+    let report = report.numa_nodes.as_ref().unwrap();
     assert_eq!(report[0].source_state, culprit_core::SourceState::Unavailable);
     assert!(report[0].numa_nodes.as_ref().unwrap().context.is_none());
 }

@@ -111,6 +111,9 @@ pub(crate) struct AddArgs {
     /// Save without testing the connection first.
     #[arg(long)]
     pub(crate) no_test: bool,
+    /// Replace an existing saved connection with this alias, retiring its saved reports to `reports/.removed/`.
+    #[arg(long)]
+    pub(crate) replace: bool,
     /// For a database that keeps no statement history (SQLite): the log the application's framework writes, read on
     /// every scan. Rails, Django, Entity Framework Core, Phoenix/Ecto, or JSON lines.
     #[arg(long, value_name = "FILE")]
@@ -238,6 +241,10 @@ pub(crate) async fn run(ws: &Workspace, command: ConnCommand, out: &Out) -> culp
             Ok(0)
         }
         ConnCommand::Add(args) => {
+            if !args.replace && ws.connection(&args.name).is_ok() {
+                return Err(Error::invalid(culprit_core::t!("engine.connection.name_taken", name = &args.name))
+                    .with_hint(culprit_core::t!("engine.connection.replace_hint")));
+            }
             let password = if args.password_stdin {
                 let mut buf = String::new();
                 std::io::stdin().read_to_string(&mut buf).map_err(|e| Error::invalid(e.to_string()))?;
@@ -287,7 +294,7 @@ pub(crate) async fn run(ws: &Workspace, command: ConnCommand, out: &Out) -> culp
                 }
                 Some(attempt)
             };
-            let mut info = ws.add_connection(new)?;
+            let mut info = if args.replace { ws.replace_connection(new)? } else { ws.add_connection(new)? };
             if let Some(log) = args.query_log.as_deref() {
                 info = ws.set_query_log(&info.name, Some(log))?;
             }

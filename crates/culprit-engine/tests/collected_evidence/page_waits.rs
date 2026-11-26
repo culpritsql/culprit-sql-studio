@@ -45,7 +45,7 @@ fn scan(source: &CollectionDescription, rows: &[TelemetryRecord]) -> Snapshot {
 async fn authenticated_page_targets_reuse_scan_explanations_and_reference_original_waiters_once() {
     for (source, rows) in page_wait_evidence_cases() {
         let expected = if source.target.database().is_some() {
-            culprit_checks::analyze(scan(&source, &rows)).page_waits.unwrap()
+            culprit_checks::analyze(scan(&source, &rows)).operational.page_waits.unwrap()
         } else {
             let coverage = &source.observation.snapshot().unwrap().sources[0];
             let outcome = SourceOutcome { source: coverage.source.clone(), state: coverage.state, reason: None };

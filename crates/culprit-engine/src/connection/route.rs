@@ -16,6 +16,7 @@ impl SavedRoute {
 
 #[derive(Serialize)]
 struct RouteMetadata<'a> {
+    id: &'a str,
     engine: Engine,
     environment: Environment,
     host: &'a str,
@@ -31,6 +32,7 @@ struct RouteMetadata<'a> {
 
 pub(super) fn revision(stored: &StoredConnection) -> Result<String> {
     let metadata = RouteMetadata {
+        id: &stored.id,
         engine: stored.engine,
         environment: stored.environment,
         host: &stored.host,
@@ -54,6 +56,7 @@ mod tests {
 
     fn saved() -> StoredConnection {
         StoredConnection {
+            id: "conn-0123456789abcdef0123456789abcdef".into(),
             engine: Engine::Postgres,
             environment: Environment::Production,
             host: "route.fixture.invalid".into(),
@@ -79,7 +82,7 @@ mod tests {
         let original = saved();
         let expected = revision(&original).unwrap();
         assert!(culprit_core::telemetry::valid_digest(&expected));
-        for field in 0..14 {
+        for field in 0..15 {
             let mut changed = original.clone();
             match field {
                 0 => changed.engine = Engine::Mysql,
@@ -97,6 +100,7 @@ mod tests {
                 10 => changed.ssh.as_mut().unwrap().destination = "replacement@bastion.invalid".into(),
                 11 => changed.ssh.as_mut().unwrap().port = Some(2222),
                 12 => changed.ssh.as_mut().unwrap().identity_file = Some("/a-different-unread-private-key".into()),
+                13 => changed.id = "conn-ffffffffffffffffffffffffffffffff".into(),
                 _ => changed.ssh = None,
             }
             assert_ne!(revision(&changed).unwrap(), expected, "field {field}");

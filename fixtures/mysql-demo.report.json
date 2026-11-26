@@ -967,13 +967,33 @@
           "upkeep_on_connection_close": false
         },
         "bloat": null,
+        "catalog_refs": [
+          {
+            "index": "ix_orders_status",
+            "kind": "index",
+            "schema": "shop",
+            "table": "orders"
+          },
+          {
+            "index": "ix_orders_status_created",
+            "kind": "index",
+            "schema": "shop",
+            "table": "orders"
+          },
+          {
+            "kind": "table",
+            "schema": "shop",
+            "table": "orders"
+          }
+        ],
         "histogram_columns": [],
         "index_keys": [],
         "large_rows": null,
         "lock_wait": null,
         "log_write": null,
         "plan_change": null,
-        "recommended_plan": null
+        "recommended_plan": null,
+        "table": "shop.orders"
       },
       "fix": {
         "cost": "Frees 10.5 MB.",
@@ -1029,13 +1049,33 @@
           "upkeep_on_connection_close": false
         },
         "bloat": null,
+        "catalog_refs": [
+          {
+            "index": "ix_products_sku",
+            "kind": "index",
+            "schema": "shop",
+            "table": "products"
+          },
+          {
+            "index": "uq_products_sku",
+            "kind": "index",
+            "schema": "shop",
+            "table": "products"
+          },
+          {
+            "kind": "table",
+            "schema": "shop",
+            "table": "products"
+          }
+        ],
         "histogram_columns": [],
         "index_keys": [],
         "large_rows": null,
         "lock_wait": null,
         "log_write": null,
         "plan_change": null,
-        "recommended_plan": null
+        "recommended_plan": null,
+        "table": "shop.products"
       },
       "fix": {
         "cost": "Frees 432 KB.",
@@ -1328,7 +1368,7 @@
     "analyzer": {
       "component": "culprit-checks",
       "revision": null,
-      "version": "0.6.0"
+      "version": "0.6.2"
     },
     "baselines": [],
     "collection": null,
@@ -1452,7 +1492,7 @@
     "previous_analyzer": {
       "component": "culprit-checks",
       "revision": null,
-      "version": "0.5.6"
+      "version": "0.6.0"
     }
   },
   "refinement": [

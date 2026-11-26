@@ -9,7 +9,7 @@ impl CatalogContext {
             return Ok(());
         }
         let mut projected = true;
-        for row in original.records() {
+        for (position, row) in original.records().iter().enumerate() {
             match (native.dataset, &row.row().record) {
                 (
                     SnapshotDataset::Tables,
@@ -18,10 +18,19 @@ impl CatalogContext {
                         ..
                     }),
                 ) => {
-                    if let Some(projected) = table.as_ref().clone().into_table_stat() {
+                    if let Some(projected_table) = table.as_ref().clone().into_table_stat() {
+                        super::super::record_provenance(
+                            &mut self.provenance,
+                            culprit_core::CatalogObjectRef::Table {
+                                schema: projected_table.schema.clone(),
+                                table: projected_table.name.clone(),
+                            },
+                            input,
+                            position,
+                        );
                         self.table_positions
                             .insert((table.identity.database_id, table.identity.object_id), self.tables.len());
-                        self.tables.push(projected);
+                        self.tables.push(projected_table);
                     } else {
                         projected = false;
                     }
@@ -55,8 +64,18 @@ impl CatalogContext {
                         }
                     };
                     let presentation = MssqlIndexPresentation { filter, filter_facts: facts, last_read: None };
-                    if let Some(index) = index.as_ref().clone().into_index_stat(presentation) {
-                        self.indexes.push(index);
+                    if let Some(projected_index) = index.as_ref().clone().into_index_stat(presentation) {
+                        super::super::record_provenance(
+                            &mut self.provenance,
+                            culprit_core::CatalogObjectRef::Index {
+                                schema: projected_index.schema.clone(),
+                                table: projected_index.table.clone(),
+                                index: projected_index.name.clone(),
+                            },
+                            input,
+                            position,
+                        );
+                        self.indexes.push(projected_index);
                     } else {
                         projected = false;
                     }
@@ -78,7 +97,18 @@ impl CatalogContext {
                             continue;
                         }
                     };
-                    self.columns.push(column.as_ref().clone().into_column_info(default));
+                    let projected_col = column.as_ref().clone().into_column_info(default);
+                    super::super::record_provenance(
+                        &mut self.provenance,
+                        culprit_core::CatalogObjectRef::Column {
+                            schema: projected_col.schema.clone(),
+                            table: projected_col.table.clone(),
+                            column: projected_col.name.clone(),
+                        },
+                        input,
+                        position,
+                    );
+                    self.columns.push(projected_col);
                 }
                 (
                     SnapshotDataset::Statistics,
@@ -87,7 +117,18 @@ impl CatalogContext {
                         ..
                     }),
                 ) => {
-                    self.statistics.push(statistic.as_ref().clone().into_statistics_info(None));
+                    let projected_stat = statistic.as_ref().clone().into_statistics_info(None);
+                    super::super::record_provenance(
+                        &mut self.provenance,
+                        culprit_core::CatalogObjectRef::Statistics {
+                            schema: projected_stat.schema.clone(),
+                            table: projected_stat.table.clone(),
+                            name: projected_stat.name.clone(),
+                        },
+                        input,
+                        position,
+                    );
+                    self.statistics.push(projected_stat);
                 }
                 (SnapshotDataset::Settings, TelemetryRecord::Setting(setting)) => {
                     match settings::project(original, setting) {
@@ -98,7 +139,8 @@ impl CatalogContext {
                         }
                     }
                 }
-                (dataset, TelemetryRecord::ObjectDefinition(row)) if self.project_relation(dataset, &row.fact) => {}
+                (dataset, TelemetryRecord::ObjectDefinition(row))
+                    if self.project_relation(dataset, &row.fact, input, position) => {}
                 _ => {
                     projected = false;
                 }

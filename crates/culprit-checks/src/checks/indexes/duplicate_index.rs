@@ -117,6 +117,20 @@ fn duplicate_index_finding(snapshot: &Snapshot, d: DuplicateIndex<'_>) -> Findin
         sql: Some(drop_index_for_snapshot(snapshot, &a.schema, &a.table, &a.name)),
         cost: Some(t!("check.duplicate_index.fix_cost", size = format::bytes(d.size))),
     });
+    f.facts.table = Some(table_name.clone());
+    f.facts.catalog_refs = vec![
+        culprit_core::CatalogObjectRef::Index {
+            schema: a.schema.clone(),
+            table: a.table.clone(),
+            index: a.name.clone(),
+        },
+        culprit_core::CatalogObjectRef::Index {
+            schema: b.schema.clone(),
+            table: b.table.clone(),
+            index: b.name.clone(),
+        },
+        culprit_core::CatalogObjectRef::Table { schema: a.schema.clone(), table: a.table.clone() },
+    ];
     f.facts.advice.disappears_after_rescan = true;
     f.verify = vec![
         t!("check.duplicate_index.verify.gone", index = &a.name, keeper = &b.name),

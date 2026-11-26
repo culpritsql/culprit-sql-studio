@@ -162,7 +162,7 @@ async fn workspace_plan_endpoints_project_the_selected_variant_and_execution_sta
     snapshot.identity = Some(target);
     snapshot.workload.as_mut().unwrap().queries = vec![query];
     let report = culprit_checks::analyze(snapshot);
-    culprit_engine::reports::save(&ws.paths().reports_dir("replayed"), &report).unwrap();
+    culprit_engine::reports::save(&ws.connection_reports_dir("replayed"), &report).unwrap();
     for id in ["slow", "fast", "unmeasured"] {
         {
             let plan = ws.query_plan_at("replayed", &query_id, Some(id), Some(&report.snapshot.id)).await.unwrap();
@@ -233,7 +233,7 @@ fn retained_workspace(
     snapshot.identity = target;
     snapshot.workload.as_mut().unwrap().queries = vec![query];
     let report = culprit_checks::analyze(snapshot);
-    culprit_engine::reports::save(&workspace.paths().reports_dir("replayed"), &report).unwrap();
+    culprit_engine::reports::save(&workspace.connection_reports_dir("replayed"), &report).unwrap();
     (directory, workspace, report)
 }
 
@@ -291,7 +291,7 @@ async fn an_engine_without_retained_plans_keeps_its_capability_refusal_without_r
     let query_id = snapshot.queries()[0].id.clone();
     assert!(snapshot.queries()[0].native_identity.is_none());
     let report = culprit_checks::analyze(snapshot);
-    culprit_engine::reports::save(&workspace.paths().reports_dir("replayed"), &report).unwrap();
+    culprit_engine::reports::save(&workspace.connection_reports_dir("replayed"), &report).unwrap();
     let error =
         workspace.last_actual_plan_at("replayed", &query_id, None, Some(&report.snapshot.id)).await.unwrap_err();
     assert_eq!(error.code, culprit_core::ErrorCode::Unsupported);

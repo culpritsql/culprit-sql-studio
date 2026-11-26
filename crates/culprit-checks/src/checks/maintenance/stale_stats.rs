@@ -112,6 +112,24 @@ fn stale_stats_finding(snapshot: &Snapshot, case: StaleTable<'_>) -> Finding {
     let table_name = format!("{}.{}", s.schema, s.table);
     let mut f = finding("stale-stats", &table_name, Category::Maintenance, subject(SubjectKind::Table, &table_name));
     f.facts.cause = Some(culprit_core::FindingCause::TableStatistics);
+    f.facts
+        .catalog_refs
+        .push(culprit_core::CatalogObjectRef::Table { schema: s.schema.clone(), table: s.table.clone() });
+    if s.names.is_empty() {
+        f.facts.catalog_refs.push(culprit_core::CatalogObjectRef::Statistics {
+            schema: s.schema.clone(),
+            table: s.table.clone(),
+            name: s.table.clone(),
+        });
+    } else {
+        for stat_name in &s.names {
+            f.facts.catalog_refs.push(culprit_core::CatalogObjectRef::Statistics {
+                schema: s.schema.clone(),
+                table: s.table.clone(),
+                name: stat_name.clone(),
+            });
+        }
+    }
     // The modification counter counts changes (a row updated twice is two), not rows.
     let changes = format::count(s.modifications);
     f.title = if case.auto_update {

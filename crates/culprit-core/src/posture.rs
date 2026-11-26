@@ -36,10 +36,16 @@ pub struct PostureSnapshot {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub password_auth_enabled: Option<bool>,
-    /// `true` when server or database security auditing / audit log export is enabled.
+    /// `true` when server or database security auditing is confirmed enabled in the engine or server policy.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub auditing_enabled: Option<bool>,
+    /// Cloud-exported database log streams observed on the control plane (e.g. RDS `EnabledCloudwatchLogsExports`).
+    /// Kept separate from `auditing_enabled`: exporting general engine logs is not security auditing, and in-engine
+    /// extensions such as `pgaudit` may audit locally when CloudWatch log export is empty.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub exported_log_types: Option<Vec<String>>,
     /// Configured point-in-time / automated backup retention window in days.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
@@ -72,6 +78,7 @@ impl PostureSnapshot {
             || self.unencrypted_sessions.is_some()
             || self.password_auth_enabled.is_some()
             || self.auditing_enabled.is_some()
+            || self.exported_log_types.is_some()
             || self.backup_retention_days.is_some()
             || self.last_full_backup_days.is_some()
             || self.last_integrity_check_days.is_some()
@@ -101,6 +108,9 @@ impl PostureSnapshot {
         }
         if self.auditing_enabled.is_none() {
             self.auditing_enabled = other.auditing_enabled;
+        }
+        if self.exported_log_types.is_none() {
+            self.exported_log_types = other.exported_log_types;
         }
         if self.backup_retention_days.is_none() {
             self.backup_retention_days = other.backup_retention_days;

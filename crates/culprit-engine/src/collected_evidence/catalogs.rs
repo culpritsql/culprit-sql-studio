@@ -26,6 +26,7 @@ pub(crate) struct CatalogContext {
     inputs: Vec<u16>,
     issues: Vec<culprit_core::DerivedContextIssue>,
     settings_complete: bool,
+    provenance: super::CatalogProvenance,
 }
 impl CatalogContext {
     pub fn from_originals(primary: &dyn OriginalProjection, originals: &[&dyn OriginalProjection]) -> Result<Self> {
@@ -90,6 +91,9 @@ impl CatalogContext {
     }
     pub fn settings_complete(&self) -> bool {
         self.settings_complete
+    }
+    pub(crate) fn provenance(&self) -> &super::CatalogProvenance {
+        &self.provenance
     }
     pub(crate) fn apply(&self, snapshot: &mut Snapshot) {
         snapshot.tables = self.tables.clone();

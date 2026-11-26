@@ -38,7 +38,7 @@ fn snapshot(point: usize) -> Snapshot {
 }
 
 fn comparison(snapshot: Snapshot) -> culprit_core::CompilationComparisonReport {
-    culprit_checks::analyze(snapshot).query_compilation.unwrap().comparison.unwrap()
+    culprit_checks::analyze(snapshot).operational.query_compilation.unwrap().comparison.unwrap()
 }
 
 #[test]

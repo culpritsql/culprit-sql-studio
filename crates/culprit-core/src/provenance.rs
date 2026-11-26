@@ -177,8 +177,7 @@ pub struct AnalysisProvenance {
 /// caller actually supplied the provider's picture before history enrichment; an ordinary snapshot isn't one.
 /// When the collected snapshot is identical to `input`, serialization writes `"same-as-input"` instead of duplicating
 /// the full snapshot payload on disk, and deserialization restores `Some(input.clone())`.
-#[derive(TS, Clone, Debug)]
-#[ts(export)]
+#[derive(Clone, Debug)]
 pub struct ReportEvidence {
     pub input: Box<Snapshot>,
     pub collected: Option<Box<Snapshot>>,

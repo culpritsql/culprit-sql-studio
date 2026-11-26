@@ -1,5 +1,5 @@
 use crate::{connect::Flavor, probe::Probe, rows::query_with, sources, vars};
-use culprit_core::operations::{OperationalCounter, OperationalCounterKind, SequenceCapacity};
+use culprit_core::operations::{OperationalCounter, OperationalCounterKind};
 use culprit_core::{Coverage, FileScope, Snapshot};
 use mysql_async::Value;
 
@@ -25,7 +25,8 @@ pub async fn collect(conn: &mut impl crate::read::QueryRead, probe: &Probe, snap
         .read_rows(&sources::SEQUENCE_CAPACITY, query_with(conn, sql, vec![Value::from(probe.database.clone())]).await)
     {
         for r in rows {
-            let Some((minimum, maximum)) = integer_bounds(&r.string("column_type")) else {
+            let column_type = r.string("column_type");
+            if culprit_core::catalog_projection::mysql_integer_bounds(&column_type).is_none() {
                 coverage.partial(
                     &sources::SEQUENCE_CAPACITY,
                     culprit_core::message!("provider.mysql.operations.unsupported_auto_increment"),
@@ -33,16 +34,15 @@ pub async fn collect(conn: &mut impl crate::read::QueryRead, probe: &Probe, snap
                 continue;
             };
             let (Some(current), Some(increment)) = (r.text("next_value"), r.text("step")) else { continue };
-            snapshot.operations.sequences.push(SequenceCapacity {
-                name: r.string("name"),
-                table: r.text("table_name"),
+            if let Some(seq) = culprit_core::catalog_projection::mysql_sequence_capacity(
+                r.string("name"),
+                r.text("table_name"),
+                &column_type,
                 current,
                 increment,
-                minimum: minimum.into(),
-                maximum: maximum.into(),
-                cycles: false,
-                allocated: true,
-            });
+            ) {
+                snapshot.operations.sequences.push(seq);
+            }
         }
     }
     if probe.flavor == Flavor::Mariadb {
@@ -71,23 +71,9 @@ pub async fn collect(conn: &mut impl crate::read::QueryRead, probe: &Probe, snap
     coverage.append_to(snapshot);
 }
 
+#[cfg(test)]
 fn integer_bounds(column_type: &str) -> Option<(&'static str, &'static str)> {
-    let ty = column_type.to_ascii_lowercase();
-    let unsigned = ty.contains("unsigned");
-    let base = ty.split(['(', ' ']).next()?;
-    Some(match (base, unsigned) {
-        ("tinyint", false) => ("-128", "127"),
-        ("tinyint", true) => ("0", "255"),
-        ("smallint", false) => ("-32768", "32767"),
-        ("smallint", true) => ("0", "65535"),
-        ("mediumint", false) => ("-8388608", "8388607"),
-        ("mediumint", true) => ("0", "16777215"),
-        ("int" | "integer", false) => ("-2147483648", "2147483647"),
-        ("int" | "integer", true) => ("0", "4294967295"),
-        ("bigint", false) => ("-9223372036854775808", "9223372036854775807"),
-        ("bigint", true) => ("0", "18446744073709551615"),
-        _ => return None,
-    })
+    culprit_core::catalog_projection::mysql_integer_bounds(column_type)
 }
 
 #[cfg(test)]

@@ -7,17 +7,54 @@ pub(super) struct TableOption {
     option: String,
 }
 impl CatalogContext {
-    pub(super) fn project_relation(&mut self, dataset: SnapshotDataset, fact: &ObjectDefinitionFact) -> bool {
+    pub(super) fn project_relation(
+        &mut self,
+        dataset: SnapshotDataset,
+        fact: &ObjectDefinitionFact,
+        input: u16,
+        position: usize,
+    ) -> bool {
         match (dataset, fact) {
             (SnapshotDataset::ForeignKeys, ObjectDefinitionFact::MssqlForeignKey(key)) => {
                 if let Some(issue) = key.constraint_issue() {
+                    super::super::record_provenance(
+                        &mut self.provenance,
+                        culprit_core::CatalogObjectRef::Constraint {
+                            schema: issue.schema.clone(),
+                            table: issue.table.clone(),
+                            name: issue.name.clone(),
+                        },
+                        input,
+                        position,
+                    );
                     self.constraints.push(issue);
                 }
-                self.foreign_keys.push(key.as_ref().clone().into_foreign_key());
+                let fk = key.as_ref().clone().into_foreign_key();
+                super::super::record_provenance(
+                    &mut self.provenance,
+                    culprit_core::CatalogObjectRef::ForeignKey {
+                        schema: fk.schema.clone(),
+                        table: fk.table.clone(),
+                        name: fk.name.clone(),
+                    },
+                    input,
+                    position,
+                );
+                self.foreign_keys.push(fk);
                 true
             }
             (SnapshotDataset::CheckConstraints, ObjectDefinitionFact::MssqlCheckConstraint(check)) => {
                 if let Some(issue) = check.constraint_issue() {
+                    super::super::record_provenance(
+                        &mut self.provenance,
+                        culprit_core::CatalogObjectRef::Constraint {
+                            schema: issue.schema.clone(),
+                            table: issue.table.clone(),
+                            name: issue.name.clone(),
+                        },
+                        input,
+                        position,
+                    );
                     self.constraints.push(issue);
                 }
                 true

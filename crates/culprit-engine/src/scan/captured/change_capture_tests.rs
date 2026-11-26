@@ -120,7 +120,7 @@ async fn foreign_family_and_changed_original_receipts_never_keep_a_measured_surv
     let raw = saved.operations.change_capture.originals(MssqlChangeCaptureFamily::Cdc).to_vec();
     let report = culprit_checks::analyze(saved);
     assert_eq!(report.snapshot.operations.change_capture.originals(MssqlChangeCaptureFamily::Cdc), raw);
-    let cdc = &report.change_capture.cdc.unwrap()[0];
+    let cdc = &report.change_capture.cdc.as_ref().unwrap()[0];
     assert_eq!(cdc.source_state, SourceState::Unavailable);
     assert!(cdc.context.is_none() && cdc.entries.is_empty());
 }
@@ -151,8 +151,8 @@ async fn sharing_withdraws_both_independent_histories_instead_of_masking_or_reis
         assert!(!serde_json::to_string(originals).unwrap().contains("original-instance"));
     }
     let report = culprit_checks::analyze(shared);
-    let cdc = &report.change_capture.cdc.unwrap()[0];
-    let feed = &report.change_capture.change_feed.unwrap()[0];
+    let cdc = &report.change_capture.cdc.as_ref().unwrap()[0];
+    let feed = &report.change_capture.change_feed.as_ref().unwrap()[0];
     assert!(cdc.context.is_none() && feed.context.is_none());
     assert!(cdc.entries.is_empty() && feed.entries.is_empty());
     assert!(!cdc.read_complete && !feed.read_complete);

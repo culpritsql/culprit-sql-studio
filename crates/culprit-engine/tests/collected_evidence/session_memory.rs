@@ -43,7 +43,7 @@ fn scan(source: &CollectionDescription, rows: &[TelemetryRecord]) -> Snapshot {
 #[tokio::test]
 async fn authenticated_session_allocations_reuse_scan_views_without_an_allocating_query_or_database() {
     for (source, rows) in session_memory_evidence_cases() {
-        let expected = culprit_checks::analyze(scan(&source, &rows)).session_memory.unwrap();
+        let expected = culprit_checks::analyze(scan(&source, &rows)).operational.session_memory.unwrap();
         let fixture = Fixture::new(source.clone(), rows.clone()).await;
         let capture = fixture.read_families(&[EvidenceFamily::OperationalSamples]).await;
         assert!(capture.is_read_complete(), "{:?}", capture.gaps());

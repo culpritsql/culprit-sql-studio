@@ -116,16 +116,16 @@ impl Events<'_> {
         let mut out = self
             .reports
             .background(move |reports| {
-                let history: Vec<trends::Counters> =
-                    reports::counters_history(&reports.paths.reports_dir(&report_name), &at)
-                        .into_iter()
-                        .filter(|c| match &latest_counters {
-                            Some(latest) => latest.same_series(c),
-                            None => c.measurement.as_ref().is_some_and(|measurement| {
-                                measurement.population == compare_request.workload_population
-                            }),
-                        })
-                        .collect();
+                let history: Vec<trends::Counters> = reports::counters_history(&reports.reports_dir(&report_name), &at)
+                    .into_iter()
+                    .filter(|c| match &latest_counters {
+                        Some(latest) => latest.same_series(c),
+                        None => c
+                            .measurement
+                            .as_ref()
+                            .is_some_and(|measurement| measurement.population == compare_request.workload_population),
+                    })
+                    .collect();
                 let times: Vec<f64> =
                     history.iter().filter_map(|c| culprit_core::changes::epoch(&c.taken_at)).collect();
                 let first = times.iter().copied().fold(f64::INFINITY, f64::min);
@@ -174,7 +174,7 @@ impl Events<'_> {
         cloud: Option<bool>,
         notes: &mut Vec<String>,
     ) -> Vec<culprit_core::ChangeEvent> {
-        let dir = self.reports.paths.reports_dir(&info.name);
+        let dir = self.reports.reports_dir(&info.name);
         let saved_dir = dir.clone();
         let mut events = match crate::run_blocking(move || {
             let mut events: Vec<culprit_core::ChangeEvent> =
@@ -219,17 +219,17 @@ impl Events<'_> {
     /// Put a moment on a connection's timeline (a deploy, a migration) so charts and What changed line queries up with it.
     pub(crate) fn mark(&self, name: &str, text: &str, at: Option<&str>, by: &str) -> Result<marks::Mark> {
         self.connections.connection(name)?;
-        marks::add(&self.reports.paths.reports_dir(name), text, at, by)
+        marks::add(&self.reports.reports_dir(name), text, at, by)
     }
 
     pub(crate) fn marks(&self, name: &str) -> Result<Vec<marks::Mark>> {
         self.connections.connection(name)?;
-        Ok(marks::list(&self.reports.paths.reports_dir(name)))
+        Ok(marks::list(&self.reports.reports_dir(name)))
     }
 
     pub(crate) fn unmark(&self, name: &str, id: &str) -> Result<marks::Mark> {
         self.connections.connection(name)?;
-        marks::remove(&self.reports.paths.reports_dir(name), id)
+        marks::remove(&self.reports.reports_dir(name), id)
     }
 
     /// What the cloud measured for a connection's server (CloudWatch, Azure Monitor) and when it held the server back,
@@ -237,14 +237,7 @@ impl Events<'_> {
     pub(crate) async fn cloud(&self, name: &str, request: &EventsRequest) -> Result<culprit_core::CloudSignals> {
         let info = self.connections.connection(name)?;
         let (start, end) = request.range()?;
-        cloud::signals(
-            self.connections.cloud,
-            &self.reports.paths.reports_dir(name),
-            &info,
-            start,
-            end,
-            request.refresh,
-        )
-        .await
+        cloud::signals(self.connections.cloud, &self.reports.reports_dir(name), &info, start, end, request.refresh)
+            .await
     }
 }

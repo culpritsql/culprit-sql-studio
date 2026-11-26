@@ -68,6 +68,7 @@ async fn azure_sql_posture(client: &AzureCloud, server: &str, database: &str) ->
         unencrypted_sessions: None,
         password_auth_enabled,
         auditing_enabled: None,
+        exported_log_types: None,
         backup_retention_days: None,
         last_full_backup_days: None,
         last_integrity_check_days: None,
@@ -114,6 +115,7 @@ async fn azure_flexible_posture(client: &AzureCloud, engine: Engine, server: &st
         unencrypted_sessions: None,
         password_auth_enabled,
         auditing_enabled: None,
+        exported_log_types: None,
         backup_retention_days: row.retention_days,
         last_full_backup_days: None,
         last_integrity_check_days: None,
@@ -156,12 +158,14 @@ pub(crate) async fn read_aws_posture(client: &AwsCloud, connection: &CloudConnec
         Some(false) => Some(true),
         Some(true) | None => None,
     };
-    let auditing_enabled = inst.get("EnabledCloudwatchLogsExports").and_then(Value::as_array).map(|exports| {
-        exports.iter().filter_map(Value::as_str).any(|log| {
-            let lower = log.to_ascii_lowercase();
-            lower.contains("audit") || lower == "postgresql"
-        })
-    });
+    let exported_log_types = inst
+        .get("EnabledCloudwatchLogsExports")
+        .and_then(Value::as_array)
+        .map(|exports| exports.iter().filter_map(Value::as_str).map(str::to_string).collect::<Vec<_>>());
+    let mut coverage_notes = Vec::new();
+    if exported_log_types.is_some() {
+        coverage_notes.push(t!("engine.cloud.rds.note.log_exports_not_audit"));
+    }
 
     Ok(PostureSnapshot {
         public_network_access,
@@ -170,11 +174,12 @@ pub(crate) async fn read_aws_posture(client: &AwsCloud, connection: &CloudConnec
         min_tls_version: None,
         unencrypted_sessions: None,
         password_auth_enabled,
-        auditing_enabled,
+        auditing_enabled: None,
+        exported_log_types,
         backup_retention_days,
         last_full_backup_days: None,
         last_integrity_check_days: None,
-        coverage_notes: Vec::new(),
+        coverage_notes,
     })
 }
 
@@ -265,7 +270,12 @@ mod tests {
         assert_eq!(p.public_network_access, Some(true));
         assert_eq!(p.password_auth_enabled, Some(true));
         assert_eq!(p.backup_retention_days, Some(3));
-        assert_eq!(p.auditing_enabled, Some(false));
+        assert_eq!(p.exported_log_types, Some(Vec::<String>::new()));
+        assert_eq!(
+            p.auditing_enabled, None,
+            "CloudWatch log export list must never claim in-engine auditing is disabled or enabled"
+        );
+        assert!(!p.coverage_notes.is_empty());
         assert_eq!(p.tls_enforced, None, "unobserved RDS parameter-group setting must stay None");
 
         let corp_conn = CloudConnection {

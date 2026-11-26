@@ -116,6 +116,12 @@ fn sequence_capacity_finding(s: &Snapshot, case: NearLimit<'_>) -> Finding {
                 Category::Maintenance,
                 subject(SubjectKind::Database, &seq.name),
             );
+            f.facts.catalog_refs.push(culprit_core::CatalogObjectRef::Sequence { name: seq.name.clone() });
+            if let Some((schema, tbl)) = seq.table.as_deref().and_then(|t| t.split_once('.')) {
+                f.facts
+                    .catalog_refs
+                    .push(culprit_core::CatalogObjectRef::Table { schema: schema.to_owned(), table: tbl.to_owned() });
+            }
             let steps = format::count(remaining as f64);
             f.title = t!("check.sequence_capacity.title", name = &seq.name, steps = &steps);
             f.summary = [
@@ -165,6 +171,21 @@ fn sequence_capacity_finding(s: &Snapshot, case: NearLimit<'_>) -> Finding {
             let id_key = format!("int32-pk:{qual}.{}", col.name);
             let mut f =
                 finding("sequence-capacity", &id_key, Category::Maintenance, subject(SubjectKind::Table, &qual));
+            f.facts.catalog_refs = vec![
+                culprit_core::CatalogObjectRef::Table { schema: t.schema.clone(), table: t.name.clone() },
+                culprit_core::CatalogObjectRef::Column {
+                    schema: col.schema.clone(),
+                    table: col.table.clone(),
+                    column: col.name.clone(),
+                },
+            ];
+            if let Some(pk) = s.indexes_on(&t.schema, &t.name).find(|ix| ix.is_primary_key && ix.columns.len() == 1) {
+                f.facts.catalog_refs.push(culprit_core::CatalogObjectRef::Index {
+                    schema: pk.schema.clone(),
+                    table: pk.table.clone(),
+                    index: pk.name.clone(),
+                });
+            }
             f.severity = severity;
             f.confidence = Confidence::High;
             f.impact.score = base_score(f.severity);

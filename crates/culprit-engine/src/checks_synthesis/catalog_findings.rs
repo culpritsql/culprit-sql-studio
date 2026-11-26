@@ -1,5 +1,7 @@
-//! Warehouse synthesis for standalone database catalog, index, constraint, and statistics captures.
+//! Warehouse synthesis for standalone database catalog, index, constraint, sequence, and statistics captures.
 use super::*;
+use crate::collected_evidence::CatalogProvenance;
+use culprit_core::CatalogObjectRef;
 use culprit_evidence::original_projection::OriginalProjection;
 use std::collections::BTreeSet;
 
@@ -30,7 +32,7 @@ pub(super) fn project(
 
     let mut findings = finding_rows::FindingRows::new();
     for finding in &analysis.report.findings {
-        let inputs = references(originals, &analysis.admitted_inputs, finding, default_schema)?;
+        let inputs = references(originals, &analysis.provenance, finding, default_schema)?;
         let derived = DerivedFinding {
             analysis_id: description.analysis_id.clone(),
             database: database.clone(),
@@ -48,109 +50,135 @@ pub(super) fn project(
 
 fn references(
     originals: &[&dyn OriginalProjection],
-    admitted_inputs: &[u16],
+    provenance: &CatalogProvenance,
     finding: &Finding,
     default_schema: &str,
 ) -> Result<Vec<DiagnosticEvidenceRef>> {
+    let mut positions: Vec<(u16, usize)> = Vec::new();
+    let add_positions = |positions: &mut Vec<(u16, usize)>, key: &CatalogObjectRef| {
+        if let Some(found) = provenance.get(key) {
+            for &entry in found {
+                if !positions.contains(&entry) {
+                    positions.push(entry);
+                }
+            }
+        }
+    };
+
+    if !finding.facts.catalog_refs.is_empty() {
+        for key in &finding.facts.catalog_refs {
+            add_positions(&mut positions, key);
+        }
+    } else {
+        match finding.subject.kind {
+            culprit_core::SubjectKind::Index => {
+                if let Some((schema, table, index)) = split_index_subject(finding, default_schema) {
+                    add_positions(
+                        &mut positions,
+                        &CatalogObjectRef::Index { schema: schema.clone(), table: table.clone(), index },
+                    );
+                    add_positions(&mut positions, &CatalogObjectRef::Table { schema, table });
+                }
+            }
+            culprit_core::SubjectKind::Table => {
+                if let Some((schema, table)) = resolve_table_subject(provenance, &finding.subject.name, default_schema)
+                {
+                    add_positions(
+                        &mut positions,
+                        &CatalogObjectRef::Table { schema: schema.clone(), table: table.clone() },
+                    );
+                    if finding.category == culprit_core::Category::Indexes {
+                        for (key, rows) in provenance {
+                            if matches!(key, CatalogObjectRef::Index { schema: s, table: t, .. } if s.as_str() == schema.as_str() && t.as_str() == table.as_str())
+                            {
+                                for &entry in rows {
+                                    if !positions.contains(&entry) {
+                                        positions.push(entry);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            culprit_core::SubjectKind::Database => {
+                add_positions(&mut positions, &CatalogObjectRef::Sequence { name: finding.subject.name.clone() });
+            }
+            culprit_core::SubjectKind::Query | culprit_core::SubjectKind::Setting => {}
+        }
+    }
+
+    // Preserve deterministic input/row ordering across companion captures.
+    positions.sort_unstable();
     let mut refs = Vec::new();
     let mut seen = BTreeSet::new();
-    for &input_idx in admitted_inputs {
+    for (input_idx, position) in positions {
         let Some(&original) = originals.get(usize::from(input_idx)) else { continue };
-        for (position, row) in original.records().iter().enumerate() {
-            if row.row().record_id.is_none() {
-                continue;
-            }
-            if !record_matches_finding(&row.row().record, finding, default_schema) {
-                continue;
-            }
-            let reference = original.reference(position)?;
-            if seen.insert(reference.key()?) {
-                refs.push(reference);
-                if refs.len() >= MAX_DERIVED_REFERENCES {
-                    return Ok(refs);
-                }
+        let Some(row) = original.records().get(position) else { continue };
+        if row.row().record_id.is_none() {
+            continue;
+        }
+        let reference = original.reference(position)?;
+        if seen.insert(reference.key()?) {
+            refs.push(reference);
+            if refs.len() >= MAX_DERIVED_REFERENCES {
+                break;
             }
         }
     }
     Ok(refs)
 }
 
-fn record_matches_finding(record: &TelemetryRecord, finding: &Finding, default_schema: &str) -> bool {
-    let Some((schema, table, child)) = record_subject_parts(record, default_schema) else {
-        return false;
-    };
-    let qualified_table = format!("{schema}.{table}");
-    let subject = &finding.subject.name;
-    if subject.eq_ignore_ascii_case(&qualified_table) || subject.eq_ignore_ascii_case(&table) {
-        return true;
-    }
-    if let Some(child_name) = child {
-        let qualified_child = format!("{qualified_table}.{child_name}");
-        if subject.eq_ignore_ascii_case(&qualified_child)
-            || subject.eq_ignore_ascii_case(&child_name)
-            || finding.id.ends_with(&format!(":{qualified_child}"))
-            || finding.id.ends_with(&format!(":{qualified_table}.{child_name}"))
-        {
-            return true;
+fn resolve_table_subject(
+    provenance: &CatalogProvenance,
+    subject: &str,
+    default_schema: &str,
+) -> Option<(String, String)> {
+    if let Some((schema, table)) = subject.split_once('.') {
+        let key = CatalogObjectRef::Table { schema: schema.to_owned(), table: table.to_owned() };
+        if provenance.contains_key(&key) {
+            return Some((schema.to_owned(), table.to_owned()));
         }
     }
-    // Index findings often name `schema.table (index)` or `schema.table.index` in `subject.name` or `finding.id`.
-    let prefix_dot = format!("{}.", qualified_table.to_ascii_lowercase());
-    let prefix_space = format!("{} ", qualified_table.to_ascii_lowercase());
-    let subject_lower = subject.to_ascii_lowercase();
-    subject_lower.starts_with(&prefix_dot) || subject_lower.starts_with(&prefix_space)
-}
-
-fn record_subject_parts(record: &TelemetryRecord, default_schema: &str) -> Option<(String, String, Option<String>)> {
-    match record {
-        TelemetryRecord::Operational(obs) => match &obs.fact {
-            OperationalFact::MssqlTable(t) => Some((t.schema.clone(), t.name.clone(), None)),
-            OperationalFact::MssqlIndex(i) => {
-                Some((i.parent_schema.clone(), i.parent_name.clone(), Some(i.name.clone())))
-            }
-            OperationalFact::MssqlStatistics(s) => Some((s.schema.clone(), s.table_name.clone(), Some(s.name.clone()))),
-            OperationalFact::CounterSet(set) => {
-                let schema = set.properties.get("schema_name")?.clone();
-                let table = set.properties.get("table_name")?.clone();
-                Some((schema, table, None))
-            }
-            OperationalFact::CatalogCounters(c) => {
-                let props = &c.catalog.properties;
-                if let Some(table) = props.get("table_name") {
-                    let schema = props.get("schema_name").cloned().unwrap_or_else(|| default_schema.to_owned());
-                    let child = props.get("index_name").or_else(|| props.get("column_name")).cloned();
-                    Some((schema, table.clone(), child))
-                } else {
-                    let name = props.get("name")?.clone();
-                    let schema = props.get("schema_name").cloned().unwrap_or_else(|| default_schema.to_owned());
-                    Some((schema, name, None))
+    if !default_schema.is_empty() {
+        let key = CatalogObjectRef::Table { schema: default_schema.to_owned(), table: subject.to_owned() };
+        if provenance.contains_key(&key) {
+            return Some((default_schema.to_owned(), subject.to_owned()));
+        }
+    }
+    for key in provenance.keys() {
+        match key {
+            CatalogObjectRef::Table { schema, table }
+            | CatalogObjectRef::Index { schema, table, .. }
+            | CatalogObjectRef::Column { schema, table, .. }
+            | CatalogObjectRef::ForeignKey { schema, table, .. }
+            | CatalogObjectRef::Constraint { schema, table, .. }
+            | CatalogObjectRef::Statistics { schema, table, .. } => {
+                if format!("{schema}.{table}") == subject || (schema == default_schema && table == subject) {
+                    return Some((schema.clone(), table.clone()));
                 }
             }
-            _ => None,
-        },
-        TelemetryRecord::ObjectDefinition(def) => match &def.fact {
-            ObjectDefinitionFact::MssqlColumn(c) => {
-                Some((c.schema.clone(), c.table_name.clone(), Some(c.name.clone())))
-            }
-            ObjectDefinitionFact::MssqlForeignKey(fk) => {
-                Some((fk.parent_schema.clone(), fk.parent_table.clone(), Some(fk.name.clone())))
-            }
-            ObjectDefinitionFact::MssqlCheckConstraint(ck) => {
-                Some((ck.parent_schema.clone(), ck.parent_table.clone(), Some(ck.name.clone())))
-            }
-            ObjectDefinitionFact::MssqlDmlTrigger(tr) => {
-                Some((tr.parent_schema.clone(), tr.parent_name.clone(), Some(tr.name.clone())))
-            }
-            ObjectDefinitionFact::MssqlPartitionBoundary(pb) => Some((pb.schema.clone(), pb.table_name.clone(), None)),
-            ObjectDefinitionFact::NativeCatalog(nc) => {
-                let props = &nc.properties;
-                let schema = props.get("schema_name").cloned().unwrap_or_else(|| default_schema.to_owned());
-                let table = props.get("table_name").or_else(|| props.get("name"))?.clone();
-                let child = props.get("column_name").or_else(|| props.get("name")).cloned();
-                Some((schema, table, child))
-            }
-            _ => None,
-        },
-        _ => None,
+            CatalogObjectRef::Sequence { .. } => {}
+        }
+    }
+    subject.split_once('.').map(|(s, t)| (s.to_owned(), t.to_owned()))
+}
+
+fn split_index_subject(finding: &Finding, default_schema: &str) -> Option<(String, String, String)> {
+    if let Some(parent) = &finding.facts.table {
+        let prefix = format!("{parent}.");
+        if let Some(index) = finding.subject.name.strip_prefix(&prefix)
+            && let Some((schema, table)) = parent.split_once('.')
+        {
+            return Some((schema.to_owned(), table.to_owned(), index.to_owned()));
+        }
+    }
+    let (parent, index) = finding.subject.name.rsplit_once('.')?;
+    if let Some((schema, table)) = parent.split_once('.') {
+        Some((schema.to_owned(), table.to_owned(), index.to_owned()))
+    } else if !default_schema.is_empty() {
+        Some((default_schema.to_owned(), parent.to_owned(), index.to_owned()))
+    } else {
+        None
     }
 }

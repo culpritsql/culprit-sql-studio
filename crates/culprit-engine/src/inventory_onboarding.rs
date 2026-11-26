@@ -35,6 +35,7 @@ pub enum OnboardingTargetSpec {
         pipeline: String,
         s3_bucket: String,
         s3_region: String,
+        s3_expected_owner: String,
         clickhouse_endpoint: String,
         clickhouse_database: String,
         aws_profile: Option<String>,
@@ -61,12 +62,22 @@ impl OnboardingTargetSpec {
             pipeline: pipeline.into(),
             s3_bucket: "replace-culprit-archive".into(),
             s3_region: "us-east-1".into(),
+            s3_expected_owner: "000000000000".into(),
             clickhouse_endpoint: "https://clickhouse.internal:8443".into(),
             clickhouse_database: "culprit".into(),
             aws_profile: None,
             clickhouse_user: "culprit_writer".into(),
             clickhouse_password_env: "CULPRIT_CLICKHOUSE_PASSWORD".into(),
         }
+    }
+
+    pub fn validate(&self) -> Result<()> {
+        if let Self::AwsClickHouse { s3_expected_owner, .. } = self
+            && (s3_expected_owner.len() != 12 || !s3_expected_owner.bytes().all(|b| b.is_ascii_digit()))
+        {
+            return Err(Error::invalid(t!("onboarding.invalid_s3_owner")));
+        }
+        Ok(())
     }
 
     pub fn pipeline(&self) -> &str {
@@ -207,6 +218,7 @@ fn password_env_name(connection_name: &str) -> String {
 fn stored_connection_from_onboarded(conn: &OnboardedConnection) -> StoredConnection {
     let password_env = (conn.auth == AuthKind::Password).then(|| password_env_name(&conn.name));
     StoredConnection {
+        id: String::new(),
         engine: conn.engine,
         environment: conn.environment,
         host: conn.host.clone(),
@@ -349,6 +361,7 @@ fn recovery_and_target_json(shard_name: &str, target: &OnboardingTargetSpec) -> 
             pipeline,
             s3_bucket,
             s3_region,
+            s3_expected_owner,
             clickhouse_endpoint,
             clickhouse_database,
             ..
@@ -358,7 +371,8 @@ fn recovery_and_target_json(shard_name: &str, target: &OnboardingTargetSpec) -> 
                 "options": {
                     "bucket": s3_bucket,
                     "region": s3_region,
-                    "prefix": format!("{pipeline}/{shard_name}")
+                    "prefix": format!("{pipeline}/{shard_name}"),
+                    "expected_owner": s3_expected_owner
                 },
                 "credential": "recovery"
             }),
@@ -385,6 +399,7 @@ impl InventoryRenderer for HelmValuesRenderer {
     }
 
     fn render(&self, plan: &OnboardingPlan, target: &OnboardingTargetSpec) -> Result<Vec<RenderedArtifact>> {
+        target.validate()?;
         let mut artifacts = Vec::with_capacity(plan.shards.len());
         let limits = OutboxLimits::default();
 
@@ -497,6 +512,7 @@ impl InventoryRenderer for JsonConfigRenderer {
     }
 
     fn render(&self, plan: &OnboardingPlan, target: &OnboardingTargetSpec) -> Result<Vec<RenderedArtifact>> {
+        target.validate()?;
         if !self.runtime_root.is_absolute() {
             return Err(Error::invalid(t!("onboarding.invalid_options")));
         }
@@ -730,7 +746,7 @@ mod tests {
     #[cfg(all(feature = "store-adx", feature = "recovery-azure", feature = "auth-azure"))]
     #[test]
     fn json_config_renderer_passes_collector_service_validate_end_to_end() {
-        let dir = std::env::temp_dir().join(format!("culprit-onboarding-validate-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("culprit-onboarding-validate-az-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let plan = plan_discovered_inventory(&sample_discovery(), &OnboardingOptions::default()).unwrap();
         let renderer = JsonConfigRenderer { runtime_root: dir.clone() };
@@ -743,6 +759,64 @@ mod tests {
             tenant_id: Some("d8353d2a-b153-4d17-8827-902c51f72357".into()),
             client_id: Some("2a82e7db-d5f3-4f59-8dd5-3da21f70bf5c".into()),
         };
+        let artifacts = renderer.render(&plan, &spec).unwrap();
+        let paths = write_rendered_artifacts(&dir, &artifacts).unwrap();
+        let cfg_path = paths.iter().find(|p| p.ends_with("collector.json")).unwrap();
+        let cfg = crate::collector_service::config::CollectorConfig::from_file(cfg_path).unwrap();
+        crate::collector_service::validate(&cfg).unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(all(feature = "store-clickhouse", feature = "recovery-s3", feature = "auth-aws"))]
+    #[test]
+    fn aws_clickhouse_renderers_emit_s3_expected_owner_and_pass_collector_service_validate() {
+        let dir = std::env::temp_dir().join(format!("culprit-onboarding-validate-aws-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let aws_discovery = DiscoveryResult {
+            items: vec![DiscoveredDatabase {
+                alias: "orders-rds".into(),
+                cloud: Cloud::Aws,
+                engine: Engine::Postgres,
+                environment: Environment::Production,
+                server: "orders-rds".into(),
+                host: "orders-rds.abc123.us-east-1.rds.amazonaws.com".into(),
+                database: "orders".into(),
+                location: "us-east-1".into(),
+                subscription: "123456789012".into(),
+                resource_group: String::new(),
+                port: Some(5432),
+                user: Some("culprit_reader".into()),
+                region: Some("us-east-1".into()),
+                auth: AuthKind::AwsIam,
+                saved_as: None,
+            }],
+            has_more: false,
+            warnings: Vec::new(),
+        };
+        let plan = plan_discovered_inventory(&aws_discovery, &OnboardingOptions::default()).unwrap();
+        let mut bad_spec = OnboardingTargetSpec::default_aws("database-telemetry");
+        if let OnboardingTargetSpec::AwsClickHouse { s3_expected_owner, .. } = &mut bad_spec {
+            *s3_expected_owner = "not-12-digits".into();
+        }
+        assert!(HelmValuesRenderer.render(&plan, &bad_spec).is_err());
+        assert!(JsonConfigRenderer { runtime_root: dir.clone() }.render(&plan, &bad_spec).is_err());
+
+        let spec = OnboardingTargetSpec::AwsClickHouse {
+            pipeline: "database-telemetry".into(),
+            s3_bucket: "culprit-prod-archive".into(),
+            s3_region: "us-east-1".into(),
+            s3_expected_owner: "123456789012".into(),
+            clickhouse_endpoint: "https://clickhouse.internal:8443".into(),
+            clickhouse_database: "culprit".into(),
+            aws_profile: None,
+            clickhouse_user: "culprit_writer".into(),
+            clickhouse_password_env: "CULPRIT_CLICKHOUSE_PASSWORD".into(),
+        };
+        let helm_files = HelmValuesRenderer.render(&plan, &spec).unwrap();
+        assert_eq!(helm_files.len(), 1);
+        assert!(helm_files[0].contents.contains("expected_owner: \"123456789012\""));
+
+        let renderer = JsonConfigRenderer { runtime_root: dir.clone() };
         let artifacts = renderer.render(&plan, &spec).unwrap();
         let paths = write_rendered_artifacts(&dir, &artifacts).unwrap();
         let cfg_path = paths.iter().find(|p| p.ends_with("collector.json")).unwrap();

@@ -108,7 +108,7 @@ fn saved_scan_pipeline_reuses_the_exact_view_without_borrowing_a_later_probe_or_
     snapshot.pressure.get_or_insert_with(Default::default).wait_counters = Some(Box::new(read.clone()));
     let report = crate::analyze(snapshot.clone());
     assert_eq!(
-        serde_json::to_value(report.wait_counters.unwrap().entries).unwrap(),
+        serde_json::to_value(&report.wait_counters.as_ref().unwrap().entries).unwrap(),
         serde_json::to_value(explain(&read, Engine::Mssql).unwrap().entries).unwrap()
     );
     let target = culprit_core::DatabaseIdentity::server(Engine::Postgres, "foreign", "owned.invalid", 5432, None);

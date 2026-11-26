@@ -290,11 +290,13 @@ async fn an_execution_authentication_failure_forgets_only_that_connections_cache
     let ws = ws.with_secrets(secrets.clone());
     add(&ws, "first", Some("first-test-secret"));
     add(&ws, "second", Some("second-test-secret"));
+    let first_id = ws.connection_id("first").unwrap();
+    let second_id = ws.connection_id("second").unwrap();
     assert_eq!(ws.run_read("first", "SELECT 1", 1).await.unwrap_err().code, ErrorCode::AuthFailed);
-    assert_eq!(*secrets.forgotten.lock().unwrap(), vec!["first"]);
+    assert_eq!(*secrets.forgotten.lock().unwrap(), vec![first_id.clone()]);
     // Invalidating an in-process cache must not delete either backing credential.
-    assert!(secrets.get("first").unwrap().is_some());
-    assert!(secrets.get("second").unwrap().is_some());
+    assert!(secrets.get(&first_id).unwrap().is_some());
+    assert!(secrets.get(&second_id).unwrap().is_some());
     std::fs::remove_dir_all(dir).unwrap();
 }
 
@@ -314,6 +316,8 @@ async fn session_and_optional_event_authentication_failures_invalidate_only_the_
         })
         .unwrap();
         add(&ws, "second", Some("second-test-secret"));
+        let first_id = ws.connection_id("first").unwrap();
+        let second_id = ws.connection_id("second").unwrap();
         if events {
             let out = ws
                 .changes("first", &culprit_engine::changes::ChangeRequest { cloud: Some(false), ..Default::default() })
@@ -325,9 +329,9 @@ async fn session_and_optional_event_authentication_failures_invalidate_only_the_
                 ws.live("first").await.unwrap().action_request("123", culprit_core::SessionAction::Terminate).unwrap();
             assert_eq!(ws.interrupt_session(&request).await.unwrap_err().code, ErrorCode::AuthFailed);
         }
-        assert_eq!(*secrets.forgotten.lock().unwrap(), vec!["first"]);
-        assert!(secrets.get("first").unwrap().is_some());
-        assert!(secrets.get("second").unwrap().is_some());
+        assert_eq!(*secrets.forgotten.lock().unwrap(), vec![first_id.clone()]);
+        assert!(secrets.get(&first_id).unwrap().is_some());
+        assert!(secrets.get(&second_id).unwrap().is_some());
         std::fs::remove_dir_all(dir).unwrap();
     }
 }

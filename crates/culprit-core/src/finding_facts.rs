@@ -24,6 +24,9 @@ pub struct FindingFacts {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub table: Option<String>,
+    /// Exact typed catalog objects establishing this finding, used to link supporting source rows without guessing.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub catalog_refs: Vec<CatalogObjectRef>,
     /// The cleanup holder's native identity, independent of the database display subject.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
@@ -72,6 +75,19 @@ pub struct FindingFacts {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub uncosted_plan_explained: Option<bool>,
+}
+
+#[derive(Serialize, Deserialize, TS, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[serde(tag = "kind", rename_all = "kebab-case")]
+#[ts(export)]
+pub enum CatalogObjectRef {
+    Table { schema: String, table: String },
+    Index { schema: String, table: String, index: String },
+    Column { schema: String, table: String, column: String },
+    ForeignKey { schema: String, table: String, name: String },
+    Constraint { schema: String, table: String, name: String },
+    Statistics { schema: String, table: String, name: String },
+    Sequence { name: String },
 }
 
 #[derive(Serialize, Deserialize, TS, Clone, Debug, PartialEq, Eq)]

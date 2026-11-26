@@ -101,10 +101,10 @@ async fn independent_saved_pool_original_is_idempotent_never_rebound_to_current_
         analyze(&reader, "local-evidence", &other.manifest.capture.observation_id).await.unwrap().into_read();
     assert!(crate::scan::CapturedScanEvidence::pool_settings(replacement).unwrap().attach(&mut snapshot).is_err());
     let report = culprit_checks::analyze(snapshot.clone());
-    assert_eq!(report.pool_settings.unwrap().fields.len(), 6);
+    assert_eq!(report.pool_settings.as_ref().unwrap().fields.len(), 6);
     let shared = culprit_core::redact::redact_snapshot(&snapshot);
     let report = culprit_checks::analyze(shared);
-    let pool = report.pool_settings.unwrap();
+    let pool = report.pool_settings.as_ref().unwrap();
     assert_eq!(pool.source_state, culprit_core::SourceState::Unavailable);
     assert!(pool.fields.is_empty() && pool.target.is_none());
 }

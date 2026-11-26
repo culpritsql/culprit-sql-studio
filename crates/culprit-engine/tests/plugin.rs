@@ -92,7 +92,7 @@ async fn retained_native_plans_open_offline_without_borrowing_current_catalog_or
     });
     let query = q.id.clone();
     let report = culprit_checks::analyze(snapshot);
-    culprit_engine::reports::save(&ws.paths().reports_dir("native-cache"), &report).unwrap();
+    culprit_engine::reports::save(&ws.connection_reports_dir("native-cache"), &report).unwrap();
     let plan = ws.query_plan_at("native-cache", &query, Some("-123"), Some(&report.snapshot.id)).await.unwrap();
     assert!(plan.facts().constants_redacted && plan.facts().estimated_cost_unavailable);
     assert!(plan.nodes().iter().all(|n| n.table_rows.is_none()));
@@ -472,7 +472,7 @@ async fn advice_and_fetched_plans_follow_the_selected_report_not_the_latest_poin
     snapshot.connection = "replayed".into();
     let selected = culprit_checks::analyze(snapshot.clone());
     let q = selected.snapshot.queries().iter().find(|q| q.plan.is_some() && q.executions > 1.0).unwrap();
-    let dir = ws.paths().reports_dir("replayed");
+    let dir = ws.connection_reports_dir("replayed");
     culprit_engine::reports::save(&dir, &selected).unwrap();
     snapshot.id = "20260828T130000.000Z".into();
     snapshot.workload = None;

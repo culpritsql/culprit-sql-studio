@@ -176,62 +176,15 @@ pub fn decode(
     }
     Ok(CatalogReading { definition, row })
 }
-fn label(reading: &CatalogReading, name: &str) -> String {
-    reading.definition.properties.get(name).cloned().unwrap_or_default()
-}
-fn list(reading: &CatalogReading, name: &str) -> Result<Vec<String>> {
-    serde_json::from_str(&label(reading, name)).map_err(|_| invalid())
-}
 pub fn column(reading: CatalogReading) -> Result<ColumnInfo> {
     let default = reading.row.text("definition");
-    let ordinal = label(&reading, "ordinal").parse::<u32>().map_err(|_| invalid())?;
-    Ok(ColumnInfo {
-        schema: label(&reading, "schema_name"),
-        table: label(&reading, "table_name"),
-        name: label(&reading, "column_name"),
-        data_type: label(&reading, "data_type"),
-        nullable: label(&reading, "nullable") == "true",
-        generated: !label(&reading, "identity").is_empty()
-            || !label(&reading, "generated").is_empty()
-            || default.as_deref().is_some_and(|value| value.starts_with("nextval(")),
-        default,
-        ordinal,
-    })
+    culprit_core::catalog_projection::pg_catalog_column(&reading.definition, default).ok_or_else(invalid)
 }
 pub fn foreign_key(reading: CatalogReading) -> Result<ForeignKey> {
-    Ok(ForeignKey {
-        name: label(&reading, "name"),
-        schema: label(&reading, "schema_name"),
-        table: label(&reading, "table_name"),
-        columns: list(&reading, "columns")?,
-        ref_schema: label(&reading, "ref_schema"),
-        ref_table: label(&reading, "ref_table"),
-        ref_columns: list(&reading, "ref_columns")?,
-        delete_rule: match label(&reading, "delete_rule").as_str() {
-            "c" => Some("CASCADE".into()),
-            "n" => Some("SET NULL".into()),
-            "d" => Some("SET DEFAULT".into()),
-            "r" => Some("RESTRICT".into()),
-            _ => None,
-        },
-    })
+    culprit_core::catalog_projection::pg_catalog_foreign_key(&reading.definition).ok_or_else(invalid)
 }
 pub fn constraint(reading: CatalogReading) -> Option<ConstraintIssue> {
-    if label(&reading, "validated") != "false" {
-        return None;
-    }
-    Some(ConstraintIssue {
-        schema: label(&reading, "schema_name"),
-        table: label(&reading, "table_name"),
-        name: label(&reading, "name"),
-        kind: if label(&reading, "constraint_type") == "f" {
-            ConstraintKind::ForeignKey
-        } else {
-            ConstraintKind::Check
-        },
-        disabled: false,
-        inheritance_child: label(&reading, "inheritance_child") == "true",
-    })
+    culprit_core::catalog_projection::pg_catalog_constraint_issue(&reading.definition, ConstraintKind::Check, true)
 }
 
 pub async fn statistics_visible<R: QueryRead>(reader: &mut R) -> Result<bool> {

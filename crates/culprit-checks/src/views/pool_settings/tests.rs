@@ -157,7 +157,7 @@ fn original_receipts_reject_tampering_and_sharing_withdraws_membership_without_a
     snapshot.operations.pool_settings = Some(Box::new(RecordedPoolSettingsRead::Captured { read: Box::new(original) }));
     let shared = culprit_core::redact::redact_snapshot(&snapshot);
     assert!(matches!(shared.operations.pool_settings.as_deref(), Some(RecordedPoolSettingsRead::Unavailable { .. })));
-    let rendered = crate::analyze(shared).pool_settings.unwrap();
+    let rendered = crate::analyze(shared).operational.pool_settings.unwrap();
     assert_eq!(rendered.source_state, SourceState::Unavailable);
     assert!(rendered.target.is_none() && rendered.fields.is_empty() && rendered.context.is_none());
     let serialized = serde_json::to_string(&snapshot).unwrap();

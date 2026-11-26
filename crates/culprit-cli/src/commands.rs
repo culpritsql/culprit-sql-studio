@@ -41,7 +41,7 @@ pub(super) async fn scan(ws: &Workspace, args: ScanArgs, out: &Out) -> Result<u8
             return Err(error);
         }
     };
-    out.scan(&report, args.full, &ws.paths().reports_dir(&args.connection));
+    out.scan(&report, args.full, &ws.connection_reports_dir(&args.connection));
     Ok(fail_code(&report, args.fail_on))
 }
 

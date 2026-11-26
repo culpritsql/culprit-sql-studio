@@ -54,6 +54,14 @@ fn references(original: &dyn OriginalProjection, finding: &Finding) -> Result<Ve
             (TelemetryRecord::Operational(obs), "backup-retention-short") => {
                 matches!(obs.fact, OperationalFact::MssqlBackupHistory(_))
             }
+            (TelemetryRecord::Operational(obs), "sequence-capacity") => {
+                obs.source == source_id::SEQUENCE_CAPACITY
+                    || matches!(&obs.fact, OperationalFact::CatalogCounters(c)
+                        if matches!(c.catalog.object_type.as_str(), "sequence" | "auto-increment"))
+            }
+            (TelemetryRecord::Operational(obs), "operational-errors") => {
+                matches!(obs.fact, OperationalFact::Counter(_))
+            }
             (TelemetryRecord::WaitCounter(obs), "sync-stats-refresh") => {
                 obs.wait_type == "WAIT_ON_SYNC_STATISTICS_REFRESH"
             }

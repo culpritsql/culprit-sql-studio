@@ -181,8 +181,27 @@ fn overlapping_index_finding(snapshot: &Snapshot, o: OverlappingIndex<'_>) -> Fi
         wider = &b.name,
         reads = format::count(o.reads)
     )];
+    f.facts.table = Some(table_name.clone());
+    f.facts.catalog_refs = vec![
+        culprit_core::CatalogObjectRef::Index {
+            schema: a.schema.clone(),
+            table: a.table.clone(),
+            index: a.name.clone(),
+        },
+        culprit_core::CatalogObjectRef::Index {
+            schema: b.schema.clone(),
+            table: b.table.clone(),
+            index: b.name.clone(),
+        },
+        culprit_core::CatalogObjectRef::Table { schema: a.schema.clone(), table: a.table.clone() },
+    ];
     f.caveats.push(t!("check.overlapping_index.caveat.covers", index = &a.name, wider = &b.name));
     if let Some(fk) = o.foreign_key {
+        f.facts.catalog_refs.push(culprit_core::CatalogObjectRef::ForeignKey {
+            schema: fk.schema.clone(),
+            table: fk.table.clone(),
+            name: fk.name.clone(),
+        });
         f.caveats.push(t!("check.overlapping_index.caveat.foreign_key", index = &a.name, foreign_key = &fk.name));
     }
     f

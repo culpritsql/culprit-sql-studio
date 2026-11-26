@@ -1,18 +1,33 @@
-//! Standalone database catalog, index, constraint, and statistics captures feed pure schema/maintenance checks
-//! without requiring a QueryHistory or StatementCounters capture.
+//! Standalone database catalog, index, constraint, sequence, and statistics captures feed pure schema/maintenance
+//! checks without requiring a QueryHistory or StatementCounters capture.
 use super::*;
 use culprit_core::{
-    Capability, ColumnInfo, ConstraintIssue, ConstraintKind, DerivedContextIssue, Engine, ForeignKey, IndexStat,
-    Report, StatisticsInfo, TableStat, TableStorage, telemetry::*,
+    Capability, CatalogObjectRef, ColumnInfo, ConstraintKind, DerivedContextIssue, Engine, ForeignKey, IndexStat,
+    Report, StatisticsInfo, TableStat, TableStorage,
+    catalog_projection::{
+        apply_mysql_mixed_collations, counter_number, mysql_delete_rule, mysql_index_key_part, mysql_integer_bounds,
+        mysql_sequence_capacity, pg_archive_opclasses, pg_catalog_column, pg_catalog_constraint_issue,
+        pg_catalog_foreign_key, pg_sequence_capacity, pg_table_stat, push_unique_constraint_issue,
+    },
+    telemetry::*,
 };
 use std::collections::BTreeMap;
+
+pub(crate) type CatalogProvenance = BTreeMap<CatalogObjectRef, Vec<(u16, usize)>>;
+
+pub(crate) fn record_provenance(map: &mut CatalogProvenance, key: CatalogObjectRef, input: u16, position: usize) {
+    let entries = map.entry(key).or_default();
+    if !entries.contains(&(input, position)) {
+        entries.push((input, position));
+    }
+}
 
 pub(crate) struct RetainedCatalogAnalysis {
     pub report: Report,
     pub limitations: Vec<CollectedAnalysisLimitation>,
     pub companion_inputs: Vec<u16>,
-    pub admitted_inputs: Vec<u16>,
     pub issues: Vec<DerivedContextIssue>,
+    pub provenance: CatalogProvenance,
 }
 
 pub(crate) fn supports_catalog_findings(original: &dyn OriginalProjection) -> bool {
@@ -28,6 +43,7 @@ pub(crate) fn supports_catalog_findings(original: &dyn OriginalProjection) -> bo
                     | SnapshotDataset::CheckConstraints
                     | SnapshotDataset::Triggers
                     | SnapshotDataset::Partitions
+                    | SnapshotDataset::Sequences
             )
         })
 }
@@ -71,7 +87,7 @@ pub(crate) fn analyze_catalog_originals(
         snapshot.sources.retain(|entry| entry.source != source_id::CATALOG);
     }
 
-    let (admitted_inputs, projected_datasets, issues, settings_complete) = match database.engine {
+    let (admitted_inputs, projected_datasets, issues, settings_complete, provenance) = match database.engine {
         Engine::Mssql => {
             let context = catalogs::CatalogContext::from_catalog_primary(primary, originals)?;
             context.apply(&mut snapshot);
@@ -80,19 +96,25 @@ pub(crate) fn analyze_catalog_originals(
                 context.projected_datasets().to_vec(),
                 context.issues().to_vec(),
                 context.settings_complete(),
+                context.provenance().clone(),
             )
         }
-        Engine::Postgres | Engine::Yugabyte => {
+        Engine::Postgres => {
             let selected = select_non_mssql_heads(primary, originals)?;
-            let (admitted, projected, issues) = project_postgres_catalogs(selected, &mut snapshot)?;
-            (admitted, projected, issues, false)
+            let p = project_postgres_catalogs(selected, &mut snapshot)?;
+            (p.admitted_inputs, p.projected_datasets, p.issues, false, p.provenance)
+        }
+        Engine::Yugabyte => {
+            let selected = select_non_mssql_heads(primary, originals)?;
+            let p = project_yugabyte_catalogs(selected, &mut snapshot)?;
+            (p.admitted_inputs, p.projected_datasets, p.issues, false, p.provenance)
         }
         Engine::Mysql => {
             let selected = select_non_mssql_heads(primary, originals)?;
-            let (admitted, projected, issues) = project_mysql_catalogs(&database.database, selected, &mut snapshot)?;
-            (admitted, projected, issues, false)
+            let p = project_mysql_catalogs(&database.database, selected, &mut snapshot)?;
+            (p.admitted_inputs, p.projected_datasets, p.issues, false, p.provenance)
         }
-        _ => (vec![], vec![], vec![], false),
+        _ => (vec![], vec![], vec![], false, CatalogProvenance::new()),
     };
 
     if settings_complete {
@@ -114,7 +136,7 @@ pub(crate) fn analyze_catalog_originals(
     let companion_inputs = admitted_inputs.iter().copied().filter(|&idx| idx > 0).collect();
     let report =
         run_retained_snapshot(snapshot, pipeline, culprit_core::AnalysisOrigin::RetainedInput, &mut limitations);
-    Ok(RetainedCatalogAnalysis { report, limitations, companion_inputs, admitted_inputs, issues })
+    Ok(RetainedCatalogAnalysis { report, limitations, companion_inputs, issues, provenance })
 }
 
 fn grant_capability(snapshot: &mut Snapshot, capability: Capability) {
@@ -226,24 +248,173 @@ fn set_canonical_source(snapshot: &mut Snapshot, source_name: &str, empty: bool,
     }
 }
 
-fn counter_number(set: &NativeCounterSet, key: &str) -> Option<f64> {
-    match &set.counters.iter().find(|sample| sample.key == key)?.value {
-        MeasurementValue::Integer(raw) => raw.parse::<f64>().ok(),
-        MeasurementValue::Real(value) => Some(*value),
+fn project_pg_family_columns_fks_constraints(
+    ds: SnapshotDataset,
+    index: u16,
+    original: &dyn OriginalProjection,
+    allow_inheritance_child: bool,
+    col_names_by_oid: &mut BTreeMap<(String, u32), String>,
+    provenance: &mut CatalogProvenance,
+    snapshot: &mut Snapshot,
+) -> bool {
+    let mut ok = true;
+    match ds {
+        SnapshotDataset::Columns => {
+            for (pos, row) in original.records().iter().enumerate() {
+                let TelemetryRecord::ObjectDefinition(ObjectDefinitionRecord {
+                    fact: ObjectDefinitionFact::NativeCatalog(def),
+                    ..
+                }) = &row.row().record
+                else {
+                    ok = false;
+                    continue;
+                };
+                let Some(col) = pg_catalog_column(def, None) else {
+                    ok = false;
+                    continue;
+                };
+                if let Some(rel_oid) = def.properties.get("relation_oid").filter(|s| !s.is_empty())
+                    && !col.name.is_empty()
+                {
+                    col_names_by_oid.insert((rel_oid.clone(), col.ordinal), col.name.clone());
+                }
+                record_provenance(
+                    provenance,
+                    CatalogObjectRef::Column {
+                        schema: col.schema.clone(),
+                        table: col.table.clone(),
+                        column: col.name.clone(),
+                    },
+                    index,
+                    pos,
+                );
+                snapshot.columns.push(col);
+            }
+            set_canonical_source(snapshot, source_id::COLUMNS, snapshot.columns.is_empty(), !ok);
+        }
+        SnapshotDataset::ForeignKeys => {
+            for (pos, row) in original.records().iter().enumerate() {
+                let TelemetryRecord::ObjectDefinition(ObjectDefinitionRecord {
+                    fact: ObjectDefinitionFact::NativeCatalog(def),
+                    ..
+                }) = &row.row().record
+                else {
+                    ok = false;
+                    continue;
+                };
+                let Some(fk) = pg_catalog_foreign_key(def) else {
+                    ok = false;
+                    continue;
+                };
+                if let Some(issue) = pg_catalog_constraint_issue(def, ConstraintKind::ForeignKey, false) {
+                    record_provenance(
+                        provenance,
+                        CatalogObjectRef::Constraint {
+                            schema: issue.schema.clone(),
+                            table: issue.table.clone(),
+                            name: issue.name.clone(),
+                        },
+                        index,
+                        pos,
+                    );
+                    push_unique_constraint_issue(&mut snapshot.constraints, issue);
+                }
+                record_provenance(
+                    provenance,
+                    CatalogObjectRef::ForeignKey {
+                        schema: fk.schema.clone(),
+                        table: fk.table.clone(),
+                        name: fk.name.clone(),
+                    },
+                    index,
+                    pos,
+                );
+                snapshot.foreign_keys.push(fk);
+            }
+            set_canonical_source(snapshot, source_id::FOREIGN_KEYS, snapshot.foreign_keys.is_empty(), !ok);
+        }
+        SnapshotDataset::CheckConstraints => {
+            for (pos, row) in original.records().iter().enumerate() {
+                let TelemetryRecord::ObjectDefinition(ObjectDefinitionRecord {
+                    fact: ObjectDefinitionFact::NativeCatalog(def),
+                    ..
+                }) = &row.row().record
+                else {
+                    ok = false;
+                    continue;
+                };
+                if let Some(issue) = pg_catalog_constraint_issue(def, ConstraintKind::Check, allow_inheritance_child) {
+                    record_provenance(
+                        provenance,
+                        CatalogObjectRef::Constraint {
+                            schema: issue.schema.clone(),
+                            table: issue.table.clone(),
+                            name: issue.name.clone(),
+                        },
+                        index,
+                        pos,
+                    );
+                    push_unique_constraint_issue(&mut snapshot.constraints, issue);
+                }
+            }
+            set_canonical_source(snapshot, source_id::CHECK_CONSTRAINTS, snapshot.constraints.is_empty(), !ok);
+        }
+        _ => {}
     }
+    ok
 }
 
-fn project_postgres_catalogs(
-    selection: NonMssqlSelection<'_>,
-    snapshot: &mut Snapshot,
-) -> Result<(Vec<u16>, Vec<SnapshotDataset>, Vec<DerivedContextIssue>)> {
+fn resolve_pg_family_index_columns(
+    table_oid: &str,
+    index_name: &str,
+    key_nums: &[i32],
+    key_count: usize,
+    options: &[i32],
+    expressions_md5: Option<&str>,
+    col_names_by_oid: &BTreeMap<(String, u32), String>,
+) -> Option<(Vec<String>, Vec<String>)> {
+    if key_nums.is_empty() || key_nums.iter().any(|&attnum| attnum < 0) {
+        return None;
+    }
+    let mut key_cols = Vec::new();
+    let mut include_cols = Vec::new();
+    for (pos, &attnum) in key_nums.iter().enumerate() {
+        let col_name = if attnum == 0 {
+            match expressions_md5.filter(|s| !s.is_empty()) {
+                Some(md5) => format!("(expr:{md5}:{pos})"),
+                None => format!("(expr:{index_name}:{pos})"),
+            }
+        } else {
+            col_names_by_oid.get(&(table_oid.to_owned(), attnum as u32))?.clone()
+        };
+        if pos < key_count {
+            let desc = options.get(pos).is_some_and(|opt| (opt & 1) == 1);
+            key_cols.push(if desc { format!("{col_name} DESC") } else { col_name });
+        } else {
+            include_cols.push(col_name);
+        }
+    }
+    Some((key_cols, include_cols))
+}
+
+struct NonMssqlProjection {
+    admitted_inputs: Vec<u16>,
+    projected_datasets: Vec<SnapshotDataset>,
+    issues: Vec<DerivedContextIssue>,
+    provenance: CatalogProvenance,
+}
+
+type MysqlFkGroup<'a> = BTreeMap<(String, String), Vec<(u32, usize, &'a NativeCatalogDefinition)>>;
+type MysqlIndexGroup<'a> = BTreeMap<(String, String), Vec<(u32, usize, &'a NativeCatalogCounters)>>;
+
+fn project_postgres_catalogs(selection: NonMssqlSelection<'_>, snapshot: &mut Snapshot) -> Result<NonMssqlProjection> {
     let NonMssqlSelection { heads, mut issues } = selection;
     let mut admitted_inputs = Vec::new();
     let mut projected_datasets = Vec::new();
+    let mut provenance = CatalogProvenance::new();
     let mut col_names_by_oid: BTreeMap<(String, u32), String> = BTreeMap::new();
     let mut staged_indexes: Option<(u16, &dyn OriginalProjection)> = None;
 
-    // Pass 1: project Columns, Tables, ForeignKeys, CheckConstraints so column OID -> name lookup is ready for Indexes.
     for &(index, original) in &heads {
         let ds = catalogs::selection::dataset(original).ok_or_else(invalid)?;
         if ds == SnapshotDataset::Indexes {
@@ -253,7 +424,7 @@ fn project_postgres_catalogs(
         let mut ok = true;
         match ds {
             SnapshotDataset::Tables => {
-                for row in original.records() {
+                for (pos, row) in original.records().iter().enumerate() {
                     let TelemetryRecord::Operational(OperationalObservation {
                         fact: OperationalFact::CounterSet(set),
                         ..
@@ -262,44 +433,23 @@ fn project_postgres_catalogs(
                         ok = false;
                         continue;
                     };
-                    let prop = |k: &str| set.properties.get(k).cloned().unwrap_or_default();
-                    let opt = |k: &str| set.properties.get(k).cloned();
-                    let table = TableStat {
-                        schema: prop("schema_name"),
-                        name: prop("table_name"),
-                        kind: None,
-                        definition: None,
-                        rows: counter_number(set, "rows").map(|v| v.max(0.0)),
-                        total_bytes: counter_number(set, "total_bytes"),
-                        data_bytes: counter_number(set, "data_bytes"),
-                        index_bytes: counter_number(set, "index_bytes"),
-                        in_row_bytes: counter_number(set, "in_row_bytes"),
-                        lob_bytes: counter_number(set, "lob_bytes"),
-                        overflow_bytes: None,
-                        has_primary_key: matches!(prop("has_pk").as_str(), "t" | "true"),
-                        is_heap: None,
-                        seq_scans: counter_number(set, "seq_scan"),
-                        seq_rows_read: counter_number(set, "seq_tup_read"),
-                        index_scans: counter_number(set, "idx_scan"),
-                        inserts: counter_number(set, "n_tup_ins"),
-                        updates: counter_number(set, "n_tup_upd"),
-                        deletes: counter_number(set, "n_tup_del"),
-                        dead_rows: counter_number(set, "n_dead_tup"),
-                        modifications_since_analyze: counter_number(set, "n_mod_since_analyze"),
-                        last_vacuum: opt("last_vacuum"),
-                        last_analyze: opt("last_analyze"),
-                        forwarded_records: None,
-                        forwarded_fetches: None,
-                        xid_age: counter_number(set, "xid_age"),
-                        storage: None,
-                        mssql_full_text: None,
-                        mssql_storage_configuration: None,
-                        mssql_tracked_by_cdc: None,
-                        mssql_heap_configuration: None,
-                        mssql_temporal_configuration: None,
-                        partition_of: opt("partition_of"),
-                        counters_since: None,
-                    };
+                    let table = pg_table_stat(set);
+                    record_provenance(
+                        &mut provenance,
+                        CatalogObjectRef::Table { schema: table.schema.clone(), table: table.name.clone() },
+                        index,
+                        pos,
+                    );
+                    record_provenance(
+                        &mut provenance,
+                        CatalogObjectRef::Statistics {
+                            schema: table.schema.clone(),
+                            table: table.name.clone(),
+                            name: table.name.clone(),
+                        },
+                        index,
+                        pos,
+                    );
                     snapshot.statistics.push(StatisticsInfo {
                         schema: table.schema.clone(),
                         table: table.name.clone(),
@@ -314,124 +464,45 @@ fn project_postgres_catalogs(
                 }
                 set_canonical_source(snapshot, source_id::TABLES, snapshot.tables.is_empty(), !ok);
             }
-            SnapshotDataset::Columns => {
-                for row in original.records() {
-                    let TelemetryRecord::ObjectDefinition(ObjectDefinitionRecord {
-                        fact: ObjectDefinitionFact::NativeCatalog(def),
-                        ..
-                    }) = &row.row().record
-                    else {
-                        ok = false;
-                        continue;
-                    };
-                    let prop = |k: &str| def.properties.get(k).cloned().unwrap_or_default();
-                    let Some(ordinal) = prop("ordinal").parse::<u32>().ok() else {
-                        ok = false;
-                        continue;
-                    };
-                    let rel_oid = prop("relation_oid");
-                    let col_name = prop("column_name");
-                    if !rel_oid.is_empty() && !col_name.is_empty() {
-                        col_names_by_oid.insert((rel_oid, ordinal), col_name.clone());
-                    }
-                    let default = match &def.definition {
-                        Some(CatalogExpression { payload: DefinitionPayload::Available { text, .. }, .. }) => {
-                            Some(text.clone())
-                        }
-                        _ => None,
-                    };
-                    snapshot.columns.push(ColumnInfo {
-                        schema: prop("schema_name"),
-                        table: prop("table_name"),
-                        name: col_name,
-                        data_type: prop("data_type"),
-                        nullable: prop("nullable") == "true",
-                        generated: !prop("identity").is_empty()
-                            || !prop("generated").is_empty()
-                            || default.as_deref().is_some_and(|v| v.starts_with("nextval(")),
-                        default,
-                        ordinal,
-                    });
-                }
-                set_canonical_source(snapshot, source_id::COLUMNS, snapshot.columns.is_empty(), !ok);
+            SnapshotDataset::Columns | SnapshotDataset::ForeignKeys | SnapshotDataset::CheckConstraints => {
+                ok = project_pg_family_columns_fks_constraints(
+                    ds,
+                    index,
+                    original,
+                    true,
+                    &mut col_names_by_oid,
+                    &mut provenance,
+                    snapshot,
+                );
             }
-            SnapshotDataset::ForeignKeys => {
-                for row in original.records() {
-                    let TelemetryRecord::ObjectDefinition(ObjectDefinitionRecord {
-                        fact: ObjectDefinitionFact::NativeCatalog(def),
+            SnapshotDataset::Sequences => {
+                for (pos, row) in original.records().iter().enumerate() {
+                    let TelemetryRecord::Operational(OperationalObservation {
+                        fact: OperationalFact::CatalogCounters(native),
                         ..
                     }) = &row.row().record
                     else {
                         ok = false;
                         continue;
                     };
-                    let prop = |k: &str| def.properties.get(k).cloned().unwrap_or_default();
-                    let cols: Option<Vec<String>> = serde_json::from_str(&prop("columns")).ok();
-                    let ref_cols: Option<Vec<String>> = serde_json::from_str(&prop("ref_columns")).ok();
-                    let (Some(columns), Some(ref_columns)) = (cols, ref_cols) else {
+                    let Some(seq) = pg_sequence_capacity(native) else {
                         ok = false;
                         continue;
                     };
-                    let name = prop("name");
-                    let schema = prop("schema_name");
-                    let table = prop("table_name");
-                    if prop("validated") == "false" {
-                        snapshot.constraints.push(ConstraintIssue {
-                            schema: schema.clone(),
-                            table: table.clone(),
-                            name: name.clone(),
-                            kind: ConstraintKind::ForeignKey,
-                            disabled: false,
-                            inheritance_child: false,
-                        });
-                    }
-                    snapshot.foreign_keys.push(ForeignKey {
-                        name,
-                        schema,
-                        table,
-                        columns,
-                        ref_schema: prop("ref_schema"),
-                        ref_table: prop("ref_table"),
-                        ref_columns,
-                        delete_rule: match prop("delete_rule").as_str() {
-                            "c" => Some("CASCADE".into()),
-                            "n" => Some("SET NULL".into()),
-                            "d" => Some("SET DEFAULT".into()),
-                            "r" => Some("RESTRICT".into()),
-                            _ => None,
-                        },
-                    });
+                    record_provenance(
+                        &mut provenance,
+                        CatalogObjectRef::Sequence { name: seq.name.clone() },
+                        index,
+                        pos,
+                    );
+                    snapshot.operations.sequences.push(seq);
                 }
-                set_canonical_source(snapshot, source_id::FOREIGN_KEYS, snapshot.foreign_keys.is_empty(), !ok);
-            }
-            SnapshotDataset::CheckConstraints => {
-                for row in original.records() {
-                    let TelemetryRecord::ObjectDefinition(ObjectDefinitionRecord {
-                        fact: ObjectDefinitionFact::NativeCatalog(def),
-                        ..
-                    }) = &row.row().record
-                    else {
-                        ok = false;
-                        continue;
-                    };
-                    let prop = |k: &str| def.properties.get(k).cloned().unwrap_or_default();
-                    if prop("validated") == "false" && prop("inheritance_child") != "true" {
-                        let kind = if prop("constraint_type") == "f" {
-                            ConstraintKind::ForeignKey
-                        } else {
-                            ConstraintKind::Check
-                        };
-                        snapshot.constraints.push(ConstraintIssue {
-                            schema: prop("schema_name"),
-                            table: prop("table_name"),
-                            name: prop("name"),
-                            kind,
-                            disabled: false,
-                            inheritance_child: false,
-                        });
-                    }
-                }
-                set_canonical_source(snapshot, source_id::CHECK_CONSTRAINTS, snapshot.constraints.is_empty(), !ok);
+                set_canonical_source(
+                    snapshot,
+                    source_id::SEQUENCE_CAPACITY,
+                    snapshot.operations.sequences.is_empty(),
+                    !ok,
+                );
             }
             _ => {}
         }
@@ -444,10 +515,9 @@ fn project_postgres_catalogs(
         }
     }
 
-    // Pass 2: project Indexes using resolved column OIDs when available.
     if let Some((index, original)) = staged_indexes {
         let mut ok = true;
-        for row in original.records() {
+        for (pos, row) in original.records().iter().enumerate() {
             let TelemetryRecord::Operational(OperationalObservation {
                 fact: OperationalFact::CatalogCounters(native),
                 ..
@@ -469,44 +539,44 @@ fn project_postgres_catalogs(
                     continue;
                 }
             };
+            let index_name = prop("index_name");
             let key_nums: Vec<i32> =
                 prop("native_keys").split_whitespace().filter_map(|s| s.parse::<i32>().ok()).collect();
             let key_count = prop("native_key_count").parse::<usize>().unwrap_or(key_nums.len());
             let options: Vec<i32> =
                 prop("native_options").split_whitespace().filter_map(|s| s.parse::<i32>().ok()).collect();
-            if key_nums.is_empty() || key_nums.iter().any(|&attnum| attnum <= 0) {
+            let expr_md5 = def.properties.get("expressions_md5").map(String::as_str);
+            let Some((key_cols, include_cols)) = resolve_pg_family_index_columns(
+                &table_oid,
+                &index_name,
+                &key_nums,
+                key_count,
+                &options,
+                expr_md5,
+                &col_names_by_oid,
+            ) else {
                 ok = false;
                 continue;
-            }
-            let mut key_cols = Vec::new();
-            let mut include_cols = Vec::new();
-            let mut resolved_all = true;
-            for (pos, &attnum) in key_nums.iter().enumerate() {
-                let Some(col_name) = col_names_by_oid.get(&(table_oid.clone(), attnum as u32)) else {
-                    resolved_all = false;
-                    break;
-                };
-                if pos < key_count {
-                    let desc = options.get(pos).is_some_and(|opt| (opt & 1) == 1);
-                    key_cols.push(if desc { format!("{col_name} DESC") } else { col_name.clone() });
-                } else {
-                    include_cols.push(col_name.clone());
-                }
-            }
-            if !resolved_all {
-                ok = false;
-                continue;
-            }
+            };
             let valid = matches!(prop("native_valid").as_str(), "t" | "true");
             let ready = matches!(prop("indisready").as_str(), "t" | "true");
+            let opclasses = pg_archive_opclasses(def, key_cols.len());
+            let schema = prop("schema_name");
+            let table = prop("table_name");
+            record_provenance(
+                &mut provenance,
+                CatalogObjectRef::Index { schema: schema.clone(), table: table.clone(), index: index_name.clone() },
+                index,
+                pos,
+            );
             snapshot.indexes.push(IndexStat {
                 mssql_configuration: None,
                 mssql_columnstore: None,
                 docdb: None,
                 filter_facts: None,
-                schema: prop("schema_name"),
-                table: prop("table_name"),
-                name: prop("index_name"),
+                schema,
+                table,
+                name: index_name,
                 kind: prop("kind"),
                 columns: key_cols,
                 include: include_cols,
@@ -529,7 +599,7 @@ fn project_postgres_catalogs(
                 contention: None,
                 created_at_latest: None,
                 partition_of: def.properties.get("partition_of").cloned(),
-                opclasses: None,
+                opclasses,
                 counters_since: None,
             });
         }
@@ -549,17 +619,264 @@ fn project_postgres_catalogs(
         set_canonical_source(snapshot, source_id::CONSTRAINTS, snapshot.constraints.is_empty(), false);
     }
     admitted_inputs.sort_unstable();
-    Ok((admitted_inputs, projected_datasets, issues))
+    Ok(NonMssqlProjection { admitted_inputs, projected_datasets, issues, provenance })
+}
+
+fn project_yugabyte_catalogs(selection: NonMssqlSelection<'_>, snapshot: &mut Snapshot) -> Result<NonMssqlProjection> {
+    let NonMssqlSelection { heads, mut issues } = selection;
+    let mut admitted_inputs = Vec::new();
+    let mut projected_datasets = Vec::new();
+    let mut provenance = CatalogProvenance::new();
+    let mut col_names_by_oid: BTreeMap<(String, u32), String> = BTreeMap::new();
+    let mut pk_tables_from_indexes: Vec<(String, String)> = Vec::new();
+    let mut tables_had_has_pk = true;
+    let mut staged_indexes: Option<(u16, &dyn OriginalProjection)> = None;
+
+    for &(index, original) in &heads {
+        let ds = catalogs::selection::dataset(original).ok_or_else(invalid)?;
+        if ds == SnapshotDataset::Indexes {
+            staged_indexes = Some((index, original));
+            continue;
+        }
+        let mut ok = true;
+        match ds {
+            SnapshotDataset::Tables => {
+                for (pos, row) in original.records().iter().enumerate() {
+                    let TelemetryRecord::Operational(OperationalObservation {
+                        fact: OperationalFact::CatalogCounters(native),
+                        ..
+                    }) = &row.row().record
+                    else {
+                        ok = false;
+                        continue;
+                    };
+                    let props = &native.catalog.properties;
+                    let schema = props.get("schema_name").cloned().unwrap_or_default();
+                    let name = props.get("name").or_else(|| props.get("table_name")).cloned().unwrap_or_default();
+                    if name.is_empty() {
+                        ok = false;
+                        continue;
+                    }
+                    if !props.contains_key("has_pk") {
+                        tables_had_has_pk = false;
+                    }
+                    let has_pk = props.get("has_pk").is_some_and(|v| matches!(v.as_str(), "t" | "true"));
+                    let kind = Some(if props.get("kind").is_some_and(|k| k == "p") {
+                        "partitioned".into()
+                    } else {
+                        "docdb".into()
+                    });
+                    record_provenance(
+                        &mut provenance,
+                        CatalogObjectRef::Table { schema: schema.clone(), table: name.clone() },
+                        index,
+                        pos,
+                    );
+                    snapshot.tables.push(TableStat {
+                        schema,
+                        name,
+                        kind,
+                        definition: None,
+                        rows: counter_number(&native.counters, "estimated-rows").filter(|v| v.is_finite() && *v >= 0.0),
+                        total_bytes: None,
+                        data_bytes: None,
+                        index_bytes: None,
+                        in_row_bytes: None,
+                        lob_bytes: None,
+                        overflow_bytes: None,
+                        has_primary_key: has_pk,
+                        is_heap: None,
+                        seq_scans: None,
+                        seq_rows_read: None,
+                        index_scans: None,
+                        inserts: None,
+                        updates: None,
+                        deletes: None,
+                        dead_rows: None,
+                        modifications_since_analyze: None,
+                        last_vacuum: None,
+                        last_analyze: None,
+                        forwarded_records: None,
+                        forwarded_fetches: None,
+                        xid_age: None,
+                        storage: None,
+                        mssql_full_text: None,
+                        mssql_storage_configuration: None,
+                        mssql_tracked_by_cdc: None,
+                        mssql_heap_configuration: None,
+                        mssql_temporal_configuration: None,
+                        partition_of: props.get("partition_of").cloned(),
+                        counters_since: None,
+                    });
+                }
+                set_canonical_source(snapshot, source_id::TABLES, snapshot.tables.is_empty(), !ok);
+            }
+            SnapshotDataset::Columns | SnapshotDataset::ForeignKeys | SnapshotDataset::CheckConstraints => {
+                // YSQL native validation says nothing about PostgreSQL heap inheritance/constraint-exclusion behavior.
+                ok = project_pg_family_columns_fks_constraints(
+                    ds,
+                    index,
+                    original,
+                    false,
+                    &mut col_names_by_oid,
+                    &mut provenance,
+                    snapshot,
+                );
+            }
+            _ => {}
+        }
+        if !ok && !issues.contains(&DerivedContextIssue::PartialCatalog) {
+            issues.push(DerivedContextIssue::PartialCatalog);
+        }
+        admitted_inputs.push(index);
+        if ok {
+            projected_datasets.push(ds);
+        }
+    }
+
+    if let Some((index, original)) = staged_indexes {
+        let mut ok = true;
+        for (pos, row) in original.records().iter().enumerate() {
+            let TelemetryRecord::Operational(OperationalObservation {
+                fact: OperationalFact::CatalogCounters(native),
+                ..
+            }) = &row.row().record
+            else {
+                ok = false;
+                continue;
+            };
+            let def = &native.catalog;
+            let prop_opt = |a: &str, b: &str| def.properties.get(a).or_else(|| def.properties.get(b));
+            let table_oid = def
+                .properties
+                .get("relation_oid")
+                .or_else(|| def.identity.qualifiers.get("table_oid"))
+                .cloned()
+                .unwrap_or_default();
+            if def.properties.contains_key("predicate_md5") && def.predicate.is_none() {
+                // Partial index predicate text was not deparsed during background metadata capture.
+                ok = false;
+                continue;
+            }
+            let filter = match &def.predicate {
+                None => None,
+                Some(CatalogExpression { payload: DefinitionPayload::Available { text, .. }, .. }) => {
+                    Some(text.clone())
+                }
+                Some(_) => {
+                    ok = false;
+                    continue;
+                }
+            };
+            let index_name = prop_opt("name", "index_name").cloned().unwrap_or_default();
+            let raw_keys = prop_opt("key_numbers", "native_keys").map_or("", String::as_str);
+            let key_nums: Vec<i32> = raw_keys.split_whitespace().filter_map(|s| s.parse::<i32>().ok()).collect();
+            let key_count = prop_opt("key_count", "native_key_count")
+                .and_then(|s| s.parse::<usize>().ok())
+                .unwrap_or(key_nums.len());
+            let options: Vec<i32> = prop_opt("options", "native_options")
+                .map_or("", String::as_str)
+                .split_whitespace()
+                .filter_map(|s| s.parse::<i32>().ok())
+                .collect();
+            let expr_md5 = prop_opt("expression_md5", "expressions_md5").map(String::as_str);
+            let Some((key_cols, include_cols)) = resolve_pg_family_index_columns(
+                &table_oid,
+                &index_name,
+                &key_nums,
+                key_count,
+                &options,
+                expr_md5,
+                &col_names_by_oid,
+            ) else {
+                ok = false;
+                continue;
+            };
+            let primary = prop_opt("primary", "indisprimary").is_some_and(|v| matches!(v.as_str(), "t" | "true"));
+            let unique = prop_opt("unique", "indisunique").is_some_and(|v| matches!(v.as_str(), "t" | "true"));
+            let ready = prop_opt("ready", "indisready").is_some_and(|v| matches!(v.as_str(), "t" | "true"));
+            let valid = prop_opt("valid", "native_valid").is_some_and(|v| matches!(v.as_str(), "t" | "true"));
+            let schema = def.properties.get("schema_name").cloned().unwrap_or_default();
+            let table = def.properties.get("table_name").cloned().unwrap_or_default();
+            if primary {
+                pk_tables_from_indexes.push((schema.clone(), table.clone()));
+            }
+            let opclasses = pg_archive_opclasses(def, key_cols.len());
+            record_provenance(
+                &mut provenance,
+                CatalogObjectRef::Index { schema: schema.clone(), table: table.clone(), index: index_name.clone() },
+                index,
+                pos,
+            );
+            snapshot.indexes.push(IndexStat {
+                mssql_configuration: None,
+                mssql_columnstore: None,
+                docdb: None,
+                filter_facts: None,
+                schema,
+                table,
+                name: index_name,
+                kind: prop_opt("access_method", "kind").cloned().unwrap_or_default(),
+                columns: key_cols,
+                include: include_cols,
+                filter,
+                is_unique: unique,
+                is_primary_key: primary,
+                is_clustered: primary,
+                is_disabled: !(valid && ready),
+                state: None,
+                maintained: Some(ready),
+                has_statistics: None,
+                size_bytes: None,
+                reads: None,
+                writes: None,
+                seeks: None,
+                scans: None,
+                lookups: None,
+                last_read: None,
+                definition: None,
+                contention: None,
+                created_at_latest: None,
+                partition_of: def.properties.get("partition_of").cloned(),
+                opclasses,
+                counters_since: None,
+            });
+        }
+        if !tables_had_has_pk && ok {
+            for (schema, table) in pk_tables_from_indexes {
+                if let Some(tbl) = snapshot.tables.iter_mut().find(|t| t.schema == schema && t.name == table) {
+                    tbl.has_primary_key = true;
+                }
+            }
+        }
+        set_canonical_source(snapshot, source_id::INDEXES, snapshot.indexes.is_empty(), !ok);
+        if !ok && !issues.contains(&DerivedContextIssue::PartialCatalog) {
+            issues.push(DerivedContextIssue::PartialCatalog);
+        }
+        admitted_inputs.push(index);
+        if ok {
+            projected_datasets.push(SnapshotDataset::Indexes);
+        }
+    }
+
+    if projected_datasets.contains(&SnapshotDataset::ForeignKeys)
+        && projected_datasets.contains(&SnapshotDataset::CheckConstraints)
+    {
+        set_canonical_source(snapshot, source_id::CONSTRAINTS, snapshot.constraints.is_empty(), false);
+    }
+    admitted_inputs.sort_unstable();
+    Ok(NonMssqlProjection { admitted_inputs, projected_datasets, issues, provenance })
 }
 
 fn project_mysql_catalogs(
     database: &str,
     selection: NonMssqlSelection<'_>,
     snapshot: &mut Snapshot,
-) -> Result<(Vec<u16>, Vec<SnapshotDataset>, Vec<DerivedContextIssue>)> {
+) -> Result<NonMssqlProjection> {
     let NonMssqlSelection { heads, mut issues } = selection;
     let mut admitted_inputs = Vec::new();
     let mut projected_datasets = Vec::new();
+    let mut provenance = CatalogProvenance::new();
     let mut table_engines: BTreeMap<String, String> = BTreeMap::new();
     let mut staged_indexes: Option<(u16, &dyn OriginalProjection)> = None;
 
@@ -572,7 +889,7 @@ fn project_mysql_catalogs(
         let mut ok = true;
         match ds {
             SnapshotDataset::Tables => {
-                for row in original.records() {
+                for (pos, row) in original.records().iter().enumerate() {
                     let TelemetryRecord::Operational(OperationalObservation {
                         fact: OperationalFact::CatalogCounters(native),
                         ..
@@ -591,6 +908,12 @@ fn project_mysql_catalogs(
                     let idx_bytes = counter_number(&native.counters, "index_bytes");
                     let storage = (!engine_name.is_empty())
                         .then(|| TableStorage { options: vec![format!("engine={engine_name}")], ..Default::default() });
+                    record_provenance(
+                        &mut provenance,
+                        CatalogObjectRef::Table { schema: database.to_owned(), table: name.clone() },
+                        index,
+                        pos,
+                    );
                     snapshot.tables.push(TableStat {
                         schema: database.to_owned(),
                         name,
@@ -634,7 +957,9 @@ fn project_mysql_catalogs(
                 set_canonical_source(snapshot, source_id::TABLES, snapshot.tables.is_empty(), !ok);
             }
             SnapshotDataset::Columns => {
-                for row in original.records() {
+                let mut staged_cols: Vec<ColumnInfo> = Vec::new();
+                let mut staged_colls: Vec<Option<String>> = Vec::new();
+                for (pos, row) in original.records().iter().enumerate() {
                     let TelemetryRecord::ObjectDefinition(ObjectDefinitionRecord {
                         fact: ObjectDefinitionFact::NativeCatalog(def),
                         ..
@@ -648,10 +973,23 @@ fn project_mysql_catalogs(
                         ok = false;
                         continue;
                     };
-                    snapshot.columns.push(ColumnInfo {
+                    let table = prop("table_name");
+                    let col_name = prop("name");
+                    record_provenance(
+                        &mut provenance,
+                        CatalogObjectRef::Column {
+                            schema: database.to_owned(),
+                            table: table.clone(),
+                            column: col_name.clone(),
+                        },
+                        index,
+                        pos,
+                    );
+                    staged_colls.push(def.properties.get("collation_name").cloned());
+                    staged_cols.push(ColumnInfo {
                         schema: database.to_owned(),
-                        table: prop("table_name"),
-                        name: prop("name"),
+                        table,
+                        name: col_name,
                         data_type: prop("data_type"),
                         nullable: prop("nullable").eq_ignore_ascii_case("YES"),
                         default: None,
@@ -659,11 +997,14 @@ fn project_mysql_catalogs(
                         ordinal,
                     });
                 }
+                let coll_refs: Vec<Option<&str>> = staged_colls.iter().map(|c| c.as_deref()).collect();
+                apply_mysql_mixed_collations(&mut staged_cols, &coll_refs);
+                snapshot.columns.extend(staged_cols);
                 set_canonical_source(snapshot, source_id::COLUMNS, snapshot.columns.is_empty(), !ok);
             }
             SnapshotDataset::ForeignKeys => {
-                let mut grouped: BTreeMap<(String, String), Vec<(u32, &NativeCatalogDefinition)>> = BTreeMap::new();
-                for row in original.records() {
+                let mut grouped: MysqlFkGroup<'_> = BTreeMap::new();
+                for (pos, row) in original.records().iter().enumerate() {
                     let TelemetryRecord::ObjectDefinition(ObjectDefinitionRecord {
                         fact: ObjectDefinitionFact::NativeCatalog(def),
                         ..
@@ -674,27 +1015,100 @@ fn project_mysql_catalogs(
                     };
                     let prop = |k: &str| def.properties.get(k).cloned().unwrap_or_default();
                     let ord = prop("ordinal").parse::<u32>().unwrap_or(0);
-                    grouped.entry((prop("table_name"), prop("name"))).or_default().push((ord, def));
+                    grouped.entry((prop("table_name"), prop("name"))).or_default().push((ord, pos, def));
                 }
                 for ((table, name), mut parts) in grouped {
-                    parts.sort_by_key(|(ord, _)| *ord);
-                    let first = parts[0].1;
+                    parts.sort_by_key(|(ord, _, _)| *ord);
+                    let first = parts[0].2;
                     let prop = |d: &NativeCatalogDefinition, k: &str| d.properties.get(k).cloned().unwrap_or_default();
+                    for &(_, pos, _) in &parts {
+                        record_provenance(
+                            &mut provenance,
+                            CatalogObjectRef::ForeignKey {
+                                schema: database.to_owned(),
+                                table: table.clone(),
+                                name: name.clone(),
+                            },
+                            index,
+                            pos,
+                        );
+                    }
                     snapshot.foreign_keys.push(ForeignKey {
                         name,
                         schema: database.to_owned(),
                         table,
-                        columns: parts.iter().map(|(_, d)| prop(d, "column_name")).collect(),
+                        columns: parts.iter().map(|(_, _, d)| prop(d, "column_name")).collect(),
                         ref_schema: prop(first, "ref_schema"),
                         ref_table: prop(first, "ref_table"),
-                        ref_columns: parts.iter().map(|(_, d)| prop(d, "ref_column")).collect(),
-                        delete_rule: first.properties.get("delete_rule").cloned(),
+                        ref_columns: parts.iter().map(|(_, _, d)| prop(d, "ref_column")).collect(),
+                        delete_rule: mysql_delete_rule(first.properties.get("delete_rule").map(String::as_str)),
                     });
                 }
                 set_canonical_source(snapshot, source_id::FOREIGN_KEYS, snapshot.foreign_keys.is_empty(), !ok);
             }
             SnapshotDataset::CheckConstraints => {
-                set_canonical_source(snapshot, source_id::CHECK_CONSTRAINTS, original.records().is_empty(), false);
+                for (pos, row) in original.records().iter().enumerate() {
+                    if let TelemetryRecord::ObjectDefinition(ObjectDefinitionRecord {
+                        fact: ObjectDefinitionFact::NativeCatalog(def),
+                        ..
+                    }) = &row.row().record
+                    {
+                        let table = def.properties.get("table_name").cloned().unwrap_or_default();
+                        let name = def.properties.get("name").cloned().unwrap_or_default();
+                        if !table.is_empty() && !name.is_empty() {
+                            record_provenance(
+                                &mut provenance,
+                                CatalogObjectRef::Constraint { schema: database.to_owned(), table, name },
+                                index,
+                                pos,
+                            );
+                        }
+                    } else {
+                        ok = false;
+                    }
+                }
+                set_canonical_source(snapshot, source_id::CHECK_CONSTRAINTS, original.records().is_empty(), !ok);
+            }
+            SnapshotDataset::Sequences => {
+                for (pos, row) in original.records().iter().enumerate() {
+                    let TelemetryRecord::Operational(OperationalObservation {
+                        fact: OperationalFact::CatalogCounters(native),
+                        ..
+                    }) = &row.row().record
+                    else {
+                        ok = false;
+                        continue;
+                    };
+                    let props = &native.catalog.properties;
+                    let col_type = props.get("column_type").map_or("", String::as_str);
+                    if mysql_integer_bounds(col_type).is_none() {
+                        ok = false;
+                        continue;
+                    }
+                    let next_value =
+                        native.counters.counters.iter().find(|c| c.key == "next_value").map(|c| match &c.value {
+                            MeasurementValue::Integer(raw) => raw.clone(),
+                            MeasurementValue::Real(v) => (*v as u64).to_string(),
+                        });
+                    let (Some(name), Some(current), Some(step)) =
+                        (props.get("name").cloned(), next_value, props.get("step").cloned())
+                    else {
+                        ok = false;
+                        continue;
+                    };
+                    if let Some(seq) =
+                        mysql_sequence_capacity(name.clone(), props.get("table_name").cloned(), col_type, current, step)
+                    {
+                        record_provenance(&mut provenance, CatalogObjectRef::Sequence { name }, index, pos);
+                        snapshot.operations.sequences.push(seq);
+                    }
+                }
+                set_canonical_source(
+                    snapshot,
+                    source_id::SEQUENCE_CAPACITY,
+                    snapshot.operations.sequences.is_empty(),
+                    !ok,
+                );
             }
             _ => {}
         }
@@ -709,8 +1123,8 @@ fn project_mysql_catalogs(
 
     if let Some((index, original)) = staged_indexes {
         let mut ok = true;
-        let mut grouped: BTreeMap<(String, String), Vec<(u32, &NativeCatalogCounters)>> = BTreeMap::new();
-        for row in original.records() {
+        let mut grouped: MysqlIndexGroup<'_> = BTreeMap::new();
+        for (pos, row) in original.records().iter().enumerate() {
             let TelemetryRecord::Operational(OperationalObservation {
                 fact: OperationalFact::CatalogCounters(native),
                 ..
@@ -721,29 +1135,25 @@ fn project_mysql_catalogs(
             };
             let prop = |k: &str| native.catalog.properties.get(k).cloned().unwrap_or_default();
             let seq = prop("seq").parse::<u32>().unwrap_or(0);
-            grouped.entry((prop("table_name"), prop("index_name"))).or_default().push((seq, native));
+            grouped.entry((prop("table_name"), prop("index_name"))).or_default().push((seq, pos, native));
         }
         for ((table, name), mut parts) in grouped {
-            parts.sort_by_key(|(seq, _)| *seq);
+            parts.sort_by_key(|(seq, _, _)| *seq);
             let mut cols = Vec::new();
-            let mut part_ok = true;
-            for (_, part) in &parts {
-                let Some(col) = part.catalog.properties.get("column_name").filter(|s| !s.is_empty()) else {
-                    part_ok = false;
-                    break;
-                };
-                let base = match part.catalog.properties.get("sub_part").and_then(|s| s.parse::<u64>().ok()) {
-                    Some(prefix) => format!("{col}({prefix})"),
-                    None => col.clone(),
-                };
-                let desc = part.catalog.properties.get("collation").is_some_and(|c| c == "D");
-                cols.push(if desc { format!("{base} DESC") } else { base });
+            for &(seq, pos, part) in &parts {
+                record_provenance(
+                    &mut provenance,
+                    CatalogObjectRef::Index { schema: database.to_owned(), table: table.clone(), index: name.clone() },
+                    index,
+                    pos,
+                );
+                let col_name = part.catalog.properties.get("column_name").map(String::as_str);
+                let sub_part = part.catalog.properties.get("sub_part").and_then(|s| s.parse::<u64>().ok());
+                let collation = part.catalog.properties.get("collation").map(String::as_str);
+                let uncollected_expr = format!("(expr:{name}:{seq})");
+                cols.push(mysql_index_key_part(col_name, None, sub_part, collation, &uncollected_expr));
             }
-            if !part_ok {
-                ok = false;
-                continue;
-            }
-            let first = &parts[0].1.catalog;
+            let first = &parts[0].2.catalog;
             let primary_key = name.eq_ignore_ascii_case("PRIMARY");
             let unique = first.properties.get("non_unique").is_some_and(|v| v == "0");
             let innodb =
@@ -793,5 +1203,5 @@ fn project_mysql_catalogs(
     }
 
     admitted_inputs.sort_unstable();
-    Ok((admitted_inputs, projected_datasets, issues))
+    Ok(NonMssqlProjection { admitted_inputs, projected_datasets, issues, provenance })
 }

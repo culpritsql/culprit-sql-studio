@@ -75,6 +75,8 @@ pub(crate) struct SyncInventoryArgs {
     pub s3_bucket: Option<String>,
     #[arg(long, default_value = "us-east-1")]
     pub s3_region: String,
+    #[arg(long, value_name = "AWS_ACCOUNT_ID", help = culprit_core::t!("onboarding.cli.s3_expected_owner"))]
+    pub s3_expected_owner: Option<String>,
     #[arg(long)]
     pub clickhouse_endpoint: Option<String>,
     #[arg(long, default_value = "culprit")]
@@ -136,16 +138,33 @@ pub(crate) async fn run(args: SyncInventoryArgs, out: &Out) -> Result<u8> {
             tenant_id: args.tenant_id,
             client_id: args.client_id,
         },
-        TargetKindChoice::Clickhouse => OnboardingTargetSpec::AwsClickHouse {
-            pipeline: args.pipeline.clone(),
-            s3_bucket: args.s3_bucket.unwrap_or_else(|| "replace-culprit-archive".into()),
-            s3_region: args.s3_region,
-            clickhouse_endpoint: args.clickhouse_endpoint.unwrap_or_else(|| "https://clickhouse.internal:8443".into()),
-            clickhouse_database: args.clickhouse_database,
-            aws_profile: args.aws_profile,
-            clickhouse_user: args.clickhouse_user,
-            clickhouse_password_env: args.clickhouse_password_env,
-        },
+        TargetKindChoice::Clickhouse => {
+            let inferred_owner = {
+                let mut owners = discovery
+                    .items
+                    .iter()
+                    .filter(|d| d.cloud == culprit_engine::Cloud::Aws)
+                    .map(|d| d.subscription.as_str())
+                    .filter(|acct| acct.len() == 12 && acct.bytes().all(|b| b.is_ascii_digit()))
+                    .collect::<Vec<_>>();
+                owners.sort_unstable();
+                owners.dedup();
+                (owners.len() == 1).then(|| owners[0].to_string())
+            };
+            OnboardingTargetSpec::AwsClickHouse {
+                pipeline: args.pipeline.clone(),
+                s3_bucket: args.s3_bucket.unwrap_or_else(|| "replace-culprit-archive".into()),
+                s3_region: args.s3_region,
+                s3_expected_owner: args.s3_expected_owner.or(inferred_owner).unwrap_or_else(|| "000000000000".into()),
+                clickhouse_endpoint: args
+                    .clickhouse_endpoint
+                    .unwrap_or_else(|| "https://clickhouse.internal:8443".into()),
+                clickhouse_database: args.clickhouse_database,
+                aws_profile: args.aws_profile,
+                clickhouse_user: args.clickhouse_user,
+                clickhouse_password_env: args.clickhouse_password_env,
+            }
+        }
     };
 
     let json_renderer = JsonConfigRenderer { runtime_root: args.runtime_root };

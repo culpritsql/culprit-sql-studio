@@ -196,7 +196,7 @@ impl Connections<'_> {
             has_secret: stored.auth == AuthKind::Password
                 && (stored.password_env.is_some() || stored.password_saved.unwrap_or(true)),
             display: connstr::describe(&stored.spec()),
-            last_report: reports::latest_summary(&self.paths.reports_dir(name), None),
+            last_report: reports::latest_summary(&self.paths.reports_dir(&stored.id), None),
             agent_access: stored.agent.unwrap_or_default(),
             query_log: stored.query_log.clone(),
             ssh: stored.ssh.clone(),
@@ -307,19 +307,32 @@ impl Connections<'_> {
     }
 
     pub(crate) fn add_connection(&self, new: NewConnection) -> Result<ConnectionInfo> {
+        self.save_connection(new, false)
+    }
+
+    pub(crate) fn replace_connection(&self, new: NewConnection) -> Result<ConnectionInfo> {
+        self.save_connection(new, true)
+    }
+
+    fn save_connection(&self, new: NewConnection, replace: bool) -> Result<ConnectionInfo> {
         store::validate_name(&new.name)?;
+        if !replace && self.store.get_optional(&new.name)?.is_some() {
+            return Err(Error::invalid(t!("engine.connection.name_taken", name = &new.name))
+                .with_hint(t!("engine.connection.replace_hint")));
+        }
         let spec = merge(&new)?;
         let engine = spec.engine.ok_or_else(|| {
             Error::invalid(t!("engine.connection.unknown_engine")).with_hint(t!("engine.connection.choose_engine_hint"))
         })?;
         let password_env = new.password_env.clone().filter(|v| !v.is_empty());
         let password = spec.password.as_deref().filter(|p| !p.is_empty() && password_env.is_none());
-        self.retire_reports(&new.name)?;
+        let id = store::new_connection_id();
         if let Some(password) = password {
-            self.secrets.set(&new.name, password)?;
+            self.secrets.set(&id, password)?;
         }
         let password_saved = Some(password.is_some());
         let stored = StoredConnection {
+            id: id.clone(),
             engine,
             environment: new.environment,
             host: spec.host,
@@ -335,7 +348,22 @@ impl Connections<'_> {
             query_log: None,
             no_query_log: false,
         };
-        self.store.put(&new.name, stored)?;
+        let replaced = match self.store.insert_or_replace(&new.name, stored, replace) {
+            Ok(previous) => previous,
+            Err(err) => {
+                if password.is_some() {
+                    let _ = self.secrets.delete(&id);
+                }
+                return Err(err);
+            }
+        };
+        if let Some(old) = replaced {
+            if old.auth == AuthKind::Password && old.password_env.is_none() && old.password_saved != Some(false) {
+                let _ = self.secrets.delete(&old.id);
+            }
+            self.retire_reports_for_id(&new.name, &old.id)?;
+        }
+        self.retire_legacy_alias_reports(&new.name)?;
         self.evict_cached_provider(&new.name);
         self.discover_query_log(&new.name);
         self.connection(&new.name)
@@ -350,7 +378,7 @@ impl Connections<'_> {
         if password.is_empty() {
             return Err(Error::invalid(t!("engine.connection.empty_password")));
         }
-        self.secrets.set(name, password)?;
+        self.secrets.set(&stored.id, password)?;
         self.store.update(name, |stored| {
             stored.password_saved = Some(true);
             stored.password_env = None;
@@ -360,12 +388,12 @@ impl Connections<'_> {
     }
 
     /// Forget a connection. Its password goes first: when the keychain refuses, the connection stays as it was and can
-    /// be removed again, instead of disappearing with its password left behind. Saved reports stay on disk
-    /// ([`Connections::retire_reports`] sets them aside if the name is given to another connection).
+    /// be removed again, instead of disappearing with its password left behind. Saved reports are retired to
+    /// `reports/.removed/` under the alias so nothing is deleted and a future connection under the same alias starts clean.
     pub(crate) fn remove_connection(&self, name: &str) -> Result<()> {
         let stored = self.store.get(name)?;
         if stored.auth == AuthKind::Password && stored.password_env.is_none() {
-            let deleted = self.secrets.delete(name);
+            let deleted = self.secrets.delete(&stored.id);
             // Culprit saved no password for it, so there is nothing to wait for, and no connection without a saved
             // password reads one from the keychain (`resolve_secrets`).
             if stored.password_saved != Some(false) {
@@ -373,33 +401,49 @@ impl Connections<'_> {
             }
         }
         self.evict_cached_provider(name);
-        self.store.remove(name)
+        self.store.remove(name)?;
+        self.retire_reports_for_id(name, &stored.id)
     }
 
-    /// Reports filed under a name no saved connection uses were left by a removed one. Before the name is given to a
-    /// connection, move them to `reports/.removed/` (connection names never start with a dot), so its card and first
-    /// open never show another database's scan as its own. Nothing is deleted. A folder a saved connection already
-    /// reads, as one whose name differs only in case does on a case-insensitive disk, stays where it is.
-    fn retire_reports(&self, name: &str) -> Result<()> {
+    fn retire_reports_for_id(&self, alias: &str, id: &str) -> Result<()> {
+        let dir = self.paths.reports_dir(id);
+        if !dir.exists() {
+            return Ok(());
+        }
+        if self.store.list()?.iter().any(|(_, saved)| saved.id.eq_ignore_ascii_case(id)) {
+            return Ok(());
+        }
+        self.move_to_removed(&dir, &store::safe_file_name(alias))
+    }
+
+    fn retire_legacy_alias_reports(&self, name: &str) -> Result<()> {
         let dir = self.paths.reports_dir(name);
         if !dir.exists() {
             return Ok(());
         }
         let folder = store::safe_file_name(name);
-        if self.store.list()?.iter().any(|(saved, _)| store::safe_file_name(saved).eq_ignore_ascii_case(&folder)) {
+        if self.store.list()?.iter().any(|(saved_name, saved)| {
+            saved.id.eq_ignore_ascii_case(&folder)
+                || (saved.id == store::safe_file_name(saved_name)
+                    && store::safe_file_name(saved_name).eq_ignore_ascii_case(&folder))
+        }) {
             return Ok(());
         }
+        self.move_to_removed(&dir, &folder)
+    }
+
+    fn move_to_removed(&self, dir: &std::path::Path, label: &str) -> Result<()> {
         let removed = self.paths.removed_reports_dir();
         crate::private_fs::create_dir(&removed).map_err(|e| Error::internal(format!("{}: {e}", removed.display())))?;
         let stamp = chrono::Utc::now().format("%Y%m%dT%H%M%SZ");
-        let mut to = removed.join(format!("{folder}-{stamp}"));
+        let mut to = removed.join(format!("{label}-{stamp}"));
         for n in 2.. {
             if !to.exists() {
                 break;
             }
-            to = removed.join(format!("{folder}-{stamp}-{n}"));
+            to = removed.join(format!("{label}-{stamp}-{n}"));
         }
-        std::fs::rename(&dir, &to).map_err(|e| {
+        std::fs::rename(dir, &to).map_err(|e| {
             Error::internal(format!("{}: {e}", dir.display())).with_hint(t!("engine.connection.removed_reports_hint"))
         })
     }
@@ -424,24 +468,14 @@ impl Connections<'_> {
         self.connection(name)
     }
 
-    /// Rename (re-alias) a connection, carrying its keychain secret and report history along.
+    /// Rename (re-alias) a connection. Keychain secrets and report folders are keyed by the connection's immutable
+    /// internal ID, so renaming is an atomic metadata update in `connections.toml` with no secret or directory moves.
     pub(crate) fn rename_connection(&self, old: &str, new: &str) -> Result<ConnectionInfo> {
-        let stored = self.store.get(old)?;
         store::validate_name(new)?;
-        self.retire_reports(new)?;
         self.store.rename(old, new)?;
         self.evict_cached_provider(old);
         self.evict_cached_provider(new);
-        if stored.auth == AuthKind::Password && stored.password_env.is_none() && stored.password_saved != Some(false) {
-            if let Some(secret) = self.secrets.get(old)? {
-                self.secrets.set(new, &secret)?;
-            }
-            self.secrets.delete(old)?;
-        }
-        let (from, to) = (self.paths.reports_dir(old), self.paths.reports_dir(new));
-        if from.exists() && !to.exists() {
-            std::fs::rename(&from, &to).map_err(|e| Error::internal(format!("{}: {e}", from.display())))?;
-        }
+        self.retire_legacy_alias_reports(new)?;
         self.connection(new)
     }
 
@@ -523,6 +557,7 @@ impl Connections<'_> {
             _ => options.insert("sslmode".into(), "verify-full".into()),
         };
         let stored = StoredConnection {
+            id: store::new_connection_id(),
             engine: d.engine,
             environment: d.environment,
             host: d.host.clone(),
@@ -538,8 +573,8 @@ impl Connections<'_> {
             query_log: None,
             no_query_log: false,
         };
-        self.retire_reports(&d.alias)?;
-        self.store.put(&d.alias, stored)?;
+        self.store.insert_or_replace(&d.alias, stored, false)?;
+        self.retire_legacy_alias_reports(&d.alias)?;
         self.connection(&d.alias)
     }
 
@@ -573,6 +608,7 @@ impl Connections<'_> {
             }
         }
         let stored = StoredConnection {
+            id: store::new_connection_id(),
             engine: d.engine,
             environment: d.environment,
             host: d.host.clone(),
@@ -588,8 +624,8 @@ impl Connections<'_> {
             query_log: None,
             no_query_log: false,
         };
-        self.retire_reports(&d.alias)?;
-        self.store.put(&d.alias, stored)?;
+        self.store.insert_or_replace(&d.alias, stored, false)?;
+        self.retire_legacy_alias_reports(&d.alias)?;
         self.connection(&d.alias)
     }
 
@@ -629,8 +665,8 @@ impl Connections<'_> {
             stored.push((c.alias.clone(), import::to_stored(c)?));
         }
         for (name, connection) in stored {
-            self.retire_reports(&name)?;
-            self.store.put(&name, connection)?;
+            self.store.insert_or_replace(&name, connection, false)?;
+            self.retire_legacy_alias_reports(&name)?;
         }
         items.iter().map(|c| self.connection(&c.alias)).collect()
     }
@@ -886,7 +922,10 @@ impl Connections<'_> {
     /// attempt reads the keychain again.
     pub(crate) fn forget_rejected<T>(&self, name: &str, result: Result<T>) -> Result<T> {
         if matches!(&result, Err(e) if e.code == ErrorCode::AuthFailed) {
-            self.secrets.forget(name);
+            match self.store.get_optional(name) {
+                Ok(Some(stored)) => self.secrets.forget(&stored.id),
+                _ => self.secrets.forget(name),
+            }
             self.evict_cached_provider(name);
         }
         result
@@ -936,7 +975,7 @@ impl Connections<'_> {
             // Saved without a password (imported, discovered, or added before one was set): a keychain entry under its
             // name would be another connection's, left by one removed before, and must never reach this server.
             (AuthKind::Password, None) if stored.password_saved == Some(false) => {}
-            (AuthKind::Password, None) => spec.password = self.secrets.get(name)?,
+            (AuthKind::Password, None) => spec.password = self.secrets.get(&stored.id)?,
             (AuthKind::None, _) => {}
         }
         Ok(())

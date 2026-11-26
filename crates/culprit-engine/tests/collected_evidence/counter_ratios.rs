@@ -47,7 +47,7 @@ async fn captured_counter_ratios_reuse_the_scan_view_and_preserve_original_exact
             scan.pressure.get_or_insert_with(Default::default).resource_counters = Some(samples);
             scan.sources.retain(|source| source.source != outcome.source);
             scan.sources.push(outcome);
-            let report = culprit_checks::analyze(scan).counter_ratios.unwrap();
+            let report = culprit_checks::analyze(scan).operational.counter_ratios.unwrap();
             assert_eq!(
                 serde_json::to_value(&report.entries).unwrap(),
                 serde_json::to_value(&analysis.report.entries).unwrap()

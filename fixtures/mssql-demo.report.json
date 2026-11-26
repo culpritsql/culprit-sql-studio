@@ -1410,6 +1410,25 @@
           "upkeep_on_connection_close": false
         },
         "bloat": null,
+        "catalog_refs": [
+          {
+            "kind": "table",
+            "schema": "shop",
+            "table": "ticket_events"
+          },
+          {
+            "kind": "foreign-key",
+            "name": "fk_ticket_events_ticket",
+            "schema": "shop",
+            "table": "ticket_events"
+          },
+          {
+            "column": "ticket_id",
+            "kind": "column",
+            "schema": "shop",
+            "table": "ticket_events"
+          }
+        ],
         "histogram_columns": [],
         "index_keys": [
           "ticket_id"
@@ -1568,13 +1587,33 @@
           "upkeep_on_connection_close": false
         },
         "bloat": null,
+        "catalog_refs": [
+          {
+            "index": "ix_orders_status",
+            "kind": "index",
+            "schema": "shop",
+            "table": "orders"
+          },
+          {
+            "index": "ix_orders_status_created",
+            "kind": "index",
+            "schema": "shop",
+            "table": "orders"
+          },
+          {
+            "kind": "table",
+            "schema": "shop",
+            "table": "orders"
+          }
+        ],
         "histogram_columns": [],
         "index_keys": [],
         "large_rows": null,
         "lock_wait": null,
         "log_write": null,
         "plan_change": null,
-        "recommended_plan": null
+        "recommended_plan": null,
+        "table": "shop.orders"
       },
       "fix": {
         "cost": "Frees 26.5 MB.",
@@ -1630,13 +1669,33 @@
           "upkeep_on_connection_close": false
         },
         "bloat": null,
+        "catalog_refs": [
+          {
+            "index": "ix_products_sku",
+            "kind": "index",
+            "schema": "shop",
+            "table": "products"
+          },
+          {
+            "index": "uq_products_sku",
+            "kind": "index",
+            "schema": "shop",
+            "table": "products"
+          },
+          {
+            "kind": "table",
+            "schema": "shop",
+            "table": "products"
+          }
+        ],
         "histogram_columns": [],
         "index_keys": [],
         "large_rows": null,
         "lock_wait": null,
         "log_write": null,
         "plan_change": null,
-        "recommended_plan": null
+        "recommended_plan": null,
+        "table": "shop.products"
       },
       "fix": {
         "cost": "Frees 648 KB.",
@@ -1736,6 +1795,35 @@
       "caveats": [],
       "check": "untrusted-constraint",
       "confidence": "high",
+      "facts": {
+        "bloat": null,
+        "catalog_refs": [
+          {
+            "kind": "table",
+            "schema": "archive",
+            "table": "child"
+          },
+          {
+            "kind": "constraint",
+            "name": "fk_child_parent",
+            "schema": "archive",
+            "table": "child"
+          },
+          {
+            "kind": "constraint",
+            "name": "ck_child_amount",
+            "schema": "archive",
+            "table": "child"
+          }
+        ],
+        "histogram_columns": [],
+        "index_keys": [],
+        "large_rows": null,
+        "lock_wait": null,
+        "log_write": null,
+        "plan_change": null,
+        "recommended_plan": null
+      },
       "fix": {
         "cost": "Reads the whole table",
         "sql": "ALTER TABLE [archive].[child] WITH CHECK CHECK CONSTRAINT [fk_child_parent];\nALTER TABLE [archive].[child] WITH CHECK CHECK CONSTRAINT [ck_child_amount];",
@@ -2268,7 +2356,7 @@
     "analyzer": {
       "component": "culprit-checks",
       "revision": null,
-      "version": "0.6.0"
+      "version": "0.6.2"
     },
     "baselines": [],
     "collection": null,
@@ -2392,7 +2480,7 @@
     "previous_analyzer": {
       "component": "culprit-checks",
       "revision": null,
-      "version": "0.5.6"
+      "version": "0.6.0"
     }
   },
   "refinement": [

@@ -208,7 +208,7 @@ impl Workspace {
     }
 
     fn report_service(&self) -> reporting::Reports<'_> {
-        reporting::Reports { paths: &self.paths, checks: &self.extra_checks }
+        reporting::Reports { paths: &self.paths, store: &self.store, checks: &self.extra_checks }
     }
 
     fn execution_service(&self) -> execution::Execution<'_> {
@@ -338,6 +338,16 @@ impl Workspace {
         &self.paths
     }
 
+    /// Report directory for `name` (keyed by the saved connection's immutable ID when saved, or `name` for unsaved fixtures).
+    pub fn connection_reports_dir(&self, name: &str) -> std::path::PathBuf {
+        self.report_service().reports_dir(name)
+    }
+
+    /// Immutable internal identifier for a saved connection.
+    pub fn connection_id(&self, name: &str) -> Result<String> {
+        Ok(self.store.get(name)?.id)
+    }
+
     pub fn connections(&self) -> Result<Vec<ConnectionInfo>> {
         self.connection_service().connections()
     }
@@ -383,6 +393,11 @@ impl Workspace {
 
     pub fn add_connection(&self, new: NewConnection) -> Result<ConnectionInfo> {
         self.connection_service().add_connection(new)
+    }
+
+    /// Explicitly replace an existing connection with the same alias, retiring its saved reports and deleting its secret.
+    pub fn replace_connection(&self, new: NewConnection) -> Result<ConnectionInfo> {
+        self.connection_service().replace_connection(new)
     }
 
     /// Store the password for a password-authenticated connection in the OS keychain.
@@ -524,10 +539,12 @@ impl Workspace {
         observation: culprit_core::ProviderOperationObservation,
     ) -> Result<culprit_core::ProviderCall<PopulationReports>> {
         observation.require_kind(culprit_core::ProviderReadKind::Scan)?;
-        let saved = self.store.get(name)?.query_log.map(std::path::PathBuf::from);
+        let stored_conn = self.store.get(name)?;
+        let report_dir = self.paths.reports_dir(&stored_conn.id);
+        let saved = stored_conn.query_log.map(std::path::PathBuf::from);
         let found = if query_log.is_none() && saved.is_none() { self.discover_query_log(name) } else { None };
         let query_log = query_log.or(saved.as_deref()).or(found.as_deref());
-        let scan = scan::Scan::begin(self.paths.reports_dir(name), &self.extra_checks);
+        let scan = scan::Scan::begin(report_dir, &self.extra_checks);
         let connections = self.connection_service();
         let mut operation = connections
             .source_operation_at(

@@ -19,53 +19,8 @@ pub(crate) use compilation::apply as apply_compilation_baseline;
 pub fn display(report: &Report) -> impl Serialize + '_ {
     #[derive(Serialize)]
     struct View<'a> {
-        #[serde(skip_serializing_if = "Option::is_none")]
-        storage: &'a Option<Box<culprit_core::StorageReport>>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        instance_resources: &'a Option<Box<culprit_core::InstanceResourceReport>>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        numa_nodes: &'a Option<Vec<culprit_core::InstanceResourceReport>>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        counter_ratios: &'a Option<Box<culprit_core::CounterRatioReport>>,
-        source_acquisitions: &'a [culprit_core::HistoricalSourceOverhead],
-        performance_counters: &'a [culprit_core::PerformanceCounterReport],
-        index_configuration: &'a [culprit_core::IndexConfigurationReport],
-        indexed_views: &'a [culprit_core::IndexedViewsReport],
-        #[serde(skip_serializing_if = "Option::is_none")]
-        wait_counters: &'a Option<Box<culprit_core::WaitCounterReport>>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        memory_clerks: &'a Option<Box<culprit_core::MemoryClerkReport>>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        table_memory: &'a Option<Vec<culprit_core::TableMemoryReport>>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        group_replication: &'a Option<Vec<culprit_core::GroupReplicationReport>>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        galera: &'a Option<Vec<culprit_core::GaleraReport>>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        full_text_populations: &'a Option<Vec<culprit_core::FullTextPopulationReport>>,
-        change_capture: &'a culprit_core::ChangeCaptureReports,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        tempdb_metadata_memory: &'a Option<Box<culprit_core::TempdbMetadataMemoryReport>>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        database_properties: &'a Option<Box<culprit_core::DatabasePropertiesReport>>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        pool_settings: &'a Option<Box<culprit_core::PoolSettingsReport>>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        managed_instance_resources: &'a Option<Box<culprit_core::ManagedInstanceResourceReport>>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        suspect_pages: &'a Option<Box<culprit_core::SuspectPageHistoryReport>>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        table_full_text: &'a Option<Box<culprit_core::TableFullTextReport>>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        table_temporal: &'a Option<Box<culprit_core::TableTemporalReport>>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        completed_spills: &'a Option<Box<culprit_core::CompletedSpillReport>>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        page_server_reads: &'a Option<Box<culprit_core::page_server_read_report::PageServerReadReport>>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        query_wait_fragments: &'a Option<Box<culprit_core::query_wait_report::QueryWaitFragmentReport>>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        runtime_fragments: &'a Option<Box<culprit_core::query_runtime_report::QueryRuntimeFragmentReport>>,
+        #[serde(flatten)]
+        operational: &'a culprit_core::OperationalReports,
         snapshot: &'a culprit_core::Snapshot,
         findings: &'a [culprit_core::Finding],
         locked: &'a [culprit_core::LockedCheck],
@@ -75,146 +30,10 @@ pub fn display(report: &Report) -> impl Serialize + '_ {
         refinement: &'a [culprit_core::RefinementDecision],
         #[serde(skip_serializing_if = "Option::is_none")]
         provenance: &'a Option<culprit_core::AnalysisProvenance>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        memory_failures: &'a Option<culprit_core::RetainedFailureReport>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        jobs: &'a Option<Box<culprit_core::JobsReport>>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        native_failures: &'a Option<culprit_core::RetainedFailureReport>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        request_memory: &'a Option<culprit_core::MemoryParticipantsReport>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        session_memory: &'a Option<culprit_core::MemoryParticipantsReport>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        page_waits: &'a Option<culprit_core::PageWaitReport>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        task_space: &'a Option<culprit_core::TaskSpaceReport>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        query_compilation: &'a Option<culprit_core::CompilationReport>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        compiler_admission: &'a Option<culprit_core::CompilerAdmissionReport>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        maintenance_progress: &'a Option<culprit_core::MaintenanceProgressReport>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        replication: &'a Option<Box<culprit_core::ReplicationReport>>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        statement_work: &'a Option<Box<culprit_core::StatementWorkReport>>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        connection_outcomes: &'a Option<Box<culprit_core::ConnectionOutcomeReport>>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        configured_log_rates: &'a Option<Box<culprit_core::ConfiguredLogRateReport>>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        hyperscale_log_components: &'a Option<Box<culprit_core::HyperscaleLogComponentReport>>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        cleanup: &'a Option<culprit_core::CleanupReport>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        provider_acquisition: &'a Option<Box<culprit_core::ProviderAcquisitionReport>>,
     }
-    let Report {
-        storage,
-        instance_resources,
-        numa_nodes,
-        completed_spills,
-        page_server_reads,
-        query_wait_fragments,
-        runtime_fragments,
-        snapshot,
-        findings,
-        locked,
-        summary,
-        assessments,
-        refinement,
-        provenance,
-        memory_failures,
-        jobs,
-        native_failures,
-        request_memory,
-        session_memory,
-        page_waits,
-        task_space,
-        query_compilation,
-        compiler_admission,
-        counter_ratios,
-        source_acquisitions,
-        provider_acquisition,
-        performance_counters,
-        index_configuration,
-        indexed_views,
-        wait_counters,
-        memory_clerks,
-        tempdb_metadata_memory,
-        table_memory,
-        group_replication,
-        galera,
-        full_text_populations,
-        change_capture,
-        database_properties,
-        pool_settings,
-        managed_instance_resources,
-        suspect_pages,
-        table_full_text,
-        table_temporal,
-        maintenance_progress,
-        replication,
-        statement_work,
-        connection_outcomes,
-        configured_log_rates,
-        hyperscale_log_components,
-        evidence: _,
-        cleanup,
-    } = report;
-    View {
-        storage,
-        instance_resources,
-        numa_nodes,
-        completed_spills,
-        page_server_reads,
-        query_wait_fragments,
-        runtime_fragments,
-        snapshot,
-        findings,
-        locked,
-        summary,
-        assessments,
-        refinement,
-        provenance,
-        memory_failures,
-        jobs,
-        native_failures,
-        request_memory,
-        session_memory,
-        page_waits,
-        task_space,
-        query_compilation,
-        compiler_admission,
-        counter_ratios,
-        source_acquisitions,
-        provider_acquisition,
-        performance_counters,
-        index_configuration,
-        indexed_views,
-        wait_counters,
-        memory_clerks,
-        tempdb_metadata_memory,
-        table_memory,
-        group_replication,
-        galera,
-        full_text_populations,
-        change_capture,
-        database_properties,
-        pool_settings,
-        managed_instance_resources,
-        suspect_pages,
-        table_full_text,
-        table_temporal,
-        maintenance_progress,
-        replication,
-        statement_work,
-        connection_outcomes,
-        configured_log_rates,
-        hyperscale_log_components,
-        cleanup,
-    }
+    let Report { operational, snapshot, findings, locked, summary, assessments, refinement, provenance, evidence: _ } =
+        report;
+    View { operational, snapshot, findings, locked, summary, assessments, refinement, provenance }
 }
 
 #[derive(Serialize, Deserialize, TS, Clone, Debug)]
@@ -463,49 +282,55 @@ pub(crate) fn apply_counter_baselines(
     let max_age_secs = window_secs * 1.25;
     let lookback_secs = (trends::HISTORY_DAYS * 86_400.0).max(max_age_secs);
 
-    let mut candidates: Vec<culprit_core::Snapshot> = Vec::new();
-    if let Some(prev) = immediate.filter(|p| {
-        p.id != snapshot.id
-            && crate::history::same_database(p, snapshot)
-            && trends::epoch(&p.taken_at).zip(now).is_some_and(|(at, now)| at <= now)
-    }) {
-        candidates.push(prev.clone());
-    }
-    for id in report_ids(dir)
+    let immediate_candidate = immediate
+        .filter(|p| {
+            p.id != snapshot.id
+                && crate::history::same_database(p, snapshot)
+                && trends::epoch(&p.taken_at).zip(now).is_some_and(|(at, now)| at <= now)
+        })
+        .cloned();
+    let immediate_id = immediate_candidate.as_ref().map(|c| c.id.clone());
+
+    let disk_ids = report_ids(dir)
         .into_iter()
         .rev()
         .filter(|id| {
             *id != snapshot.id && id_epoch(id).zip(now).is_some_and(|(at, now)| at < now && at >= now - lookback_secs)
         })
         .take(200)
-    {
-        if candidates.iter().any(|c| c.id == id) {
-            continue;
+        .collect::<Vec<_>>();
+
+    let current_ref = &*snapshot;
+    let disk_candidates = disk_ids.into_iter().filter_map(move |id| {
+        if immediate_id.as_deref() == Some(id.as_str()) {
+            return None;
         }
-        let Ok(previous) = load_snapshot(&dir.join(format!("{id}.json"))) else { continue };
-        if !crate::history::same_database(&previous, snapshot)
+        let previous = load_counter_baseline_snapshot(&dir.join(format!("{id}.json"))).ok()?;
+        if !crate::history::same_database(&previous, current_ref)
             || trends::epoch(&previous.taken_at).zip(now).is_none_or(|(at, now)| at >= now)
         {
-            continue;
+            return None;
         }
-        candidates.push(previous);
-    }
+        Some(previous)
+    });
 
-    // Operational counters keep their own source/reset contract. Missing index-counter authority must not erase
-    // their independent comparison with the closest saved scan.
-    if let Some(previous) = candidates.first() {
-        culprit_core::operations::compare(previous, snapshot);
-    }
+    let mut first_candidate: Option<culprit_core::Snapshot> = None;
+    let mut chosen: Option<culprit_core::Snapshot> = None;
+    let mut zero_escalation_cover: Option<culprit_core::Snapshot> = None;
+    let mut zero_contention_cover: Option<culprit_core::Snapshot> = None;
 
-    let mut chosen: Option<&culprit_core::Snapshot> = None;
-    let mut zero_escalation_cover: Option<&culprit_core::Snapshot> = None;
-    let mut zero_contention_cover: Option<&culprit_core::Snapshot> = None;
-    for candidate in &candidates {
-        let has_baseline = culprit_core::EscalationBaseline::from_scan(candidate, snapshot).is_some()
-            || culprit_core::ContentionBaseline::from_scan(candidate, snapshot).is_some();
+    for candidate in immediate_candidate.into_iter().chain(disk_candidates) {
+        if first_candidate.is_none() {
+            first_candidate = Some(candidate.clone());
+        }
+        let has_baseline = culprit_core::EscalationBaseline::from_scan(&candidate, current_ref).is_some()
+            || culprit_core::ContentionBaseline::from_scan(&candidate, current_ref).is_some();
         if chosen.is_none() {
             // Missing native owner/reset proof in the closest matching scan cannot be bypassed by an older one.
             if !has_baseline {
+                if let Some(first) = &first_candidate {
+                    culprit_core::operations::compare(first, snapshot);
+                }
                 snapshot.escalations_before = None;
                 snapshot.contention_before = None;
                 return;
@@ -513,9 +338,7 @@ pub(crate) fn apply_counter_baselines(
             chosen = Some(candidate);
             continue;
         }
-        let same_generation = culprit_core::EscalationBaseline::from_scan(candidate, snapshot).is_some()
-            || culprit_core::ContentionBaseline::from_scan(candidate, snapshot).is_some();
-        if !same_generation {
+        if !has_baseline {
             break;
         }
         let age_secs = trends::epoch(&candidate.taken_at).zip(now).map(|(at, now)| now - at);
@@ -527,19 +350,19 @@ pub(crate) fn apply_counter_baselines(
         // selecting 1h or 6h), an older scan with the same native owner/generations and unchanged per-index counters
         // can extend that proof. Table sums alone cannot establish it.
         let chosen_age =
-            chosen.and_then(|c| trends::epoch(&c.taken_at).zip(now)).map(|(at, now)| now - at).unwrap_or(0.0);
+            chosen.as_ref().and_then(|c| trends::epoch(&c.taken_at).zip(now)).map(|(at, now)| now - at).unwrap_or(0.0);
         if chosen_age < min_cover_secs {
-            if culprit_core::EscalationBaseline::from_scan(candidate, snapshot).is_some_and(|baseline| {
-                snapshot
+            if culprit_core::EscalationBaseline::from_scan(&candidate, current_ref).is_some_and(|baseline| {
+                current_ref
                     .indexes
                     .iter()
                     .filter(|index| index.contention.is_some())
-                    .all(|index| baseline.since(snapshot, &index.schema, &index.table) == Some(0.0))
+                    .all(|index| baseline.since(current_ref, &index.schema, &index.table) == Some(0.0))
             }) {
-                zero_escalation_cover = Some(candidate);
+                zero_escalation_cover = Some(candidate.clone());
             }
-            if culprit_core::ContentionBaseline::from_scan(candidate, snapshot).is_some_and(|b| {
-                snapshot
+            if culprit_core::ContentionBaseline::from_scan(&candidate, current_ref).is_some_and(|b| {
+                current_ref
                     .indexes
                     .iter()
                     .filter(|i| i.contention.is_some())
@@ -551,11 +374,17 @@ pub(crate) fn apply_counter_baselines(
         break;
     }
 
-    if let Some(previous) = chosen {
+    // Operational counters keep their own source/reset contract. Missing index-counter authority must not erase
+    // their independent comparison with the closest saved scan.
+    if let Some(first) = &first_candidate {
+        culprit_core::operations::compare(first, snapshot);
+    }
+
+    if let Some(previous) = chosen.as_ref() {
         snapshot.escalations_before =
-            culprit_core::EscalationBaseline::from_scan(zero_escalation_cover.unwrap_or(previous), snapshot);
+            culprit_core::EscalationBaseline::from_scan(zero_escalation_cover.as_ref().unwrap_or(previous), snapshot);
         snapshot.contention_before =
-            culprit_core::ContentionBaseline::from_scan(zero_contention_cover.unwrap_or(previous), snapshot);
+            culprit_core::ContentionBaseline::from_scan(zero_contention_cover.as_ref().unwrap_or(previous), snapshot);
     }
 }
 
@@ -680,6 +509,106 @@ pub fn load(path: &Path) -> Result<Report> {
 #[derive(Deserialize)]
 struct WrappedSnapshot {
     snapshot: culprit_core::Snapshot,
+}
+
+#[derive(Deserialize, Default)]
+struct CounterBaselineOperations {
+    #[serde(default)]
+    counters: Vec<culprit_core::operations::OperationalCounter>,
+    #[serde(default)]
+    sqlite: Option<culprit_core::operations::SqliteFileHealth>,
+    #[serde(default)]
+    index_usage_scope: Option<culprit_core::operations::IndexUsageScope>,
+}
+
+#[derive(Deserialize)]
+struct CounterBaselineSnapshot {
+    format: u32,
+    id: String,
+    #[serde(default)]
+    connection: String,
+    #[serde(default)]
+    environment: culprit_core::Environment,
+    taken_at: String,
+    #[serde(default)]
+    identity: Option<culprit_core::DatabaseIdentity>,
+    server: culprit_core::ServerInfo,
+    #[serde(default)]
+    indexes: Vec<culprit_core::IndexStat>,
+    #[serde(default)]
+    operations: CounterBaselineOperations,
+}
+
+impl CounterBaselineSnapshot {
+    fn into_snapshot(self) -> Option<culprit_core::Snapshot> {
+        if self.format != culprit_core::SNAPSHOT_FORMAT {
+            return None;
+        }
+        Some(culprit_core::Snapshot {
+            runtime_populations: None,
+            identity: self.identity,
+            sources: Vec::new(),
+            format: self.format,
+            id: self.id,
+            connection: self.connection,
+            environment: self.environment,
+            taken_at: self.taken_at,
+            duration_ms: 0.0,
+            server: self.server,
+            workload: None,
+            tables: Vec::new(),
+            indexes: self.indexes,
+            columns: Vec::new(),
+            foreign_keys: Vec::new(),
+            missing_indexes: Vec::new(),
+            statistics: Vec::new(),
+            waits: Vec::new(),
+            resources: Vec::new(),
+            settings: Vec::new(),
+            pressure: None,
+            notes: Vec::new(),
+            options: None,
+            query_families: Vec::new(),
+            plan_cache: None,
+            tuning: None,
+            deadlocks: None,
+            constraints: Vec::new(),
+            histograms: None,
+            escalations_before: None,
+            compilations_before: None,
+            contention_before: None,
+            evictions_before: None,
+            sizes_before: None,
+            operations: culprit_core::operations::OperationalStats {
+                counters: self.operations.counters,
+                sqlite: self.operations.sqlite,
+                index_usage_scope: self.operations.index_usage_scope,
+                ..Default::default()
+            },
+        })
+    }
+}
+
+#[derive(Deserialize)]
+struct WrappedCounterBaselineSnapshot {
+    snapshot: CounterBaselineSnapshot,
+}
+
+/// Lightweight reader for `apply_counter_baselines`: deserializes only database identity, index contention/escalation
+/// counters, and operational counters, skipping workloads, execution plans, catalog tables, findings, and `_culprit_store`.
+fn load_counter_baseline_snapshot(path: &Path) -> Result<culprit_core::Snapshot> {
+    let bytes = fs::read(path).map_err(|e| Error::not_found(format!("{}: {e}", path.display())))?;
+    serde_json::from_slice::<WrappedCounterBaselineSnapshot>(&bytes)
+        .map(|w| w.snapshot)
+        .or_else(|e| {
+            if e.to_string().starts_with("missing field `snapshot`") {
+                serde_json::from_slice::<CounterBaselineSnapshot>(&bytes)
+            } else {
+                Err(e)
+            }
+        })
+        .map_err(|e| not_a_snapshot(path, &e))
+        .and_then(|parsed| parsed.into_snapshot().ok_or_else(|| not_a_snapshot(path, &"incompatible snapshot format")))
 }
 
 #[derive(Deserialize)]
@@ -1271,6 +1200,56 @@ mod tests {
         let (bare, bare_recorded) = load_snapshot_and_recorded_changes(&bare_path).unwrap();
         assert_eq!(bare.id, report.snapshot.id);
         assert!(bare_recorded.is_empty());
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn counter_baseline_scan_skips_heavy_workload_fields_and_stops_streaming_once_settled() {
+        let dir = std::env::temp_dir().join(format!("culprit-counter-stream-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+
+        let mut prev = fixture_report("20261018T090000.000Z", 60);
+        prev.snapshot.taken_at = "2026-10-18T09:00:00Z".into();
+        prev.snapshot.bind_identity(culprit_core::DatabaseIdentity::server(
+            prev.snapshot.server.engine,
+            &prev.snapshot.server.database.clone(),
+            "stream.invalid",
+            5432,
+            None,
+        ));
+        prev.snapshot.operations.counters = vec![culprit_core::operations::OperationalCounter {
+            kind: culprit_core::operations::OperationalCounterKind::StandbyConflicts,
+            subject: "standby".into(),
+            scope: culprit_core::FileScope::Database,
+            count: 10.0,
+            since: Some("2026-10-01T00:00:00Z".into()),
+            last_event_at: None,
+            before: None,
+        }];
+        save(&dir, &prev).unwrap();
+
+        // Corrupt workload and tables in the saved candidate: `load_snapshot` fails, while `apply_counter_baselines`
+        // skips them via `CounterBaselineSnapshot`.
+        let prev_path = dir.join("20261018T090000.000Z.json");
+        let mut prev_json: serde_json::Value = serde_json::from_slice(&fs::read(&prev_path).unwrap()).unwrap();
+        prev_json["snapshot"]["workload"] = serde_json::json!("unparsed-heavy-workload");
+        prev_json["snapshot"]["tables"] = serde_json::json!("unparsed-tables");
+        fs::write(&prev_path, serde_json::to_vec(&prev_json).unwrap()).unwrap();
+        assert!(load_snapshot(&prev_path).is_err());
+
+        // Write a malformed older file that would fail if opened; once the first candidate settles (no index contention),
+        // streaming returns immediately without touching older files.
+        let older_unreached = dir.join("20261018T080000.000Z.json");
+        fs::write(&older_unreached, b"{not valid json").unwrap();
+
+        let mut current = prev.snapshot.clone();
+        current.id = "20261018T100000.000Z".into();
+        current.taken_at = "2026-10-18T10:00:00Z".into();
+        current.operations.counters[0].count = 25.0;
+        apply_counter_baselines(&dir, &mut current, None);
+        assert_eq!(current.operations.counters[0].before.as_ref().map(|b| b.count), Some(10.0));
+
         fs::remove_dir_all(dir).unwrap();
     }
 }

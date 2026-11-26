@@ -84,7 +84,7 @@ fn every_provider_can_edit_security_without_replacing_saved_credentials_or_repor
                 ..Default::default()
             })
             .unwrap();
-        let reports = ws.paths().reports_dir("saved");
+        let reports = ws.connection_reports_dir("saved");
         std::fs::create_dir_all(&reports).unwrap();
         std::fs::write(reports.join("retained"), "saved history").unwrap();
         let mode = engine
@@ -101,7 +101,8 @@ fn every_provider_can_edit_security_without_replacing_saved_credentials_or_repor
             (updated.host, updated.port, updated.database, updated.user, updated.auth, updated.ssh),
             (original.host, original.port, original.database, original.user, original.auth, original.ssh)
         );
-        assert_eq!(secrets.get("saved").unwrap().as_deref(), engine.has_server().then_some("test-secret"));
+        let saved_id = ws.connection_id("saved").unwrap();
+        assert_eq!(secrets.get(&saved_id).unwrap().as_deref(), engine.has_server().then_some("test-secret"));
         assert_eq!(std::fs::read_to_string(reports.join("retained")).unwrap(), "saved history");
         assert_eq!(
             ws.connection("saved").unwrap().security.map(|info| info.settings),

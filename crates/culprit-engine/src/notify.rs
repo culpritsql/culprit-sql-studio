@@ -233,10 +233,18 @@ impl NotifierConfig {
         if dry_run {
             return Ok(NotifyRunReport { events_emitted: events.len(), deliveries: Vec::new(), events });
         }
-        let deliveries = notifier.dispatch(&events, &self.routes, credentials, transport, cancellation).await?;
-        // Persist deduplication transitions only after all deliveries succeed so transient HTTP failures retry cleanly.
+        notifier.enqueue_events(&events, &self.routes, &batch.evaluated_at, &mut state);
+        if !events.is_empty() {
+            store.save(&state)?;
+        }
+        let dispatched =
+            notifier.dispatch_pending(&mut state, &self.routes, credentials, transport, cancellation).await;
+        // Persist succeeded route removals and remaining failed-route outbox entries before surfacing any error.
         store.save(&state)?;
-        Ok(NotifyRunReport { events_emitted: events.len(), deliveries, events })
+        if let Some((_, err)) = dispatched.failures.into_iter().next() {
+            return Err(err);
+        }
+        Ok(NotifyRunReport { events_emitted: events.len(), deliveries: dispatched.deliveries, events })
     }
 }
 

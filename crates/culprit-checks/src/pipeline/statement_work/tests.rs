@@ -64,8 +64,8 @@ fn the_scan_report_reuses_the_exact_shared_counter_view_without_adding_an_error_
         serde_json::to_value(report.statement_work.as_ref().unwrap()).unwrap(),
         serde_json::to_value(expected).unwrap()
     );
+    assert_eq!(report.statement_work.as_ref().unwrap().entries[0].outcomes.warnings.as_deref(), Some("0"));
     assert_eq!(report.findings.into_iter().map(|finding| finding.id).collect::<Vec<_>>(), baseline_findings);
-    assert_eq!(report.statement_work.unwrap().entries[0].outcomes.warnings.as_deref(), Some("0"));
 }
 
 #[test]

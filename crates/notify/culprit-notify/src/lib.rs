@@ -20,7 +20,10 @@ pub use evaluator::{
     AlertBatchInput, AlertEvaluationPolicy, AlertEvaluator, AvailabilityAlertInput, FindingAlertInput,
     IncidentAlertInput, RegressionAlertInput,
 };
-pub use store::{DeduplicationState, DeduplicationStore, DurableFileDeduplicationStore, MemoryDeduplicationStore};
+pub use store::{
+    DeduplicationState, DeduplicationStore, DurableFileDeduplicationStore, MemoryDeduplicationStore,
+    PendingRouteDelivery,
+};
 pub use transport::{
     HttpMethod, NotificationTransport, OutboundHttpRequest, OutboundHttpResponse, RecordedCall, RecordedTransport,
 };
@@ -272,6 +275,12 @@ pub struct Notifier {
     sinks: BTreeMap<String, Arc<dyn NotificationSink>>,
 }
 
+#[derive(Debug)]
+pub struct DispatchBatchResult {
+    pub deliveries: Vec<RouteDeliveryOutcome>,
+    pub failures: Vec<(String, Error)>,
+}
+
 impl Notifier {
     pub fn new() -> Self {
         Self::default()
@@ -309,6 +318,101 @@ impl Notifier {
         Ok(())
     }
 
+    /// Queue sanitized events per matching route inside `state.pending_deliveries` so independent routes can retry
+    /// failed deliveries without re-alerting routes that already succeeded.
+    pub fn enqueue_events(
+        &self,
+        events: &[RedactedAlertEvent],
+        routes: &[NotificationRoute],
+        queued_at: &str,
+        state: &mut DeduplicationState,
+    ) {
+        let active_routes: BTreeSet<&str> = routes.iter().map(|r| r.name.as_str()).collect();
+        state.pending_deliveries.retain(|p| active_routes.contains(p.route.as_str()));
+        let stamp = sanitize_text(queued_at, 64);
+
+        for raw_event in events {
+            let event = raw_event.clone().sanitized();
+            for route in routes.iter().filter(|route| route.matches(&event)) {
+                if let Some(existing) = state.pending_deliveries.iter_mut().find(|p| {
+                    p.route == route.name
+                        && p.event.dedup_key == event.dedup_key
+                        && p.event.transition == event.transition
+                }) {
+                    existing.queued_at = stamp.clone();
+                    existing.event = event.clone();
+                } else {
+                    state.pending_deliveries.push(PendingRouteDelivery {
+                        route: route.name.clone(),
+                        queued_at: stamp.clone(),
+                        event: event.clone(),
+                    });
+                }
+            }
+        }
+    }
+
+    /// Attempt every pending route delivery independently while preserving per-route FIFO ordering.
+    /// Succeeded deliveries are removed from `state.pending_deliveries`; failed deliveries remain queued for retry.
+    pub async fn dispatch_pending(
+        &self,
+        state: &mut DeduplicationState,
+        routes: &[NotificationRoute],
+        credentials: &dyn CredentialResolver,
+        transport: &dyn NotificationTransport,
+        cancellation: &CollectionCancellation,
+    ) -> DispatchBatchResult {
+        let route_by_name: BTreeMap<&str, &NotificationRoute> =
+            routes.iter().map(|route| (route.name.as_str(), route)).collect();
+        let queued = std::mem::take(&mut state.pending_deliveries);
+        let mut remaining = Vec::new();
+        let mut deliveries = Vec::new();
+        let mut failures = Vec::new();
+        let mut failed_routes = BTreeSet::new();
+
+        for mut item in queued.into_iter() {
+            let Some(route) = route_by_name.get(item.route.as_str()).copied() else {
+                continue;
+            };
+            if cancellation.is_cancelled() {
+                if failures.is_empty() {
+                    failures.push((route.name.clone(), culprit_core::telemetry::CollectionStop::Cancelled.error()));
+                }
+                remaining.push(item);
+                continue;
+            }
+            if failed_routes.contains(route.name.as_str()) {
+                // Keep later transitions for an already-failing route behind the earlier failed transition.
+                remaining.push(item);
+                continue;
+            }
+            item.event = item.event.sanitized();
+            let result = match self.sink(&route.sink) {
+                Ok(sink) => sink.deliver(&item.event, &route.settings, credentials, transport, cancellation).await,
+                Err(err) => Err(err),
+            };
+            match result {
+                Ok(receipt) => {
+                    deliveries.push(RouteDeliveryOutcome {
+                        route: route.name.clone(),
+                        sink: receipt.sink_kind,
+                        dedup_key: item.event.dedup_key,
+                        transition: item.event.transition,
+                        status_code: receipt.status_code,
+                        external_id: receipt.external_id,
+                    });
+                }
+                Err(err) => {
+                    failed_routes.insert(route.name.clone());
+                    failures.push((route.name.clone(), err));
+                    remaining.push(item);
+                }
+            }
+        }
+        state.pending_deliveries = remaining;
+        DispatchBatchResult { deliveries, failures }
+    }
+
     pub async fn dispatch(
         &self,
         events: &[RedactedAlertEvent],
@@ -317,29 +421,13 @@ impl Notifier {
         transport: &dyn NotificationTransport,
         cancellation: &CollectionCancellation,
     ) -> Result<Vec<RouteDeliveryOutcome>> {
-        let mut outcomes = Vec::new();
-        for raw_event in events {
-            if cancellation.is_cancelled() {
-                return Err(culprit_core::telemetry::CollectionStop::Cancelled.error());
-            }
-            let event = raw_event.clone().sanitized();
-            for route in routes.iter().filter(|route| route.matches(&event)) {
-                if cancellation.is_cancelled() {
-                    return Err(culprit_core::telemetry::CollectionStop::Cancelled.error());
-                }
-                let sink = self.sink(&route.sink)?;
-                let receipt = sink.deliver(&event, &route.settings, credentials, transport, cancellation).await?;
-                outcomes.push(RouteDeliveryOutcome {
-                    route: route.name.clone(),
-                    sink: receipt.sink_kind,
-                    dedup_key: event.dedup_key.clone(),
-                    transition: event.transition,
-                    status_code: receipt.status_code,
-                    external_id: receipt.external_id,
-                });
-            }
+        let mut state = DeduplicationState::default();
+        self.enqueue_events(events, routes, "", &mut state);
+        let batch = self.dispatch_pending(&mut state, routes, credentials, transport, cancellation).await;
+        if let Some((_, first_err)) = batch.failures.into_iter().next() {
+            return Err(first_err);
         }
-        Ok(outcomes)
+        Ok(batch.deliveries)
     }
 }
 

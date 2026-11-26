@@ -30,7 +30,7 @@ async fn authenticated_workload_group_tempdb_replays_shared_history_without_a_qu
         .into_iter()
         .find(|(_, rows)| observations(rows).iter().any(|row| row.workload_group_tempdb.is_some()))
         .expect("native-shaped group tempdb corpus");
-    let expected = culprit_checks::analyze(scan(&source, &rows)).request_memory.unwrap();
+    let expected = culprit_checks::analyze(scan(&source, &rows)).operational.request_memory.unwrap();
     let fixture = Fixture::new(source.clone(), rows.clone()).await;
     let capture = fixture.read_families(&[EvidenceFamily::OperationalSamples]).await;
     let result = collected_resources::request_memory(&capture).unwrap();
@@ -87,7 +87,7 @@ async fn authenticated_request_memory_reuses_scan_explanations_and_keeps_native_
     for (source, rows) in
         request_memory_evidence_cases().into_iter().chain([focused_request_memory_evidence_with_peers(3)])
     {
-        let expected = culprit_checks::analyze(scan(&source, &rows)).request_memory.unwrap();
+        let expected = culprit_checks::analyze(scan(&source, &rows)).operational.request_memory.unwrap();
         let fixture = Fixture::new(source.clone(), rows.clone()).await;
         let recovery_before = fixture.recovery_object_reads();
         let capture = fixture.read_families(&[EvidenceFamily::OperationalSamples]).await;
@@ -170,7 +170,7 @@ async fn authenticated_admission_condition_keeps_original_shared_counters_and_ac
         })
         .unwrap();
     assert_eq!(original, original_waiter);
-    assert_eq!(result.report, culprit_checks::analyze(scan(&source, &rows)).request_memory.unwrap());
+    assert_eq!(result.report, culprit_checks::analyze(scan(&source, &rows)).operational.request_memory.unwrap());
     assert!(result.report.limitations.contains(&culprit_core::t!("view.request_memory.limit.population")));
 }
 
@@ -386,7 +386,7 @@ async fn native_local_request_times_remain_independent_from_authenticated_utc_ob
 async fn authenticated_reservation_sizes_replay_the_original_waiter_without_global_distribution_or_tempdb_usage_claims()
 {
     for (index, (source, rows)) in reservation_demand_evidence_cases().into_iter().enumerate() {
-        let expected = culprit_checks::analyze(scan(&source, &rows)).request_memory.unwrap();
+        let expected = culprit_checks::analyze(scan(&source, &rows)).operational.request_memory.unwrap();
         let fixture = Fixture::new(source.clone(), rows.clone()).await;
         let recovery_before = fixture.recovery_object_reads();
         let capture = fixture.read_families(&[EvidenceFamily::OperationalSamples]).await;
@@ -428,7 +428,7 @@ async fn authenticated_reservation_sizes_replay_the_original_waiter_without_glob
 #[tokio::test]
 async fn authenticated_memory_rebuild_roles_keep_the_original_request_and_reservation_separate() {
     for (index, (source, rows)) in maintenance_memory_evidence_cases().into_iter().enumerate() {
-        let expected = culprit_checks::analyze(scan(&source, &rows)).request_memory.unwrap();
+        let expected = culprit_checks::analyze(scan(&source, &rows)).operational.request_memory.unwrap();
         let fixture = Fixture::new(source.clone(), rows.clone()).await;
         let recovery_before = fixture.recovery_object_reads();
         let capture = fixture.read_families(&[EvidenceFamily::OperationalSamples]).await;

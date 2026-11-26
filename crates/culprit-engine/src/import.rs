@@ -749,6 +749,7 @@ pub(crate) fn to_stored(c: &ImportCandidate) -> Result<store::StoredConnection> 
         })
         .collect();
     Ok(store::StoredConnection {
+        id: store::new_connection_id(),
         engine: c.engine,
         environment: c.environment,
         host: host.to_string(),

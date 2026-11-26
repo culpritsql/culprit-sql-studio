@@ -89,7 +89,7 @@ async fn saved_history_is_independent_idempotent_conflict_checked_and_wholly_wit
         Some(RecordedManagedInstanceResourceRead::Unavailable { .. })
     ));
     let shared_report = culprit_checks::analyze(shared.clone());
-    let history = shared_report.managed_instance_resources.unwrap();
+    let history = shared_report.managed_instance_resources.as_ref().unwrap();
     assert!(history.intervals.is_empty());
     assert!(history.observed_at.is_none());
     assert_eq!(history.source_state, culprit_core::SourceState::Unavailable);

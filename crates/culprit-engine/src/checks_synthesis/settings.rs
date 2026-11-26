@@ -66,7 +66,8 @@ fn references(original: &dyn OriginalProjection, finding: &Finding) -> Result<Ve
         .enumerate()
         .filter(|(_, row)| {
             matches!(&row.row().record, TelemetryRecord::Setting(setting)
-            if (setting.name == finding.subject.name && setting.scope == MeasurementScope::Server)
+            if (setting.name == finding.subject.name
+                && matches!(setting.scope, MeasurementScope::Server | MeasurementScope::Node | MeasurementScope::Database))
                 || (original.source().target.engine() == Engine::Mssql
                     && mssql_setting_matches(&finding.subject.name, setting)))
         })

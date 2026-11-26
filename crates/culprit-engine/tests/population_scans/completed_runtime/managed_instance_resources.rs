@@ -47,7 +47,7 @@ async fn selected_original_mi_history_settles_once_and_survives_source_free_save
         assert_eq!(state.factories.load(Ordering::SeqCst), 1);
         let shared = culprit_core::redact::redact_snapshot(&replay.snapshot);
         let shared = culprit_checks::analyze(shared);
-        let report = shared.managed_instance_resources.unwrap();
+        let report = shared.operational.managed_instance_resources.unwrap();
         assert_eq!(report.source_state, SourceState::Unavailable);
         assert!(report.intervals.is_empty());
         assert!(report.native_rows.is_none() && report.observed_at.is_none());

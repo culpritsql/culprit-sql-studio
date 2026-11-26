@@ -129,6 +129,7 @@ async fn saved_storage_reanalysis_retains_the_original_census_and_withdraws_it_i
     let mut restored: culprit_core::Snapshot = serde_json::from_slice(&raw).unwrap();
     restored.server.database = "later-scan-database".into();
     let report = culprit_checks::analyze(restored.clone())
+        .operational
         .storage
         .expect("the actual saved-report pipeline reuses the original read");
     assert_eq!(serde_json::to_value(&report).unwrap(), serde_json::to_value(expected.report).unwrap());

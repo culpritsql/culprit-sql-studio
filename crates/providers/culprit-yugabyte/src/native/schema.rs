@@ -63,6 +63,10 @@ impl Kind {
             Self::Catalog(kind)=>catalog::query(kind,meta.probe.compatibility,false,limit),
             Self::Tables=>format!("SELECT c.oid::text AS native_id,
                 jsonb_build_object('schema_name',n.nspname,'name',c.relname,'kind',c.relkind::text,
+                    'has_pk',EXISTS(SELECT 1 FROM pg_catalog.pg_index i WHERE i.indrelid=c.oid AND i.indisprimary),
+                    'partition_of',(SELECT pn.nspname || '.' || p.relname FROM pg_catalog.pg_inherits inh
+                        JOIN pg_catalog.pg_class p ON p.oid=inh.inhparent
+                        JOIN pg_catalog.pg_namespace pn ON pn.oid=p.relnamespace WHERE inh.inhrelid=c.oid LIMIT 1),
                     'persistence',c.relpersistence::text,'owner_oid',c.relowner::text) AS native_values,
                 c.reltuples::text AS row_estimate FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
                 WHERE c.relkind IN ('r','p','m') AND {USER_SCHEMA} LIMIT {limit}"),
@@ -70,6 +74,20 @@ impl Kind {
                 jsonb_build_object('schema_name',n.nspname,'name',i.relname,'table_name',t.relname,'relation_oid',x.indrelid::text,
                     'access_method',am.amname,'primary',x.indisprimary,'unique',x.indisunique,'ready',x.indisready,'valid',x.indisvalid,
                     'key_numbers',x.indkey::text,'key_count',x.indnkeyatts::text,'attribute_count',x.indnatts::text,
+                    'options',x.indoption::text,'native_opclasses',x.indclass::text,'native_collations',x.indcollation::text,
+                    'key_opclasses',(SELECT string_agg(concat_ws(' ',
+                        CASE WHEN NOT opc.opcdefault THEN opc.opcname END,
+                        CASE WHEN x.indcollation[k - 1] <> 0
+                              AND x.indcollation[k - 1] IS DISTINCT FROM coalesce(
+                                  (SELECT a.attcollation FROM pg_catalog.pg_attribute a WHERE a.attrelid = x.indrelid AND a.attnum = x.indkey[k - 1]),
+                                  100)
+                             THEN 'COLLATE ' || quote_ident(coll.collname) END), chr(31) ORDER BY k)
+                     FROM generate_series(1, x.indnkeyatts) AS k
+                     JOIN pg_catalog.pg_opclass opc ON opc.oid = x.indclass[k - 1]
+                     LEFT JOIN pg_catalog.pg_collation coll ON coll.oid = x.indcollation[k - 1]),
+                    'partition_of',(SELECT pn.nspname || '.' || p.relname FROM pg_catalog.pg_inherits inh
+                        JOIN pg_catalog.pg_class p ON p.oid=inh.inhparent
+                        JOIN pg_catalog.pg_namespace pn ON pn.oid=p.relnamespace WHERE inh.inhrelid=i.oid LIMIT 1),
                     'expression_md5',md5(x.indexprs::text),'predicate_md5',md5(x.indpred::text)) AS native_values
                 FROM pg_catalog.pg_index x JOIN pg_catalog.pg_class i ON i.oid=x.indexrelid
                 JOIN pg_catalog.pg_class t ON t.oid=x.indrelid JOIN pg_catalog.pg_namespace n ON n.oid=t.relnamespace

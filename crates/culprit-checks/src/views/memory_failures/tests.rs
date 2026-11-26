@@ -158,7 +158,7 @@ fn public_pipeline_preserves_the_captured_custom_sources_partial_qualification()
     custom.reason = Some("bounded native read was partial".into());
     snapshot.sources = vec![custom.clone()];
     let report = crate::analyze(snapshot);
-    let memory = report.memory_failures.expect("same pure view in the ordinary pipeline");
+    let memory = report.memory_failures.as_ref().expect("same pure view in the ordinary pipeline");
     assert_eq!(memory.source_state, Some(SourceState::Partial));
     assert_eq!(memory.source_reason.as_deref(), custom.reason_text());
     assert_eq!(memory.entries[0].position, 0);

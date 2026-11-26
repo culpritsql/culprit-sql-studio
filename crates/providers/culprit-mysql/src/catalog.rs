@@ -98,36 +98,23 @@ pub(crate) async fn tables(conn: &mut impl crate::read::QueryRead, db: &str) -> 
 
 pub(crate) async fn columns(conn: &mut impl crate::read::QueryRead, db: &str) -> Result<Vec<ColumnInfo>> {
     let rows = query_with(conn, &crate::native::catalog::columns_query(true), vec![Value::from(db)]).await?;
-    let mut collation_counts: HashMap<String, usize> = HashMap::new();
-    for r in &rows {
-        if let Some(coll) = r.text("collation_name").filter(|s| !s.is_empty()) {
-            *collation_counts.entry(coll.to_ascii_lowercase()).or_default() += 1;
-        }
-    }
-    let dominant_collation = collation_counts.iter().max_by_key(|(_, count)| *count).map(|(coll, _)| coll.clone());
-    let mixed_collations = collation_counts.len() > 1;
-    Ok(rows
+    let mut columns: Vec<ColumnInfo> = rows
         .iter()
-        .map(|r| {
-            let mut data_type = r.string("data_type");
-            if mixed_collations
-                && let Some(coll) = r.text("collation_name").filter(|s| !s.is_empty())
-                && dominant_collation.as_deref() != Some(&coll.to_ascii_lowercase())
-            {
-                data_type.push_str(&format!(" COLLATE {coll}"));
-            }
-            ColumnInfo {
-                schema: db.to_string(),
-                table: r.string("table_name"),
-                name: r.string("name"),
-                data_type,
-                nullable: r.string("nullable").eq_ignore_ascii_case("YES"),
-                default: r.text("default_value"),
-                generated: r.string("extra").to_ascii_lowercase().contains("auto_increment"),
-                ordinal: r.number("ordinal").unwrap_or(0.0) as u32,
-            }
+        .map(|r| ColumnInfo {
+            schema: db.to_string(),
+            table: r.string("table_name"),
+            name: r.string("name"),
+            data_type: r.string("data_type"),
+            nullable: r.string("nullable").eq_ignore_ascii_case("YES"),
+            default: r.text("default_value"),
+            generated: r.string("extra").to_ascii_lowercase().contains("auto_increment"),
+            ordinal: r.number("ordinal").unwrap_or(0.0) as u32,
         })
-        .collect())
+        .collect();
+    let collations: Vec<Option<String>> = rows.iter().map(|r| r.text("collation_name")).collect();
+    let collation_refs: Vec<Option<&str>> = collations.iter().map(|c| c.as_deref()).collect();
+    culprit_core::catalog_projection::apply_mysql_mixed_collations(&mut columns, &collation_refs);
+    Ok(columns)
 }
 
 /// Indexes with their key columns, size and usage since the server started. The note explains missing usage counters.
@@ -213,16 +200,16 @@ pub(crate) async fn indexes(
         let columns: Vec<String> = parts
             .iter()
             .map(|p| {
-                let base = match (p.text("column_name"), p.text("expression")) {
-                    (Some(c), _) => c,
-                    (None, Some(e)) => format!("({e})"),
-                    (None, None) => "?".into(),
-                };
-                let base = match p.number("sub_part") {
-                    Some(n) => format!("{base}({})", n as u64),
-                    None => base,
-                };
-                if p.string("collation") == "D" { format!("{base} DESC") } else { base }
+                let col = p.text("column_name");
+                let expr = p.text("expression");
+                let collation = p.text("collation");
+                culprit_core::catalog_projection::mysql_index_key_part(
+                    col.as_deref(),
+                    expr.as_deref(),
+                    p.number("sub_part").map(|n| n as u64),
+                    collation.as_deref(),
+                    "?",
+                )
             })
             .collect();
         let primary = name.eq_ignore_ascii_case("PRIMARY");
@@ -336,13 +323,7 @@ pub(crate) async fn foreign_keys(conn: &mut impl crate::read::QueryRead, db: &st
                 ref_schema: r.string("ref_schema"),
                 ref_table: r.string("ref_table"),
                 ref_columns: vec![r.string("ref_column")],
-                delete_rule: match r.string("delete_rule").to_ascii_uppercase().as_str() {
-                    "CASCADE" => Some("CASCADE".into()),
-                    "SET NULL" => Some("SET NULL".into()),
-                    "SET DEFAULT" => Some("SET DEFAULT".into()),
-                    "RESTRICT" => Some("RESTRICT".into()),
-                    _ => None,
-                },
+                delete_rule: culprit_core::catalog_projection::mysql_delete_rule(r.text("delete_rule").as_deref()),
             }),
         }
     }

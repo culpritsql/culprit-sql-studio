@@ -42,7 +42,7 @@ fn scan(source: &CollectionDescription, records: &[TelemetryRecord]) -> Snapshot
 #[tokio::test]
 async fn authenticated_memory_failures_reuse_scan_explanations_without_inventing_a_database_or_owner() {
     let (source, records) = memory_failure_evidence();
-    let mut expected = culprit_checks::analyze(scan(&source, &records)).memory_failures.unwrap();
+    let mut expected = culprit_checks::analyze(scan(&source, &records)).operational.memory_failures.unwrap();
     assert_eq!(
         expected.incident_input,
         DiagnosticInputQualification::Ineligible { reason: DiagnosticInputIneligibility::OriginalSourceUnavailable }
@@ -167,7 +167,7 @@ async fn custom_source_identity_keeps_authenticated_native_coverage_without_an_e
         let TelemetryRecord::Operational(observation) = record else { panic!() };
         observation.source = "embedding-native-memory-source".into();
     }
-    let mut expected = culprit_checks::analyze(scan(&source, &records)).memory_failures.unwrap();
+    let mut expected = culprit_checks::analyze(scan(&source, &records)).operational.memory_failures.unwrap();
     expected.qualify_incident_input(&source);
     let fixture = Fixture::new(source.clone(), records).await;
     let capture = fixture.read_families(&[EvidenceFamily::OperationalSamples]).await;

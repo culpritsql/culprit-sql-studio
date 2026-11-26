@@ -79,7 +79,7 @@ async fn authenticated_task_investigation_reuses_pure_explanations_and_keeps_ori
             observed_until: bounds.observed_until.clone(),
             observations: observations(&rows).into_iter().cloned().collect(),
         });
-        assert_eq!(culprit_checks::analyze(scan).task_space.unwrap(), expected);
+        assert_eq!(culprit_checks::analyze(scan).operational.task_space.unwrap(), expected);
         let fixture = Fixture::new(source.clone(), rows.clone()).await;
         let capture = fixture.read_families(&[EvidenceFamily::OperationalSamples]).await;
         let result = collected_resources::task_space(&capture).unwrap();

@@ -406,6 +406,25 @@ fn type_mismatch_finding(m: TypeMismatch<'_>) -> Finding {
     let parent = format!("{}.{}", fk.ref_schema, fk.ref_table);
     let id_key = format!("type-mismatch:{child}({})", c_col.name);
     let mut f = finding("unindexed-fk", &id_key, Category::Indexes, subject(SubjectKind::Table, &child));
+    f.facts.catalog_refs = vec![
+        culprit_core::CatalogObjectRef::Table { schema: fk.schema.clone(), table: fk.table.clone() },
+        culprit_core::CatalogObjectRef::ForeignKey {
+            schema: fk.schema.clone(),
+            table: fk.table.clone(),
+            name: fk.name.clone(),
+        },
+        culprit_core::CatalogObjectRef::Column {
+            schema: c_col.schema.clone(),
+            table: c_col.table.clone(),
+            column: c_col.name.clone(),
+        },
+        culprit_core::CatalogObjectRef::Table { schema: fk.ref_schema.clone(), table: fk.ref_table.clone() },
+        culprit_core::CatalogObjectRef::Column {
+            schema: p_col.schema.clone(),
+            table: p_col.table.clone(),
+            column: p_col.name.clone(),
+        },
+    ];
     f.title = t!(
         "check.unindexed_fk.title.type_mismatch",
         table = &fk.table,
@@ -558,6 +577,14 @@ fn uuid_text_finding(u: UuidText<'_>) -> Finding {
     let qual = table.qualified();
     let id_key = format!("uuid-text:{qual}({})", col.name);
     let mut f = finding("unindexed-fk", &id_key, Category::Indexes, subject(SubjectKind::Table, &qual));
+    f.facts.catalog_refs = vec![
+        culprit_core::CatalogObjectRef::Table { schema: table.schema.clone(), table: table.name.clone() },
+        culprit_core::CatalogObjectRef::Column {
+            schema: col.schema.clone(),
+            table: col.table.clone(),
+            column: col.name.clone(),
+        },
+    ];
     f.actionability = culprit_core::Actionability::OptionalImprovement;
     f.severity = Severity::Low;
     f.impact.score = base_score(Severity::Low);
@@ -726,6 +753,33 @@ fn unindexed_key_finding(snapshot: &Snapshot, k: UnindexedKey<'_>) -> Finding {
         subject(SubjectKind::Table, &child),
     );
     f.facts.index_keys = fk.columns.clone();
+    f.facts.catalog_refs = vec![
+        culprit_core::CatalogObjectRef::Table { schema: fk.schema.clone(), table: fk.table.clone() },
+        culprit_core::CatalogObjectRef::ForeignKey {
+            schema: fk.schema.clone(),
+            table: fk.table.clone(),
+            name: fk.name.clone(),
+        },
+    ];
+    for col in &fk.columns {
+        f.facts.catalog_refs.push(culprit_core::CatalogObjectRef::Column {
+            schema: fk.schema.clone(),
+            table: fk.table.clone(),
+            column: col.clone(),
+        });
+    }
+    if let Some(filtered) = k.filtered_index {
+        f.facts.catalog_refs.push(culprit_core::CatalogObjectRef::Index {
+            schema: filtered.schema.clone(),
+            table: filtered.table.clone(),
+            index: filtered.name.clone(),
+        });
+    }
+    if k.deletes.is_some() || k.parent_cold.is_some() || k.quiet_parent.is_some() || k.lookup_parent_rows.is_some() {
+        f.facts
+            .catalog_refs
+            .push(culprit_core::CatalogObjectRef::Table { schema: fk.ref_schema.clone(), table: fk.ref_table.clone() });
+    }
     f.title = t!("check.unindexed_fk.title", table = &fk.table, columns = &cols, parent_table = &fk.ref_table);
     let mut summary = vec![
         t!("check.unindexed_fk.summary.check", parent = &parent, child = &child, rows = format::count(k.rows)),
@@ -949,6 +1003,16 @@ fn pattern_finding(snapshot: &Snapshot, p: UnindexedPattern<'_>) -> Finding {
     let (total, unindexed) = (p.total.to_string(), p.unindexed.to_string());
     let mut f =
         finding("unindexed-fk", "schema", Category::Indexes, subject(SubjectKind::Database, &snapshot.server.database));
+    for (fk, _) in &p.small {
+        f.facts.catalog_refs.push(culprit_core::CatalogObjectRef::ForeignKey {
+            schema: fk.schema.clone(),
+            table: fk.table.clone(),
+            name: fk.name.clone(),
+        });
+        f.facts
+            .catalog_refs
+            .push(culprit_core::CatalogObjectRef::Table { schema: fk.schema.clone(), table: fk.table.clone() });
+    }
     f.title = if p.unindexed == p.total {
         t!("check.unindexed_fk.title.pattern_all", total = &total)
     } else {

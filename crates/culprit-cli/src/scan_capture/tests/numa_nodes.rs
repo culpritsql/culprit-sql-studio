@@ -26,7 +26,7 @@ async fn selected_native_node_original_survives_real_cli_save_offline_replay_and
     assert_eq!(nodes.populations[1].source_state, culprit_core::SourceState::Partial);
     assert_eq!(nodes.context.as_ref().unwrap().native().unwrap().partition, source.partition);
     assert!(view.groups.is_empty());
-    let path = workspace.paths().reports_dir("local-evidence").join(format!("{}.json", report.snapshot.id));
+    let path = workspace.connection_reports_dir("local-evidence").join(format!("{}.json", report.snapshot.id));
     let offline = Workspace::open_in(fixture.directory.parent().unwrap().join("offline")).with_provider(
         Engine::Mssql,
         ProviderRegistration::new(
@@ -38,7 +38,7 @@ async fn selected_native_node_original_survives_real_cli_save_offline_replay_and
     );
     let saved = offline.analyze_file(&path).unwrap();
     assert_eq!(&saved.snapshot.operations.numa_nodes[0], original);
-    assert_eq!(serde_json::to_value(saved.numa_nodes).unwrap(), serde_json::to_value(&report.numa_nodes).unwrap());
+    assert_eq!(serde_json::to_value(&saved.numa_nodes).unwrap(), serde_json::to_value(&report.numa_nodes).unwrap());
     let shared = culprit_core::redact::redact_snapshot(&report.snapshot);
     let shared = culprit_checks::analyze(shared);
     let withdrawn = shared.numa_nodes.as_ref().unwrap()[0].numa_nodes.as_ref().unwrap();

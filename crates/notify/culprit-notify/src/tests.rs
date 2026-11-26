@@ -332,3 +332,145 @@ fn secret_endpoint_resolution_enforces_https_origin_pinning_and_rejects_host_red
     assert!(resolve_secret_endpoint("https://hooks.slack.com", "//evil.example.com/services/T1").is_err());
     assert!(resolve_secret_endpoint("https://hooks.slack.com", "/services/../admin").is_err());
 }
+
+#[tokio::test]
+async fn failing_route_does_not_starve_later_routes_or_duplicate_succeeded_routes_on_retry() {
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+
+    struct FlakySink {
+        kind_name: &'static str,
+        fail: Arc<AtomicBool>,
+        calls: Arc<AtomicUsize>,
+    }
+
+    #[async_trait]
+    impl NotificationSink for FlakySink {
+        fn kind(&self) -> &'static str {
+            self.kind_name
+        }
+        fn validate_config(&self, _config: &serde_json::Value, _credentials: &dyn CredentialResolver) -> Result<()> {
+            Ok(())
+        }
+        async fn deliver(
+            &self,
+            _event: &RedactedAlertEvent,
+            _config: &serde_json::Value,
+            _credentials: &dyn CredentialResolver,
+            _transport: &dyn NotificationTransport,
+            _cancellation: &CollectionCancellation,
+        ) -> Result<SinkDeliveryReceipt> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            if self.fail.load(Ordering::SeqCst) {
+                return Err(Error::new(ErrorCode::ConnectionFailed, "webhook down"));
+            }
+            Ok(SinkDeliveryReceipt { sink_kind: self.kind_name.into(), status_code: 200, external_id: None })
+        }
+    }
+
+    let slack_calls = Arc::new(AtomicUsize::new(0));
+    let webhook_calls = Arc::new(AtomicUsize::new(0));
+    let pagerduty_calls = Arc::new(AtomicUsize::new(0));
+    let webhook_fail = Arc::new(AtomicBool::new(true));
+
+    let notifier = Notifier::new()
+        .with_sink(Arc::new(FlakySink {
+            kind_name: "slack-test",
+            fail: Arc::new(AtomicBool::new(false)),
+            calls: slack_calls.clone(),
+        }))
+        .with_sink(Arc::new(FlakySink {
+            kind_name: "webhook-test",
+            fail: webhook_fail.clone(),
+            calls: webhook_calls.clone(),
+        }))
+        .with_sink(Arc::new(FlakySink {
+            kind_name: "pagerduty-test",
+            fail: Arc::new(AtomicBool::new(false)),
+            calls: pagerduty_calls.clone(),
+        }));
+
+    let routes = vec![
+        NotificationRoute {
+            name: "first_slack".into(),
+            sink: "slack-test".into(),
+            categories: BTreeSet::from([AlertCategory::Incident]),
+            min_severity: AlertSeverity::High,
+            send_resolutions: true,
+            settings: serde_json::json!({}),
+        },
+        NotificationRoute {
+            name: "middle_webhook".into(),
+            sink: "webhook-test".into(),
+            categories: BTreeSet::from([AlertCategory::Incident]),
+            min_severity: AlertSeverity::High,
+            send_resolutions: true,
+            settings: serde_json::json!({}),
+        },
+        NotificationRoute {
+            name: "last_pagerduty".into(),
+            sink: "pagerduty-test".into(),
+            categories: BTreeSet::from([AlertCategory::Incident]),
+            min_severity: AlertSeverity::High,
+            send_resolutions: true,
+            settings: serde_json::json!({}),
+        },
+    ];
+
+    let store = MemoryDeduplicationStore::new();
+    let evaluator = AlertEvaluator::new(AlertEvaluationPolicy::default()).unwrap();
+    let batch = AlertBatchInput {
+        evaluated_at: "2026-11-25T12:00:00Z".into(),
+        incidents: vec![sample_incident("1", "active", "2026-11-25T11:58:00Z", "2026-11-25T11:59:00Z")],
+        ..Default::default()
+    };
+
+    // Attempt 1: middle_webhook fails, but both first_slack and last_pagerduty still deliver and are recorded.
+    let mut state = store.load().unwrap();
+    let events = evaluator.evaluate(&batch, &mut state).unwrap();
+    assert_eq!(events.len(), 1);
+    notifier.enqueue_events(&events, &routes, &batch.evaluated_at, &mut state);
+    let first_pass = notifier
+        .dispatch_pending(
+            &mut state,
+            &routes,
+            &FakeCredentials::default(),
+            &RecordedTransport::default(),
+            &CollectionCancellation::default(),
+        )
+        .await;
+    store.save(&state).unwrap();
+
+    assert_eq!(first_pass.deliveries.len(), 2);
+    assert_eq!(first_pass.failures.len(), 1);
+    assert_eq!(first_pass.failures[0].0, "middle_webhook");
+    assert_eq!(slack_calls.load(Ordering::SeqCst), 1);
+    assert_eq!(webhook_calls.load(Ordering::SeqCst), 1);
+    assert_eq!(pagerduty_calls.load(Ordering::SeqCst), 1);
+    assert_eq!(state.pending_deliveries.len(), 1);
+    assert_eq!(state.pending_deliveries[0].route, "middle_webhook");
+
+    // Attempt 2 (retry): webhook recovers; ONLY middle_webhook is called, with zero duplicate deliveries to Slack or PagerDuty.
+    webhook_fail.store(false, Ordering::SeqCst);
+    let mut retry_state = store.load().unwrap();
+    let retry_events = evaluator.evaluate(&batch, &mut retry_state).unwrap();
+    assert!(retry_events.is_empty(), "evaluator does not re-emit already-transitioned episode");
+    notifier.enqueue_events(&retry_events, &routes, "2026-11-25T12:01:00Z", &mut retry_state);
+    let second_pass = notifier
+        .dispatch_pending(
+            &mut retry_state,
+            &routes,
+            &FakeCredentials::default(),
+            &RecordedTransport::default(),
+            &CollectionCancellation::default(),
+        )
+        .await;
+    store.save(&retry_state).unwrap();
+
+    assert!(second_pass.failures.is_empty());
+    assert_eq!(second_pass.deliveries.len(), 1);
+    assert_eq!(second_pass.deliveries[0].route, "middle_webhook");
+    assert_eq!(slack_calls.load(Ordering::SeqCst), 1, "Slack must not receive duplicate alerts on retry");
+    assert_eq!(pagerduty_calls.load(Ordering::SeqCst), 1, "PagerDuty must not receive duplicate alerts on retry");
+    assert_eq!(webhook_calls.load(Ordering::SeqCst), 2);
+    assert!(store.load().unwrap().pending_deliveries.is_empty());
+}

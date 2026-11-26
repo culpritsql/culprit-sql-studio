@@ -680,3 +680,676 @@ async fn standalone_mssql_postgres_and_mysql_catalog_captures_synthesize_schema_
     assert!(!dup.inputs.is_empty());
     assert!(dup.finding.fix.as_ref().is_none_or(|fix| fix.sql.is_none()));
 }
+
+#[tokio::test]
+async fn postgres_archive_index_synthesis_preserves_opclasses_and_isolates_sibling_index_evidence() {
+    let mut pg_db = DatabaseIdentity::server(Engine::Postgres, "shop", "pg.internal", 5432, None);
+    pg_db.incarnation = Some("16384".into());
+    let pg_snap = |dataset: SnapshotDataset, src_name: &str, records: u32| CollectionDescription {
+        target: CollectionTarget::Database(pg_db.clone()),
+        partition: SourcePartition::Target,
+        source: src_name.into(),
+        continuity: SourceContinuity::Unverified,
+        observation: SourceObservation::Snapshot(StateSnapshotDescription {
+            dataset,
+            observed_from: "2020-01-01T10:00:00Z".into(),
+            observed_until: "2020-01-01T10:00:01Z".into(),
+            records,
+            sources: vec![StateSourceCoverage::collected(src_name.into(), records)],
+        }),
+    };
+
+    let tbl_set = NativeCounterSet {
+        ratios: vec![],
+        ratio_gaps: vec![],
+        identity: NativeIdentity::new("50000").qualified("database_oid", "16384"),
+        scope: MeasurementScope::Database,
+        counters: vec![NativeCounterSample::gauge(
+            "rows",
+            250_000,
+            CounterUnit::Count,
+            MeasurementScope::Database,
+            "pg_class",
+            "rows",
+        )],
+        properties: std::collections::BTreeMap::from([
+            ("schema_name".into(), "public".into()),
+            ("table_name".into(), "users".into()),
+            ("relation_kind".into(), "r".into()),
+            ("has_pk".into(), "true".into()),
+            ("size_basis".into(), "catalog-estimate".into()),
+        ]),
+    };
+    let tbl_cap = capture(
+        pg_snap(SnapshotDataset::Tables, "pg_stat_user_tables", 1),
+        vec![TelemetryRecord::Operational(OperationalObservation {
+            source: "pg_stat_user_tables".into(),
+            key: tbl_set.key().unwrap(),
+            fact: OperationalFact::CounterSet(Box::new(tbl_set)),
+        })],
+        310,
+        "2020-01-01T10:00:00Z",
+        EvidenceFamily::OperationalSamples,
+    )
+    .await;
+
+    let pg_col = |name: &str, ord: &str| {
+        let def = NativeCatalogDefinition {
+            identity: NativeIdentity::new(format!("50000:{ord}")).qualified("database_oid", "16384"),
+            object_type: "pg_attribute".into(),
+            properties: std::collections::BTreeMap::from([
+                ("relation_oid".into(), "50000".into()),
+                ("schema_name".into(), "public".into()),
+                ("table_name".into(), "users".into()),
+                ("column_name".into(), name.into()),
+                ("data_type".into(), "text".into()),
+                ("nullable".into(), "false".into()),
+                ("ordinal".into(), ord.into()),
+            ]),
+            definition: None,
+            predicate: None,
+        };
+        TelemetryRecord::ObjectDefinition(
+            ObjectDefinitionRecord::new("pg_attribute".into(), ObjectDefinitionFact::NativeCatalog(Box::new(def)))
+                .unwrap(),
+        )
+    };
+    let col_cap = capture(
+        pg_snap(SnapshotDataset::Columns, "pg_attribute", 2),
+        vec![pg_col("email", "1"), pg_col("tenant", "2")],
+        311,
+        "2020-01-01T10:00:00Z",
+        EvidenceFamily::ObjectDefinitions,
+    )
+    .await;
+
+    let pg_idx = |oid: &str, name: &str, keys: &str, opc_oids: &str, key_opc: Option<&str>, expr_md5: Option<&str>| {
+        let id = NativeIdentity::new(oid).qualified("table_oid", "50000").qualified("database_oid", "16384");
+        let mut props = std::collections::BTreeMap::from([
+            ("schema_name".into(), "public".into()),
+            ("table_name".into(), "users".into()),
+            ("index_name".into(), name.into()),
+            ("kind".into(), "btree".into()),
+            ("indisunique".into(), "false".into()),
+            ("indisprimary".into(), "false".into()),
+            ("indisready".into(), "true".into()),
+            ("native_valid".into(), "true".into()),
+            ("native_live".into(), "true".into()),
+            ("native_keys".into(), keys.into()),
+            ("native_key_count".into(), "1".into()),
+            ("native_opclasses".into(), opc_oids.into()),
+            ("native_collations".into(), "100".into()),
+            ("native_options".into(), "0".into()),
+        ]);
+        if let Some(v) = key_opc {
+            props.insert("key_opclasses".into(), v.into());
+        }
+        if let Some(md5) = expr_md5 {
+            props.insert("expressions_md5".into(), md5.into());
+        }
+        let rec = NativeCatalogCounters {
+            catalog: NativeCatalogDefinition {
+                identity: id.clone(),
+                object_type: "pg_index".into(),
+                properties: props,
+                definition: None,
+                predicate: None,
+            },
+            counters: NativeCounterSet {
+                ratios: vec![],
+                ratio_gaps: vec![],
+                identity: id,
+                scope: MeasurementScope::Database,
+                counters: vec![NativeCounterSample::gauge(
+                    "estimated_bytes",
+                    8 * 1024 * 1024,
+                    CounterUnit::Bytes,
+                    MeasurementScope::Database,
+                    "pg_stat_user_indexes",
+                    "estimated_bytes",
+                )],
+                properties: std::collections::BTreeMap::from([
+                    ("index_name".into(), name.into()),
+                    ("size_basis".into(), "catalog-estimate".into()),
+                ]),
+            },
+        };
+        TelemetryRecord::Operational(OperationalObservation {
+            source: "pg_stat_user_indexes".into(),
+            key: rec.catalog.key().unwrap(),
+            fact: OperationalFact::CatalogCounters(Box::new(rec)),
+        })
+    };
+
+    // Row 0: default opclass index on `email`
+    // Row 1: `text_pattern_ops` index on `email` — MUST NOT be flagged as duplicate of Row 0!
+    // Row 2: actual duplicate default opclass index on `email` (`users_email_idx_dup` > `users_email_idx`) — MUST be flagged!
+    // Row 3: unrelated sibling index on `tenant` — MUST NOT be cited in `dup.inputs`!
+    // Row 4: expression index (`attnum == 0`) — MUST NOT poison `SnapshotDataset::Indexes`!
+    let idx_cap = capture(
+        pg_snap(SnapshotDataset::Indexes, "pg_stat_user_indexes", 5),
+        vec![
+            pg_idx("50001", "users_email_idx", "1", "3126", Some(""), None),
+            pg_idx("50002", "users_email_pattern_idx", "1", "10064", Some("text_pattern_ops"), None),
+            pg_idx("50003", "users_email_idx_dup", "1", "3126", Some(""), None),
+            pg_idx("50004", "users_tenant_idx", "2", "3126", Some(""), None),
+            pg_idx("50005", "users_lower_email_idx", "0", "3126", Some(""), Some("d41d8cd98f00b204e9800998ecf8427e")),
+        ],
+        312,
+        "2020-01-01T10:01:00Z",
+        EvidenceFamily::OperationalSamples,
+    )
+    .await;
+
+    let fk_cap = capture(
+        pg_snap(SnapshotDataset::ForeignKeys, "pg_constraint", 0),
+        vec![],
+        313,
+        "2020-01-01T10:00:00Z",
+        EvidenceFamily::ObjectDefinitions,
+    )
+    .await;
+
+    let gold = policy()
+        .synthesize_captures(&idx_cap, &[&tbl_cap, &col_cap, &fk_cap], "2020-01-01T12:02:00Z", &display())
+        .unwrap();
+    gold.validate().unwrap();
+    let dups: Vec<_> = gold.findings.iter().filter(|row| row.finding.check == "duplicate-index").collect();
+    assert_eq!(
+        dups.len(),
+        1,
+        "only users_email_idx_dup duplicates users_email_idx; text_pattern_ops and expression index must not be flagged: {dups:#?}"
+    );
+    let dup = dups[0];
+    assert_eq!(dup.finding.subject.name, "public.users.users_email_idx_dup");
+
+    // Live vs archived parity: feeding the reconstructed snapshot's indexes to `culprit_checks::analyze` yields the
+    // exact same duplicate-index finding set.
+    let tbl_orig = tbl_cap.verified_original().unwrap();
+    let col_orig = col_cap.verified_original().unwrap();
+    let fk_orig = fk_cap.verified_original().unwrap();
+    let idx_orig = idx_cap.verified_original().unwrap();
+    let retained = crate::collected_evidence::analyze_catalog_originals(
+        &idx_orig,
+        &[&idx_orig, &tbl_orig, &col_orig, &fk_orig],
+        &culprit_checks::Pipeline::builtin(),
+    )
+    .unwrap();
+    assert!(retained.issues.is_empty(), "expression index must not mark Indexes partial: {:?}", retained.issues);
+    let live_equiv = culprit_checks::analyze(retained.report.snapshot.clone());
+    assert_eq!(
+        retained.report.findings.iter().map(|f| &f.id).collect::<Vec<_>>(),
+        live_equiv.findings.iter().map(|f| &f.id).collect::<Vec<_>>()
+    );
+
+    // Exact source-row evidence isolation: only Row 0 (`users_email_idx`), Row 2 (`users_email_dup_idx`), and the
+    // parent table row are cited — never Row 1 (`users_email_pattern_idx`), Row 3 (`users_tenant_idx`), Row 4, or columns.
+    let expected_refs =
+        vec![idx_orig.reference(0).unwrap(), idx_orig.reference(2).unwrap(), tbl_orig.reference(0).unwrap()];
+    assert_eq!(dup.inputs, expected_refs);
+}
+
+#[tokio::test]
+async fn mysql_archive_preserves_mixed_collations_delete_rules_functional_indexes_and_exact_fk_refs() {
+    use culprit_core::telemetry::*;
+    let db = DatabaseIdentity::server(Engine::Mysql, "shop", "mysql.example.invalid", 3306, None);
+    let my_snap = |dataset: SnapshotDataset, src: &str, records: u32| CollectionDescription {
+        target: CollectionTarget::Database(db.clone()),
+        partition: SourcePartition::Target,
+        source: src.into(),
+        continuity: SourceContinuity::Unverified,
+        observation: SourceObservation::Snapshot(StateSnapshotDescription {
+            dataset,
+            observed_from: "2020-01-01T10:00:00Z".into(),
+            observed_until: "2020-01-01T10:00:01Z".into(),
+            records,
+            sources: vec![StateSourceCoverage::collected(src.into(), records)],
+        }),
+    };
+
+    let my_tbl = |name: &str, rows: u64| {
+        let id = NativeIdentity::new(format!("[\"{name}\"]")).qualified("schema", "shop");
+        let rec = NativeCatalogCounters {
+            catalog: NativeCatalogDefinition {
+                identity: id.clone(),
+                object_type: "table".into(),
+                properties: std::collections::BTreeMap::from([
+                    ("name".into(), name.into()),
+                    ("engine".into(), "InnoDB".into()),
+                    ("table_type".into(), "BASE TABLE".into()),
+                    ("has_pk".into(), "1".into()),
+                ]),
+                definition: None,
+                predicate: None,
+            },
+            counters: NativeCounterSet {
+                ratios: vec![],
+                ratio_gaps: vec![],
+                identity: id,
+                scope: MeasurementScope::Database,
+                counters: vec![NativeCounterSample::gauge(
+                    "row_estimate",
+                    rows,
+                    CounterUnit::Count,
+                    MeasurementScope::Database,
+                    "information_schema.tables",
+                    "row_estimate",
+                )],
+                properties: std::collections::BTreeMap::from([("object_type".into(), "table".into())]),
+            },
+        };
+        TelemetryRecord::Operational(OperationalObservation {
+            source: "information_schema.tables".into(),
+            key: rec.catalog.key().unwrap(),
+            fact: OperationalFact::CatalogCounters(Box::new(rec)),
+        })
+    };
+    let tbl_cap = capture(
+        my_snap(SnapshotDataset::Tables, "information_schema.tables", 2),
+        vec![my_tbl("accounts", 10_000), my_tbl("orders", 200_000)],
+        320,
+        "2020-01-01T10:00:00Z",
+        EvidenceFamily::OperationalSamples,
+    )
+    .await;
+
+    let my_col = |table: &str, name: &str, dtype: &str, ord: &str, coll: Option<&str>| {
+        let mut props = std::collections::BTreeMap::from([
+            ("table_name".into(), table.into()),
+            ("name".into(), name.into()),
+            ("data_type".into(), dtype.into()),
+            ("nullable".into(), "NO".into()),
+            ("extra".into(), "".into()),
+            ("ordinal".into(), ord.into()),
+        ]);
+        if let Some(c) = coll {
+            props.insert("collation_name".into(), c.into());
+        }
+        let def = NativeCatalogDefinition {
+            identity: NativeIdentity::new(format!("[\"{table}\",\"{name}\"]")).qualified("schema", "shop"),
+            object_type: "column".into(),
+            properties: props,
+            definition: None,
+            predicate: None,
+        };
+        TelemetryRecord::ObjectDefinition(
+            ObjectDefinitionRecord::new(
+                "information_schema.columns".into(),
+                ObjectDefinitionFact::NativeCatalog(Box::new(def)),
+            )
+            .unwrap(),
+        )
+    };
+    // Dominant collation is `utf8mb4_0900_ai_ci` (3 columns); `orders.account_code` uses `utf8mb4_bin`.
+    let col_cap = capture(
+        my_snap(SnapshotDataset::Columns, "information_schema.columns", 4),
+        vec![
+            my_col("accounts", "code", "varchar(64)", "1", Some("utf8mb4_0900_ai_ci")),
+            my_col("accounts", "label", "varchar(120)", "2", Some("utf8mb4_0900_ai_ci")),
+            my_col("orders", "account_code", "varchar(64)", "1", Some("utf8mb4_bin")),
+            my_col("orders", "email", "varchar(120)", "2", Some("utf8mb4_0900_ai_ci")),
+        ],
+        321,
+        "2020-01-01T10:00:00Z",
+        EvidenceFamily::ObjectDefinitions,
+    )
+    .await;
+
+    let fk_def = NativeCatalogDefinition {
+        identity: NativeIdentity::new("[\"orders\",\"orders_account_fk\",\"account_code\"]")
+            .qualified("schema", "shop"),
+        object_type: "foreign-key-column".into(),
+        properties: std::collections::BTreeMap::from([
+            ("table_name".into(), "orders".into()),
+            ("name".into(), "orders_account_fk".into()),
+            ("column_name".into(), "account_code".into()),
+            ("ref_schema".into(), "shop".into()),
+            ("ref_table".into(), "accounts".into()),
+            ("ref_column".into(), "code".into()),
+            ("delete_rule".into(), "NO ACTION".into()),
+            ("ordinal".into(), "1".into()),
+        ]),
+        definition: None,
+        predicate: None,
+    };
+    let fk_cap = capture(
+        my_snap(SnapshotDataset::ForeignKeys, "information_schema.key_column_usage", 1),
+        vec![TelemetryRecord::ObjectDefinition(
+            ObjectDefinitionRecord::new(
+                "information_schema.key_column_usage".into(),
+                ObjectDefinitionFact::NativeCatalog(Box::new(fk_def)),
+            )
+            .unwrap(),
+        )],
+        322,
+        "2020-01-01T10:00:00Z",
+        EvidenceFamily::ObjectDefinitions,
+    )
+    .await;
+
+    let my_idx = |table: &str, name: &str, col: Option<&str>| {
+        let id = NativeIdentity::new(format!("[\"{table}\",\"{name}\",\"1\"]")).qualified("schema", "shop");
+        let mut props = std::collections::BTreeMap::from([
+            ("table_name".into(), table.into()),
+            ("index_name".into(), name.into()),
+            ("non_unique".into(), "1".into()),
+            ("seq".into(), "1".into()),
+            ("collation".into(), "A".into()),
+            ("index_type".into(), "BTREE".into()),
+            ("visible".into(), "YES".into()),
+        ]);
+        if let Some(c) = col {
+            props.insert("column_name".into(), c.into());
+        }
+        let rec = NativeCatalogCounters {
+            catalog: NativeCatalogDefinition {
+                identity: id.clone(),
+                object_type: "index-column".into(),
+                properties: props,
+                definition: None,
+                predicate: None,
+            },
+            counters: NativeCounterSet {
+                ratios: vec![],
+                ratio_gaps: vec![],
+                identity: id,
+                scope: MeasurementScope::Database,
+                counters: vec![],
+                properties: std::collections::BTreeMap::from([("object_type".into(), "index-column".into())]),
+            },
+        };
+        TelemetryRecord::Operational(OperationalObservation {
+            source: "information_schema.statistics".into(),
+            key: rec.catalog.key().unwrap(),
+            fact: OperationalFact::CatalogCounters(Box::new(rec)),
+        })
+    };
+    // Includes both an index backing `account_code` AND a functional index (`column_name` absent).
+    let idx_cap = capture(
+        my_snap(SnapshotDataset::Indexes, "information_schema.statistics", 2),
+        vec![
+            my_idx("orders", "orders_account_idx", Some("account_code")),
+            my_idx("orders", "orders_lower_email_idx", None),
+        ],
+        323,
+        "2020-01-01T10:00:00Z",
+        EvidenceFamily::OperationalSamples,
+    )
+    .await;
+
+    let gold = policy()
+        .synthesize_captures(&fk_cap, &[&tbl_cap, &col_cap, &idx_cap], "2020-01-01T12:02:00Z", &display())
+        .unwrap();
+    gold.validate().unwrap();
+    let mismatches: Vec<_> =
+        gold.findings.iter().filter(|f| f.finding.id.starts_with("unindexed-fk:type-mismatch:")).collect();
+    assert_eq!(mismatches.len(), 1, "mixed MySQL collation must trigger FK type mismatch: {:#?}", gold.findings);
+
+    let fk_orig = fk_cap.verified_original().unwrap();
+    let tbl_orig = tbl_cap.verified_original().unwrap();
+    let col_orig = col_cap.verified_original().unwrap();
+    let idx_orig = idx_cap.verified_original().unwrap();
+    let retained = crate::collected_evidence::analyze_catalog_originals(
+        &fk_orig,
+        &[&fk_orig, &tbl_orig, &col_orig, &idx_orig],
+        &culprit_checks::Pipeline::builtin(),
+    )
+    .unwrap();
+    assert!(retained.issues.is_empty(), "functional MySQL index must not poison Indexes: {:?}", retained.issues);
+    assert_eq!(retained.report.snapshot.foreign_keys[0].delete_rule, None, "NO ACTION normalizes to None");
+    let live_equiv = culprit_checks::analyze(retained.report.snapshot.clone());
+    assert_eq!(
+        retained.report.findings.iter().map(|f| &f.id).collect::<Vec<_>>(),
+        live_equiv.findings.iter().map(|f| &f.id).collect::<Vec<_>>()
+    );
+
+    // Supporting refs cite the FK, both tables, and ONLY the two participating FK columns (rows 0 and 2 of col_cap),
+    // never unrelated columns `accounts.label` (row 1) or `orders.email` (row 3).
+    let expected_refs = vec![
+        fk_orig.reference(0).unwrap(),
+        tbl_orig.reference(0).unwrap(),
+        tbl_orig.reference(1).unwrap(),
+        col_orig.reference(0).unwrap(),
+        col_orig.reference(2).unwrap(),
+    ];
+    assert_eq!(mismatches[0].inputs, expected_refs);
+}
+
+#[tokio::test]
+async fn yugabyte_archive_projects_docdb_tables_indexes_and_deduplicates_unvalidated_constraints() {
+    use culprit_core::telemetry::*;
+    let db = DatabaseIdentity::server(Engine::Yugabyte, "shop", "yb.example.invalid", 5433, None);
+    let yb_snap = |dataset: SnapshotDataset, src: &str, records: u32| CollectionDescription {
+        target: CollectionTarget::Database(db.clone()),
+        partition: SourcePartition::Target,
+        source: src.into(),
+        continuity: SourceContinuity::Unverified,
+        observation: SourceObservation::Snapshot(StateSnapshotDescription {
+            dataset,
+            observed_from: "2020-01-01T10:00:00Z".into(),
+            observed_until: "2020-01-01T10:00:01Z".into(),
+            records,
+            sources: vec![StateSourceCoverage::collected(src.into(), records)],
+        }),
+    };
+
+    let tbl_id = NativeIdentity::new("60000").qualified("database_oid", "16384").qualified("node", "yb-1:5433");
+    let tbl_rec = NativeCatalogCounters {
+        catalog: NativeCatalogDefinition {
+            identity: tbl_id.clone(),
+            object_type: "docdb-table".into(),
+            properties: std::collections::BTreeMap::from([
+                ("schema_name".into(), "public".into()),
+                ("name".into(), "orders".into()),
+                ("kind".into(), "r".into()),
+                ("has_pk".into(), "true".into()),
+            ]),
+            definition: None,
+            predicate: None,
+        },
+        counters: NativeCounterSet {
+            ratios: vec![],
+            ratio_gaps: vec![],
+            identity: tbl_id,
+            scope: MeasurementScope::Node,
+            counters: vec![NativeCounterSample {
+                value: MeasurementValue::Real(250_000.0),
+                ..NativeCounterSample::gauge(
+                    "estimated-rows",
+                    0,
+                    CounterUnit::Count,
+                    MeasurementScope::Node,
+                    "pg_class",
+                    "reltuples",
+                )
+            }],
+            properties: std::collections::BTreeMap::from([("object_type".into(), "docdb-table".into())]),
+        },
+    };
+    let tbl_cap = capture(
+        yb_snap(SnapshotDataset::Tables, "pg_class", 1),
+        vec![TelemetryRecord::Operational(OperationalObservation {
+            source: "pg_class".into(),
+            key: tbl_rec.catalog.key().unwrap(),
+            fact: OperationalFact::CatalogCounters(Box::new(tbl_rec)),
+        })],
+        330,
+        "2020-01-01T10:00:00Z",
+        EvidenceFamily::OperationalSamples,
+    )
+    .await;
+
+    let yb_col = |name: &str, dtype: &str, ord: &str| {
+        let def = NativeCatalogDefinition {
+            identity: NativeIdentity::new(format!("60000:{ord}"))
+                .qualified("database_oid", "16384")
+                .qualified("node", "yb-1:5433"),
+            object_type: "column".into(),
+            properties: std::collections::BTreeMap::from([
+                ("relation_oid".into(), "60000".into()),
+                ("schema_name".into(), "public".into()),
+                ("table_name".into(), "orders".into()),
+                ("column_name".into(), name.into()),
+                ("data_type".into(), dtype.into()),
+                ("nullable".into(), "false".into()),
+                ("ordinal".into(), ord.into()),
+            ]),
+            definition: None,
+            predicate: None,
+        };
+        TelemetryRecord::ObjectDefinition(
+            ObjectDefinitionRecord::new("pg_attribute".into(), ObjectDefinitionFact::NativeCatalog(Box::new(def)))
+                .unwrap(),
+        )
+    };
+    let col_cap = capture(
+        yb_snap(SnapshotDataset::Columns, "pg_attribute", 2),
+        vec![yb_col("id", "bigint", "1"), yb_col("account_id", "integer", "2")],
+        331,
+        "2020-01-01T10:00:00Z",
+        EvidenceFamily::ObjectDefinitions,
+    )
+    .await;
+
+    let yb_idx = |oid: &str, name: &str, primary: &str, keys: &str, key_opc: Option<&str>| {
+        let id = NativeIdentity::new(oid).qualified("database_oid", "16384").qualified("node", "yb-1:5433");
+        let mut props = std::collections::BTreeMap::from([
+            ("schema_name".into(), "public".into()),
+            ("name".into(), name.into()),
+            ("table_name".into(), "orders".into()),
+            ("relation_oid".into(), "60000".into()),
+            ("access_method".into(), "lsm".into()),
+            ("primary".into(), primary.into()),
+            ("unique".into(), primary.into()),
+            ("ready".into(), "true".into()),
+            ("valid".into(), "true".into()),
+            ("key_numbers".into(), keys.into()),
+            ("key_count".into(), "1".into()),
+            ("options".into(), "0".into()),
+        ]);
+        if let Some(opc) = key_opc {
+            props.insert("key_opclasses".into(), opc.into());
+        }
+        let rec = NativeCatalogCounters {
+            catalog: NativeCatalogDefinition {
+                identity: id.clone(),
+                object_type: "docdb-index".into(),
+                properties: props,
+                definition: None,
+                predicate: None,
+            },
+            counters: NativeCounterSet {
+                ratios: vec![],
+                ratio_gaps: vec![],
+                identity: id,
+                scope: MeasurementScope::Node,
+                counters: vec![],
+                properties: std::collections::BTreeMap::from([("object_type".into(), "docdb-index".into())]),
+            },
+        };
+        TelemetryRecord::Operational(OperationalObservation {
+            source: "pg_index".into(),
+            key: rec.catalog.key().unwrap(),
+            fact: OperationalFact::CatalogCounters(Box::new(rec)),
+        })
+    };
+    let idx_cap = capture(
+        yb_snap(SnapshotDataset::Indexes, "pg_index", 3),
+        vec![
+            yb_idx("60001", "orders_pkey", "true", "1", Some("")),
+            yb_idx("60002", "orders_acct_idx", "false", "2", Some("")),
+            yb_idx("60003", "orders_acct_dup_idx", "false", "2", Some("")),
+        ],
+        332,
+        "2020-01-01T10:00:00Z",
+        EvidenceFamily::OperationalSamples,
+    )
+    .await;
+
+    let fk_def = NativeCatalogDefinition {
+        identity: NativeIdentity::new("60010").qualified("database_oid", "16384").qualified("node", "yb-1:5433"),
+        object_type: "foreign-key".into(),
+        properties: std::collections::BTreeMap::from([
+            ("name".into(), "orders_account_fk".into()),
+            ("schema_name".into(), "public".into()),
+            ("table_name".into(), "orders".into()),
+            ("ref_schema".into(), "public".into()),
+            ("ref_table".into(), "orders".into()),
+            ("columns".into(), "[\"account_id\"]".into()),
+            ("ref_columns".into(), "[\"id\"]".into()),
+            ("validated".into(), "false".into()),
+        ]),
+        definition: None,
+        predicate: None,
+    };
+    let fk_cap = capture(
+        yb_snap(SnapshotDataset::ForeignKeys, "pg_constraint", 1),
+        vec![TelemetryRecord::ObjectDefinition(
+            ObjectDefinitionRecord::new("pg_constraint".into(), ObjectDefinitionFact::NativeCatalog(Box::new(fk_def)))
+                .unwrap(),
+        )],
+        333,
+        "2020-01-01T10:00:00Z",
+        EvidenceFamily::ObjectDefinitions,
+    )
+    .await;
+
+    let ck_def = NativeCatalogDefinition {
+        identity: NativeIdentity::new("60010").qualified("database_oid", "16384").qualified("node", "yb-1:5433"),
+        object_type: "constraint".into(),
+        properties: std::collections::BTreeMap::from([
+            ("name".into(), "orders_account_fk".into()),
+            ("schema_name".into(), "public".into()),
+            ("table_name".into(), "orders".into()),
+            ("constraint_type".into(), "f".into()),
+            ("validated".into(), "false".into()),
+            ("inheritance_child".into(), "true".into()),
+        ]),
+        definition: None,
+        predicate: None,
+    };
+    let ck_cap = capture(
+        yb_snap(SnapshotDataset::CheckConstraints, "pg_constraint", 1),
+        vec![TelemetryRecord::ObjectDefinition(
+            ObjectDefinitionRecord::new("pg_constraint".into(), ObjectDefinitionFact::NativeCatalog(Box::new(ck_def)))
+                .unwrap(),
+        )],
+        334,
+        "2020-01-01T10:00:00Z",
+        EvidenceFamily::ObjectDefinitions,
+    )
+    .await;
+
+    let idx_orig = idx_cap.verified_original().unwrap();
+    let tbl_orig = tbl_cap.verified_original().unwrap();
+    let col_orig = col_cap.verified_original().unwrap();
+    let fk_orig = fk_cap.verified_original().unwrap();
+    let ck_orig = ck_cap.verified_original().unwrap();
+    let retained = crate::collected_evidence::analyze_catalog_originals(
+        &idx_orig,
+        &[&idx_orig, &tbl_orig, &col_orig, &fk_orig, &ck_orig],
+        &culprit_checks::Pipeline::builtin(),
+    )
+    .unwrap();
+    assert!(retained.issues.is_empty(), "{:?}", retained.issues);
+    assert_eq!(retained.report.snapshot.tables.len(), 1);
+    assert_eq!(retained.report.snapshot.tables[0].kind.as_deref(), Some("docdb"));
+    assert_eq!(retained.report.snapshot.indexes.len(), 3);
+    assert!(retained.report.snapshot.indexes[0].is_clustered, "YSQL primary key is clustered");
+    assert_eq!(
+        retained.report.snapshot.constraints.len(),
+        1,
+        "same NOT VALID FK in ForeignKeys and CheckConstraints must not be emitted twice"
+    );
+    assert!(!retained.report.snapshot.constraints[0].inheritance_child);
+    assert!(
+        !retained.report.findings.iter().any(|f| f.check == "duplicate-index" || f.check == "unindexed-fk"),
+        "LSM indexes without docdb hash sharding metadata must never be assumed redundant or unindexed"
+    );
+    assert_eq!(
+        retained.report.assessments.iter().find(|a| a.check == "duplicate-index").unwrap().status,
+        culprit_core::CheckStatus::Unavailable,
+        "without yb_table_properties sharding metadata, index checks must report Unavailable rather than Assessed"
+    );
+    assert!(retained.report.findings.iter().any(|f| f.check == "untrusted-constraint"));
+}

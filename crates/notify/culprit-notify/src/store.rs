@@ -10,6 +10,15 @@ use std::{
 
 const MAX_STATE_FILE_BYTES: usize = 8 * 1024 * 1024;
 const MAX_TRACKED_KEYS: usize = 16_384;
+const MAX_PENDING_DELIVERIES: usize = 4_096;
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PendingRouteDelivery {
+    pub route: String,
+    pub queued_at: String,
+    pub event: crate::RedactedAlertEvent,
+}
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -68,6 +77,8 @@ pub struct DeduplicationState {
     pub regressions: BTreeMap<String, String>,
     #[serde(default)]
     pub availability: BTreeMap<String, TrackedAvailability>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub pending_deliveries: Vec<PendingRouteDelivery>,
 }
 
 impl DeduplicationState {
@@ -77,6 +88,10 @@ impl DeduplicationState {
         trim_map(&mut self.findings, MAX_TRACKED_KEYS, |entry| entry.last_window_until.clone());
         trim_map(&mut self.regressions, MAX_TRACKED_KEYS, Clone::clone);
         trim_map(&mut self.availability, MAX_TRACKED_KEYS, |entry| entry.updated_at.clone());
+        if self.pending_deliveries.len() > MAX_PENDING_DELIVERIES {
+            let drop_count = self.pending_deliveries.len() - MAX_PENDING_DELIVERIES;
+            self.pending_deliveries.drain(..drop_count);
+        }
     }
 }
 

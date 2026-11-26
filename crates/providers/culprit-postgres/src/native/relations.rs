@@ -179,58 +179,8 @@ pub(crate) fn table(row: &Row, database_oid: &str) -> Result<NativeCounterSet> {
     }
     Ok(set)
 }
-fn number(set: &NativeCounterSet, key: &str) -> Option<f64> {
-    match &set.counters.iter().find(|value| value.key == key)?.value {
-        MeasurementValue::Integer(value) => value.parse().ok(),
-        MeasurementValue::Real(value) => Some(*value),
-    }
-}
-fn label(set: &NativeCounterSet, key: &str) -> String {
-    set.properties.get(key).cloned().unwrap_or_default()
-}
-fn optional_label(set: &NativeCounterSet, key: &str) -> Option<String> {
-    set.properties.get(key).cloned()
-}
-fn boolean(set: &NativeCounterSet, key: &str) -> bool {
-    set.properties.get(key).is_some_and(|value| matches!(value.as_str(), "t" | "true"))
-}
 pub(crate) fn project(r: &NativeCounterSet) -> TableStat {
-    TableStat {
-        schema: label(r, "schema_name"),
-        name: label(r, "table_name"),
-        kind: None,
-        definition: None,
-        rows: number(r, "rows").map(|v| v.max(0.0)),
-        total_bytes: number(r, "total_bytes"),
-        data_bytes: number(r, "data_bytes"),
-        index_bytes: number(r, "index_bytes"),
-        has_primary_key: boolean(r, "has_pk"),
-        is_heap: None,
-        seq_scans: number(r, "seq_scan"),
-        seq_rows_read: number(r, "seq_tup_read"),
-        index_scans: number(r, "idx_scan"),
-        inserts: number(r, "n_tup_ins"),
-        updates: number(r, "n_tup_upd"),
-        deletes: number(r, "n_tup_del"),
-        dead_rows: number(r, "n_dead_tup"),
-        modifications_since_analyze: number(r, "n_mod_since_analyze"),
-        last_vacuum: optional_label(r, "last_vacuum"),
-        last_analyze: optional_label(r, "last_analyze"),
-        forwarded_records: None,
-        forwarded_fetches: None,
-        xid_age: number(r, "xid_age"),
-        storage: None,
-        mssql_full_text: None,
-        mssql_storage_configuration: None,
-        mssql_tracked_by_cdc: None,
-        mssql_heap_configuration: None,
-        mssql_temporal_configuration: None,
-        in_row_bytes: number(r, "in_row_bytes"),
-        lob_bytes: number(r, "lob_bytes"),
-        overflow_bytes: None,
-        partition_of: optional_label(r, "partition_of"),
-        counters_since: None,
-    }
+    culprit_core::catalog_projection::pg_table_stat(r)
 }
 #[cfg(test)]
 mod tests {
