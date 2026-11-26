@@ -146,11 +146,12 @@ def merge_blog(root: Path) -> None:
 
     sitemap_path = site / "sitemap.xml"
     if sitemap_path.exists():
-        latest = max((p["pubDate"] for p in posts), default="2026-11-23")
+        latest = max((p.get("updatedDate") or p["pubDate"] for p in posts), default="2026-11-23")
         entries = [f"  <url><loc>https://culpritsql.com/blog/</loc><lastmod>{html.escape(latest)}</lastmod></url>"]
         for p in posts:
+            lastmod = p.get("updatedDate") or p["pubDate"]
             entries.append(
-                f"  <url><loc>{html.escape(p['url'])}</loc><lastmod>{html.escape(p['pubDate'])}</lastmod></url>"
+                f"  <url><loc>{html.escape(p['url'])}</loc><lastmod>{html.escape(lastmod)}</lastmod></url>"
             )
         sitemap_text = sitemap_path.read_text()
         sitemap_path.write_text(sitemap_text.replace("</urlset>", "\n".join(entries) + "\n</urlset>"))
