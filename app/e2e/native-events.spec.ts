@@ -10,7 +10,7 @@ for (const populated of [false, true]) {
       await page.getByRole("button", { name: english["ui.plans.one_plan"], exact: true }).click();
       await expect(page.locator(".plans-single")).toBeVisible();
       await expect(page.locator(".plans-list").getByRole("button", { name: english["native_events.import.open"], exact: true })).toBeVisible();
-    } else await expect(page.locator(".plans-welcome")).toBeVisible();
+    } else await expect(page.locator(".plans .workspace-welcome")).toBeVisible();
     const opener = eventOpener(page), dialog = eventDialog(page);
     await opener.focus();
     await page.keyboard.press("Enter");

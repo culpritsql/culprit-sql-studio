@@ -9,7 +9,17 @@ test("an archive-only user saves typed roles and investigates published original
   await installArchiveApi(page, { saved: false });
   await openArchives(page);
   await expect(page.locator(".side-connections")).toHaveCount(0);
-  await page.locator(".archives").getByRole("button", { name: english["ui.archives.add"], exact: true }).click();
+  const welcome = page.locator(".archives .workspace-welcome");
+  await expect(welcome.getByRole("heading", { name: english["ui.archives.welcome.heading"] })).toBeVisible();
+  await expect(welcome.getByText(english["ui.archives.welcome.storage"])).toBeVisible();
+  await page.screenshot({ path: info.outputPath("archives-landing.png") });
+  const addArchive = welcome.getByRole("button", { name: english["ui.archives.add"], exact: true });
+  await addArchive.focus();
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("textbox", { name: english["ui.connection_card.name"], exact: true })).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(addArchive).toBeFocused();
+  await addArchive.click();
   const form = await fillArchiveForm(page);
   await expect(form.locator("textarea")).toHaveCount(0);
   await form.getByRole("button", { name: english["ui.common.save"], exact: true }).click();

@@ -68,7 +68,7 @@ remain available for inspecting individual evidence families.
 
 ### Desktop archive connections
 
-Open **Telemetry archives** in the sidebar without opening a database connection. Add an ADX or ClickHouse
+Open **Archives** in the sidebar without opening a database connection. Add an ADX or ClickHouse
 endpoint and database, then select the corresponding Blob or S3 original-evidence location. Warehouse and recovery
 credentials have independent names; Azure CLI roles can select different tenants. ClickHouse passwords go into
 the operating-system keychain. Archive metadata is saved separately in `warehouse-connections.toml`.

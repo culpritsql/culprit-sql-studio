@@ -1,7 +1,7 @@
 import { ProviderAcquisition } from "./components/ProviderAcquisition";
 import { evidencePresentation } from "./lib/engines";
 import { t, useLanguage } from "./lib/i18n";
-import { ScanFailure, scanNeedsVerification } from "./components/ScanFailure";
+import { ScanFailure, scanFailureSummary, scanNeedsVerification } from "./components/ScanFailure";
 import { lazy, Suspense, useEffect, type ReactNode } from "react";
 import { CommandPalette } from "./components/CommandPalette";
 import { ScreenshotButton } from "./components/ScreenshotButton";
@@ -265,7 +265,9 @@ function Workspace({ view, name }: { view: View; name: string }) {
     <>
       {state.scanError && (
         <details className="saved-scan-notice">
-          <summary>{t("ui.scan_recovery.saved", { time: when(report.snapshot.taken_at).full })}</summary>
+          <summary>{t("ui.scan_recovery.saved", { time: when(report.snapshot.taken_at).full })}
+            <span className="saved-scan-reason">{scanNeedsVerification(state.scanError) ? t("ui.scan_recovery.paused") : scanFailureSummary(state.scanError)}</span>
+          </summary>
           <ScanFailure key={name} name={name} error={state.scanError} acquisition={state.scanAcquisition} />
         </details>
       )}

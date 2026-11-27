@@ -1,4 +1,4 @@
-import { Activity, Bookmark, Camera, CircleArrowUp, CircleDot, Database, Gauge, GitCompareArrows, Languages, ListOrdered, Moon, Plus, RefreshCw, RotateCw, Skull, SquareTerminal, Sun, Table2, TextSearch } from "lucide-react";
+import { Activity, Archive, Bookmark, Camera, CircleArrowUp, CircleDot, Database, Gauge, GitCompareArrows, Languages, ListOrdered, Moon, Plus, RefreshCw, RotateCw, Skull, SquareTerminal, Sun, Table2, TextSearch } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { can } from "../lib/engines";
 import { useFocusTrap } from "../lib/focus";
@@ -26,7 +26,7 @@ function views(): { view: View; title: string; icon: ReactNode }[] {
     { view: "schema", title: t("ui.palette.view.schema"), icon: <Table2 size={13} /> },
     { view: "editor", title: t("ui.palette.view.editor"), icon: <SquareTerminal size={13} /> },
     { view: "plans", title: t("ui.palette.view.plans"), icon: <GitCompareArrows size={13} /> },
-    { view: "archives", title: t("ui.archives.title"), icon: <Database size={13} /> },
+    { view: "archives", title: t("ui.archives.title"), icon: <Archive size={13} /> },
     { view: "connections", title: t("ui.palette.view.connections"), icon: <Database size={13} /> },
   ];
 }

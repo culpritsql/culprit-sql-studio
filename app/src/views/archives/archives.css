@@ -154,3 +154,11 @@
 .archives .archive-fleet-bounds {
   font-size: 0.8rem;
 }
+.archive-landing { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.archive-formats { margin: 0; }
+.archive-formats .format-row { grid-template-columns: minmax(0, min(42%, 164px)) minmax(0, 1fr); }
+.archive-formats dt { display: flex; align-items: center; gap: 8px; font-weight: 600; }
+.archive-formats dt svg { flex: none; color: var(--text-2); }
+.archive-formats dd { margin: 0; color: var(--text-2); }
+.archive-landing h3 { margin: 0; font-size: var(--fs-ui); }
+.archive-landing .welcome-actions .btn { display: inline-flex; align-items: center; gap: 6px; }

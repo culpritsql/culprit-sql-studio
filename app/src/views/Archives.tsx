@@ -1,7 +1,8 @@
-import { Archive, Plus } from "lucide-react";
+import { Archive, Database, FolderOpen, Plus } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { nativeTextPreview } from "../components/NativeObservationFields";
 import { ObservationReadQualifications } from "../components/ObservationList";
+import { WorkspaceWelcome } from "../components/WorkspaceWelcome";
 import type { PublishedDatabaseResource } from "../gen/PublishedDatabaseResource";
 import type { PublishedResources } from "../gen/PublishedResources";
 import type { PublishedResourceSelector } from "../gen/PublishedResourceSelector";
@@ -55,7 +56,7 @@ type SelectedTarget = {
 export default function Archives({ load = client }: { load?: () => Promise<WarehousesApi> }) {
   const language = useLanguage();
   const webReadOnly = isArchiveWeb();
-  const [connections, setConnections] = useState<WarehouseConnectionInfo[]>([]);
+  const [connections, setConnections] = useState<WarehouseConnectionInfo[] | null>(null);
   const [selected, setSelected] = useState<WarehouseConnectionInfo | null>(null);
   const [adding, setAdding] = useState(false);
   const addButton = useRef<HTMLButtonElement>(null);
@@ -345,7 +346,7 @@ export default function Archives({ load = client }: { load?: () => Promise<Wareh
     setError(null);
     try {
       await (await load()).removeWarehouseConnection(original.reference);
-      setConnections((items) => items.filter((item) => item.reference.revision !== original.reference.revision));
+      setConnections((items) => items?.filter((item) => item.reference.revision !== original.reference.revision) ?? null);
       if (selection.current === original.reference.revision) change(null);
     } catch (failure) {
       if (selection.current === original.reference.revision) setError(errorMessage(failure).message);
@@ -367,7 +368,7 @@ export default function Archives({ load = client }: { load?: () => Promise<Wareh
           }} onSaved={(saved) => {
             if (!mounted.current) return;
             setAdding(false);
-            setConnections((items) => [...items, saved]);
+            setConnections((items) => [...(items ?? []), saved]);
             change(saved);
             void readBrowse(saved, mode, false);
           }} />
@@ -375,36 +376,42 @@ export default function Archives({ load = client }: { load?: () => Promise<Wareh
       </div>
     );
   }
+  const add = !webReadOnly && <button ref={addButton} type="button" className="btn primary" onClick={() => {
+    pending.current?.abort();
+    setBusy(false);
+    setAdding(true);
+  }}><Plus size={14} aria-hidden />{t("ui.archives.add")}</button>;
+  const choices = connections && connections.length > 0 && <div className="conn-grid">
+    {connections.map((connection) => <button type="button" className="btn" key={connection.reference.revision}
+      aria-pressed={selected?.reference.revision === connection.reference.revision} onClick={() => {
+        change(connection);
+        void readBrowse(connection, mode, false);
+      }}>{text(connection.reference.name)} · {connection.settings.warehouse.kind === "adx" ? t("ui.archives.adx") : t("ui.archives.clickhouse")}</button>)}
+  </div>;
+  if (!webReadOnly && !selected) {
+    return <div className="archives archive-landing">
+      <header className="topbar" data-tauri-drag-region><h1>{t("ui.archives.title")}</h1></header>
+      <WorkspaceWelcome icon={Archive} heading={t("ui.archives.welcome.heading")} description={t("ui.archives.intro")} actions={add}>
+        {error && <p role="alert">{text(error)}</p>}
+        {connections === null && !error && <p className="muted" role="status">{t("ui.archives.loading")}</p>}
+        {choices && <section aria-label={t("ui.archives.welcome.saved")}><h3>{t("ui.archives.welcome.saved")}</h3>{choices}</section>}
+        {connections?.length === 0 && <dl className="formats archive-formats">
+          <div className="format-row"><dt><Database size={15} aria-hidden />{t("ui.archives.form_warehouse")}</dt><dd>{t("ui.archives.welcome.warehouses")}</dd></div>
+          <div className="format-row"><dt><FolderOpen size={15} aria-hidden />{t("ui.archives.form_originals")}</dt><dd>{t("ui.archives.welcome.storage")}</dd></div>
+        </dl>}
+      </WorkspaceWelcome>
+    </div>;
+  }
   return (
     <div className="connections archives">
       <div className="connections-inner">
         <header className="archive-heading">
           <div><h1><Archive size={22} aria-hidden />{t("ui.archives.title")}</h1><p>{t("ui.archives.intro")}</p></div>
-          {!webReadOnly && <button ref={addButton} type="button" className="btn primary" onClick={() => {
-            pending.current?.abort();
-            setBusy(false);
-            setAdding(true);
-          }}><Plus size={14} aria-hidden />{t("ui.archives.add")}</button>}
+          {add}
         </header>
         {error && <p role="alert">{text(error)}</p>}
-        <div className="conn-grid">
-          {connections.map((connection) => (
-            <button
-              type="button"
-              className="btn"
-              key={connection.reference.revision}
-              aria-pressed={selected?.reference.revision === connection.reference.revision}
-              onClick={() => {
-                change(connection);
-                void readBrowse(connection, mode, false);
-              }}
-            >
-              {text(connection.reference.name)} ·{" "}
-              {connection.settings.warehouse.kind === "adx" ? t("ui.archives.adx") : t("ui.archives.clickhouse")}
-            </button>
-          ))}
-        </div>
-        {connections.length === 0 && <p className="muted">{t("ui.archives.none")}</p>}
+        {choices}
+        {connections?.length === 0 && <p className="muted">{t("ui.archives.none")}</p>}
         {selected && (
           <section>
             <h2>{text(selected.reference.name)}</h2>

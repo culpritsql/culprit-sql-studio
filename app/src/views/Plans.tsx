@@ -3,6 +3,7 @@ import { useRef, useState, type DragEvent } from "react";
 import { ShareMenu } from "../components/ShareMenu";
 import { NativeEventsImport } from "../components/NativeEvents";
 import { PlanCatalog } from "../components/PlanCatalog";
+import { WorkspaceWelcome } from "../components/WorkspaceWelcome";
 import { PlanCompare } from "./PlanCompare";
 import { LookToggle as PlanLookToggle, PlanSurface, rememberLook, rememberedLook as rememberedPlanLook, type PlanLook } from "../components/PlanSurface";
 import { Sql } from "../components/Sql";
@@ -147,30 +148,31 @@ export function Plans() {
 
 function Welcome({ busy, error, onOpen, onPaste }: { busy: boolean; error: ApiError | null; onOpen: () => void; onPaste: () => void }) {
   return (
-    <div className="plans-welcome">
-      <div className="welcome-card">
-        <GitCompareArrows size={26} className="welcome-icon" />
-        <h2>{t("ui.plans.welcome.heading")}</h2>
-        <p className="muted">{t("ui.plans.welcome.detail")}</p>
-        <div className="welcome-actions">
+    <WorkspaceWelcome
+      icon={GitCompareArrows}
+      heading={t("ui.plans.welcome.heading")}
+      description={t("ui.plans.welcome.detail")}
+      actions={
+        <>
           <button type="button" className="btn primary" onClick={onOpen}>
             <FileUp size={14} /> {t("ui.plans.welcome.open")}
           </button>
           <button type="button" className="btn" onClick={onPaste}>
             <ClipboardPaste size={14} /> {t("ui.plans.paste")} <span className="kbd">{keys("⌘V")}</span>
           </button>
+        </>
+      }
+    >
+      {busy && (
+        <div className="plans-busy">
+          <span className="spinner" style={{ width: 12, height: 12 }} /> {t("ui.plans.reading")}
         </div>
-        {busy && (
-          <div className="plans-busy">
-            <span className="spinner" style={{ width: 12, height: 12 }} /> {t("ui.plans.reading")}
-          </div>
-        )}
-        {error && <ErrorNote error={error} onDismiss={dismissError} />}
-        <PlanCatalog onSample={(product) => void trySample(product)} />
-        <NativeEventsImport />
-        <p className="muted small">{t("ui.plans.welcome.from_queries")}</p>
-      </div>
-    </div>
+      )}
+      {error && <ErrorNote error={error} onDismiss={dismissError} />}
+      <PlanCatalog onSample={(product) => void trySample(product)} />
+      <NativeEventsImport />
+      <p className="muted small">{t("ui.plans.welcome.from_queries")}</p>
+    </WorkspaceWelcome>
   );
 }
 

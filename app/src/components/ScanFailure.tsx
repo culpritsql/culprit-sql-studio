@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { CollectionAdmissionRecord } from "../gen/CollectionAdmissionRecord";
 import type { ProviderAcquisitionReport } from "../gen/ProviderAcquisitionReport";
 import { api, type ApiError, errorMessage } from "../lib/api";
+import { contextPreview } from "../lib/context-preview";
 import { dateFormat } from "../lib/format";
 import { t } from "../lib/i18n";
 import { LatestRequest } from "../lib/requests";
@@ -13,17 +14,28 @@ export function scanNeedsVerification(error: ApiError) {
     && "collection-stopped" in error.detail && error.detail["collection-stopped"] === "cancellation-unconfirmed";
 }
 
+const SUMMARY_CHARACTERS = 220;
+
+export function scanFailureSummary(error: ApiError): string {
+  return contextPreview((error.hint || error.message).replace(/\s+/gu, " ").trim(), SUMMARY_CHARACTERS).text;
+}
+
 export function ScanFailure({ name, error, acquisition }: {
   name: string; error: ApiError; acquisition?: ProviderAcquisitionReport | null;
 }) {
   const paused = scanNeedsVerification(error);
+  const summary = scanFailureSummary(error);
   return (
     <section className="scan-failure">
       <h2>{paused ? t("ui.scan_recovery.paused") : t("ui.app.scan_failed", { name })}</h2>
       {paused ? <ScanRecovery name={name} /> : <>
-        <p className="selectable">{error.message}</p>
-        {error.hint && <p className="muted">{error.hint}</p>}
+        <p className="selectable">{summary}</p>
         <button type="button" className="btn" onClick={() => scan(name)}>{t("ui.common.try_again")}</button>
+        {(error.message !== summary || (error.hint && error.hint !== summary)) && <details className="scan-error-details">
+          <summary>{t("ui.scan_recovery.full_error")}</summary>
+          <textarea readOnly rows={5} spellCheck={false} aria-label={t("ui.scan_recovery.full_error")}
+            value={error.hint && error.hint !== summary && error.hint !== error.message ? `${error.message}\n\n${error.hint}` : error.message} />
+        </details>}
       </>}
       {acquisition && <details><summary>{t("ui.scan_recovery.details")}</summary><ProviderAcquisition report={acquisition} /></details>}
     </section>

@@ -102,7 +102,7 @@ export function Sidebar() {
         onClick={() => setState({ view: "connections" })}
         title={view === "archives" ? t("ui.archives.read_only") : report ? `${active} · ${report.snapshot.server.product} · ${report.snapshot.server.database}` : undefined}
       >
-        {view === "archives" ? <span className="archive-switch-label"><div className="name">{t("ui.archives.title")}</div><div className="sub">{t("ui.archives.read_only")}</div></span> : <>
+        {view === "archives" ? <span className="archive-switch-label"><div className="name">{t("ui.archives.title")}</div><div className="sub">{t("ui.archives.context")}</div></span> : <>
         {connection ? (
           <EngineBadge engine={connection.engine} environment={connection.environment} product={report?.snapshot.server.product ?? connection.last_report?.product} size="md" />
         ) : (

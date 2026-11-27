@@ -12,7 +12,7 @@
   grid-template-columns: 272px minmax(0, 1fr);
 }
 
-.plans:has(.plans-welcome) {
+.plans:has(.workspace-welcome) {
   display: flex;
 }
 
@@ -160,13 +160,14 @@
   margin: 0 10px 8px;
 }
 
-.plans-welcome {
+.workspace-welcome {
   flex: 1;
   display: flex;
   align-items: flex-start;
   justify-content: center;
   padding: 32px;
   overflow-y: auto;
+  min-height: 0;
 }
 
 .welcome-card {

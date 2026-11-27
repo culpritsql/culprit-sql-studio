@@ -1,7 +1,8 @@
 import { dateFormat } from "../lib/format";
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode } from "react";
 import type { EventKind } from "../gen/EventKind";
 import { t } from "../lib/i18n";
+import { ChartEventTooltip } from "./ChartEventTooltip";
 import { EventIcon, eventTone } from "./EventIcon";
 import "./timeline.css";
 
@@ -333,49 +334,38 @@ function cluster(events: ChartEvent[], from: number, to: number): { at: number; 
 /** The change lane under a chart: an icon where each change happened, a bracket where only a window between scans
  * is known, and a tooltip listing what changed. Click compares before and after. */
 function EventLane({ events, from, to }: { events: ChartEvent[]; from: number; to: number }) {
-  const [open, setOpen] = useState<number | null>(null);
+  const [active, setActive] = useState<{ eventId: string; marker: HTMLButtonElement } | null>(null);
+  const dismiss = useCallback(() => setActive(null), []);
+  const tooltipId = useId();
   const groups = useMemo(() => cluster(events, from, to), [events, from, to]);
   const pct = (t: number) => ((t - from) / (to - from || 1)) * 100;
   return (
-    <div className="tc-lane" onPointerLeave={() => setOpen(null)}>
-      {groups.map((g, i) => {
+    <div className="tc-lane">
+      {groups.map((g) => {
         const first = g.events[0]!;
         const tone = g.events.some((e) => e.kind === "throttle") ? "throttle" : g.events.some((e) => e.kind === "mark") ? "mark" : eventTone(first.kind);
         const spanned = g.events.every((e) => !e.exact) && pct(g.at) - pct(g.start) > 1.5;
-        const label = g.events.length === 1 ? t("ui.time_chart.event_label", { title: first.title, when: first.when }) : t("ui.time_chart.events_label", { count: g.events.length, titles: g.events.map((e) => e.title).join("; ") });
+        const label = g.events.length === 1 ? t("ui.time_chart.event_label", { title: first.title, when: first.when }) : t("ui.time_chart.events_label", { count: g.events.length });
+        const open = active?.eventId === first.id && active.marker.isConnected;
         return (
-          <div key={`${g.at}-${i}`} className={`tc-ev-group ${tone}`}>
+          <div key={first.id} className={`tc-ev-group ${tone}`}
+            onPointerLeave={() => { if (open && !active.marker.matches(":focus-visible")) dismiss(); }}
+            onBlur={(event) => { if (open && event.relatedTarget?.id !== tooltipId && event.relatedTarget !== active.marker) dismiss(); }}>
             {spanned && <div className="tc-ev-span" style={{ left: `${pct(g.start)}%`, width: `${pct(g.at) - pct(g.start)}%` }} />}
             <button
               type="button"
               className={`tc-ev ${tone}`}
               style={{ left: `${pct(g.at)}%` }}
               aria-label={label}
-              onPointerEnter={() => setOpen(i)}
-              onFocus={() => setOpen(i)}
-              onBlur={() => setOpen(null)}
+              aria-describedby={open ? tooltipId : undefined}
+              onPointerEnter={(event) => setActive({ eventId: first.id, marker: event.currentTarget })}
+              onFocus={(event) => setActive({ eventId: first.id, marker: event.currentTarget })}
               onClick={first.onClick}
             >
               <EventIcon kind={tone === "throttle" ? "throttle" : tone === "mark" ? "mark" : first.kind} size={10} />
               {g.events.length > 1 && <b>{g.events.length}</b>}
             </button>
-            {open === i && (
-              <div className={`tc-ev-tip ${pct(g.at) > 62 ? "left" : ""}`} style={{ left: `${pct(g.at)}%` }} role="tooltip">
-                {g.events.slice(0, 5).map((e) => (
-                  <div key={e.id} className="tc-ev-item">
-                    <span className={`tc-ev-dot ${eventTone(e.kind)}`}>
-                      <EventIcon kind={e.kind} size={11} />
-                    </span>
-                    <span>
-                      <b>{e.title}</b>
-                      <span className="muted">{e.when}</span>
-                    </span>
-                  </div>
-                ))}
-                {g.events.length > 5 && <div className="muted tc-ev-more">{t("ui.common.more", { count: String(g.events.length - 5) })}</div>}
-                {first.onClick && <div className="tc-ev-hint">{t("ui.time_chart.click_to_compare")}</div>}
-              </div>
-            )}
+            {open && <ChartEventTooltip id={tooltipId} marker={active.marker} events={g.events} onDismiss={dismiss} />}
           </div>
         );
       })}

@@ -74,7 +74,6 @@
 
 .tc-ev:hover,
 .tc-ev:focus-visible {
-  transform: translateX(-50%) scale(1.12);
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.16);
 }
 
@@ -114,24 +113,24 @@
 }
 
 .tc-ev-tip {
-  position: absolute;
-  bottom: 24px;
-  z-index: 5;
-  min-width: 220px;
-  max-width: 340px;
+  /* A portal keeps the change list outside clipped dashboard tiles and scrolling views. */
+  position: fixed;
+  z-index: 35;
+  box-sizing: border-box;
+  width: max-content;
+  min-width: min(220px, calc(100vw - 16px));
+  max-width: min(340px, calc(100vw - 16px));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  overflow-wrap: anywhere;
   padding: 8px 10px;
-  transform: translateX(-12px);
   border-radius: var(--radius, 8px);
   border: 1px solid var(--border);
   background: var(--raised);
   box-shadow: var(--shadow-pop);
+  color: var(--text);
   font-size: var(--fs-ui-sm);
-  pointer-events: none;
   animation: tc-in 120ms ease-out;
-}
-
-.tc-ev-tip.left {
-  transform: translateX(calc(-100% + 12px));
 }
 
 .tc-ev-item {
@@ -172,7 +171,6 @@
   background: var(--high-bg);
 }
 
-.tc-ev-more,
 .tc-ev-hint {
   margin-top: 4px;
   font-size: var(--fs-micro);

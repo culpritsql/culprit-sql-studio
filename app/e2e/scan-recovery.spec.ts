@@ -3,6 +3,42 @@ import english from "../../locales/en.json" with { type: "json" };
 import { openConnection, waitForReport } from "./demo";
 
 for (const saved of [false, true]) {
+  test(`long scan errors keep the retry and the original response accessible ${saved ? "with" : "without"} a saved report`, async ({ page }) => {
+    await page.setViewportSize({ width: 960, height: 600 });
+    await openConnection(page, "mssql-demo");
+    await waitForReport(page);
+    const message = `Client IP denied.\n${"a".repeat(5000)}\nEnd of response.`;
+    const hint = english["provider.mssql.error.firewall.hint"];
+    await page.evaluate(async ({ saved, message, hint }) => {
+      const storePath = "/src/lib/store.ts", apiPath = "/src/lib/api.ts";
+      const { getState, setState } = await import(storePath) as typeof import("../src/lib/store");
+      const { api } = await import(apiPath) as typeof import("../src/lib/api");
+      const ready = getState().report;
+      if (ready.status !== "ready") throw new Error("missing fixture report");
+      const error = { code: "connection_failed", message, hint };
+      (await api()).scan = async () => ready.report;
+      setState({ report: saved ? { ...ready, scanError: error } : { status: "error", error } });
+    }, { saved, message, hint });
+    if (saved) {
+      const notice = page.locator(".saved-scan-notice > summary");
+      await expect(notice).toContainText(hint);
+      await notice.click();
+    }
+    const panel = page.locator(".scan-failure");
+    const retry = panel.getByRole("button", { name: english["ui.common.try_again"] });
+    await expect(retry).toBeInViewport({ ratio: 1 });
+    const details = panel.getByText(english["ui.scan_recovery.full_error"], { exact: true });
+    await details.focus();
+    await page.keyboard.press("Enter");
+    const original = panel.getByRole("textbox", { name: english["ui.scan_recovery.full_error"] });
+    await expect(original).toHaveValue(message);
+    expect(await original.evaluate((el) => el.scrollWidth === el.clientWidth && el.scrollHeight > el.clientHeight)).toBe(true);
+    await retry.click();
+    await expect(panel).toHaveCount(0);
+  });
+}
+
+for (const saved of [false, true]) {
   test(`a paused scan recovers the exact observation ${saved ? "alongside a saved report" : "without a saved report"}`, async ({ page }, info) => {
     await openConnection(page, "mssql-demo");
     await waitForReport(page);
