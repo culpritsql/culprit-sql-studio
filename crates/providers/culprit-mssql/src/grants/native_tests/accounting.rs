@@ -9,16 +9,16 @@ pub(super) struct ExpectedRead {
     role: &'static str,
     template_id: String,
 }
-fn templates() -> [(&'static str, String); 4] {
+fn templates(selected: usize, plans: usize) -> [(&'static str, String); 4] {
     [
         ("summary", crate::cached_runtime::summary_sql()),
-        ("planned-payload", cached_statements::detail_sql(true, true)),
-        ("text-only-payload", cached_statements::detail_sql(false, true)),
+        ("planned-payload", cached_statements::detail_sql(true, true, plans.min(selected))),
+        ("text-only-payload", cached_statements::detail_sql(false, true, selected.saturating_sub(plans))),
         ("independent-binding", crate::relational_inputs::binding_check_sql().into()),
     ]
 }
-pub(super) fn expected_reads() -> [ExpectedRead; 4] {
-    templates().map(|(role, sql)| ExpectedRead { role, template_id: digest(sql.as_bytes()) })
+pub(super) fn expected_reads(selected: usize, plans: usize) -> [ExpectedRead; 4] {
+    templates(selected, plans).map(|(role, sql)| ExpectedRead { role, template_id: digest(sql.as_bytes()) })
 }
 pub(super) fn validate(
     metrics: Option<&ReadWorkMetrics>,
@@ -28,7 +28,10 @@ pub(super) fn validate(
 ) -> Result<()> {
     validate_payload_shapes(selected_queries, options)?;
     let metrics = metrics.ok_or_else(invalid)?;
-    let expected = expected_reads().map(|read| read.template_id).into_iter().collect::<BTreeSet<_>>();
+    let expected = expected_reads(selected_queries, options.plans as usize)
+        .map(|read| read.template_id)
+        .into_iter()
+        .collect::<BTreeSet<_>>();
     if !metrics.is_valid()
         || metrics.has_unconfirmed_work()
         || metrics.untracked_tasks != 0
@@ -74,7 +77,7 @@ mod tests {
     }
     fn metrics() -> ReadWorkMetrics {
         let recorder = ReadMetricsRecorder::new(culprit_core::Engine::Mssql);
-        for (_, sql) in templates() {
+        for (_, sql) in templates(3, 2) {
             let template = recorder.begin(&sql);
             recorder.finish(template.as_deref(), Duration::ZERO, &ReadProgress::default(), &ReadTaskOutcome::default());
         }
@@ -84,10 +87,10 @@ mod tests {
     #[test]
     fn the_small_cache_roster_includes_the_independent_binding_without_repeating_payload_shapes() {
         let observed = metrics();
-        validate(Some(&observed), expected_reads().len() as u32, 3, &options()).unwrap();
+        validate(Some(&observed), expected_reads(3, 2).len() as u32, 3, &options()).unwrap();
         for change in ["missing-binding", "foreign-template", "repeated-payload", "failed", "unconfirmed", "active"] {
             let mut altered = observed.clone();
-            let mut queries = expected_reads().len() as u32;
+            let mut queries = expected_reads(3, 2).len() as u32;
             match change {
                 "missing-binding" => {
                     let binding = digest(crate::relational_inputs::binding_check_sql().as_bytes());
@@ -108,7 +111,7 @@ mod tests {
             }
             assert!(validate(Some(&altered), queries, 3, &options()).is_err(), "{change}");
         }
-        assert!(validate(None, expected_reads().len() as u32, 3, &options()).is_err());
+        assert!(validate(None, expected_reads(3, 2).len() as u32, 3, &options()).is_err());
     }
 
     #[test]
@@ -130,14 +133,14 @@ mod tests {
     fn failure_accounting_retains_exact_template_counts_without_serializing_source_sql() {
         let metrics = metrics();
         let summary = metrics.summary(None).unwrap();
-        let diagnostic = serde_json::json!({"expected_reads":expected_reads(),"read_work":summary});
+        let diagnostic = serde_json::json!({"expected_reads":expected_reads(3, 2),"read_work":summary});
         let encoded = serde_json::to_string(&diagnostic).unwrap();
-        for (role, sql) in templates() {
+        for (role, sql) in templates(3, 2) {
             assert!(encoded.contains(role));
             assert!(encoded.contains(&digest(sql.as_bytes())));
             assert!(!encoded.contains(&sql));
         }
-        assert_eq!(diagnostic["read_work"]["templates"].as_array().unwrap().len(), expected_reads().len());
+        assert_eq!(diagnostic["read_work"]["templates"].as_array().unwrap().len(), expected_reads(3, 2).len());
         assert!(
             diagnostic["read_work"]["templates"].as_array().unwrap().iter().all(|template| {
                 template["completed_tasks"] == 1 && template["statement"]["state"] == "unavailable"

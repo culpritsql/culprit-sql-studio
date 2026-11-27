@@ -110,17 +110,24 @@ pub(crate) const MAX_HASH_SELECTORS: usize = 200;
 pub(crate) fn valid_hash(hash: &str) -> bool {
     hash.strip_prefix("0x").is_some_and(|hex| hex.len() == 16 && hex.bytes().all(|byte| byte.is_ascii_hexdigit()))
 }
-pub(crate) fn hashes_parameter(hashes: &[String]) -> Result<crate::read::Parameter> {
+/// Cast only bound parameters so the native binary(8) query_hash remains directly comparable.
+pub(crate) fn hash_placeholders(first: usize, count: usize) -> String {
+    (first..first + count).map(|index| format!("CONVERT(binary(8),@P{index})")).collect::<Vec<_>>().join(",")
+}
+
+pub(crate) fn bind_hashes<'a>(
+    parameters: &mut Vec<crate::read::Parameter>,
+    hashes: impl ExactSizeIterator<Item = &'a str>,
+) -> Result<()> {
     if hashes.len() > MAX_HASH_SELECTORS {
         return Err(CollectionStop::RowLimit.error());
     }
-    if !hashes.iter().all(|hash| valid_hash(hash)) {
-        return Err(invalid_data());
-    }
-    let mut xml = String::from("<hashes>");
     for hash in hashes {
-        xml.push_str(&format!("<h v=\"{hash}\"/>"));
+        if !valid_hash(hash) {
+            return Err(invalid_data());
+        }
+        let value = u64::from_str_radix(&hash[2..], 16).map_err(|_| invalid_data())?;
+        parameters.push(crate::read::Parameter::Binary8(value.to_be_bytes()));
     }
-    xml.push_str("</hashes>");
-    Ok(crate::read::Parameter::Text(xml))
+    Ok(())
 }

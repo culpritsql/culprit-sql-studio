@@ -29,19 +29,10 @@ struct RecordedRead {
     owner: ReadSession,
     calls: Vec<RecordedCall>,
 }
-fn copy_parameters(parameters: &[Parameter]) -> Vec<Parameter> {
-    parameters
-        .iter()
-        .map(|value| match value {
-            Parameter::Integer(value) => Parameter::Integer(*value),
-            Parameter::Text(value) => Parameter::Text(value.clone()),
-        })
-        .collect()
-}
 #[async_trait::async_trait]
 impl NativeRead for RecordedRead {
     async fn query(&mut self, sql: &str, parameters: Vec<Parameter>, row_limit: usize) -> ReadResult<Vec<Rec>> {
-        self.calls.push(RecordedCall { sql: sql.into(), parameters: copy_parameters(&parameters), row_limit });
+        self.calls.push(RecordedCall { sql: sql.into(), parameters: parameters.clone(), row_limit });
         self.owner.query(sql, parameters, row_limit).await
     }
     fn queries(&self) -> u32 {
@@ -193,7 +184,7 @@ async fn prove_task_space(pool: Arc<Pool>, session: &str, port: u16) {
     let mut qualification = pool.connect(SessionKind::User).await.unwrap();
     for (query, call) in reader.io.calls.iter().enumerate() {
         let template = crate::statement_origin::template_id(&call.sql);
-        match observe_metadata_execution_grant(&mut qualification, &call.sql, copy_parameters(&call.parameters)).await {
+        match observe_metadata_execution_grant(&mut qualification, &call.sql, call.parameters.clone()).await {
             Some(plans) => {
                 eprintln!("owned task metadata replay: query={query},template={template},actual_plan=available");
                 for plan in plans {

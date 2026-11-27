@@ -29,6 +29,7 @@ impl NativeRead for Reader {
                 .map(|parameter| match parameter {
                     Parameter::Text(value) => value.clone(),
                     Parameter::Integer(value) => value.to_string(),
+                    Parameter::Binary8(value) => crate::value::hex(value),
                 })
                 .collect(),
         ));

@@ -72,7 +72,7 @@ async fn unavailable_columns_require_visibility_before_being_called_not_applicab
     let subset = Layout::read(&mut subset).await.unwrap().unwrap();
     assert!(subset.has("total_grant_kb"));
     assert!(!subset.has("total_used_grant_kb"));
-    assert!(select_sql(&subset, false).contains("CAST(NULL AS bigint) AS last_grant_kb"));
+    assert!(select_sql(&subset, 0).contains("CAST(NULL AS bigint) AS last_grant_kb"));
 }
 
 #[test]
@@ -174,8 +174,8 @@ async fn selected_workload_reads_zero_grants_through_the_same_native_decoder_and
     assert!(reader.calls[1].sql.contains("CAST(pa.value AS int)=DB_ID()"));
     assert!(!reader.calls[1].sql.contains("NOT LIKE"));
     assert_eq!(reader.calls[1].parameters.len(), 2);
-    assert!(hashes_parameter(&["0x0);DROP TABLE x;--".into()]).is_err());
-    assert!(hashes_parameter(&vec![selected[0].clone(); MAX_HASH_SELECTORS + 1]).is_err());
+    assert!(bind_hashes(&mut vec![], ["0x0);DROP TABLE x;--"].into_iter()).is_err());
+    assert!(bind_hashes(&mut vec![], std::iter::repeat_n(selected[0].as_str(), MAX_HASH_SELECTORS + 1)).is_err());
 }
 
 #[tokio::test]
@@ -189,8 +189,12 @@ async fn selected_workload_batches_hashes_without_losing_the_tail_or_double_coun
     assert_eq!(result.len(), 2);
     assert!(result.iter().any(|grant| grant.context.query_hash.as_deref() == Some(hashes[200].as_str())));
     assert_eq!(reader.calls.len(), 3);
-    let Parameter::Text(second) = &reader.calls[2].parameters[1] else { panic!("XML selection") };
-    assert_eq!(second.matches("<h ").count(), 1, "duplicate native hashes must not be collected in later batches");
+    assert_eq!(reader.calls[1].parameters.len(), MAX_HASH_SELECTORS + 1);
+    let [Parameter::Integer(_), Parameter::Binary8(hash)] = reader.calls[2].parameters.as_slice() else {
+        panic!("one remaining hash")
+    };
+    assert_eq!(u64::from_be_bytes(*hash), 200);
+    assert!(reader.calls[2].sql.contains("qs.query_hash IN (CONVERT(binary(8),@P2))"));
 }
 
 #[test]

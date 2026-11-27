@@ -241,9 +241,9 @@ fn catalog_projection_bounds_every_nested_population_before_json_aggregation() {
     assert!(!sql.contains("COALESCE("), "a metadata subquery must not be evaluated twice");
     assert!(sql.contains("FOR JSON PATH,WITHOUT_ARRAY_WRAPPER)) AS module"), "missing module stays null");
     assert!(columns().contains(&format!("<={NATIVE_JSON_BYTES}")));
-    let planned = crate::cached_statements::detail_sql(true, true);
-    assert!(planned.contains(&relation("st")));
-    assert!(!crate::cached_statements::detail_sql(false, true).contains("sys.table_types"));
+    let planned = crate::cached_statements::detail_sql(true, true, 1);
+    assert!(planned.contains(&relation("r")));
+    assert!(!crate::cached_statements::detail_sql(false, true, 1).contains("sys.table_types"));
     let cached = crate::cached_definitions::select_sql(&crate::cached_definitions::Limits { sql: 4096, plan: 4096 });
     assert!(cached.contains(&relation("qs")));
 }

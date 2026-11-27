@@ -94,14 +94,7 @@ async fn capture_response(
             started = true;
             let mut query = tiberius::Query::new(sql);
             for parameter in &parameters {
-                match parameter {
-                    Parameter::Integer(value) => {
-                        query.bind(*value);
-                    }
-                    Parameter::Text(value) => {
-                        query.bind(value.as_str());
-                    }
-                }
+                parameter.bind(&mut query);
             }
             if let Some(submitting) = submitting {
                 submitting.notify_one();

@@ -184,6 +184,16 @@ async fn native_family_bytes_count_exclusive_adhoc_objects_once_and_preserve_sha
     assert_eq!(same_rows.len(), same_objects.len() * 2, "even one family's batch bytes are not per-statement bytes");
 
     report_native_work(&mut reader, elapsed, read.families.len()).await;
+    // Request only one side of the shared batch. Excluding its sibling cannot turn unknown bytes into owned bytes.
+    for expected in [left, exclusive] {
+        let mut parameters = Vec::new();
+        bind_hashes(&mut parameters, [expected.key.as_str()].into_iter()).unwrap();
+        let rows = reader.query(&cache_families_sql(1), parameters, 16).await.unwrap();
+        let [row] = rows.as_slice() else { panic!("only the selected family") };
+        let selected = decode_family(row, FamilySource::PlanCache).unwrap();
+        assert_eq!(selected.key, expected.key);
+        assert_eq!(selected.cached_bytes, expected.cached_bytes);
+    }
     assert_eq!(reader.close().await, SourceShutdown::Quiescent);
     drop(reader);
     drop(app);

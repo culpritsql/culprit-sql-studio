@@ -41,7 +41,7 @@ async fn native_cache_grants_share_exact_rows_with_app_observations_and_preserve
     let layout = Layout::read(&mut native).await.unwrap().expect("native grant columns");
     assert!(layout.has("total_grant_kb") && layout.has("total_used_grant_kb"));
     let rows = native
-        .query(&select_sql(&layout, false), vec![Parameter::Integer(10_001)], 10_001)
+        .query(&select_sql(&layout, 0), vec![Parameter::Integer(10_001)], 10_001)
         .await
         .map_err(ReadError::into_error)
         .unwrap();
@@ -74,10 +74,11 @@ async fn native_cache_grants_share_exact_rows_with_app_observations_and_preserve
         .expect("the owned completed sort is cached");
     let sort = &decoded[sort_index];
     assert!(sort.total_grant_kibibytes.as_deref().unwrap().parse::<u64>().unwrap() > 0);
-    let hashes = vec![sort.context.query_hash.clone().unwrap()];
+    let hashes = vec![sort.context.query_hash.clone().unwrap(), zero.context.query_hash.clone().unwrap()];
     let selected = application(&mut native, &hashes).await.unwrap().unwrap();
     assert!(selected.iter().any(|grant| grant.context.identity == sort.context.identity
         && grant.total_grant_kibibytes == sort.total_grant_kibibytes));
+    assert!(selected.iter().any(|grant| grant.context.identity == zero.context.identity));
     let runtime_layout = crate::cached_runtime::Layout::read(&mut native).await.unwrap();
     let runtime_rows = native
         .query(&crate::cached_runtime::select_sql(&runtime_layout), vec![Parameter::Integer(10_001)], 10_001)
@@ -104,7 +105,7 @@ async fn native_cache_grants_share_exact_rows_with_app_observations_and_preserve
         serde_json::json!({
             "fixture_phase":"cache-workload-dispatch-roster",
             "source_queries":workload_reader.queries(),
-            "expected_reads":accounting::expected_reads(),
+            "expected_reads":workload.as_ref().ok().map(|data| accounting::expected_reads(data.workload.queries.len(), options.plans as usize)),
             "read_work":summary.as_ref().ok(),
             "metrics_error_code":summary.as_ref().err().map(|error|error.code),
             "source_error_code":workload.as_ref().err().map(|error|error.code),

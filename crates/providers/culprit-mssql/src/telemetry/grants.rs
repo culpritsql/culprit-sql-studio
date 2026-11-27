@@ -17,7 +17,7 @@ impl SnapshotRecipe for Grants {
         Layout::read(reader).await
     }
     fn query(&self, layout: &Layout) -> String {
-        select_sql(layout, false)
+        select_sql(layout, 0)
     }
     fn complete_record_scope(&self, record: &TelemetryRecord) -> bool {
         matches!(record,TelemetryRecord::Operational(OperationalObservation {fact:OperationalFact::MssqlStatementGrants(grants),..}) if grants.context.identity.has_plan_handle())

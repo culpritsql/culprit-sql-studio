@@ -1,5 +1,5 @@
 //! Interactive detail selection is bounded and parameterized; only requested plans invoke the plan-text function.
-use super::{DATABASE_PREDICATE, MAX_HASH_SELECTORS, hashes_parameter, relation, valid_hash};
+use super::{DATABASE_PREDICATE, MAX_HASH_SELECTORS, bind_hashes, hash_placeholders, relation, valid_hash};
 use crate::{
     query_store::payload::Payload,
     read::{NativeRead, Parameter, ReadError, invalid_data, optional_integer, optional_text, text},
@@ -106,17 +106,17 @@ async fn read_batch<R: NativeRead>(
     budget: &CollectionBudget,
     details: &mut BTreeMap<String, Detail>,
 ) -> Result<()> {
-    let sql = sql(with_plan, current_types);
     let mut pending = batch.to_vec();
     while !pending.is_empty() {
         // Reserve every row's metadata first; deferred rows still return their identity and length facts.
         let payload_budget = budget.page_bytes as usize - pending.len() * row_allowance(with_plan, current_types);
-        let parameters = vec![
-            hashes_parameter(&pending)?,
+        let mut parameters = vec![
             Parameter::Integer(i64::from(budget.max_sql_bytes)),
             Parameter::Integer(i64::from(budget.max_plan_bytes)),
             Parameter::Integer(payload_budget as i64),
         ];
+        bind_hashes(&mut parameters, pending.iter().map(String::as_str))?;
+        let sql = sql(with_plan, current_types, pending.len());
         let rows = reader.query(&sql, parameters, pending.len() + 1).await.map_err(ReadError::into_error)?;
         if rows.len() > pending.len() {
             return Err(CollectionStop::RowLimit.error());
@@ -194,7 +194,7 @@ fn decode(row: &Rec, with_plan: bool, budget: &CollectionBudget) -> Result<Detai
         current_type_schema,
     })
 }
-pub(crate) fn sql(with_plan: bool, current_types: bool) -> String {
+pub(crate) fn sql(with_plan: bool, current_types: bool, hash_count: usize) -> String {
     let (plan, plan_read) = if with_plan {
         (
             "CAST(DATALENGTH(qp.query_plan) AS bigint) AS plan_bytes,qp.query_plan AS plan_value,",
@@ -204,7 +204,7 @@ pub(crate) fn sql(with_plan: bool, current_types: bool) -> String {
         ("CAST(NULL AS bigint) AS plan_bytes,CAST(NULL AS nvarchar(max)) AS plan_value,", String::new())
     };
     let (current_types, current_types_relation) = if with_plan && current_types {
-        (crate::relational_inputs::type_schema::columns(), crate::relational_inputs::type_schema::relation("st"))
+        (crate::relational_inputs::type_schema::columns(), crate::relational_inputs::type_schema::relation("r"))
     } else if with_plan {
         (crate::relational_inputs::type_schema::uncollected_columns().into(), String::new())
     } else {
@@ -214,37 +214,36 @@ pub(crate) fn sql(with_plan: bool, current_types: bool) -> String {
         )
     };
     format!(
-        r#"DECLARE @hashes xml=CONVERT(xml,@P1);
-WITH ranked AS (
+        r#"WITH ranked AS (
  SELECT qs.query_hash,qs.sql_handle,qs.plan_handle,qs.statement_start_offset,qs.statement_end_offset,
- qs.creation_time,qs.plan_generation_num,CAST(pa.value AS int) AS compilation_database_id,
- ROW_NUMBER() OVER(PARTITION BY qs.query_hash ORDER BY qs.last_execution_time DESC,qs.total_elapsed_time DESC) AS rn
- {relation} WHERE {database} AND qs.query_hash IN (
- SELECT CONVERT(binary(8),n.h.value('@v[1]','varchar(18)'),1) FROM @hashes.nodes('/hashes/h') n(h)) AND {application}
+ qs.creation_time,qs.plan_generation_num,st.text,st.dbid,st.objectid,st.number,st.encrypted,CAST(pa.value AS int) AS compilation_database_id,
+ ROW_NUMBER() OVER(PARTITION BY qs.query_hash ORDER BY qs.last_execution_time DESC,qs.total_elapsed_time DESC,qs.plan_handle,qs.statement_start_offset,qs.statement_end_offset) AS rn
+ {relation} WHERE qs.query_hash IN ({hashes}) AND {database} AND {application}
 ), culprit_payloads AS (
  SELECT r.query_hash,{context},{module},{current_types},CAST(DATALENGTH(body.statement_text) AS bigint) AS statement_bytes,
- body.statement_text AS statement_value,{plan} st.encrypted,
- OBJECT_SCHEMA_NAME(st.objectid,st.dbid)+'.'+OBJECT_NAME(st.objectid,st.dbid) AS object_name
- FROM ranked r OUTER APPLY sys.dm_exec_sql_text(r.sql_handle) st
+ body.statement_text AS statement_value,{plan} r.encrypted,
+ OBJECT_SCHEMA_NAME(r.objectid,r.dbid)+'.'+OBJECT_NAME(r.objectid,r.dbid) AS object_name
+ FROM ranked r
  OUTER APPLY (SELECT {statement} AS statement_text) body
  {plan_read} {current_types_relation} WHERE r.rn=1
 ), culprit_packed AS (
- SELECT *,SUM(CASE WHEN statement_bytes<=@P2 THEN statement_bytes*{encoding} ELSE 0 END+
- CASE WHEN plan_bytes<=@P3 THEN plan_bytes*{encoding} ELSE 0 END)
+ SELECT *,SUM(CASE WHEN statement_bytes<=@P1 THEN statement_bytes*{encoding} ELSE 0 END+
+ CASE WHEN plan_bytes<=@P2 THEN plan_bytes*{encoding} ELSE 0 END)
  OVER(ORDER BY query_hash ROWS UNBOUNDED PRECEDING) AS packed_bytes FROM culprit_payloads
 )
 SELECT {output_context},{output_module},{output_types},statement_bytes,plan_bytes,encrypted,object_name,
- CAST(CASE WHEN packed_bytes<=@P4 THEN 1 ELSE 0 END AS bit) AS payload_included,
- CASE WHEN packed_bytes<=@P4 AND statement_bytes<=@P2 THEN statement_value ELSE NULL END AS statement_text,
- CASE WHEN packed_bytes<=@P4 AND plan_bytes<=@P3 THEN plan_value ELSE NULL END AS query_plan
+ CAST(CASE WHEN packed_bytes<=@P3 THEN 1 ELSE 0 END AS bit) AS payload_included,
+ CASE WHEN packed_bytes<=@P3 AND statement_bytes<=@P1 THEN statement_value ELSE NULL END AS statement_text,
+ CASE WHEN packed_bytes<=@P3 AND plan_bytes<=@P2 THEN plan_value ELSE NULL END AS query_plan
 FROM culprit_packed OPTION(MAXDOP 1)"#,
+        hashes = hash_placeholders(4, hash_count),
         relation = relation(),
         database = DATABASE_PREDICATE,
         application = crate::statement_origin::application_candidates_sql("st.text"),
-        statement = super::statement_expression("r", "st.text"),
+        statement = super::statement_expression("r", "r.text"),
         encoding = ENCODING_ALLOWANCE,
         context = cache_context_columns(),
-        module = crate::relational_inputs::module_columns("st"),
+        module = crate::relational_inputs::module_columns("r"),
         output_context = "plan_handle,sql_handle,statement_start_offset,statement_end_offset,creation_time,plan_generation_num,database_id,CONVERT(varchar(18),query_hash,1) AS query_hash,source_text_bytes,text_complete,text_prefix,engine_internal,cloud_internal",
         output_module = "module_database_id,module_object_id,module_number",
         output_types = crate::relational_inputs::type_schema::OUTPUT_COLUMNS,
@@ -254,7 +253,7 @@ FROM culprit_packed OPTION(MAXDOP 1)"#,
 fn cache_context_columns() -> String {
     // query_hash is retained as binary for the existing packing order; every other native context field uses its
     // shared projection. Excluding the hash at construction avoids SQL string replacement or duplicate aliases.
-    super::context_columns_without_hash_from("r", "st", "r.compilation_database_id")
+    super::context_columns_without_hash_from("r", "r", "r.compilation_database_id")
 }
 
 #[cfg(test)]

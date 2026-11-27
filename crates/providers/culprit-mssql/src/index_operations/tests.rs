@@ -38,7 +38,12 @@ async fn layout(sequential: bool, missing: &[&str]) -> Layout {
 }
 #[tokio::test]
 async fn columns_are_selected_before_reading_and_native_errors_are_not_retried() {
-    let layout = layout(false, &["leaf_update_count", "hobt_id"]).await;
+    let mut reader = FakeRead::new(vec![Ok(vec![layout_row(false, &["leaf_update_count", "hobt_id"])])]);
+    let layout = Layout::read(&mut reader).await.unwrap();
+    let probe = &reader.calls[0].sql;
+    assert_eq!(probe.matches("FROM sys.all_columns").count(), 1);
+    assert_eq!(probe.matches("OBJECT_ID(").count(), 2);
+    assert!(probe.contains("OBJECT_ID(N'sys.indexes')"));
     let sql = select_sql(&layout);
     assert!(!sql.contains("s.leaf_update_count"));
     assert!(!sql.contains("i.optimize_for_sequential_key"));

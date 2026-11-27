@@ -68,23 +68,32 @@ pub(crate) struct Layout {
 }
 impl Layout {
     pub async fn read<R: NativeRead>(reader: &mut R) -> Result<Self> {
-        let presence=COUNTERS.iter().map(|(_,column)|*column).chain(["database_id","object_id","index_id","partition_number","hobt_id"]).map(|column|format!("CASE WHEN EXISTS(SELECT 1 FROM sys.all_columns WHERE object_id=OBJECT_ID(N'{RELATION}') AND name=N'{column}') THEN 1 ELSE 0 END AS {column}")).collect::<Vec<_>>().join(",");
+        let presence = Self::column_names()
+            .map(|column| format!("COALESCE(MAX(CASE WHEN c.object_id=@operational_id AND c.name=N'{column}' THEN 1 ELSE 0 END),0) AS {column}"))
+            .collect::<Vec<_>>()
+            .join(",");
         let sql = format!(
-            "SELECT /* culprit */ HAS_PERMS_BY_NAME(DB_NAME(),'DATABASE','VIEW DEFINITION') AS metadata_visibility, CASE WHEN EXISTS(SELECT 1 FROM sys.all_columns WHERE object_id=OBJECT_ID(N'sys.indexes') AND name=N'optimize_for_sequential_key') THEN 1 ELSE 0 END AS sequential_option,{presence} OPTION(MAXDOP 1)"
+            "DECLARE @operational_id int=OBJECT_ID(N'{RELATION}'), @indexes_id int=OBJECT_ID(N'sys.indexes');
+ SELECT /* culprit */ HAS_PERMS_BY_NAME(DB_NAME(),'DATABASE','VIEW DEFINITION') AS metadata_visibility,
+ COALESCE(MAX(CASE WHEN c.object_id=@indexes_id AND c.name=N'optimize_for_sequential_key' THEN 1 ELSE 0 END),0) AS sequential_option,{presence}
+ FROM sys.all_columns c WHERE c.object_id IN (@operational_id,@indexes_id) OPTION(MAXDOP 1)"
         );
         let rows = reader.query(&sql, vec![], 2).await.map_err(ReadError::into_error)?;
         let [row] = rows.as_slice() else { return Err(invalid_data()) };
         Self::decode(row)
     }
-    fn decode(row: &Rec) -> Result<Self> {
-        let mut columns = BTreeSet::new();
-        for column in COUNTERS.iter().map(|(_, column)| *column).chain([
+    fn column_names() -> impl Iterator<Item = &'static str> {
+        COUNTERS.iter().map(|(_, column)| *column).chain([
             "database_id",
             "object_id",
             "index_id",
             "partition_number",
             "hobt_id",
-        ]) {
+        ])
+    }
+    fn decode(row: &Rec) -> Result<Self> {
+        let mut columns = BTreeSet::new();
+        for column in Self::column_names() {
             match integer(row, column)? {
                 1 => {
                     columns.insert(column.into());

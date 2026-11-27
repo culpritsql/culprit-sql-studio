@@ -599,6 +599,7 @@ fn parameter_values(parameters: &[Parameter]) -> Value {
             .map(|value| match value {
                 Parameter::Integer(value) => json!({"integer":value.to_string()}),
                 Parameter::Text(value) => json!({"text":value}),
+                Parameter::Binary8(value) => json!({"binary8":crate::value::hex(value)}),
             })
             .collect(),
     )

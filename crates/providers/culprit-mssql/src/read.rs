@@ -28,9 +28,21 @@ use crate::{
     value::{Rec, Val},
 };
 
+#[derive(Clone)]
 pub(crate) enum Parameter {
+    Binary8([u8; 8]),
     Integer(i64),
     Text(String),
+}
+
+impl Parameter {
+    pub(crate) fn bind<'a>(&'a self, query: &mut Query<'a>) {
+        match self {
+            Self::Integer(value) => query.bind(*value),
+            Self::Text(value) => query.bind(value.as_str()),
+            Self::Binary8(value) => query.bind(value.as_slice()),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -685,10 +697,7 @@ async fn read(
     let ReadQuery { sql, parameters, row_limit, byte_limit, mut output, admission, profile: _ } = request;
     let mut query = Query::new(&sql);
     for parameter in &parameters {
-        match parameter {
-            Parameter::Integer(value) => query.bind(*value),
-            Parameter::Text(value) => query.bind(value.as_str()),
-        }
+        parameter.bind(&mut query);
     }
     let mut stream = query.query(&mut **client).await.map_err(map_error)?;
     let mut budget = culprit_read::ReadBudget::new(row_limit, byte_limit);

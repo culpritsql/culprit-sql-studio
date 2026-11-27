@@ -47,8 +47,10 @@ async fn only_requested_plans_are_read_and_hashes_never_change_native_sql_templa
         assert!(!call.sql.contains(hash));
         assert!(call.sql.contains(DATABASE_PREDICATE));
         assert!(call.sql.contains("ORDER BY qs.last_execution_time DESC"));
-        let Parameter::Text(xml) = &call.parameters[0] else { panic!("bound selectors") };
-        assert!(xml.contains(hash));
+        let [_, _, _, Parameter::Binary8(bytes)] = call.parameters.as_slice() else { panic!("one bound hash") };
+        assert_eq!(crate::value::hex(bytes), *hash);
+        assert!(call.sql.contains("qs.query_hash IN (CONVERT(binary(8),@P4))"));
+        assert_eq!(call.sql.matches("sys.dm_exec_sql_text(").count(), 1);
     }
     assert!(reader.calls[2].sql.contains("sys.dm_exec_plan_attributes(selected.plan_handle)"));
     assert!(!reader.calls[2].sql.contains("sys.dm_exec_query_stats"));
@@ -168,8 +170,10 @@ async fn payload_deferral_reselects_only_the_remaining_members_and_must_make_pro
     let result = read(&mut reader, &hashes, 2, &crate::read::ReadSession::application_budget(), true).await.unwrap();
     assert_eq!(result.len(), 2);
     assert_eq!(reader.calls.len(), 3);
-    let Parameter::Text(second) = &reader.calls[1].parameters[0] else { panic!("bound selectors") };
-    assert!(!second.contains(&hashes[0]));
+    let [_, _, _, Parameter::Binary8(second)] = reader.calls[1].parameters.as_slice() else {
+        panic!("one deferred hash")
+    };
+    assert_eq!(crate::value::hex(second), hashes[1]);
     let mut reader = FakeRead::new(vec![Ok(vec![deferred])]);
     let error =
         read(&mut reader, &hashes[1..], 1, &crate::read::ReadSession::application_budget(), true).await.err().unwrap();
@@ -208,7 +212,7 @@ async fn original_header_metadata_is_admitted_only_after_an_independent_native_b
     assert!(detail.module_parameters.as_ref().unwrap().input(&detail.context, "@rows").is_some());
     assert_eq!(detail.statement.text(), Some("SELECT id FROM @rows"));
     assert!(detail.plan.text().is_some());
-    assert!(reader.calls[0].sql.contains("sys.dm_exec_sql_text(r.sql_handle)"));
+    assert!(reader.calls[0].sql.contains("sys.dm_exec_sql_text(qs.sql_handle)"));
     assert!(!reader.calls[1].sql.contains("sys.dm_exec_sql_text"), "no second header read");
 }
 

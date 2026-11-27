@@ -6,7 +6,7 @@ use crate::{
 use culprit_core::{Result, telemetry::*};
 
 const MAX_APPLICATION_ENTRIES: usize = 10_000;
-use crate::cached_statements::{MAX_HASH_SELECTORS, hashes_parameter, valid_hash};
+use crate::cached_statements::{MAX_HASH_SELECTORS, bind_hashes, hash_placeholders, valid_hash};
 const COLUMNS: [&str; 8] = [
     "total_grant_kb",
     "total_used_grant_kb",
@@ -55,7 +55,7 @@ impl Layout {
     }
 }
 
-pub(crate) fn select_sql(layout: &Layout, selected: bool) -> String {
+pub(crate) fn select_sql(layout: &Layout, hash_count: usize) -> String {
     let fields = COLUMNS
         .iter()
         .map(|name| {
@@ -63,24 +63,24 @@ pub(crate) fn select_sql(layout: &Layout, selected: bool) -> String {
         })
         .collect::<Vec<_>>()
         .join(",");
-    let hashes = if selected {
-        r#"WITH culprit_hashes AS (
- SELECT CONVERT(binary(8),n.h.value('@v[1]','varchar(18)'),1) AS query_hash
- FROM (SELECT CAST(@P2 AS xml) AS body) x CROSS APPLY x.body.nodes('/hashes/h') n(h))"#
+    let selected = if hash_count == 0 {
+        String::new()
     } else {
-        ""
+        format!("qs.query_hash IN ({}) AND ", hash_placeholders(2, hash_count))
     };
     format!(
-        r#"{hashes}
- SELECT TOP (@P1) {context},
- qs.execution_count,CONVERT(varchar(40),qs.last_execution_time,126) AS last_execution,
- {fields}
- {relation}
- WHERE {database}{predicate} OPTION(MAXDOP 1)"#,
-        context = crate::cached_statements::context_columns(),
-        relation = crate::cached_statements::relation(),
+        r#"WITH owned AS (
+ SELECT TOP (@P1) qs.plan_handle,qs.sql_handle,qs.statement_start_offset,qs.statement_end_offset,
+ qs.creation_time,qs.plan_generation_num,qs.query_hash,CAST(pa.value AS int) AS compilation_database_id,
+ qs.execution_count,qs.last_execution_time,{fields}
+ FROM sys.dm_exec_query_stats qs CROSS APPLY sys.dm_exec_plan_attributes(qs.plan_handle) pa
+ WHERE {selected}{database}
+)
+SELECT {context},o.execution_count,CONVERT(varchar(40),o.last_execution_time,126) AS last_execution,{counters}
+ FROM owned o OUTER APPLY sys.dm_exec_sql_text(o.sql_handle) st OPTION(MAXDOP 1)"#,
+        context = crate::cached_statements::context_columns_from("o", "st", "o.compilation_database_id"),
         database = crate::cached_statements::DATABASE_PREDICATE,
-        predicate = if selected { " AND qs.query_hash IN (SELECT query_hash FROM culprit_hashes)" } else { "" }
+        counters = COLUMNS.map(|name| format!("o.{name}")).join(","),
     )
 }
 
@@ -149,16 +149,14 @@ async fn selected_entries<R: NativeRead>(
         .collect::<std::collections::BTreeSet<_>>()
         .into_iter()
         .collect::<Vec<_>>();
-    let parameters = hashes.chunks(MAX_HASH_SELECTORS).map(hashes_parameter).collect::<Result<Vec<_>>>()?;
-    let sql = select_sql(layout, true);
     let mut entries = Vec::new();
     let mut identities = std::collections::BTreeSet::new();
-    for parameter in parameters {
+    for batch in hashes.chunks(MAX_HASH_SELECTORS) {
         let limit = MAX_APPLICATION_ENTRIES - entries.len() + 1;
-        let rows = reader
-            .query(&sql, vec![Parameter::Integer(limit as i64), parameter], limit)
-            .await
-            .map_err(ReadError::into_error)?;
+        let mut parameters = vec![Parameter::Integer(limit as i64)];
+        bind_hashes(&mut parameters, batch.iter().map(String::as_str))?;
+        let sql = select_sql(layout, batch.len());
+        let rows = reader.query(&sql, parameters, limit).await.map_err(ReadError::into_error)?;
         if entries.len() + rows.len() > MAX_APPLICATION_ENTRIES {
             return Err(CollectionStop::RowLimit.error());
         }
