@@ -1,3 +1,4 @@
+import { createArchiveClient } from "../../../../packages/culprit-archive-client/src/index";
 import type { Api, ApiError } from "../api";
 import { demoApi } from "../demo-api";
 import { language, t } from "../i18n";
@@ -50,13 +51,7 @@ export async function archiveWebApi(): Promise<Api> {
     addDiscovered: readOnly,
     addWarehouseConnection: readOnly,
     removeWarehouseConnection: readOnly,
-    warehouseConnections: () => requestJson("GET", "/api/archive/connections"),
-    warehouseFleet: (connection, request, signal) => requestJson("POST", "/api/archive/fleet", { connection, request }, signal),
-    warehouseResources: (connection, request, signal) => requestJson("POST", "/api/archive/resources", { connection, request }, signal),
-    warehouseIncident: (connection, resource, around, signal) =>
-      requestJson("POST", "/api/archive/incident", { connection, resource, around }, signal),
-    warehouseWindow: (connection, request, signal) => requestJson("POST", "/api/archive/window", { connection, request }, signal),
-    warehouseArtifacts: (connection, request, signal) => requestJson("POST", "/api/archive/artifacts", { connection, request }, signal),
+    ...createArchiveClient(requestJson),
     parsePlan: (text) => requestJson("POST", "/api/plans/parse", { text }),
     diffPlans: (a, b, nameA, nameB) =>
       requestJson("POST", "/api/plans/diff", { a: { ...a, raw: null }, b: { ...b, raw: null }, nameA, nameB }),

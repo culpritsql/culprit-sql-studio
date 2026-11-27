@@ -1,0 +1,22 @@
+{
+  "name": "@culpritsql/archive-client",
+  "version": "0.1.0",
+  "description": "Typed reads of published Culprit archives",
+  "license": "MIT",
+  "type": "module",
+  "sideEffects": false,
+  "files": [
+    "pkg",
+    "LICENSE",
+    "README.md"
+  ],
+  "exports": {
+    ".": {
+      "types": "./pkg/index.d.ts",
+      "import": "./pkg/index.js"
+    }
+  },
+  "scripts": {
+    "prepack": "python3 ../../dev/build-archive-client.py"
+  }
+}
