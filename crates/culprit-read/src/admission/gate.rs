@@ -3,23 +3,37 @@ use culprit_core::{
     Result,
     telemetry::{CollectionStop, SourceShutdown},
 };
-use tokio::sync::{Semaphore, SemaphorePermit};
+use std::{
+    marker::PhantomData,
+    sync::{Arc, Mutex, MutexGuard},
+};
+use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
 pub struct SourceGate {
-    semaphore: Semaphore,
+    generation: Mutex<Arc<Semaphore>>,
 }
 impl Default for SourceGate {
     fn default() -> Self {
-        Self { semaphore: Semaphore::new(1) }
+        Self { generation: Mutex::new(Arc::new(Semaphore::new(1))) }
     }
 }
 impl SourceGate {
+    fn generation(&self) -> MutexGuard<'_, Arc<Semaphore>> {
+        self.generation.lock().unwrap_or_else(|poison| poison.into_inner())
+    }
+    pub(super) fn resume(&self) {
+        let mut generation = self.generation();
+        if generation.is_closed() {
+            *generation = Arc::new(Semaphore::new(1));
+        }
+    }
     pub async fn acquire(&self) -> Result<SourcePermit<'_>> {
-        let permit = self.semaphore.acquire().await.map_err(|_| CollectionStop::CancellationUnconfirmed.error())?;
-        Ok(SourcePermit { gate: self, _permit: permit, state: State::Ready })
+        let generation = self.generation().clone();
+        let permit = generation.acquire_owned().await.map_err(|_| CollectionStop::CancellationUnconfirmed.error())?;
+        Ok(SourcePermit { permit, state: State::Ready, owner: PhantomData })
     }
     pub fn is_closed(&self) -> bool {
-        self.semaphore.is_closed()
+        self.generation().is_closed()
     }
 }
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -29,9 +43,10 @@ enum State {
     Settled,
 }
 #[must_use]
-pub struct SourcePermit<'a> {
-    gate: &'a SourceGate,
-    _permit: SemaphorePermit<'a>,
+pub struct SourcePermit<'gate> {
+    // Keep the public permit scoped to its gate while owning the exact semaphore generation it can close.
+    owner: PhantomData<&'gate SourceGate>,
+    permit: OwnedSemaphorePermit,
     state: State,
 }
 impl SourcePermit<'_> {
@@ -48,7 +63,7 @@ impl SourcePermit<'_> {
             return Err(CollectionStop::InvalidPage.error());
         }
         if shutdown == SourceShutdown::Unconfirmed {
-            self.gate.semaphore.close();
+            self.permit.semaphore().close();
         }
         self.state = State::Settled;
         Ok(())
@@ -57,7 +72,7 @@ impl SourcePermit<'_> {
 impl Drop for SourcePermit<'_> {
     fn drop(&mut self) {
         if self.state == State::InFlight {
-            self.gate.semaphore.close();
+            self.permit.semaphore().close();
         }
     }
 }

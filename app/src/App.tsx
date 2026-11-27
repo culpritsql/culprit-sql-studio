@@ -1,7 +1,7 @@
 import { ProviderAcquisition } from "./components/ProviderAcquisition";
 import { evidencePresentation } from "./lib/engines";
 import { t, useLanguage } from "./lib/i18n";
-import { AlertCircle } from "lucide-react";
+import { ScanFailure, scanNeedsVerification } from "./components/ScanFailure";
 import { lazy, Suspense, useEffect, type ReactNode } from "react";
 import { CommandPalette } from "./components/CommandPalette";
 import { ScreenshotButton } from "./components/ScreenshotButton";
@@ -218,25 +218,6 @@ function TopBar() {
         </span>
       )}
       <span className="spacer" />
-      {report?.scanError && (
-        // biome-ignore lint/a11y/noNoninteractiveTabindex: focusing it opens the error's details (:focus-within), as hovering does
-        <div className="scan-error-anchor" tabIndex={0}>
-          <span className="tag high scan-error-badge">
-            <AlertCircle size={12} aria-hidden />
-            {t("ui.app.last_scan_failed")}
-          </span>
-          <div className="scan-error-popover" role="tooltip">
-            <div className="scan-error-title">
-              <span className="sev high" aria-hidden />
-              {t("ui.app.last_scan_failed")}
-            </div>
-            <p className="scan-error-msg selectable">{report.scanError.message}</p>
-            {report.scanError.hint && (
-              <p className="scan-error-hint selectable">{report.scanError.hint}</p>
-            )}
-          </div>
-        </div>
-      )}
       <ScreenshotButton />
     </header>
   );
@@ -255,7 +236,7 @@ function Workspace({ view, name }: { view: View; name: string }) {
   }
   if (state.status === "loading" || state.status === "none") return view === "dashboard" ? <DashboardSkeleton /> : <Loading />;
   if (state.status === "error") {
-    if (connection?.auth === "password" && (state.error.code === "auth_failed" || !connection.has_secret)) {
+    if (!scanNeedsVerification(state.error) && connection?.auth === "password" && (state.error.code === "auth_failed" || !connection.has_secret)) {
       return (
         <>
           <PasswordNeeded connection={connection} message={state.error.message} />
@@ -263,17 +244,7 @@ function Workspace({ view, name }: { view: View; name: string }) {
         </>
       );
     }
-    return (
-      <div className="empty">
-        <h3>{t("ui.app.scan_failed", { name })}</h3>
-        <p>{state.error.message}</p>
-        {state.error.hint && <p className="muted">{state.error.hint}</p>}
-        <ProviderAcquisition report={state.acquisition} />
-        <button type="button" className="btn" onClick={() => scan(name)}>
-          {t("ui.common.try_again")}
-        </button>
-      </div>
-    );
+    return <div className="scan-failure-page"><ScanFailure key={name} name={name} error={state.error} acquisition={state.acquisition} /></div>;
   }
   const report = state.report;
   let content: ReactNode;
@@ -292,7 +263,12 @@ function Workspace({ view, name }: { view: View; name: string }) {
   }
   return (
     <>
-      <ProviderAcquisition report={state.scanError ? state.scanAcquisition : null} />
+      {state.scanError && (
+        <details className="saved-scan-notice">
+          <summary>{t("ui.scan_recovery.saved", { time: when(report.snapshot.taken_at).full })}</summary>
+          <ScanFailure key={name} name={name} error={state.scanError} acquisition={state.scanAcquisition} />
+        </details>
+      )}
       {content}
     </>
   );

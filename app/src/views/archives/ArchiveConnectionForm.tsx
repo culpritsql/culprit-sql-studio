@@ -1,4 +1,5 @@
-import { useState, type FormEvent } from "react";
+import { Archive, Database, FolderOpen, type LucideIcon } from "lucide-react";
+import { useState, type FormEvent, type ReactNode } from "react";
 import type { SaveWarehouseConnection } from "../../gen/SaveWarehouseConnection";
 import type { WarehouseConnectionInfo } from "../../gen/WarehouseConnectionInfo";
 import type { WarehousesApi } from "../../lib/api/warehouses";
@@ -27,7 +28,10 @@ export function ArchiveConnectionForm({ client, onSaved, onCancel }: { client: (
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   async function save(event: FormEvent) {
-    event.preventDefault(); setBusy(true); setError(null);
+    event.preventDefault();
+    if (busy) return;
+    setBusy(true);
+    setError(null);
     const input: SaveWarehouseConnection = {
       name,
       settings: {
@@ -39,41 +43,90 @@ export function ArchiveConnectionForm({ client, onSaved, onCancel }: { client: (
       },
       password: kind === "clickhouse" ? password : null,
     };
-    try { const saved = await (await client()).addWarehouseConnection(input); setPassword(""); onSaved(saved); }
-    catch (failure) { setError(errorMessage(failure).message); }
-    finally { setPassword(""); setBusy(false); }
+    try {
+      const saved = await (await client()).addWarehouseConnection(input);
+      onSaved(saved);
+    } catch (failure) {
+      setError(errorMessage(failure).message);
+    } finally {
+      setPassword("");
+      setBusy(false);
+    }
   }
-  return <form className="conn-panel archive-form" onKeyDown={(event) => { if (event.key === "Escape" && !busy) { event.stopPropagation(); setPassword(""); onCancel(); } }} onSubmit={(event) => void save(event)}>
-    <h2>{t("ui.archives.add")}</h2>
-    <p className="muted">{t("ui.archives.authentication")}</p>
-    {error && <p role="alert">{error}</p>}
-    <fieldset disabled={busy}>
-    <Field label={t("ui.connection_card.name")} value={name} set={setName} />
-    <label className="field">{t("ui.archives.warehouse")}<select value={kind} onChange={(event) => { setKind(event.target.value as typeof kind); setPassword(""); }} disabled={busy}>
-      <option value="adx">{t("ui.archives.adx")}</option><option value="clickhouse">{t("ui.archives.clickhouse")}</option>
-    </select></label>
-    <Field label={t("ui.archives.endpoint")} value={endpoint} set={setEndpoint} />
-    <Field label={t("ui.connection_settings.database")} value={database} set={setDatabase} />
-    <Field label={t("ui.archives.warehouse_profile")} value={warehouseProfile} set={setWarehouseProfile} />
-    {kind === "adx" ? <Field label={t("ui.archives.tenant")} value={warehouseTenant} set={setWarehouseTenant} optional /> : <>
-      <Field label={t("ui.new_connection_form.user")} value={username} set={setUsername} />
-      <Field label={t("ui.new_connection_form.password")} value={password} set={setPassword} type="password" />
-    </>}
-    <label className="field">{t("ui.archives.recovery")}<select value={recovery} onChange={(event) => { setRecovery(event.target.value as typeof recovery); setRecoveryIdentity(""); }} disabled={busy}>
-      <option value="azure-blob">{t("ui.archives.azure_blob")}</option><option value="s3">{t("ui.archives.s3")}</option>
-    </select></label>
-    {recovery === "azure-blob" && <Field label={t("ui.archives.account")} value={account} set={setAccount} />}
-    <Field label={recovery === "azure-blob" ? t("ui.archives.container") : t("ui.archives.bucket")} value={container} set={setContainer} />
-    <Field label={t("ui.archives.prefix")} value={prefix} set={setPrefix} />
-    {recovery === "s3" && <><Field label={t("ui.archives.region")} value={region} set={setRegion} /><Field label={t("ui.archives.expected_owner")} value={owner} set={setOwner} /></>}
-    <Field label={t("ui.archives.recovery_profile")} value={recoveryProfile} set={setRecoveryProfile} />
-    <Field label={recovery === "azure-blob" ? t("ui.archives.tenant") : t("ui.archives.aws_profile")} value={recoveryIdentity} set={setRecoveryIdentity} optional />
-    <Field label={t("ui.archives.pipeline")} value={pipeline} set={setPipeline} />
-    <Field label={t("ui.archives.shard")} value={shard} set={setShard} />
-    </fieldset>
-    <div className="actions"><button className="btn primary" type="submit" disabled={busy} aria-busy={busy}>{t("ui.common.save")}</button><button className="btn" type="button" disabled={busy} onClick={() => { setPassword(""); onCancel(); }}>{t("ui.common.cancel")}</button></div>
-  </form>;
+
+  return (
+    <form className="archive-form" aria-labelledby="archive-setup-title" onSubmit={save}
+      onKeyDown={(event) => {
+        if (event.key === "Escape" && !busy) {
+          event.stopPropagation();
+          onCancel();
+        }
+      }}>
+      <h1 id="archive-setup-title">{t("ui.archives.add")}</h1>
+      <Section title={t("ui.archives.form_identity")} hint={t("ui.archives.form_identity_hint")} icon={Archive} busy={busy}>
+        <Field label={t("ui.connection_card.name")} value={name} set={setName} autoFocus wide />
+        <Field label={t("ui.archives.pipeline")} value={pipeline} set={setPipeline} />
+        <Field label={t("ui.archives.shard")} value={shard} set={setShard} />
+      </Section>
+      <Section title={t("ui.archives.form_warehouse")} hint={t("ui.archives.form_warehouse_hint")} icon={Database} busy={busy}>
+        <label className="field">{t("ui.archives.warehouse")}
+          <select value={kind} onChange={(event) => { setKind(event.target.value as typeof kind); setPassword(""); }}>
+            <option value="adx">{t("ui.archives.adx")}</option>
+            <option value="clickhouse">{t("ui.archives.clickhouse")}</option>
+          </select>
+        </label>
+        <Field label={t("ui.connection_settings.database")} value={database} set={setDatabase} />
+        <Field label={t("ui.archives.endpoint")} type="url" value={endpoint} set={setEndpoint} wide />
+        <p className="archive-auth-hint">{kind === "adx" ? t("ui.archives.form_adx_auth") : t("ui.archives.form_clickhouse_auth")}</p>
+        <Field label={t("ui.archives.warehouse_profile")} value={warehouseProfile} set={setWarehouseProfile} wide={kind === "clickhouse"} />
+        {kind === "adx" ? <Field label={t("ui.archives.tenant")} value={warehouseTenant} set={setWarehouseTenant} optional /> : <>
+          <Field label={t("ui.new_connection_form.user")} value={username} set={setUsername} />
+          <Field label={t("ui.new_connection_form.password")} value={password} set={setPassword} type="password" />
+        </>}
+      </Section>
+      <Section title={t("ui.archives.form_originals")} hint={t("ui.archives.form_originals_hint")} icon={FolderOpen} busy={busy}>
+        <label className="field">{t("ui.archives.recovery")}
+          <select value={recovery} onChange={(event) => { setRecovery(event.target.value as typeof recovery); setRecoveryIdentity(""); }}>
+            <option value="azure-blob">{t("ui.archives.azure_blob")}</option>
+            <option value="s3">{t("ui.archives.s3")}</option>
+          </select>
+        </label>
+        {recovery === "azure-blob" ? <Field label={t("ui.archives.account")} value={account} set={setAccount} />
+          : <Field label={t("ui.archives.region")} value={region} set={setRegion} />}
+        <Field label={recovery === "azure-blob" ? t("ui.archives.container") : t("ui.archives.bucket")} value={container} set={setContainer} />
+        <Field label={t("ui.archives.prefix")} value={prefix} set={setPrefix} />
+        {recovery === "s3" && <Field label={t("ui.archives.expected_owner")} value={owner} set={setOwner} wide />}
+        <p className="archive-auth-hint">{recovery === "azure-blob" ? t("ui.archives.form_blob_auth") : t("ui.archives.form_s3_auth")}</p>
+        <Field label={t("ui.archives.recovery_profile")} value={recoveryProfile} set={setRecoveryProfile} />
+        <Field label={recovery === "azure-blob" ? t("ui.archives.tenant") : t("ui.archives.aws_profile")} value={recoveryIdentity} set={setRecoveryIdentity} optional />
+      </Section>
+      <footer className="archive-form-footer">
+        {error && <p role="alert">{error}</p>}
+        <div className="actions">
+          <button className="btn" type="button" disabled={busy} onClick={onCancel}>{t("ui.common.cancel")}</button>
+          <button className="btn primary" type="submit" disabled={busy} aria-busy={busy}>{t("ui.common.save")}</button>
+        </div>
+      </footer>
+    </form>
+  );
 }
-function Field({ label, value, set, optional = false, type = "text" }: { label: string; value: string; set: (value: string) => void; optional?: boolean; type?: "text" | "password" }) {
-  return <label className="field">{label}<input type={type} value={value} onChange={(event) => set(event.target.value)} required={!optional} autoComplete={type === "password" ? "new-password" : "off"} /></label>;
+
+function Section({ title, hint, icon: Icon, busy, children }: {
+  title: string; hint: string; icon: LucideIcon; busy: boolean; children: ReactNode;
+}) {
+  return <fieldset disabled={busy}>
+    <legend><Icon size={16} aria-hidden />{title}</legend>
+    <p className="archive-section-hint">{hint}</p>
+    <div className="archive-fields">{children}</div>
+  </fieldset>;
+}
+
+function Field({ label, value, set, optional, type = "text", wide, autoFocus }: {
+  label: string; value: string; set: (value: string) => void; optional?: boolean;
+  type?: "text" | "url" | "password"; wide?: boolean; autoFocus?: boolean;
+}) {
+  return <label className={wide ? "field wide" : "field"}>{label}
+    <input type={type} value={value} onChange={(event) => set(event.target.value)} required={!optional}
+      autoFocus={autoFocus} autoComplete={type === "password" ? "new-password" : "off"} />
+  </label>;
 }

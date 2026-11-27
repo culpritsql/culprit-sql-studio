@@ -56,3 +56,14 @@ fn required_admission_field<'de, D: serde::Deserializer<'de>, T: Deserialize<'de
 ) -> std::result::Result<Option<T>, D::Error> {
     Option::<T>::deserialize(reader)
 }
+
+/// Inspection adds filesystem timing without changing the stable admission status contract.
+#[derive(Serialize, Deserialize, TS, Clone, Debug, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+#[ts(export)]
+pub struct CollectionAdmissionRecord {
+    pub status: CollectionAdmissionStatus,
+    /// Last write to the pending record, when the filesystem supplies a timestamp.
+    #[ts(type = "number | null")]
+    pub recorded_at_unix_seconds: Option<u64>,
+}

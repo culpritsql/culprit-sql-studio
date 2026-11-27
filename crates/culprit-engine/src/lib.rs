@@ -133,7 +133,7 @@ pub struct Workspace {
     provider_pool: std::sync::Mutex<std::collections::BTreeMap<String, connection::CachedProvider>>,
     ssh: ssh::Manager,
     previews: tokio::sync::Semaphore,
-    source_gate: culprit_read::admission::SourceGate,
+    source_gate: Arc<culprit_read::admission::SourceGate>,
     #[cfg(feature = "collector")]
     qualification_bindings: qualification_bindings::QualificationBindings,
 }
@@ -183,7 +183,7 @@ impl Workspace {
             provider_pool: Default::default(),
             ssh: ssh::Manager::default(),
             previews: tokio::sync::Semaphore::new(1),
-            source_gate: culprit_read::admission::SourceGate::default(),
+            source_gate: Default::default(),
             #[cfg(feature = "collector")]
             qualification_bindings: Default::default(),
         }

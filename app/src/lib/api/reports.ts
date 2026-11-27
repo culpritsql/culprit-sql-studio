@@ -1,3 +1,5 @@
+import type { CollectionAdmissionRecord } from "../../gen/CollectionAdmissionRecord";
+import type { CollectionAdmissionStatus } from "../../gen/CollectionAdmissionStatus";
 import type { ProviderAcquisitionReport } from "../../gen/ProviderAcquisitionReport";
 import type { ObservedScanAttempt } from "../../gen/ObservedScanAttempt";
 import type { Dashboard } from "../../gen/Dashboard";
@@ -13,6 +15,8 @@ import type { Invoke } from "../owned-requests";
 import { requireScan } from "../provider-acquisition";
 
 export interface ReportsApi {
+  collectionAdmissionRecord(): Promise<CollectionAdmissionRecord>;
+  acknowledgeCollectionQuiescence(observationId: string, sourceQuiescent: true): Promise<CollectionAdmissionStatus>;
   latestReport(name: string, windowMinutes: number | null, population: NativeIdentity | null): Promise<Report | null>;
   reportAt(name: string, reportId: string): Promise<Report>;
   scan(name: string, windowMinutes: number | null, population: NativeIdentity | null, acquisition?: (report: ProviderAcquisitionReport) => void): Promise<Report>;
@@ -30,6 +34,8 @@ export interface ReportsApi {
 
 export function desktopReports(invoke: Invoke): ReportsApi {
   return {
+    collectionAdmissionRecord: () => invoke("collection_admission_record"),
+    acknowledgeCollectionQuiescence: (observationId, sourceQuiescent) => invoke("acknowledge_collection_quiescence", { observationId, sourceQuiescent }),
     latestReport: (name, windowMinutes, population) => invoke("latest_report", { name, windowMinutes, population }),
     reportAt: (name, reportId) => invoke("report_at", { name, reportId }),
     scan: async (name, windowMinutes, population, acquisition) => requireScan(

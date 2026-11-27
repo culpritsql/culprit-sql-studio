@@ -67,6 +67,25 @@ pub(crate) async fn scan(
         other => other,
     })
 }
+#[tauri::command]
+pub(crate) async fn collection_admission_record(
+    ws: Ws<'_>,
+) -> Result<culprit_core::telemetry::CollectionAdmissionRecord> {
+    ws.collection_admission_record().await
+}
+
+#[tauri::command]
+pub(crate) async fn acknowledge_collection_quiescence(
+    ws: Ws<'_>,
+    observation_id: String,
+    source_quiescent: bool,
+) -> Result<culprit_core::telemetry::CollectionAdmissionStatus> {
+    if !source_quiescent {
+        return Err(Error::invalid(culprit_core::t!("outbox.cli.source_quiescent")));
+    }
+    ws.acknowledge_collection_quiescence(&observation_id).await
+}
+
 /// The brief a coding agent is given: in English whatever the app's language, report and all.
 #[tauri::command]
 pub(crate) async fn brief(ws: Ws<'_>, name: String, report_id: String, finding_id: String) -> Result<String> {

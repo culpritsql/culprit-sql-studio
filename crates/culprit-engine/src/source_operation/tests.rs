@@ -20,6 +20,7 @@ struct State {
     stop_snapshot: AtomicBool,
     poison_snapshot: AtomicBool,
     poison_enrichment: AtomicBool,
+    changes_denied: AtomicBool,
     live_timeout: AtomicBool,
     malformed_discovery: AtomicBool,
     stop_discovery: AtomicBool,
@@ -74,6 +75,9 @@ impl Provider for FixtureProvider {
         if self.0.poison_enrichment.load(Ordering::Acquire) {
             self.0.uncertain.store(true, Ordering::Release);
             return Err(CollectionStop::CancellationUnconfirmed.error());
+        }
+        if self.0.changes_denied.load(Ordering::Acquire) {
+            return Err(Error::new(ErrorCode::PermissionDenied, "change history unavailable"));
         }
         Ok(vec![])
     }
@@ -333,7 +337,38 @@ async fn retiring_a_scan_future_retains_native_debt_and_blocks_a_replacement_fac
         .is_err()
     );
     assert_eq!(state.factories.load(Ordering::Relaxed), 1);
+    let pending = ws.collection_admission_status().await.unwrap();
+    let id = pending.observation_id.unwrap();
+    assert!(ws.acknowledge_collection_quiescence("wrong").await.is_err());
+    assert!(ws.source_gate.is_closed());
+    state.stop_snapshot.store(false, Ordering::Relaxed);
+    ws.acknowledge_collection_quiescence(&id).await.unwrap();
+    let report = crate::tests::observe_provider(&ws, culprit_core::ProviderReadKind::Scan, async |operation| {
+        ws.scan("pilot", &SnapshotOptions::default(), operation).await
+    })
+    .await
+    .unwrap();
+    assert_eq!(report.snapshot.connection, "pilot");
+    assert_eq!(state.factories.load(Ordering::Relaxed), 2);
 }
+#[tokio::test]
+async fn a_failed_optional_read_keeps_the_rest_of_the_report_and_leaves_scanning_available() {
+    let home = tempfile::tempdir().unwrap();
+    let state = Arc::new(State::default());
+    state.changes_denied.store(true, Ordering::Relaxed);
+    let ws = configured(home.path(), &state);
+    let report = crate::tests::observe_provider(&ws, culprit_core::ProviderReadKind::Scan, async |operation| {
+        ws.scan("pilot", &SnapshotOptions::default(), operation).await
+    })
+    .await
+    .unwrap();
+    assert!(report.snapshot.notes.iter().any(|note| note.collector == "changes"));
+    assert!(!report.findings.is_empty());
+    assert_eq!(ws.latest_report("pilot", None).unwrap().unwrap().snapshot.id, report.snapshot.id);
+    assert!(!ws.collection_admission_status().await.unwrap().source_quiescence_required);
+    assert!(!ws.source_gate.is_closed());
+}
+
 #[tokio::test]
 async fn uncertain_enrichment_cannot_save_a_successful_report_or_clear_source_ownership() {
     let home = tempfile::tempdir().unwrap();

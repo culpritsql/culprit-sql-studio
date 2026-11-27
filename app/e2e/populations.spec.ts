@@ -241,7 +241,7 @@ test("A late or failing group cache and a language reread cannot replace another
     probe.pending.splice(0).forEach((pending) => pending.fail());
   });
   await expect(page.locator("main")).toContainText("execution_group_18");
-  await expect(page.locator(".scan-error-badge")).toHaveCount(0);
+  await expect(page.locator(".saved-scan-notice")).toHaveCount(0);
   await page.locator(".language-select").selectOption("fr");
   await expect(page.locator("html")).toHaveAttribute("lang", "fr");
   await expect.poll(async () => page.evaluate(() => (window as ProbeWindow).populationProbe.calls.some((read) => read.kind === "cache" && read.population?.id === "18" && read.language === "fr"))).toBe(true);

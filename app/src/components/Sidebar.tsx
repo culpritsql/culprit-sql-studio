@@ -1,4 +1,4 @@
-import { Activity, ChevronsUpDown, CircleAlert, CircleArrowUp, CircleDot, Gauge, GitCompareArrows, ListOrdered, Monitor, Moon, Plus, RefreshCw, RotateCw, Search, SquareTerminal, Sun, Table2 } from "lucide-react";
+import { Activity, Archive, ChevronsUpDown, CircleAlert, CircleArrowUp, CircleDot, Gauge, GitCompareArrows, ListOrdered, Monitor, Moon, Plus, RefreshCw, RotateCw, Search, SquareTerminal, Sun, Table2 } from "lucide-react";
 import type { ReactNode } from "react";
 import { ago } from "../lib/format";
 import { EngineBadge } from "./EngineBadge";
@@ -102,7 +102,7 @@ export function Sidebar() {
         onClick={() => setState({ view: "connections" })}
         title={view === "archives" ? t("ui.archives.read_only") : report ? `${active} · ${report.snapshot.server.product} · ${report.snapshot.server.database}` : undefined}
       >
-        {view === "archives" ? <span><div className="name">{t("ui.archives.title")}</div><div className="sub">{t("ui.archives.read_only")}</div></span> : <>
+        {view === "archives" ? <span className="archive-switch-label"><div className="name">{t("ui.archives.title")}</div><div className="sub">{t("ui.archives.read_only")}</div></span> : <>
         {connection ? (
           <EngineBadge engine={connection.engine} environment={connection.environment} product={report?.snapshot.server.product ?? connection.last_report?.product} size="md" />
         ) : (
@@ -136,9 +136,12 @@ export function Sidebar() {
               <span className="key">{n.key}</span>
             </button>
           ))}
+          <button type="button" className={`nav-item ${view === "archives" ? "active" : ""}`}
+            aria-current={view === "archives" ? "page" : undefined} onClick={() => setState({ view: "archives" })}>
+            <Archive size={15} aria-hidden /> {t("ui.archives.title")}
+          </button>
         </nav>
       )}
-      <button type="button" className={`nav-item ${view === "archives" ? "active" : ""}`} onClick={() => setState({ view: "archives" })}>{t("ui.archives.title")}</button>
       <ConnectionList />
       <div className="sidebar-foot">
         <UpdateItem />

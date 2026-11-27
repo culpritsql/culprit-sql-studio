@@ -7,13 +7,40 @@ use culprit_core::{
 use culprit_read::admission::{SourceAdmission, SourcePermit};
 
 pub(crate) struct SourceOperation<'a> {
-    journal: SourceAdmission,
+    // Retire the native permit before releasing the durable owner on cancellation.
     permit: SourcePermit<'a>,
+    journal: SourceAdmission,
     observation: ProviderOperationObservation,
     native_started: bool,
 }
 pub(crate) fn admission_path(paths: &Paths) -> std::path::PathBuf {
     paths.data.join("collection-admission")
+}
+
+impl crate::Workspace {
+    pub(crate) fn collection_admission_path(&self) -> std::path::PathBuf {
+        admission_path(&self.paths)
+    }
+    pub async fn collection_admission_status(&self) -> Result<culprit_core::telemetry::CollectionAdmissionStatus> {
+        SourceAdmission::inspect(self.collection_admission_path()).await
+    }
+    pub async fn collection_admission_record(&self) -> Result<culprit_core::telemetry::CollectionAdmissionRecord> {
+        SourceAdmission::inspect_record(self.collection_admission_path()).await
+    }
+    pub async fn acknowledge_collection_quiescence(
+        &self,
+        observation_id: &str,
+    ) -> Result<culprit_core::telemetry::CollectionAdmissionStatus> {
+        SourceAdmission::acknowledge_and_resume(
+            self.collection_admission_path(),
+            observation_id,
+            self.source_gate.clone(),
+            || {
+                self.connection_service().clear_cached_providers();
+            },
+        )
+        .await
+    }
 }
 
 enum ProviderRef {

@@ -1,3 +1,4 @@
+import { Archive, Plus } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { nativeTextPreview } from "../components/NativeObservationFields";
 import { ObservationReadQualifications } from "../components/ObservationList";
@@ -57,6 +58,14 @@ export default function Archives({ load = client }: { load?: () => Promise<Wareh
   const [connections, setConnections] = useState<WarehouseConnectionInfo[]>([]);
   const [selected, setSelected] = useState<WarehouseConnectionInfo | null>(null);
   const [adding, setAdding] = useState(false);
+  const addButton = useRef<HTMLButtonElement>(null);
+  const returnToAdd = useRef(false);
+  useEffect(() => {
+    if (!adding && returnToAdd.current) {
+      addButton.current?.focus();
+      returnToAdd.current = false;
+    }
+  }, [adding]);
   const [mode, setMode] = useState<BrowseMode>(webReadOnly ? "fleet" : "publications");
   const [fleet, setFleet] = useState<WarehouseFleetReport | null>(null);
   const [page, setPage] = useState<PublishedResources | null>(null);
@@ -348,36 +357,35 @@ export default function Archives({ load = client }: { load?: () => Promise<Wareh
     }
   }
 
+  if (adding) {
+    return (
+      <div className="connections archives">
+        <div className="connections-inner archive-setup">
+          <ArchiveConnectionForm client={load} onCancel={() => {
+            returnToAdd.current = true;
+            setAdding(false);
+          }} onSaved={(saved) => {
+            if (!mounted.current) return;
+            setAdding(false);
+            setConnections((items) => [...items, saved]);
+            change(saved);
+            void readBrowse(saved, mode, false);
+          }} />
+        </div>
+      </div>
+    );
+  }
   return (
     <div className="connections archives">
       <div className="connections-inner">
-        <h1>{t("ui.archives.title")}</h1>
-        <p>{t("ui.archives.intro")}</p>
-        {!webReadOnly && (
-          <button
-            type="button"
-            className="btn"
-            onClick={() => {
-              pending.current?.abort();
-              setAdding(!adding);
-            }}
-          >
-            {t("ui.archives.add")}
-          </button>
-        )}
-        {adding && (
-          <ArchiveConnectionForm
-            client={load}
-            onCancel={() => setAdding(false)}
-            onSaved={(saved) => {
-              if (!mounted.current) return;
-              setAdding(false);
-              setConnections((items) => [...items, saved]);
-              change(saved);
-              void readBrowse(saved, mode, false);
-            }}
-          />
-        )}
+        <header className="archive-heading">
+          <div><h1><Archive size={22} aria-hidden />{t("ui.archives.title")}</h1><p>{t("ui.archives.intro")}</p></div>
+          {!webReadOnly && <button ref={addButton} type="button" className="btn primary" onClick={() => {
+            pending.current?.abort();
+            setBusy(false);
+            setAdding(true);
+          }}><Plus size={14} aria-hidden />{t("ui.archives.add")}</button>}
+        </header>
         {error && <p role="alert">{text(error)}</p>}
         <div className="conn-grid">
           {connections.map((connection) => (
@@ -396,7 +404,7 @@ export default function Archives({ load = client }: { load?: () => Promise<Wareh
             </button>
           ))}
         </div>
-        {connections.length === 0 && !adding && <p className="muted">{t("ui.archives.none")}</p>}
+        {connections.length === 0 && <p className="muted">{t("ui.archives.none")}</p>}
         {selected && (
           <section>
             <h2>{text(selected.reference.name)}</h2>

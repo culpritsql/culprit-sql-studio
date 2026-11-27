@@ -42,6 +42,8 @@ async fn corrupt_or_unsupported_safety_state_never_admits_new_work() {
     let cases = [
         b"".to_vec(),
         b"not-json".to_vec(),
+        br#"{"format":1,"work":{"state":"quiet","connection":"unexpected"}}"#.to_vec(),
+        br#"{"format":2,"work":{"state":"quiet","observation_id":"unexpected"}}"#.to_vec(),
         serde_json::to_vec(&serde_json::json!({"format":FORMAT+1,"work":{"state":"quiet"}})).unwrap(),
         br#"{"format":1,"work":{"state":"started","observation_id":"invalid","connection":"production"}}"#.to_vec(),
         vec![b' '; MAX_STATE_BYTES + 1],
@@ -54,6 +56,31 @@ async fn corrupt_or_unsupported_safety_state_never_admits_new_work() {
         assert!(SourceAdmission::acquire(root.clone()).await.is_err());
         assert!(SourceAdmission::inspect(root).await.is_err());
     }
+}
+
+#[tokio::test]
+async fn upgrading_preserves_legacy_pending_work_and_accepts_a_quiet_record() {
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path().to_owned();
+    let state = root.join(STATE_FILE);
+    fs::write(&state, br#"{"format":1,"work":{"state":"quiet"}}"#).unwrap();
+    drop(SourceAdmission::acquire(root.clone()).await.unwrap());
+    let pending =
+        serde_json::json!({"format":1,"work":{"state":"started","observation_id":FIRST,"connection":"production"}});
+    let bytes = serde_json::to_vec(&pending).unwrap();
+    fs::write(&state, &bytes).unwrap();
+    assert!(SourceAdmission::acquire(root.clone()).await.is_err());
+    let record = SourceAdmission::inspect_record(root.clone()).await.unwrap();
+    let status = record.status;
+    assert_eq!(status.observation_id.as_deref(), Some(FIRST));
+    assert_eq!(status.route.unwrap().saved_connection(), Some("production"));
+    assert!(record.recorded_at_unix_seconds.is_some());
+    assert_eq!(fs::read(&state).unwrap(), bytes);
+    assert!(SourceAdmission::acknowledge(root.clone(), SECOND).await.is_err());
+    SourceAdmission::acknowledge(root.clone(), FIRST).await.unwrap();
+    let stored: serde_json::Value = serde_json::from_slice(&fs::read(state).unwrap()).unwrap();
+    assert_eq!(stored, serde_json::json!({"format":FORMAT,"work":{"state":"quiet"}}));
+    assert!(SourceAdmission::acquire(root).await.is_ok());
 }
 
 #[tokio::test]
@@ -91,6 +118,32 @@ async fn failed_publication_does_not_claim_to_have_settled_work() {
     assert!(owner.confirmed_quiet().await.is_err());
     assert!(owner.status().await.source_quiescence_required);
     assert!(SourceAdmission::inspect(root).await.unwrap().source_quiescence_required);
+}
+
+#[tokio::test]
+async fn the_gate_stays_closed_until_the_verified_acknowledgement_is_durable() {
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path().to_owned();
+    let owner = SourceAdmission::acquire(root.clone()).await.unwrap();
+    owner.started(FIRST.into(), SourceAdmissionRoute::SavedConnection { name: "production".into() }).await.unwrap();
+    let gate = Arc::new(SourceGate::default());
+    let mut permit = gate.acquire().await.unwrap();
+    permit.begin().unwrap();
+    drop(permit);
+    assert!(
+        SourceAdmission::acknowledge_and_resume(root.clone(), FIRST, gate.clone(), || panic!("live owner"))
+            .await
+            .is_err()
+    );
+    drop(owner);
+    let abandoned = root.join(format!(".{STATE_FILE}.new"));
+    fs::create_dir(&abandoned).unwrap();
+    assert!(SourceAdmission::acknowledge_and_resume(root.clone(), FIRST, gate.clone(), || {}).await.is_err());
+    assert!(gate.is_closed());
+    assert_eq!(SourceAdmission::inspect(root.clone()).await.unwrap().observation_id.as_deref(), Some(FIRST));
+    fs::remove_dir(abandoned).unwrap();
+    SourceAdmission::acknowledge_and_resume(root, FIRST, gate.clone(), || {}).await.unwrap();
+    assert!(gate.acquire().await.is_ok());
 }
 
 #[tokio::test]

@@ -173,3 +173,27 @@ test("cancel during pending registration dispatches no archive read and does not
   expect(after.resources[0]!.requestId).not.toBe(pending.requestId);
   await assertNoNativeArchiveWork(page);
 });
+
+test("archive setup groups the provider-specific fields and returns keyboard focus on cancel", async ({ page }, info) => {
+  await installArchiveApi(page, { saved: false });
+  await openArchives(page);
+  const add = page.locator(".archives").getByRole("button", { name: english["ui.archives.add"], exact: true });
+  await add.click();
+  const form = page.getByRole("form", { name: english["ui.archives.add"] });
+  const warehouse = form.getByRole("group", { name: english["ui.archives.form_warehouse"], exact: true });
+  const originals = form.getByRole("group", { name: english["ui.archives.form_originals"], exact: true });
+  await expect(form.getByLabel(english["ui.connection_card.name"], { exact: true })).toBeFocused();
+  await expect(warehouse.getByLabel(english["ui.archives.tenant"])).toBeVisible();
+  await page.screenshot({ path: info.outputPath("archive-setup.png") });
+  await originals.getByRole("combobox").selectOption("s3");
+  await expect(originals.getByLabel(english["ui.archives.expected_owner"])).toBeVisible();
+  await expect(originals.getByLabel(english["ui.archives.aws_profile"])).toBeVisible();
+  await expect(originals.getByLabel(english["ui.archives.tenant"])).toHaveCount(0);
+  await page.setViewportSize({ width: 650, height: 844 });
+  await originals.scrollIntoViewIfNeeded();
+  expect(await form.evaluate((node) => node.scrollWidth <= node.clientWidth + 1)).toBe(true);
+  await page.screenshot({ path: info.outputPath("archive-setup-narrow.png") });
+  await form.getByRole("button", { name: english["ui.common.cancel"] }).click();
+  await expect(add).toBeFocused();
+  expect((await archiveState(page)).drafts).toHaveLength(0);
+});

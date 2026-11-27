@@ -423,6 +423,8 @@ export async function demoApi(): Promise<Api> {
       connections = [...connections, ...added];
       return added;
     },
+    collectionAdmissionRecord: async () => ({ status: { observation_id: null, route: null, source_quiescence_required: false }, recorded_at_unix_seconds: null }),
+    acknowledgeCollectionQuiescence: unsupported,
     latestReport: async (name, windowMinutes, population) => selectedReport(name, windowMinutes, population),
     reportAt: async (name, reportId) => {
       const report = byConnection(name);

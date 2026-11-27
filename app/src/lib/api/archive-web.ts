@@ -41,6 +41,8 @@ export async function archiveWebApi(): Promise<Api> {
     ...fallback,
     kind: "archive-web",
     connections: async () => [],
+    collectionAdmissionRecord: readOnly,
+    acknowledgeCollectionQuiescence: readOnly,
     addConnection: readOnly,
     removeConnection: readOnly,
     renameConnection: readOnly,

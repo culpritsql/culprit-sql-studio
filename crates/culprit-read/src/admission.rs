@@ -3,7 +3,7 @@ mod gate;
 use crate::durable_fs;
 use culprit_core::{
     Error, ErrorCode, Result,
-    telemetry::{CollectionAdmissionStatus, CollectionStop, SourceAdmissionRoute},
+    telemetry::{CollectionAdmissionRecord, CollectionAdmissionStatus, CollectionStop, SourceAdmissionRoute},
 };
 pub use gate::{SourceGate, SourcePermit};
 use serde::{Deserialize, Serialize};
@@ -25,21 +25,28 @@ const MAX_STATE_BYTES: usize = 16 * 1024;
 const STATE_FILE: &str = "state.json";
 const LOCK_FILE: &str = "owner.lock";
 
-#[derive(Clone, Default, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(tag = "state", rename_all = "kebab-case", deny_unknown_fields)]
 enum Work {
-    #[default]
-    Quiet,
-    Started {
-        observation_id: String,
-        route: SourceAdmissionRoute,
-    },
+    Quiet {},
+    Started { observation_id: String, route: SourceAdmissionRoute },
 }
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct Stored {
+struct Stored<W = Work> {
     format: u32,
+    work: W,
+}
+/// Format 1 recorded only saved connections.
+#[derive(Deserialize)]
+#[serde(tag = "state", rename_all = "kebab-case", deny_unknown_fields)]
+enum LegacyWork {
+    Quiet {},
+    Started { observation_id: String, connection: String },
+}
+struct Record {
     work: Work,
+    written_at: Option<std::time::SystemTime>,
 }
 struct Journal {
     root: PathBuf,
@@ -79,7 +86,7 @@ impl SourceAdmission {
     }
     /// Only the native owner's confirmed closure permits this transition; dropping a guard never clears debt.
     pub async fn confirmed_quiet(&self) -> Result<()> {
-        self.write(Work::Quiet).await
+        self.write(Work::Quiet {}).await
     }
     async fn write(&self, work: Work) -> Result<()> {
         // Hold the mutation lock before dispatch, so a cancelled write cannot race a later quiet acknowledgement.
@@ -90,17 +97,57 @@ impl SourceAdmission {
         status(&self.journal.lock().await.work)
     }
     pub async fn inspect(root: PathBuf) -> Result<CollectionAdmissionStatus> {
-        tokio::task::spawn_blocking(move || read(&root).map(|work| status(&work))).await.map_err(|_| storage())?
+        Ok(Self::inspect_record(root).await?.status)
+    }
+    pub async fn inspect_record(root: PathBuf) -> Result<CollectionAdmissionRecord> {
+        tokio::task::spawn_blocking(move || {
+            let record = read(&root)?;
+            let status = status(&record.work);
+            let recorded_at_unix_seconds = record
+                .written_at
+                .filter(|_| status.source_quiescence_required)
+                .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+                .map(|duration| duration.as_secs());
+            Ok(CollectionAdmissionRecord { status, recorded_at_unix_seconds })
+        })
+        .await
+        .map_err(|_| storage())?
     }
     /// An operator must verify the named observation's native work has stopped. This performs no database queries.
     pub async fn acknowledge(root: PathBuf, observation_id: &str) -> Result<CollectionAdmissionStatus> {
-        let guard = Self::open(root).await?;
-        let current = guard.status().await;
-        if current.observation_id.as_deref() != Some(observation_id) {
+        Self::acknowledge_record(root, observation_id, None, || {}).await
+    }
+    /// Retire the old providers under exclusive ownership before admitting any new native work.
+    pub async fn acknowledge_and_resume(
+        root: PathBuf,
+        observation_id: &str,
+        gate: Arc<SourceGate>,
+        retire_providers: impl FnOnce(),
+    ) -> Result<CollectionAdmissionStatus> {
+        Self::acknowledge_record(root, observation_id, Some(gate), retire_providers).await
+    }
+    async fn acknowledge_record(
+        root: PathBuf,
+        observation_id: &str,
+        gate: Option<Arc<SourceGate>>,
+        retire_providers: impl FnOnce(),
+    ) -> Result<CollectionAdmissionStatus> {
+        let owner = Self::open(root).await?;
+        let mut journal = owner.journal.lock_owned().await;
+        if !matches!(&journal.work, Work::Started { observation_id: pending, .. } if pending == observation_id) {
             return Err(Error::invalid(culprit_core::t!("collection.admission.wrong_observation")));
         }
-        guard.confirmed_quiet().await?;
-        Ok(guard.status().await)
+        retire_providers();
+        // One worker owns both transitions even if the command is dropped during the filesystem write.
+        tokio::task::spawn_blocking(move || {
+            journal.write(Work::Quiet {})?;
+            if let Some(gate) = gate {
+                gate.resume();
+            }
+            Ok(status(&journal.work))
+        })
+        .await
+        .map_err(|_| storage())?
     }
 }
 impl Journal {
@@ -118,7 +165,7 @@ impl Journal {
             }
             _ => storage(),
         })?;
-        let work = read(&root)?;
+        let work = read(&root)?.work;
         Ok(Self { root, work, _owner: owner })
     }
     fn write(&mut self, work: Work) -> Result<()> {
@@ -138,32 +185,38 @@ impl Journal {
         Ok(())
     }
 }
-fn read(root: &Path) -> Result<Work> {
+fn read(root: &Path) -> Result<Record> {
     let path = root.join(STATE_FILE);
     match fs::symlink_metadata(&path) {
-        Err(error) if error.kind() == ErrorKind::NotFound => return Ok(Work::Quiet),
+        Err(error) if error.kind() == ErrorKind::NotFound => {
+            return Ok(Record { work: Work::Quiet {}, written_at: None });
+        }
         Ok(metadata) if metadata.file_type().is_file() => {}
         _ => return Err(storage()),
     }
     let mut bytes = Vec::new();
-    durable_fs::regular_file(&path)
-        .map_err(|_| storage())?
-        .take((MAX_STATE_BYTES + 1) as u64)
-        .read_to_end(&mut bytes)
-        .map_err(|_| storage())?;
+    let file = durable_fs::regular_file(&path).map_err(|_| storage())?;
+    let written_at = file.metadata().and_then(|metadata| metadata.modified()).ok();
+    file.take((MAX_STATE_BYTES + 1) as u64).read_to_end(&mut bytes).map_err(|_| storage())?;
     if bytes.len() > MAX_STATE_BYTES {
         return Err(storage());
     }
-    let stored: Stored = serde_json::from_slice(&bytes).map_err(|_| storage())?;
-    if stored.format != FORMAT {
-        return Err(storage());
-    }
-    if let Work::Started { observation_id, route } = &stored.work
+    let work = match serde_json::from_slice::<Stored>(&bytes) {
+        Ok(Stored { format: FORMAT, work }) => work,
+        _ => match serde_json::from_slice::<Stored<LegacyWork>>(&bytes).map_err(|_| storage())? {
+            Stored { format: 1, work: LegacyWork::Quiet {} } => Work::Quiet {},
+            Stored { format: 1, work: LegacyWork::Started { observation_id, connection } } => {
+                Work::Started { observation_id, route: SourceAdmissionRoute::SavedConnection { name: connection } }
+            }
+            _ => return Err(storage()),
+        },
+    };
+    if let Work::Started { observation_id, route } = &work
         && (!valid_observation(observation_id) || !route.matches_observation(observation_id))
     {
         return Err(storage());
     }
-    Ok(stored.work)
+    Ok(Record { work, written_at })
 }
 fn create_directory(path: &Path) -> Result<()> {
     match fs::symlink_metadata(path) {
@@ -186,7 +239,7 @@ fn create_directory(path: &Path) -> Result<()> {
 }
 fn status(work: &Work) -> CollectionAdmissionStatus {
     match work {
-        Work::Quiet => {
+        Work::Quiet {} => {
             CollectionAdmissionStatus { observation_id: None, route: None, source_quiescence_required: false }
         }
         Work::Started { observation_id, route } => CollectionAdmissionStatus {
@@ -201,6 +254,7 @@ fn valid_observation(id: &str) -> bool {
 }
 fn storage() -> Error {
     Error::new(ErrorCode::QueryFailed, culprit_core::t!("collection.admission.storage"))
+        .with_hint(culprit_core::t!("collection.admission.storage_hint"))
         .with_detail(culprit_core::ErrorDetail::CollectionStopped(CollectionStop::StorageFailed))
 }
 fn unconfirmed() -> Error {

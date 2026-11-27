@@ -57,6 +57,8 @@ code, .mono, .sql, .cm-editor, .diagram-scroll, .tc-plot, .tc-axis, .tc-lane,
   background: var(--hover);
 }
 
+.archive-switch-label { min-width: 0; }
+
 .conn-switch .name {
   font-weight: 600;
   overflow: hidden;
@@ -250,80 +252,45 @@ button.update-item:hover {
   flex: 1;
 }
 
-.scan-error-anchor {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  flex-shrink: 0;
-  outline: none;
+.scan-failure-page {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  display: grid;
+  padding: clamp(16px, 4vw, 48px);
 }
-
-.scan-error-badge {
-  gap: 5px;
-  cursor: default;
-}
-
-.scan-error-popover {
-  position: absolute;
-  top: calc(100% + 6px);
-  inset-inline-end: 0;
-  z-index: 50;
-  width: min(420px, calc(100vw - 260px));
-  padding: 10px 12px;
-  border-radius: 10px;
-  border: 1px solid var(--border-strong);
-  background: var(--raised);
-  box-shadow: var(--shadow-pop);
-  color: var(--text);
-  font-size: var(--fs-ui-sm);
-  font-weight: 400;
-  line-height: 1.45;
-  white-space: normal;
+.scan-failure {
+  width: min(100%, 560px);
+  min-width: 0;
+  margin: auto;
+  display: grid;
+  gap: 12px;
   overflow-wrap: anywhere;
-  opacity: 0;
-  visibility: hidden;
-  pointer-events: none;
-  transform: translateY(-2px);
-  transition: opacity 120ms ease, transform 120ms ease, visibility 120ms;
 }
-
-.scan-error-popover::before {
-  content: "";
-  position: absolute;
-  top: -8px;
-  inset-inline-start: 0;
-  inset-inline-end: 0;
-  height: 8px;
+.scan-failure h2, .scan-failure p, .scan-failure dl { margin: 0; }
+.scan-failure h2 { font-size: var(--fs-strong); }
+.scan-failure dt { color: var(--text-3); }
+.scan-failure dd { margin: 0; }
+.scan-failure dl {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 6px 16px;
+  border-inline-start: 2px solid var(--border-strong);
+  padding-inline-start: 12px;
 }
-
-.scan-error-anchor:hover .scan-error-popover,
-.scan-error-anchor:focus-within .scan-error-popover {
-  opacity: 1;
-  visibility: visible;
-  pointer-events: auto;
-  transform: translateY(0);
+.scan-failure .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.scan-failure .btn { justify-self: start; }
+.scan-failure label { display: flex; align-items: baseline; gap: 8px; }
+.scan-failure details > summary, .saved-scan-notice > summary { cursor: pointer; }
+.saved-scan-notice {
+  background: var(--raised);
+  border-bottom: 1px solid var(--border);
+  padding: 9px 16px;
+  flex: 0 1 auto;
+  max-height: 48%;
+  overflow: auto;
 }
-
-.scan-error-title {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-weight: 600;
-  color: var(--high);
-  margin-bottom: 4px;
-}
-
-.scan-error-msg {
-  margin: 0;
-  color: var(--text);
-}
-
-.scan-error-hint {
-  margin: 6px 0 0;
-  padding-top: 6px;
-  border-top: 1px solid var(--border);
-  color: var(--text-3);
-}
+.saved-scan-notice .scan-failure { margin: 14px 0; }
 
 /* While the webview takes a screenshot of the workspace, the button that asked for it and any toast stay out of it. */
 .capturing .shot-btn {

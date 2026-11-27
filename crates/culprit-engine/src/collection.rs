@@ -185,9 +185,6 @@ impl Workspace {
         });
         observed.finish(result).await
     }
-    pub(crate) fn collection_admission_path(&self) -> std::path::PathBuf {
-        crate::source_operation::admission_path(&self.paths)
-    }
     async fn settle_collection(&self, admission: &SourceAdmission) -> Result<()> {
         // Returning with admission open means the controller either never started native work or confirmed closure.
         // Dropped callers and uncertain native shutdown poison this same controller semaphore and retain disk debt.
@@ -195,17 +192,6 @@ impl Workspace {
             admission.confirmed_quiet().await?;
         }
         Ok(())
-    }
-    pub async fn collection_admission_status(&self) -> Result<culprit_core::telemetry::CollectionAdmissionStatus> {
-        SourceAdmission::inspect(self.collection_admission_path()).await
-    }
-    pub async fn acknowledge_collection_quiescence(
-        &self,
-        observation_id: &str,
-    ) -> Result<culprit_core::telemetry::CollectionAdmissionStatus> {
-        let status = SourceAdmission::acknowledge(self.collection_admission_path(), observation_id).await?;
-        self.connection_service().clear_cached_providers();
-        Ok(status)
     }
     pub async fn collect_once(
         &self,

@@ -100,6 +100,8 @@ pub fn run_app() -> std::result::Result<(), Box<dyn std::error::Error>> {
             commands::reports::latest_report,
             commands::reports::report_at,
             commands::reports::scan,
+            commands::reports::collection_admission_record,
+            commands::reports::acknowledge_collection_quiescence,
             commands::reports::brief,
             commands::plans::explain,
             commands::plans::query_plan,
