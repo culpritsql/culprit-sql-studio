@@ -19,6 +19,7 @@ from mssql_replication_fixture import AG_WORKLOAD_TEST, SqlServerReplication
 from mysql_replication_fixture import MySqlMovingReplication
 from mysql_group_replication_fixture import MySqlGroupReplication
 from mariadb_galera_fixture import MariaDbGalera
+from postgres_activity_cost import measure_activity_cost
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -86,7 +87,7 @@ MSSQL_SQL2016_TEST = ("tables::native_tests::temporal::"
                      "owned_sql2016_temporal_retention_columns_remain_unsupported_without_erasing_native_roles")
 OPTIONAL_NATIVE_MODULES = {
     "culprit-postgres": (
-        "telemetry::native_tests::replication::", "jobs::", "maintenance_waits::", "metadata_queue::",
+        "telemetry::native_tests::replication::", "jobs::", "maintenance_waits::", "metadata_queue::", "short_blocker::",
         "transaction_metadata::native_tests::",
     ),
     "culprit-mysql": (
@@ -1001,10 +1002,12 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("fixtures", nargs="+", choices=[f.name for f in FIXTURES + REPLICATION_FIXTURES]
                         + list(POSTGRES_REPLICATION_IMAGES) + list(MYSQL_ACCEPTANCE_CASES) + list(MSSQL_DEDICATED_CASES)
-                        + ["postgres-readable-secondary", "postgres-output-consumer", "mariadb-galera", "mssql-agent", "mssql-hadr", "mssql-replication", "mysql-moving-replication", "mysql-group-replication", "yugabyte-cluster", "ssh", "all"])
+                        + ["postgres-readable-secondary", "postgres-output-consumer", "postgres-short-blocker", "postgres-activity-cost", "mariadb-galera", "mssql-agent", "mssql-hadr", "mssql-replication", "mysql-moving-replication", "mysql-group-replication", "yugabyte-cluster", "ssh", "all"])
     parser.add_argument("--test", nargs=2, action="append", metavar=("CRATE", "FILTER"),
                         help="run only this live test selection; repeat for multiple commands in the same fixture")
     args = parser.parse_args()
+    if "postgres-activity-cost" in args.fixtures and args.test:
+        parser.error("postgres-activity-cost measures the CLI against pgbench and accepts no Rust test filter")
     selected = FIXTURES if "all" in args.fixtures else [f for f in FIXTURES if f.name in args.fixtures]
     signal.signal(signal.SIGTERM, interrupted)
     for fixture in selected:
@@ -1044,6 +1047,18 @@ def main():
             with PostgresReplication(primary, standby, OWNER_LABEL) as database:
                 database.verify(args.test)
             count += 1
+    if "postgres-short-blocker" in args.fixtures:
+        fixture = next(f for f in FIXTURES if f.name == "postgres")
+        options = ("-c", "logging_collector=on", "-c", "log_destination=jsonlog")
+        with Database(replace(fixture, options=options)) as database:
+            database.verify(args.test or [("culprit-postgres", "short_blocker::")])
+        count += 1
+    if "postgres-activity-cost" in args.fixtures:
+        fixture = next(f for f in FIXTURES if f.name == "postgres")
+        with Database(fixture) as database:
+            database.commands.run(["cargo", "build", "--locked", "-p", "culprit-cli"], timeout=TEST_BUDGET)
+            measure_activity_cost(database, ROOT / "target/debug/culprit")
+        count += 1
     if "postgres-output-consumer" in args.fixtures:
         fixture = next(fixture for fixture in FIXTURES if fixture.name == "postgres")
         with PostgresOutputConsumerDatabase(fixture) as database:

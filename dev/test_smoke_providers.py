@@ -1077,39 +1077,25 @@ class NativeSelection(unittest.TestCase):
                 "telemetry::native_tests::replication::", "telemetry::native_tests::replication_movement::", "telemetry::native_tests::galera::",
             ])
 
-    def test_generic_postgres_selections_skip_optional_native_fixtures(self):
+    def test_postgres_selections_admit_only_requested_optional_modules(self):
+        optional = {
+            "telemetry::native_tests::replication::", "jobs::", "maintenance_waits::",
+            "metadata_queue::", "transaction_metadata::native_tests::", "short_blocker::",
+        }
+        cases = [
+            ("telemetry::native_tests::", None), ("native_tests::", None), ("", None),
+            ("jobs::compatibility::", "jobs::"), ("telemetry::native_tests::jobs::limits::", "jobs::"),
+            ("maintenance_waits::", "maintenance_waits::"),
+            ("telemetry::native_tests::maintenance_waits::", "maintenance_waits::"),
+            ("short_blocker::", "short_blocker::"),
+        ]
         for name in ("postgres", "timescale"):
             database = smoke.Database(next(fixture for fixture in smoke.FIXTURES if fixture.name == name))
             database.test_environment = Mock(return_value={})
-            for selection in ("telemetry::native_tests::", "native_tests::", ""):
+            for selection, admitted in cases:
                 with self.subTest(fixture=name, selection=selection), patch.object(smoke, "run_tests") as run_tests:
                     database.test("culprit-postgres", selection)
-                    self.assertEqual(run_tests.call_args.kwargs["skip"], [
-                        "telemetry::native_tests::replication::", "jobs::", "maintenance_waits::",
-                        "metadata_queue::", "transaction_metadata::native_tests::",
-                    ])
-
-    def test_explicit_short_and_qualified_jobs_filters_run_without_unrelated_optional_fixtures(self):
-        database = smoke.Database(next(fixture for fixture in smoke.FIXTURES if fixture.name == "timescale"))
-        database.test_environment = Mock(return_value={})
-        for selection in ("jobs::compatibility::", "telemetry::native_tests::jobs::limits::"):
-            with self.subTest(selection=selection), patch.object(smoke, "run_tests") as run_tests:
-                database.test("culprit-postgres", selection)
-                self.assertEqual(run_tests.call_args.kwargs["skip"], [
-                    "telemetry::native_tests::replication::", "maintenance_waits::",
-                    "metadata_queue::", "transaction_metadata::native_tests::",
-                ])
-
-    def test_explicit_maintenance_filters_do_not_start_unrelated_optional_fixtures(self):
-        database = smoke.Database(next(fixture for fixture in smoke.FIXTURES if fixture.name == "postgres"))
-        database.test_environment = Mock(return_value={})
-        for selection in ("maintenance_waits::", "telemetry::native_tests::maintenance_waits::"):
-            with self.subTest(selection=selection), patch.object(smoke, "run_tests") as run_tests:
-                database.test("culprit-postgres", selection)
-                self.assertEqual(run_tests.call_args.kwargs["skip"], [
-                    "telemetry::native_tests::replication::", "jobs::",
-                    "metadata_queue::", "transaction_metadata::native_tests::",
-                ])
+                    self.assertCountEqual(run_tests.call_args.kwargs["skip"], optional - {admitted})
 
     def test_default_verification_keeps_installed_and_absent_job_cases_on_their_own_fixtures(self):
         for fixture in smoke.FIXTURES:

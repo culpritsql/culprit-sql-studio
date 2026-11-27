@@ -43,7 +43,7 @@ pub(super) async fn capture_parent(
     captured
 }
 
-async fn capture_reserved(
+pub(super) async fn capture_reserved(
     outbox: &mut Outbox,
     specification: &ConnectionSpec,
     request: CollectionRequest,

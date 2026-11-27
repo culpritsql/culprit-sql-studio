@@ -1403,6 +1403,39 @@ episode analysis. The baseline uses the existing native projection and decoder w
 blocker closure, PostgreSQL lock-manager walk or YugabyteDB DocDB lock RPC. Native wait owners already present in
 the metadata remain attached to the original activity row. An unavailable owner or statement stays unavailable.
 
+A positive native lock wait can open a diagnostic episode on the first activity sample. The separate
+persistently blocked classification requires a measured duration meeting its threshold. A wait that starts
+and ends between samples can leave both activity captures quiet.
+
+Run `python3 -B dev/smoke-providers.py postgres-short-blocker` to replay this case on disposable PostgreSQL.
+The fixture holds a native lock for 20 seconds, samples once at 10 seconds, and uses the focused reader to
+identify the holder. It reopens the collector outbox after release and verifies the original captures and
+diagnostic checkpoint. PostgreSQL's own lock-wait log independently supplies the elapsed time. This replay
+uses an explicit sample and fixture-side log access. Standard collection cadence and production log ingestion
+require separate qualification.
+
+Run `python3 -B dev/smoke-providers.py postgres-activity-cost` for a paired sampling cost measurement on
+disposable PostgreSQL 18 with Docker cgroup v2. Four pgbench clients issue read-only indexed lookups at a target
+of 200 transactions per second. After warmup, four 25-second windows run in order with sampling off, on, on
+and off. Each sampled window executes three real CLI Activity captures ten seconds apart with a separate
+`pg_monitor` login. The workload client runs in its own container.
+
+Each JSON result includes completed transactions and workload p95 latency, PostgreSQL container CPU and block
+I/O, collector-role statement calls, execution time and block counters from `pg_stat_statements`, and the bytes
+in each sealed capture. The CPU and I/O include all work in the database container over that window. Missing
+device accounting is reported as null. This experiment measures baseline Activity reads on a warm fixture.
+Focused follow-ups under contention and larger production workloads need separate measurements.
+
+One arm64 run on PostgreSQL 18.6 with a two-CPU, 1 GiB database container produced the following results.
+Each sampled window recorded 96 shared-buffer hits for the collector role and zero shared blocks read.
+
+| Window | Activity captures | Workload transactions | Workload p95 | Database container CPU | Collector statements | Collector execution time |
+|---|---:|---:|---:|---:|---:|---:|
+| First control | 0 | 4,911 | 3.386 ms | 1.570 s | 0 | 0 ms |
+| First sampled | 3 | 4,912 | 3.399 ms | 1.312 s | 39 | 2.080 ms |
+| Second sampled | 3 | 4,911 | 3.342 ms | 1.331 s | 39 | 2.807 ms |
+| Final control | 0 | 4,911 | 3.384 ms | 1.260 s | 0 | 0 ms |
+
 Each description records native observation bounds, a point timestamp, population, measured scope, native row
 count, retained row count and source coverage. Populations differ: PostgreSQL selects current-database client
 backends; YugabyteDB selects local YSQL client backends and connection-manager workers; MySQL and MariaDB select

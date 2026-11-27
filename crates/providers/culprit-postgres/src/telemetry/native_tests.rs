@@ -15,6 +15,7 @@ mod normal_reads;
 mod owned_fixture;
 mod replication;
 mod retained_activity;
+mod short_blocker;
 
 #[test]
 fn task_space_is_explicitly_unsupported_without_connecting_or_starting_a_runtime() {
