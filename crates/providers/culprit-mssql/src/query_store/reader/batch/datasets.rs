@@ -24,8 +24,10 @@ impl<R: NativeRead> Reader<R> {
             ));
         }
         if self.batch.as_ref().and_then(|batch| batch.waits.as_ref()).is_none() {
+            let window = window.interval_filter();
+            let sql = waits::all_plans_sql(self.acquisition_population()?, &window);
             let result = self
-                .read(&waits::all_plans_sql(self.acquisition_population()?), vec![window.parameter()], MAX_RESULT_ROWS)
+                .read(&sql, window.parameters, MAX_RESULT_ROWS)
                 .await
                 .and_then(|rows| self.decode_batch_waits(&rows));
             if let Some(batch) = &mut self.batch {
@@ -131,15 +133,16 @@ impl<R: NativeRead> Reader<R> {
         self.admit()?;
         if self.batch.is_none() {
             let population = self.population().await?;
-            let totals = self.window_rows(&series_sql::totals_sql(bucket_minutes, population), window_minutes).await?;
+            let totals = self
+                .window_rows(window_minutes, |window| series_sql::totals_sql(bucket_minutes, population, window))
+                .await?;
             self.validate_series_populations(&totals, population)?;
             let queries = if totals.is_empty() || query_ids.is_empty() {
                 Vec::new()
             } else {
-                self.window_rows(
-                    &series_sql::per_query_sql(bucket_minutes, &crate::workload::id_list(query_ids), population),
-                    window_minutes,
-                )
+                self.window_rows(window_minutes, |window| {
+                    series_sql::per_query_sql(bucket_minutes, &crate::workload::id_list(query_ids), population, window)
+                })
                 .await?
             };
             self.validate_series_populations(&queries, population)?;
@@ -183,7 +186,7 @@ impl<R: NativeRead> Reader<R> {
         let population = self.acquisition_population()?;
         if self.batch.as_ref().and_then(|batch| batch.totals.as_ref()).is_none() {
             let result = self
-                .window_rows(&series_sql::totals_sql(bucket_minutes, population), window_minutes)
+                .window_rows(window_minutes, |window| series_sql::totals_sql(bucket_minutes, population, window))
                 .await
                 .and_then(|rows| {
                     self.validate_series_populations(&rows, population)?;
@@ -213,10 +216,9 @@ impl<R: NativeRead> Reader<R> {
             let result = if totals_empty || queries.is_empty() {
                 Ok(Vec::new())
             } else {
-                self.window_rows(
-                    &series_sql::per_query_sql(bucket_minutes, &crate::workload::id_list(&queries), population),
-                    window_minutes,
-                )
+                self.window_rows(window_minutes, |window| {
+                    series_sql::per_query_sql(bucket_minutes, &crate::workload::id_list(&queries), population, window)
+                })
                 .await
                 .and_then(|rows| self.validate_batch_series_queries(rows, &queries))
             };

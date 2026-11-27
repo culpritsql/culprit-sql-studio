@@ -1,4 +1,5 @@
 //! Query Store wait facts stay in milliseconds and retain their native category.
+use super::window_sql::IntervalFilter;
 use crate::{
     read::{integer, invalid_data, text},
     value::Rec,
@@ -97,13 +98,13 @@ impl Summary {
         })
     }
 }
-pub(crate) fn summary_sql(by_plan: bool, population: super::replicas::Population) -> String {
-    summary_query(by_plan, by_plan, population == super::replicas::Population::AllGroups, population)
+pub(super) fn summary_sql(by_plan: bool, population: super::replicas::Population, window: &IntervalFilter) -> String {
+    summary_query(by_plan, by_plan, population == super::replicas::Population::AllGroups, population, window)
 }
 
 /// A batch reads every plan once. Exact native identities qualify later in-memory plan joins.
-pub(crate) fn all_plans_sql(population: super::replicas::Population) -> String {
-    summary_query(true, false, true, population)
+pub(super) fn all_plans_sql(population: super::replicas::Population, window: &IntervalFilter) -> String {
+    summary_query(true, false, true, population, window)
 }
 
 fn summary_query(
@@ -111,8 +112,13 @@ fn summary_query(
     selected_plans: bool,
     native_identities: bool,
     population: super::replicas::Population,
+    window: &IntervalFilter,
 ) -> String {
-    let declaration = if selected_plans { "DECLARE /* culprit */ @ids xml=CONVERT(xml,@P2);\n" } else { "" };
+    let declaration = if selected_plans {
+        format!("DECLARE /* culprit */ @ids xml=CONVERT(xml,@P{});\n", window.parameters.len() + 1)
+    } else {
+        String::new()
+    };
     let plan = if by_plan { "ws.plan_id," } else { "" };
     let selected = if selected_plans {
         " AND ws.plan_id IN(SELECT x.value('@id[1]','bigint') FROM @ids.nodes('/ids/id') n(x))"
@@ -141,8 +147,8 @@ JOIN sys.query_store_query_text t ON t.query_text_id=q.query_text_id
 WHERE {window_membership} AND {population} AND {workload}{selected}
 GROUP BY {plan} ws.wait_category,ws.wait_category_desc{population_group}{identity_group} OPTION(MAXDOP 1)"#,
         workload = crate::statement_origin::application_candidates_sql("t.query_sql_text"),
-        window_declaration = super::window_sql::DECLARATION,
-        window_membership = super::window_sql::MEMBERSHIP,
+        window_declaration = window.declaration,
+        window_membership = window.membership,
         population = population.predicate("ws"),
         population_projection = population.projection("ws"),
         population_group = population.group_by("ws"),

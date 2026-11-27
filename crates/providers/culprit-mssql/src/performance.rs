@@ -4,7 +4,7 @@ use culprit_core::{
     MeasurementScope, ResetMarker, Result,
     telemetry::{
         CollectionStop, CounterNature, MAX_NATIVE_COUNTERS, NativeCounterSample, OperationalObservation,
-        PerformanceCounterInstances, PerformanceCounterSpec, digest,
+        PerformanceCounterSpec, digest,
     },
 };
 use std::collections::{BTreeSet, HashMap};
@@ -14,6 +14,7 @@ pub(crate) use database::tests as test_support;
 mod ratios;
 mod resource_governor;
 mod row;
+mod selectors;
 pub(crate) use database::read_current;
 pub(crate) use ratios::PerformanceRead;
 pub(crate) use resource_governor::{read as read_for_instance, read_pool as read_for_pool};
@@ -72,32 +73,11 @@ fn pool_query() -> String {
     query_with_context(true, ",CONVERT(nvarchar(60),DATABASEPROPERTYEX(DB_NAME(),N'Updateability')) AS updateability")
 }
 fn query_with_context(governed: bool, native_context: &str) -> String {
-    // The selector grammar comes only from these fixed specifications, never from a database value or user input.
-    let investigation = culprit_core::Engine::Mssql
-        .spec()
-        .performance_counters()
-        .map(|profile| profile.investigation_fields)
-        .unwrap_or_default();
-    let common = culprit_core::Engine::Mssql
-        .spec()
-        .performance_counters()
-        .map(|profile| profile.common_fields)
-        .unwrap_or_default();
-    let detailed = culprit_core::Engine::Mssql
-        .spec()
-        .performance_counters()
-        .map(|profile| profile.detailed_fields)
-        .unwrap_or_default();
-    let selected = specs()
-        .iter()
-        .chain(common.iter().filter(|_| governed))
-        .chain(investigation.iter().filter(|_| governed))
-        .map(|spec| (spec, false))
-        .chain(detailed.iter().filter(|_| governed).map(|spec| (spec, true)));
-    let filter =
-        selected.map(|(spec, exact_object)| counter_predicate(spec, exact_object)).collect::<Vec<_>>().join(" OR ");
-    let extra = if governed { resource_governor::columns() } else { String::new() };
-    let relation = if governed { resource_governor::FROM } else { "FROM sys.dm_os_performance_counters" };
+    let (relation, extra) = if governed {
+        (selectors::governed_relation(), resource_governor::columns())
+    } else {
+        (selectors::shared_relation(), String::new())
+    };
     format!(
         "DECLARE @counter_observed_at datetime2(7)=SYSUTCDATETIME();
 /* culprit */ SELECT {COUNTER_COLUMNS},
@@ -105,29 +85,8 @@ CONVERT(nvarchar(40),@counter_observed_at,127)+N'Z' AS counter_observed_at,
 CONVERT(int,SERVERPROPERTY(N'EngineEdition')) AS engine_edition,
 CONVERT(nvarchar(128),DATABASEPROPERTYEX(DB_NAME(),N'Edition')) AS database_edition,
 CONVERT(nvarchar(128),DATABASEPROPERTYEX(DB_NAME(),N'ReplicaID')) AS replica_id{native_context}{extra}
-{relation} WHERE {filter} OPTION(MAXDOP 1)"
+{relation} OPTION(MAXDOP 1)"
     )
-}
-fn counter_predicate(spec: &PerformanceCounterSpec, exact_object: bool) -> String {
-    let family = spec
-        .object_family
-        .map(|family| {
-            if exact_object {
-                format!("RIGHT(RTRIM(object_name),LEN(N':{family}'))=N':{family}' AND ")
-            } else {
-                format!("object_name LIKE N'%{family}%' AND ")
-            }
-        })
-        .unwrap_or_default();
-    let instance = match spec.instances {
-        PerformanceCounterInstances::Uninstanced => " AND RTRIM(instance_name)=N''".into(),
-        PerformanceCounterInstances::Named(names) => format!(
-            " AND RTRIM(instance_name) IN ({})",
-            names.iter().map(|name| format!("N'{name}'")).collect::<Vec<_>>().join(",")
-        ),
-        PerformanceCounterInstances::Any => String::new(),
-    };
-    format!("({family}counter_name=N'{}'{instance})", spec.native_name)
 }
 pub(crate) async fn read<R: NativeRead>(reader: &mut R, limit: usize) -> Result<PerformanceRead> {
     if specs().is_empty() {

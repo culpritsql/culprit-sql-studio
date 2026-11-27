@@ -39,14 +39,18 @@ async fn runtime_waits_and_display_use_one_bound_native_population_without_a_sec
     assert_eq!(observed_until, "2020-01-01T06:00:03Z");
     assert_eq!(reader.queries(), 5);
     let native_scope = window.parameter();
-    for index in [2, 3] {
-        let query = &reader.io.calls[index];
-        assert!(query.sql.contains(super::super::window_sql::MEMBERSHIP));
-        assert!(!query.sql.contains("SYSDATETIMEOFFSET()"));
+    let runtime = &reader.io.calls[2];
+    let waits = &reader.io.calls[3];
+    let verification = &reader.io.calls[4];
+    assert!(runtime.sql.contains(super::super::window_sql::MEMBERSHIP));
+    assert!(!runtime.sql.contains("SYSDATETIMEOFFSET()") && !waits.sql.contains("SYSDATETIMEOFFSET()"));
+    for query in [runtime, verification] {
         assert!(
-            matches!((&query.parameters[0], &native_scope), (Parameter::Text(actual),Parameter::Text(expected)) if actual == expected)
+            matches!((query.parameters.as_slice(), &native_scope), ([Parameter::Text(actual)], Parameter::Text(expected)) if actual == expected)
         );
     }
+    assert!(waits.sql.contains("i.runtime_stats_interval_id=@P1"));
+    assert!(matches!(waits.parameters.as_slice(), [Parameter::Integer(1)]));
     assert!(reader.window(120).await.is_err());
     assert_eq!(reader.queries(), 5, "a different window cannot silently change a reader's population");
     assert_eq!(reader.close().await, SourceShutdown::Quiescent);

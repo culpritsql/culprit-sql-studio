@@ -133,10 +133,18 @@ async fn one_selected_native_group_scopes_runtime_waits_and_trends_to_the_same_f
         let query = &reader.io.calls[index];
         let alias = if index == 4 { "ws" } else { "rs" };
         assert!(query.sql.contains(&format!("{alias}.replica_group_id=7")), "{}", query.sql);
-        assert!(query.sql.contains(super::super::window_sql::MEMBERSHIP));
         assert!(!query.sql.contains("SYSDATETIMEOFFSET()"));
-        assert!(matches!(&query.parameters[0], Parameter::Text(scope) if scope.contains("id=\"1\"")));
+        if index == 3 {
+            assert!(query.sql.contains(super::super::window_sql::MEMBERSHIP));
+            assert!(matches!(&query.parameters[0], Parameter::Text(scope) if scope.contains("id=\"1\"")));
+        } else {
+            assert!(query.sql.contains("i.runtime_stats_interval_id=@P1"));
+            assert!(matches!(query.parameters[0], Parameter::Integer(1)));
+        }
     }
+    let waits = &reader.io.calls[4];
+    assert!(waits.sql.contains("@ids xml=CONVERT(xml,@P2)"));
+    assert!(matches!(&waits.parameters[1], Parameter::Text(plans) if plans.contains("id=\"4\"")));
     assert!(reader.select_population(Some(&NativeIdentity::new("1"))).is_err());
     assert_eq!(reader.queries(), 10, "a frozen selection cannot move to another group");
     assert_eq!(reader.close().await, SourceShutdown::Quiescent);

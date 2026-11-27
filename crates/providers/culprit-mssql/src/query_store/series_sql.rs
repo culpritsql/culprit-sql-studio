@@ -1,10 +1,12 @@
 //! Native source operations for database-side Query Store bucket aggregation.
+use super::window_sql::IntervalFilter;
+
 /// Bucket number of an interval's start: whole buckets since 1970-01-01 UTC.
 fn bucket_expr(minutes: u32) -> String {
     format!("DATEDIFF(minute, '19700101', CAST(SWITCHOFFSET(i.start_time, '+00:00') AS datetime2(0))) / {minutes}")
 }
 
-pub(crate) fn totals_sql(minutes: u32, population: super::replicas::Population) -> String {
+pub(super) fn totals_sql(minutes: u32, population: super::replicas::Population, window: &IntervalFilter) -> String {
     let bucket = bucket_expr(minutes);
     format!(
         r#"
@@ -21,8 +23,8 @@ JOIN sys.query_store_query_text t ON t.query_text_id = q.query_text_id
 WHERE {membership} AND {population} AND {workload}
 GROUP BY {bucket}{population_group} OPTION(MAXDOP 1)
 "#,
-        window = super::window_sql::DECLARATION,
-        membership = super::window_sql::MEMBERSHIP,
+        window = window.declaration,
+        membership = window.membership,
         population = population.predicate("rs"),
         population_projection = population.projection("rs"),
         population_group = population.group_by("rs"),
@@ -31,7 +33,12 @@ GROUP BY {bucket}{population_group} OPTION(MAXDOP 1)
     )
 }
 
-pub(crate) fn per_query_sql(minutes: u32, ids: &str, population: super::replicas::Population) -> String {
+pub(super) fn per_query_sql(
+    minutes: u32,
+    ids: &str,
+    population: super::replicas::Population,
+    window: &IntervalFilter,
+) -> String {
     let bucket = bucket_expr(minutes);
     let identity = super::catalog_sql::query_identity_columns!("p.query_id");
     format!(
@@ -48,8 +55,8 @@ JOIN sys.query_store_query q ON q.query_id=p.query_id
 WHERE {membership} AND {population} AND p.query_id IN ({ids})
 GROUP BY p.query_id, {bucket}{population_group},q.context_settings_id,q.object_id,q.query_hash,q.initial_compile_start_time OPTION(MAXDOP 1)
 "#,
-        window = super::window_sql::DECLARATION,
-        membership = super::window_sql::MEMBERSHIP,
+        window = window.declaration,
+        membership = window.membership,
         population = population.predicate("rs"),
         population_projection = population.projection("rs"),
         population_group = population.group_by("rs"),

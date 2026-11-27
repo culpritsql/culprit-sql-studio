@@ -118,11 +118,7 @@ async fn default_selection_has_no_common_extension_and_suffix_does_not_authorize
     let profile = culprit_core::Engine::Mssql.spec().performance_counters().unwrap();
     assert!(!profile.common_requested(&baseline.sample));
     for field in profile.common_fields {
-        assert!(
-            !reader.calls[0].sql.contains(&format!("counter_name=N'{}'", field.native_name)),
-            "{}",
-            field.native_name
-        );
+        assert!(!reader.calls[0].sql.contains(&format!("N'{}'", field.native_name)), "{}", field.native_name);
     }
     let mut reader = FakeRead::new(vec![Ok(vec![native("Buffer Manager", "Page reads/sec", "", 65_792, 7)])]);
     let read = read(&mut reader, MAX_COUNTERS, &expected()).await.unwrap();

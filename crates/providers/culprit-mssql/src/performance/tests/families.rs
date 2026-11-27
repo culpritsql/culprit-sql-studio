@@ -71,7 +71,8 @@ async fn fixed_instances_refuse_foreign_databases_and_unbounded_cache_labels_wit
     }
     let statement = sql();
     assert!(statement.contains("N'Temporary Tables & Table Variables'"));
-    assert!(statement.contains("counter_name=N'Log Bytes Flushed/sec' AND RTRIM(instance_name) IN (N'_Total')"));
+    let group = statement.split_once("(N'Log Bytes Flushed/sec',N'%Databases%',").unwrap().1.split(')').next().unwrap();
+    assert!(statement.contains(&format!("(sel.instance_group={group} AND RTRIM(instance_name) IN (N'_Total'))")));
     assert!(!statement.contains("DB_NAME() AS native_instance"));
 }
 
@@ -101,4 +102,15 @@ async fn cache_pairs_never_cross_native_instances_and_metadata_changes_refuse_th
     let changed = replace(&base, &[("engine_edition", Val::Int(5))]);
     let error = read(&mut FakeRead::new(vec![Ok(vec![numerator, changed])]), MAX_COUNTERS).await.unwrap_err();
     assert_eq!(CollectionStop::from_error(&error), CollectionStop::SourceChanged);
+}
+
+#[test]
+fn shared_counter_lookup_has_one_row_per_native_name() {
+    let mut names = BTreeSet::new();
+    let sql = sql();
+    assert!(sql.contains("ON counter_name=sel.wanted"));
+    for field in specs() {
+        assert!(names.insert(field.native_name.to_lowercase()), "duplicate lookup name {}", field.native_name);
+        assert_eq!(sql.matches(&format!("(N'{}',", field.native_name)).count(), 1);
+    }
 }

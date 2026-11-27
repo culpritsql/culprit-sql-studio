@@ -208,9 +208,13 @@ impl<R: NativeRead> Reader<R> {
     pub(crate) async fn read_rows(&mut self, sql: &str) -> Result<Vec<Rec>> {
         self.read(sql, vec![], MAX_RESULT_ROWS).await
     }
-    pub(crate) async fn window_rows(&mut self, sql: &str, minutes: u32) -> Result<Vec<Rec>> {
-        let parameter = self.window(minutes).await?.parameter();
-        self.read(sql, vec![parameter], MAX_RESULT_ROWS).await
+    async fn window_rows(
+        &mut self,
+        minutes: u32,
+        sql: impl FnOnce(&super::window_sql::IntervalFilter) -> String,
+    ) -> Result<Vec<Rec>> {
+        let window = self.window(minutes).await?.interval_filter();
+        self.read(&sql(&window), window.parameters, MAX_RESULT_ROWS).await
     }
     pub(crate) async fn read(&mut self, sql: &str, parameters: Vec<Parameter>, limit: usize) -> Result<Vec<Rec>> {
         let rows = self.query_native(sql, parameters, limit + 1).await.map_err(ReadError::into_error)?;
@@ -477,12 +481,13 @@ impl<R: NativeRead> Reader<R> {
                 culprit_core::t!("provider.mssql.query_waits.not_captured"),
             ));
         }
-        let mut parameters = vec![window.parameter()];
-        if let Some(ids) = plan_ids {
-            parameters.push(ids_parameter(ids)?);
-        }
+        let selected_plans = plan_ids.map(ids_parameter).transpose()?;
+        let window = window.interval_filter();
         let population = self.population().await?;
-        self.read(&super::waits::summary_sql(plan_ids.is_some(), population), parameters, MAX_RESULT_ROWS)
+        let sql = super::waits::summary_sql(selected_plans.is_some(), population, &window);
+        let mut parameters = window.parameters;
+        parameters.extend(selected_plans);
+        self.read(&sql, parameters, MAX_RESULT_ROWS)
             .await?
             .iter()
             .map(|row| {
@@ -568,6 +573,8 @@ pub(crate) fn ids_parameter(ids: &[String]) -> Result<Parameter> {
 
 #[cfg(test)]
 mod compilation_profile_tests;
+#[cfg(test)]
+mod interval_filter_tests;
 #[cfg(test)]
 mod native_compilation;
 #[cfg(test)]

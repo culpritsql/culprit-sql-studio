@@ -38,7 +38,7 @@ async fn six_access_inputs_share_one_existing_dispatch_and_exact_suffix_without_
         assert_eq!(row.value.integer(), Some(9_007_199_254_740_993));
         assert_eq!(row.native_instance, None);
         assert!(reader.calls[0].sql.contains(&format!("RIGHT(RTRIM(object_name),LEN(N':Access Methods'))=N':Access Methods' AND counter_name=N'{}' AND RTRIM(instance_name)=N''",row.native_name)));
-        assert!(!super::super::super::sql().contains(&format!("counter_name=N'{}'", row.native_name)));
+        assert!(!super::super::super::sql().contains(&format!("N'{}'", row.native_name)));
     }
     assert!(!reader.calls[0].sql.contains("LIKE N'%Access Methods%'"));
     assert!(!reader.calls[0].sql.contains("ORDER BY"));

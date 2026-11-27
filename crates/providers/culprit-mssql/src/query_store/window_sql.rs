@@ -7,6 +7,9 @@ use crate::{
 use culprit_core::{Result, telemetry::WaitCaptureState};
 use std::collections::BTreeMap;
 
+mod filter;
+pub(super) use filter::IntervalFilter;
+
 pub(crate) const MAX_INTERVALS: usize = 4096;
 const MAX_INTERVAL_XML_BYTES: usize = MAX_INTERVALS * 256;
 pub(crate) const DECLARATION: &str = "DECLARE /* culprit */ @culprit_intervals xml=CONVERT(xml,@P1);\n";

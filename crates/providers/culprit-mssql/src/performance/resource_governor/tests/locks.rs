@@ -41,7 +41,7 @@ async fn total_lock_counts_and_average_inputs_share_the_existing_dispatch_withou
         .filter(|field| field.family == PerformanceCounterFamily::Locks)
     {
         assert!(reader.calls[0].sql.contains(&format!("RIGHT(RTRIM(object_name),LEN(N':Locks'))=N':Locks' AND counter_name=N'{}' AND RTRIM(instance_name) IN (N'_Total')",field.native_name)));
-        assert!(!super::super::super::sql().contains(&format!("counter_name=N'{}'", field.native_name)));
+        assert!(!super::super::super::sql().contains(&format!("N'{}'", field.native_name)));
     }
     assert!(
         read.sample

@@ -123,8 +123,8 @@ async fn native_profile_and_same_read_clock_are_required_without_a_probe_or_role
 fn exact_fixed_selector_adds_no_object_family_guess_limit_or_extra_query() {
     let sql = sql();
     assert_eq!(sql.matches("FROM sys.dm_os_performance_counters").count(), 1);
-    assert!(sql.contains("counter_name=N'RBPEX cache hit ratio'"));
-    assert!(sql.contains("counter_name=N'RBPEX cache hit ratio base'"));
+    assert!(sql.contains("(N'RBPEX cache hit ratio',CONVERT(nvarchar(64),NULL),"));
+    assert!(sql.contains("(N'RBPEX cache hit ratio base',CONVERT(nvarchar(64),NULL),"));
     assert!(!sql.contains("%RBPEX%"));
     assert!(sql.contains("DECLARE @counter_observed_at"));
     assert_eq!(MAX_COUNTERS, MAX_NATIVE_COUNTERS);
