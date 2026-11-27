@@ -51,7 +51,7 @@ impl Schema {
                     ScalarType::Real => "Float64",
                 };
                 Column {
-                    name: column.name.clone(),
+                    name: verification_name(column),
                     kind: if column.nullable { format!("Nullable({kind})") } else { kind.into() },
                 }
             })
@@ -63,8 +63,10 @@ impl Schema {
             .map(|column| {
                 let name = quote(&column.name);
                 match column.kind {
-                    ScalarType::ExactCounter => format!("toString({name}) AS {name}"),
-                    ScalarType::Timestamp => format!("toString(toUnixTimestamp64Nano({name})) AS {name}"),
+                    ScalarType::ExactCounter => format!("toString({name}) AS {}", quote(&verification_name(column))),
+                    ScalarType::Timestamp => {
+                        format!("toString(toUnixTimestamp64Nano({name})) AS {}", quote(&verification_name(column)))
+                    }
                     _ => name,
                 }
             })
@@ -139,6 +141,15 @@ fn timestamp_nanos(value: &Value) -> Result<i64> {
         .timestamp_nanos_opt()
         .ok_or_else(invalid)
 }
+// ClickHouse resolves SELECT aliases in WHERE and ORDER BY. A leading underscore
+// keeps wire-format conversions outside the namespace of logical column names.
+fn verification_name(column: &OutputColumn) -> String {
+    match column.kind {
+        ScalarType::ExactCounter | ScalarType::Timestamp => format!("_wire_{}", column.name),
+        _ => column.name.clone(),
+    }
+}
+
 pub fn quote(name: &str) -> String {
     format!("`{}`", name.replace('\\', "\\\\").replace('`', "\\`"))
 }
