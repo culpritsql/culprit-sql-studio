@@ -1,5 +1,6 @@
 use super::*;
 use std::sync::atomic::{AtomicUsize, Ordering};
+mod firewall;
 mod refused_connection;
 
 #[tokio::test]

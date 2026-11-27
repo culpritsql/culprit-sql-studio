@@ -176,6 +176,12 @@ impl ConnectionWork<'_> {
     fn begin_login(&mut self) {
         self.started = true;
     }
+    fn login_error(&mut self, error: &tiberius::error::Error) {
+        // Both replies establish that this endpoint did not admit a database session.
+        if matches!(error, tiberius::error::Error::Routing { .. }) || error.code().is_some_and(is_firewall_denial) {
+            self.confirmed();
+        }
+    }
     fn confirmed(&mut self) {
         self.started = false;
     }
@@ -239,7 +245,8 @@ async fn open_tcp(
         ReadConnectionStage::HandshakeAndLogin,
         Box::pin(Client::connect(config, tcp.compat_write())),
     )
-    .await;
+    .await
+    .inspect_err(|error| work.login_error(error));
     Ok(connected.map(|client| MsClient::new(client, monitor)))
 }
 
@@ -269,8 +276,6 @@ async fn connect(
         core_phase(observed, ReadConnectionStage::RouteSelection, endpoint_for(config, transport)).await?;
     let attempt = match open_tcp(config.clone(), endpoint.as_ref(), work, observed, accounting).await? {
         Err(tiberius::error::Error::Routing { host, port }) => {
-            // A typed routing response completed at the gateway before a database session was admitted.
-            work.confirmed();
             if !redirect_allowed(&config.get_addr(), &host) {
                 return Err(redirect_refused(&host));
             }
@@ -435,6 +440,10 @@ pub(crate) fn permission_hint() -> String {
     t!("provider.mssql.error.permission.hint")
 }
 
+fn is_firewall_denial(code: u32) -> bool {
+    matches!(code, 40615 | 40914)
+}
+
 /// An error the server returned (`code`, its `message`), with what to do about it where Culprit knows.
 pub(crate) fn server_error(code: u32, message: String) -> Error {
     if code == 51000 && message == crate::statistics::CATALOG_CHANGED {
@@ -450,7 +459,7 @@ pub(crate) fn server_error(code: u32, message: String) -> Error {
             Error::new(ErrorCode::AuthFailed, message).with_hint(hint)
         }
         4060 => Error::new(ErrorCode::NotFound, message).with_hint(t!("provider.mssql.error.database.hint")),
-        40615 | 40914 => {
+        code if is_firewall_denial(code) => {
             Error::new(ErrorCode::ConnectionFailed, message).with_hint(t!("provider.mssql.error.firewall.hint"))
         }
         40613 | 40501 | 40197 | 49918 | 49919 | 49920 => {
