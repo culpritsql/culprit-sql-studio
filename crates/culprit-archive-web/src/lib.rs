@@ -626,6 +626,7 @@ mod tests {
                     candidate_rows: 0,
                     archive_work: zero_metrics(),
                     qualifications: vec![],
+                    collector_targets: None,
                 })
             })
         }

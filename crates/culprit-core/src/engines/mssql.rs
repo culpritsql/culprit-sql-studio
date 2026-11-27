@@ -151,6 +151,39 @@ impl EngineSpec for Mssql {
         Some(WaitMechanism::LogRateGovernance(reason))
     }
 
+    fn native_wait_class(&self, native_type: &str) -> Option<crate::telemetry::WaitClass> {
+        use crate::telemetry::WaitClass;
+        if let Some(mechanism) = self.native_wait_mechanism(native_type) {
+            return Some(mechanism.class());
+        }
+        let upper = native_type.to_ascii_uppercase();
+        if upper.starts_with("LCK_") {
+            Some(WaitClass::Lock)
+        } else if upper.starts_with("PAGEIOLATCH_")
+            || upper == "ASYNC_IO_COMPLETION"
+            || upper == "IO_COMPLETION"
+            || upper == "BACKUPIO"
+        {
+            Some(WaitClass::Io)
+        } else if upper == "WRITELOG" || upper == "LOGBUFFER" {
+            Some(WaitClass::Log)
+        } else if upper.starts_with("PAGELATCH_") || upper.starts_with("LATCH_") {
+            Some(WaitClass::Latch)
+        } else if upper == "SOS_SCHEDULER_YIELD" {
+            Some(WaitClass::Cpu)
+        } else if upper == "THREADPOOL" {
+            Some(WaitClass::Workers)
+        } else if upper.starts_with("RESOURCE_SEMAPHORE_QUERY_COMPILE") {
+            Some(WaitClass::Compilation)
+        } else if upper.starts_with("RESOURCE_SEMAPHORE") || upper.starts_with("CMEMTHREAD") {
+            Some(WaitClass::Memory)
+        } else if upper == "CXPACKET" || upper == "CXCONSUMER" || upper == "CXSYNC_PORT" {
+            Some(WaitClass::Parallelism)
+        } else {
+            None
+        }
+    }
+
     fn wait_sampling(&self) -> Option<WaitSampling> {
         Some(WaitSampling::Counters)
     }

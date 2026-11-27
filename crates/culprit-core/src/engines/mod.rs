@@ -166,6 +166,10 @@ pub trait EngineSpec: Send + Sync {
     fn native_wait_mechanism(&self, _native_type: &str) -> Option<crate::telemetry::WaitMechanism> {
         None
     }
+    /// Broad wait class for an individual source-native wait type when its mechanism does not already imply one.
+    fn native_wait_class(&self, _native_type: &str) -> Option<crate::telemetry::WaitClass> {
+        None
+    }
     /// Exact endpoint task-wait meaning, independent of a plan operator or a causal diagnosis.
     fn execution_task_wait(&self, _native_type: &str) -> Option<crate::telemetry::ExecutionTaskWaitKind> {
         None

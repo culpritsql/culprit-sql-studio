@@ -384,6 +384,7 @@ mod tests {
                 recent_changes: 1,
                 input_read_complete: true,
                 limitations: vec![],
+                telemetry: None,
             }],
             next: None,
             discovery_complete: true,
@@ -391,6 +392,7 @@ mod tests {
             candidate_rows: 1,
             archive_work: zero_work(),
             qualifications: vec![],
+            collector_targets: None,
         };
 
         let mock = Arc::new(MockWarehouse {

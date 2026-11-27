@@ -7,6 +7,7 @@ import type { WarehouseWindowGap } from "./WarehouseWindowGap";
 import type { WarehouseWindowQuery } from "./WarehouseWindowQuery";
 import type { WindowOriginal } from "./WindowOriginal";
 import type { WindowPublishedAnalysis } from "./WindowPublishedAnalysis";
+import type { WindowTelemetry } from "./WindowTelemetry";
 import type { WindowWorkload } from "./WindowWorkload";
 
 export type WarehouseWindowReport = { request: WarehouseWindowQuery, 
@@ -17,4 +18,4 @@ discovery_complete: boolean, originals: Array<WindowOriginal>, workload: WindowW
 /**
  * Shared source-owned wording; typed gaps and original authority remain separately available.
  */
-qualifications: Array<string>, };
+qualifications: Array<string>, telemetry?: WindowTelemetry, };

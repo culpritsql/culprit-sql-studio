@@ -501,6 +501,77 @@ async fn concurrent_caller_languages_reach_the_same_owned_cpu_boundary_without_p
     assert_eq!(render("en").await, english, "a reused blocking thread must restore its scoped language");
 }
 
+#[tokio::test]
+async fn window_telemetry_projects_authenticated_resource_samples_within_compatible_workload_action() {
+    let (fixture, request) = fixture().await;
+    let (base_source, _) = crate::collected_evidence::window_test_original(6, Some("window-original-epoch"));
+    let resource_source = CollectionDescription {
+        partition: base_source.partition,
+        target: base_source.target,
+        source: "native-resources".into(),
+        continuity: SourceContinuity::Unverified,
+        observation: SourceObservation::RetainedSamples(SampleHistoryDescription {
+            from: "2020-01-01T06:00:00Z".into(),
+            until: "2020-01-01T06:15:00Z".into(),
+            observed_at: "2020-01-01T06:16:00Z".into(),
+            available_from: Some("2020-01-01T05:55:00Z".into()),
+            available_until: Some("2020-01-01T06:15:30Z".into()),
+            expected_samples: 2,
+            nominal_period_ms: Some(15_000),
+        }),
+    };
+    let make_sample = |at: &str, cpu: f64, mem: f64| {
+        TelemetryRecord::ResourceSample(ResourceMeasurement {
+            mssql_managed_instance: None,
+            data_io_accounting: DataIoAccounting::DataFiles,
+            at: at.into(),
+            replica_id: None,
+            replica_role: None,
+            metrics: vec![
+                ResourceMetricSample {
+                    key: "cpu".into(),
+                    unit: ResourceUnit::Percent,
+                    scope: MeasurementScope::Database,
+                    statistic: ResourceStatistic::Mean,
+                    period_ms: Some(15_000),
+                    limit_basis: ResourceLimitBasis::DatabaseLimit,
+                    value: Some(cpu),
+                },
+                ResourceMetricSample {
+                    key: "memory".into(),
+                    unit: ResourceUnit::Percent,
+                    scope: MeasurementScope::Database,
+                    statistic: ResourceStatistic::Mean,
+                    period_ms: Some(15_000),
+                    limit_basis: ResourceLimitBasis::DatabaseLimit,
+                    value: Some(mem),
+                },
+            ],
+        })
+    };
+    fixture
+        .append_capture(
+            resource_source,
+            vec![make_sample("2020-01-01T06:05:00Z", 74.5, 68.0), make_sample("2020-01-01T06:00:15Z", 42.0, 64.0)],
+            100_050,
+        )
+        .await;
+    let report = fixture
+        .service
+        .window(&request, EvidenceReadBudget::default(), &CollectionCancellation::default())
+        .await
+        .unwrap();
+    let telemetry = report.telemetry.as_ref().expect("resource samples populate window telemetry");
+    assert_eq!(telemetry.resources.len(), 1);
+    assert!(telemetry.resources[0].read_complete);
+    assert_eq!(telemetry.resources[0].samples.len(), 2);
+    assert_eq!(telemetry.resources[0].samples[0].at, canonical_time("2020-01-01T06:00:15Z").unwrap());
+    assert_eq!(telemetry.resources[0].samples[0].cpu_pct, Some(42.0));
+    assert_eq!(telemetry.resources[0].samples[1].at, canonical_time("2020-01-01T06:05:00Z").unwrap());
+    assert_eq!(telemetry.resources[0].samples[1].cpu_pct, Some(74.5));
+    assert_eq!(telemetry.resources[0].samples[1].memory_pct, Some(68.0));
+}
+
 mod volume;
 
 mod missing;

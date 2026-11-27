@@ -2,6 +2,7 @@
 import type { Engine } from "./Engine";
 import type { PublishedResourceSelector } from "./PublishedResourceSelector";
 import type { WarehouseFleetFreshness } from "./WarehouseFleetFreshness";
+import type { WarehouseFleetRowTelemetry } from "./WarehouseFleetRowTelemetry";
 import type { WarehouseFleetSharedGroup } from "./WarehouseFleetSharedGroup";
 
-export type WarehouseFleetRow = { resource_id: string, selector: PublishedResourceSelector, engine: Engine, database_name: string, connection_alias: string | null, environment: string | null, shared_group: WarehouseFleetSharedGroup | null, freshness: WarehouseFleetFreshness, latest_collected_from: string, latest_collected_until: string, latest_observed_from: string | null, latest_observed_until: string | null, active_incidents: number, uncertain_incidents: number, high_findings: number, actionable_findings: number, recent_regressions: number, recent_changes: number, input_read_complete: boolean, limitations: Array<string>, };
+export type WarehouseFleetRow = { resource_id: string, selector: PublishedResourceSelector, engine: Engine, database_name: string, connection_alias: string | null, environment: string | null, shared_group: WarehouseFleetSharedGroup | null, freshness: WarehouseFleetFreshness, latest_collected_from: string, latest_collected_until: string, latest_observed_from: string | null, latest_observed_until: string | null, active_incidents: number, uncertain_incidents: number, high_findings: number, actionable_findings: number, recent_regressions: number, recent_changes: number, input_read_complete: boolean, limitations: Array<string>, telemetry?: WarehouseFleetRowTelemetry, };

@@ -22,6 +22,30 @@ pub(super) fn session_reset_advice(command: &str) -> Option<String> {
     matches!(command, "discard" | "reset").then(|| t!("core.engines.postgres.session_reset"))
 }
 
+pub(super) fn postgres_wait_class(
+    mechanism: Option<crate::telemetry::WaitMechanism>,
+    native_type: &str,
+) -> Option<crate::telemetry::WaitClass> {
+    use crate::telemetry::WaitClass;
+    if let Some(mechanism) = mechanism {
+        return Some(mechanism.class());
+    }
+    let upper = native_type.to_ascii_uppercase();
+    if upper.starts_with("LOCK:") {
+        Some(WaitClass::Lock)
+    } else if upper.starts_with("IO:") {
+        if upper.contains("WAL") { Some(WaitClass::Log) } else { Some(WaitClass::Io) }
+    } else if upper.starts_with("LWLOCK:") {
+        if upper.contains("WAL") { Some(WaitClass::Log) } else { Some(WaitClass::Latch) }
+    } else if upper.starts_with("CLIENT:") {
+        Some(WaitClass::Network)
+    } else if upper.starts_with("IPC:") {
+        Some(WaitClass::Parallelism)
+    } else {
+        None
+    }
+}
+
 /// Settings of context `user` in pg_settings: a database's owner sets them for that database (`ALTER DATABASE … SET`),
 /// no superuser needed, so they work on a managed service too. Settings of context `superuser` (track_io_timing,
 /// pg_stat_statements.track, wal_compression) are left out: a managed service's admin role isn't a superuser.
@@ -75,6 +99,10 @@ impl EngineSpec for Postgres {
 
     fn native_wait_mechanism(&self, native_type: &str) -> Option<crate::telemetry::WaitMechanism> {
         (native_type == "Client: ClientWrite").then_some(crate::telemetry::WaitMechanism::ClientResultOutput)
+    }
+
+    fn native_wait_class(&self, native_type: &str) -> Option<crate::telemetry::WaitClass> {
+        postgres_wait_class(self.native_wait_mechanism(native_type), native_type)
     }
     fn default_port(&self) -> Option<u16> {
         Some(5432)

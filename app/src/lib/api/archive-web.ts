@@ -1,4 +1,4 @@
-import { createArchiveClient } from "../../../../packages/culprit-archive-client/src/index";
+import { createArchiveClient, createArchivePlanClient } from "../../../../packages/culprit-archive-client/src/index";
 import type { Api, ApiError } from "../api";
 import { demoApi } from "../demo-api";
 import { language, t } from "../i18n";
@@ -52,13 +52,7 @@ export async function archiveWebApi(): Promise<Api> {
     addWarehouseConnection: readOnly,
     removeWarehouseConnection: readOnly,
     ...createArchiveClient(requestJson),
-    parsePlan: (text) => requestJson("POST", "/api/plans/parse", { text }),
-    diffPlans: (a, b, nameA, nameB) =>
-      requestJson("POST", "/api/plans/diff", { a: { ...a, raw: null }, b: { ...b, raw: null }, nameA, nameB }),
-    exportPlan: (plan, title, format, options) =>
-      requestJson("POST", "/api/plans/export-plan", { plan: format === "native" ? plan : { ...plan, raw: null }, title, format, options }),
-    exportDiff: (a, b, nameA, nameB, format, options) =>
-      requestJson("POST", "/api/plans/export-diff", { a: { ...a, raw: null }, b: { ...b, raw: null }, nameA, nameB, format, options }),
+    ...createArchivePlanClient(requestJson),
     setLanguage: async (code) => {
       currentLang = code;
     },

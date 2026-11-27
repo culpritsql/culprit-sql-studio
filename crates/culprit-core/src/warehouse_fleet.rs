@@ -126,6 +126,36 @@ pub struct WarehouseFleetSharedGroup {
     pub label: String,
 }
 
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct WarehouseFleetRowTelemetry {
+    pub cpu_pct: Option<f64>,
+    pub memory_pct: Option<f64>,
+    pub data_io_pct: Option<f64>,
+    pub workers_pct: Option<f64>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub load_sparkline: Vec<f64>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub cpu_sparkline: Vec<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dominant_wait: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct WarehouseCollectorTarget {
+    pub connection_id: String,
+    pub connection_name: String,
+    pub engine: Engine,
+    pub connection_outcome: crate::telemetry::CollectorConnectionOutcome,
+    pub original_status: Option<String>,
+    pub original_stop: Option<String>,
+    pub started_at: String,
+    pub finished_at: String,
+    pub elapsed_ms: Option<f64>,
+    pub source_queries: Option<u32>,
+}
+
 #[derive(Clone, Debug, Serialize, TS)]
 #[ts(export)]
 pub struct WarehouseFleetRow {
@@ -149,6 +179,9 @@ pub struct WarehouseFleetRow {
     pub recent_changes: u32,
     pub input_read_complete: bool,
     pub limitations: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub telemetry: Option<WarehouseFleetRowTelemetry>,
 }
 
 impl WarehouseFleetRow {
@@ -195,6 +228,9 @@ pub struct WarehouseFleetReport {
     pub candidate_rows: u32,
     pub archive_work: CollectedEvidenceMetrics,
     pub qualifications: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub collector_targets: Option<Vec<WarehouseCollectorTarget>>,
 }
 
 fn valid_filter_label(value: &str) -> bool {
@@ -270,6 +306,7 @@ mod tests {
             recent_changes: 1,
             input_read_complete: true,
             limitations: vec![],
+            telemetry: None,
         };
         assert!(!row.needs_attention());
         row.high_findings = 1;

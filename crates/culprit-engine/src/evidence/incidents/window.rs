@@ -5,6 +5,7 @@ use culprit_core::serialization::JsonSizeError;
 use culprit_evidence::analytical::evidence::PublishedResourceClock;
 mod published;
 mod selection;
+mod telemetry;
 
 impl EvidenceService {
     pub async fn window(
@@ -122,24 +123,26 @@ pub(in crate::evidence) async fn read_retaining_session<'a>(
         .collect();
     assembly.complete_episodes(&incident_request, episodes).await?;
     let incidents = assembly.finish(&incident_request).await?;
-    let workload = match request.view {
-        WarehouseWindowView::PublishedAnswers => WindowWorkload::NotRequested,
+    let (workload, telemetry) = match request.view {
+        WarehouseWindowView::PublishedAnswers => (WindowWorkload::NotRequested, None),
         WarehouseWindowView::CompatibleWorkload => {
             let captures = assembly.captures.values().cloned().collect::<Vec<_>>();
             let window = request.window.clone();
-            let analysis = assembly
+            let (analysis, telemetry) = assembly
                 .session
                 .analyze(move |fence| {
                     let captures = captures.iter().map(Arc::as_ref).collect::<Vec<_>>();
-                    crate::collected_evidence::analyze_window_with(
+                    let analysis = crate::collected_evidence::analyze_window_with(
                         &captures,
                         &window,
                         &culprit_checks::Pipeline::builtin(),
                         &|| fence.check(),
-                    )
+                    )?;
+                    let telemetry = telemetry::project(&captures, &|| fence.check())?;
+                    Ok((analysis, telemetry))
                 })
                 .await?;
-            WindowWorkload::Evaluated { analysis: Box::new(analysis) }
+            (WindowWorkload::Evaluated { analysis: Box::new(analysis) }, telemetry)
         }
     };
     let mut report = WarehouseWindowReport {
@@ -154,6 +157,7 @@ pub(in crate::evidence) async fn read_retaining_session<'a>(
         gaps,
         archive_work: crate::collected_context::read_metrics(assembly.session.completed_metrics()),
         qualifications: vec![],
+        telemetry,
     };
     report.prepare_for_reader();
     culprit_core::serialization::json_size(&report, MAX_DERIVED_OUTPUT_BYTES).map_err(|error| match error {

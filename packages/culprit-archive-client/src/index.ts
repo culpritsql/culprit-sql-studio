@@ -1,4 +1,9 @@
 import type {
+  ExportFile,
+  ExportFormat,
+  ExportOptions,
+  Plan,
+  PlanDiff,
   PublishedResourceRequest,
   PublishedResourceSelector,
   PublishedResources,
@@ -20,6 +25,7 @@ export type ArchiveTransport = <T>(
   body?: unknown,
   signal?: AbortSignal,
 ) => Promise<T>;
+
 export interface ArchiveReader {
   warehouseConnections(
     signal?: AbortSignal,
@@ -51,6 +57,36 @@ export interface ArchiveReader {
     signal?: AbortSignal,
   ): Promise<WarehouseArtifactReport>;
 }
+
+export interface ArchivePlanClient {
+  parsePlan(text: string, signal?: AbortSignal): Promise<Plan>;
+  diffPlans(
+    a: Plan,
+    b: Plan,
+    nameA: string,
+    nameB: string,
+    connection?: string | null,
+    signal?: AbortSignal,
+  ): Promise<PlanDiff>;
+  exportPlan(
+    plan: Plan,
+    title: string,
+    format: ExportFormat,
+    options: ExportOptions,
+    signal?: AbortSignal,
+  ): Promise<ExportFile>;
+  exportDiff(
+    a: Plan,
+    b: Plan,
+    nameA: string,
+    nameB: string,
+    format: ExportFormat,
+    options: ExportOptions,
+    connection?: string | null,
+    signal?: AbortSignal,
+  ): Promise<ExportFile>;
+}
+
 async function sameOrigin<T>(
   method: "GET" | "POST",
   path: string,
@@ -68,6 +104,7 @@ async function sameOrigin<T>(
   if (!response.ok) throw new Error(`HTTP ${response.status}`);
   return response.json() as Promise<T>;
 }
+
 export function createArchiveClient(
   send: ArchiveTransport = sameOrigin,
 ): ArchiveReader {
@@ -89,5 +126,47 @@ export function createArchiveClient(
       send("POST", "/api/archive/window", { connection, request }, signal),
     warehouseArtifacts: (connection, request, signal) =>
       send("POST", "/api/archive/artifacts", { connection, request }, signal),
+  };
+}
+
+export function createArchivePlanClient(
+  send: ArchiveTransport = sameOrigin,
+): ArchivePlanClient {
+  return {
+    parsePlan: (text, signal) =>
+      send("POST", "/api/plans/parse", { text }, signal),
+    diffPlans: (a, b, nameA, nameB, _connection, signal) =>
+      send(
+        "POST",
+        "/api/plans/diff",
+        { a: { ...a, raw: null }, b: { ...b, raw: null }, nameA, nameB },
+        signal,
+      ),
+    exportPlan: (plan, title, format, options, signal) =>
+      send(
+        "POST",
+        "/api/plans/export-plan",
+        {
+          plan: format === "native" ? plan : { ...plan, raw: null },
+          title,
+          format,
+          options,
+        },
+        signal,
+      ),
+    exportDiff: (a, b, nameA, nameB, format, options, _connection, signal) =>
+      send(
+        "POST",
+        "/api/plans/export-diff",
+        {
+          a: { ...a, raw: null },
+          b: { ...b, raw: null },
+          nameA,
+          nameB,
+          format,
+          options,
+        },
+        signal,
+      ),
   };
 }

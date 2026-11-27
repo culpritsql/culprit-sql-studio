@@ -161,6 +161,88 @@ pub enum WarehouseWindowGap {
 }
 #[derive(Clone, Debug, Serialize, TS)]
 #[ts(export)]
+pub struct WindowResourceCapture {
+    pub original: DiagnosticCaptureRef,
+    pub native_clock: WindowNativeClock,
+    pub read_complete: bool,
+    pub samples: Vec<crate::ResourceSample>,
+}
+
+#[derive(Clone, Debug, Serialize, TS)]
+#[ts(export)]
+pub struct WindowWaitDelta {
+    pub category: String,
+    pub wait_type: Option<String>,
+    pub wait_ms: f64,
+    pub signal_wait_ms: f64,
+    pub waiting_tasks: f64,
+    pub max_wait_ms: Option<u64>,
+}
+
+#[derive(Clone, Debug, Serialize, TS)]
+#[ts(export)]
+pub struct WindowWaitInterval {
+    pub baseline: DiagnosticCaptureRef,
+    pub current: DiagnosticCaptureRef,
+    pub from: String,
+    pub until: String,
+    pub scope: crate::MeasurementScope,
+    pub read_complete: bool,
+    pub waits: Vec<WindowWaitDelta>,
+}
+
+#[derive(Clone, Debug, Serialize, TS)]
+#[ts(export)]
+pub struct WindowActivityPoint {
+    pub original: DiagnosticCaptureRef,
+    pub native_clock: WindowNativeClock,
+    pub read_complete: bool,
+    pub active_sessions: u32,
+    pub blocked_sessions: u32,
+    pub idle_in_transaction_sessions: u32,
+    pub waiting_on_lock_sessions: u32,
+    pub max_elapsed_ms: Option<u64>,
+    pub max_wait_ms: Option<u64>,
+    pub max_transaction_age_ms: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub blocking: Option<crate::BlockingReport>,
+}
+
+#[derive(Clone, Debug, Serialize, TS)]
+#[ts(export)]
+pub struct WindowReplicationPoint {
+    pub original: DiagnosticCaptureRef,
+    pub native_clock: WindowNativeClock,
+    pub read_complete: bool,
+    pub report: crate::ReplicationReport,
+}
+
+#[derive(Clone, Debug, Default, Serialize, TS)]
+#[ts(export)]
+pub struct WindowTelemetry {
+    pub resources: Vec<WindowResourceCapture>,
+    pub wait_intervals: Vec<WindowWaitInterval>,
+    pub activity: Vec<WindowActivityPoint>,
+    pub deadlocks: Vec<crate::Deadlock>,
+    pub replication: Vec<WindowReplicationPoint>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub node_resources: Vec<crate::NodeResources>,
+}
+
+impl WindowTelemetry {
+    pub fn is_empty(&self) -> bool {
+        self.resources.is_empty()
+            && self.wait_intervals.is_empty()
+            && self.activity.is_empty()
+            && self.deadlocks.is_empty()
+            && self.replication.is_empty()
+            && self.node_resources.is_empty()
+    }
+}
+
+#[derive(Clone, Debug, Serialize, TS)]
+#[ts(export)]
 pub struct WarehouseWindowReport {
     pub request: WarehouseWindowQuery,
     /// Candidate traversal only. True does not establish configured fleet, full native population or health.
@@ -175,12 +257,22 @@ pub struct WarehouseWindowReport {
     pub archive_work: CollectedEvidenceMetrics,
     /// Shared source-owned wording; typed gaps and original authority remain separately available.
     pub qualifications: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub telemetry: Option<WindowTelemetry>,
 }
 
 impl WindowNativeClock {
     pub fn from_original(source: &crate::telemetry::CollectionDescription) -> Self {
         let (bounds, interval) = if let Some(history) = source.query_history() {
             (Some((&history.interval.from, &history.interval.until)), true)
+        } else if let Some(history) = source.observation.sample_history() {
+            (Some((&history.from, &history.until)), true)
+        } else if let crate::telemetry::SourceObservation::MssqlManagedInstanceResources(history) = &source.observation
+        {
+            (Some((&history.from, &history.until)), true)
+        } else if let crate::telemetry::SourceObservation::RetainedEvents(history) = &source.observation {
+            (Some((&history.from, &history.until)), true)
         } else if let Some(snapshot) = source.observation.snapshot() {
             (Some((&snapshot.observed_from, &snapshot.observed_until)), false)
         } else if let Some(activity) = source.observation.activity() {

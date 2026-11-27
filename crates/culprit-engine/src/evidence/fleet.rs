@@ -167,6 +167,7 @@ async fn evaluate_fleet(
         candidate_rows: page.charged_candidate_rows,
         archive_work: crate::collected_context::read_metrics(&metrics),
         qualifications,
+        collector_targets: None,
     };
     culprit_core::serialization::json_size(&report, MAX_DERIVED_OUTPUT_BYTES).map_err(|error| match error {
         JsonSizeError::LimitExceeded => capacity(),
@@ -288,6 +289,7 @@ fn project_derived(
         recent_changes,
         input_read_complete: description.input_read_complete && capture.is_read_complete(),
         limitations,
+        telemetry: None,
     })
 }
 
@@ -334,6 +336,7 @@ fn project_raw(
         recent_changes: 0,
         input_read_complete: metadata.is_read_complete(),
         limitations: vec![t!("fleet.reader.no_derived")],
+        telemetry: None,
     })
 }
 

@@ -48,6 +48,7 @@ fn window_report(host: &Host) -> WarehouseWindowReport {
         gaps: vec![WarehouseWindowGap::MorePublishedAnalyses],
         archive_work: zero_work(),
         qualifications: vec![t!("window.reader.more")],
+        telemetry: None,
     }
 }
 struct Reader {

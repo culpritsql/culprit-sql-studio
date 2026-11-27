@@ -60,6 +60,24 @@ impl EngineSpec for Mysql {
         Some(3306)
     }
 
+    fn native_wait_class(&self, native_type: &str) -> Option<crate::telemetry::WaitClass> {
+        use crate::telemetry::WaitClass;
+        let lower = native_type.to_ascii_lowercase();
+        if lower.starts_with("wait/lock/") {
+            Some(WaitClass::Lock)
+        } else if lower.starts_with("wait/io/file/innodb/innodb_log_file") || lower.contains("redo") {
+            Some(WaitClass::Log)
+        } else if lower.starts_with("wait/io/file/") || lower.starts_with("wait/io/table/") {
+            Some(WaitClass::Io)
+        } else if lower.starts_with("wait/io/socket/") {
+            Some(WaitClass::Network)
+        } else if lower.starts_with("wait/synch/") {
+            Some(WaitClass::Latch)
+        } else {
+            None
+        }
+    }
+
     fn session_id_format(&self) -> SessionIdFormat {
         SessionIdFormat::NativeId
     }

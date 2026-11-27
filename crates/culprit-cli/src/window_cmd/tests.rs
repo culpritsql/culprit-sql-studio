@@ -78,6 +78,7 @@ fn human_window_preserves_unknown_coverage_qualified_roles_escaping_and_the_boun
         published: vec![],
         gaps: vec![WarehouseWindowGap::MorePublishedAnalyses, WarehouseWindowGap::NoPublishedAnalyses],
         qualifications: vec![],
+        telemetry: None,
     };
     report.prepare_for_reader();
     let human = observations::window(&report).unwrap();

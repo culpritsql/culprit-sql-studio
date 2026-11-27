@@ -48,6 +48,10 @@ impl EngineSpec for Yugabyte {
         Some(5433)
     }
 
+    fn native_wait_class(&self, native_type: &str) -> Option<crate::telemetry::WaitClass> {
+        super::postgres::postgres_wait_class(self.native_wait_mechanism(native_type), native_type)
+    }
+
     fn session_id_format(&self) -> SessionIdFormat {
         SessionIdFormat::NativeIdAndGeneration
     }
