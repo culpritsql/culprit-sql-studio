@@ -36,11 +36,13 @@ pub(crate) async fn read_payload<R: NativeRead>(
     ids: &[String],
     kind: Kind,
     limit: usize,
-    with_families: bool,
+    layout: Option<super::layout::NativeLayout>,
 ) -> ReadResult<Vec<Rec>> {
     let sql = match kind {
-        Kind::Query => catalog_sql::query_definitions(with_families),
-        Kind::Plan => catalog_sql::PLAN_DEFINITIONS.to_owned(),
+        Kind::Query => catalog_sql::query_definitions(
+            layout.is_some_and(|l| l.variants == super::variants_sql::Availability::Readable),
+        ),
+        Kind::Plan => catalog_sql::plan_definitions(super::plan_transport::Transfer::for_layout(layout)),
     };
     let native_limit = i64::try_from(limit).map_err(|_| invalid_data())?;
     let row_limit = ids.len().checked_add(1).ok_or_else(invalid_data)?;
@@ -108,9 +110,8 @@ pub(crate) async fn read<R: NativeRead>(
                 return Err(culprit_core::telemetry::CollectionStop::ByteLimit.error());
             }
             let selected = batch[start..end].iter().map(i64::to_string).collect::<Vec<_>>();
-            let with_families = reader.variant_families_supported();
-            let rows =
-                read_payload(reader, &selected, kind, limit, with_families).await.map_err(ReadError::into_error)?;
+            let layout = reader.definition_layout();
+            let rows = read_payload(reader, &selected, kind, limit, layout).await.map_err(ReadError::into_error)?;
             let mut decoded = BTreeMap::new();
             for row in &rows {
                 let id = integer(row, "id")?;

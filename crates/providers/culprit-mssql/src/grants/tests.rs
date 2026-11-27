@@ -171,7 +171,7 @@ async fn selected_workload_reads_zero_grants_through_the_same_native_decoder_and
     assert_eq!(observations[0].total_used_kibibytes.as_deref(), Some("0"));
     assert!(!reader.calls[1].sql.contains(&selected[0]));
     assert!(!reader.calls[1].sql.contains("total_grant_kb>0"));
-    assert!(reader.calls[1].sql.contains("CAST(pa.value AS int)=DB_ID()"));
+    assert!(reader.calls[1].sql.contains(crate::cached_statements::DATABASE_PREDICATE));
     assert!(!reader.calls[1].sql.contains("NOT LIKE"));
     assert_eq!(reader.calls[1].parameters.len(), 2);
     assert!(bind_hashes(&mut vec![], ["0x0);DROP TABLE x;--"].into_iter()).is_err());

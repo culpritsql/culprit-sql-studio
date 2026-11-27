@@ -20,6 +20,7 @@ culprit-core.workspace = true
 culprit-read.workspace = true
 async-trait.workspace = true
 chrono.workspace = true
+flate2.workspace = true
 futures-util.workspace = true
 roxmltree.workspace = true
 serde_json.workspace = true

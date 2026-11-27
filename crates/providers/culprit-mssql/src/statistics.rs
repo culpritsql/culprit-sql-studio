@@ -9,22 +9,37 @@ use crate::{
 use culprit_core::{Result, StatisticsInfo, telemetry::*};
 
 const APPLICATION_STATISTICS: usize = 10_000;
+pub(crate) const CATALOG_CHANGED: &str = "culprit_statistics_catalog_changed";
+const TABLE_METADATA: &str =
+    "SELECT t.object_id,t.create_date,t.name AS table_name,s.name AS schema_name,t.is_memory_optimized
+ FROM sys.tables t JOIN sys.schemas s ON s.schema_id=t.schema_id WHERE t.is_ms_shipped=0";
+
 pub(crate) fn select_sql() -> String {
     let display_updated = crate::sql_time::utc_local_iso("sp.last_updated");
     format!(
         r#"
+SELECT * INTO #culprit_stat_tables FROM ({TABLE_METADATA}) visible OPTION(MAXDOP 1);
+CREATE UNIQUE CLUSTERED INDEX object_id ON #culprit_stat_tables(object_id);
+
 SELECT TOP (@P1) DB_ID() AS database_id,t.object_id,
  CONVERT(varchar(40),t.create_date,126) AS created_without_offset,
- s.name AS schema_name,t.name AS table_name,st.stats_id,st.name AS stats_name,
+ t.schema_name,t.table_name,st.stats_id,st.name AS stats_name,
  st.auto_created,st.user_created,st.no_recompute,t.is_memory_optimized,
  CASE WHEN sp.stats_id IS NULL THEN 0 ELSE 1 END AS properties_available,
  CONVERT(varchar(40),sp.last_updated,126) AS last_updated_without_offset,
  {display_updated} AS display_updated_at,
  sp.rows,sp.rows_sampled,sp.steps,sp.unfiltered_rows,sp.modification_counter
-FROM sys.stats st JOIN sys.tables t ON t.object_id=st.object_id
-JOIN sys.schemas s ON s.schema_id=t.schema_id
+FROM #culprit_stat_tables t JOIN sys.stats st ON st.object_id=t.object_id
 OUTER APPLY sys.dm_db_stats_properties(st.object_id,st.stats_id) sp
-WHERE t.is_ms_shipped=0 ORDER BY t.object_id,st.stats_id OPTION(MAXDOP 1)
+ORDER BY t.object_id,st.stats_id OPTION(MAXDOP 1);
+
+IF EXISTS(SELECT 1 FROM #culprit_stat_tables staged FULL JOIN ({TABLE_METADATA}) live ON live.object_id=staged.object_id
+ WHERE live.object_id IS NULL OR staged.object_id IS NULL OR live.create_date<>staged.create_date
+ OR CONVERT(varbinary(256),live.table_name)<>CONVERT(varbinary(256),staged.table_name)
+ OR CONVERT(varbinary(256),live.schema_name)<>CONVERT(varbinary(256),staged.schema_name)
+ OR live.is_memory_optimized<>staged.is_memory_optimized)
+ THROW 51000,N'{CATALOG_CHANGED}',1;
+DROP TABLE #culprit_stat_tables;
 "#
     )
 }

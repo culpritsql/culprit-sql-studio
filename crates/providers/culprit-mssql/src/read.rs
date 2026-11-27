@@ -702,13 +702,18 @@ async fn read(
     let mut stream = query.query(&mut **client).await.map_err(map_error)?;
     let mut budget = culprit_read::ReadBudget::new(row_limit, byte_limit);
     let mut sets = 0;
+    let mut plan_decoder = None;
     while let Some(item) = stream.try_next().await.map_err(map_error)? {
         match item {
-            QueryItem::Metadata(_) => {
+            QueryItem::Metadata(metadata) => {
                 sets += 1;
                 if sets > 1 {
                     return Err(ReadError::Stopped(CollectionStop::InvalidPage));
                 }
+                plan_decoder = crate::query_store::plan_transport::Decoder::for_columns(
+                    metadata.columns().iter().map(|c| c.name()),
+                    &parameters,
+                )?;
             }
             QueryItem::Row(row) => {
                 // Receiver release is paired with cancellation. Continue consuming the existing response during
@@ -717,7 +722,10 @@ async fn read(
                     continue;
                 }
                 budget.row_started().map_err(|error| ReadError::Stopped(CollectionStop::from_error(&error)))?;
-                let row = Rec::from_row(&row);
+                let mut row = Rec::from_row(&row);
+                if let Some(decoder) = &plan_decoder {
+                    decoder.decode(&mut row)?;
+                }
                 progress.rows.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 let row_bytes = output::value_bytes(&row);
                 progress.bytes.fetch_add(row_bytes as u64, std::sync::atomic::Ordering::Relaxed);

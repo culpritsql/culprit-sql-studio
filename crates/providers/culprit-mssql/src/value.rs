@@ -77,6 +77,9 @@ impl Rec {
         }
     }
 
+    pub(crate) fn column_mut(&mut self, index: usize) -> Option<&mut (String, Val)> {
+        self.cols.get_mut(index)
+    }
     pub(crate) fn columns(&self) -> impl Iterator<Item = (&str, &Val)> {
         self.cols.iter().map(|(n, v)| (n.as_str(), v))
     }

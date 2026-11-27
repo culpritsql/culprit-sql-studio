@@ -1247,6 +1247,7 @@ dependencies = [
  "culprit-evidence",
  "culprit-plans",
  "culprit-read",
+ "flate2",
  "futures-util",
  "roxmltree",
  "serde",

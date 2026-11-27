@@ -14,6 +14,7 @@ pub(crate) use reader::Reader;
 pub(crate) mod definitions;
 pub(crate) mod payload;
 pub(crate) mod period_sql;
+pub(crate) mod plan_transport;
 pub(crate) mod series_sql;
 pub(crate) mod variants_sql;
 pub(crate) mod waits;

@@ -47,6 +47,7 @@ async fn full_scan_uses_bounded_readers_and_retains_schema_and_workload() {
     verify_object_metadata(&pool).await;
     verify_trigger_metadata(&pool, &result).await;
     verify_partition_boundaries(&pool, &result).await;
+    verify_statistics_catalog_change(&pool).await;
     assert_eq!(provider.source_shutdown(), culprit_core::telemetry::SourceShutdown::Quiescent);
     drop(app);
     drop(provider);
@@ -56,6 +57,22 @@ async fn full_scan_uses_bounded_readers_and_retains_schema_and_workload() {
         &format!("ALTER DATABASE [{database}] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [{database}]"),
     )
     .await;
+}
+
+async fn verify_statistics_catalog_change(pool: &Arc<Pool>) {
+    use crate::read::{Parameter, ReadError};
+    use culprit_core::telemetry::CollectionStop;
+    let sql = crate::statistics::select_sql()
+        .replace("IF EXISTS(", "CREATE TABLE dbo.statistics_catalog_drift(id int); IF EXISTS(");
+    let error = pool
+        .observe(|reader| {
+            Box::pin(async move {
+                reader.query(&sql, vec![Parameter::Integer(10_001)], 10_001).await.map_err(ReadError::into_error)
+            })
+        })
+        .await
+        .unwrap_err();
+    assert_eq!(CollectionStop::from_error(&error), CollectionStop::SourceChanged);
 }
 
 async fn seed_catalog(app: &mut MsClient) {

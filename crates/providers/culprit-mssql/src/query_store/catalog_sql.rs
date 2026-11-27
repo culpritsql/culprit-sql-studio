@@ -179,24 +179,25 @@ pub(crate) fn query_definitions(with_families: bool) -> String {
     )
 }
 
-pub(crate) const PLAN_DEFINITIONS: &str = concat!(
-    r#"
+pub(crate) fn plan_definitions(transfer: super::plan_transport::Transfer) -> String {
+    let (value, column) = transfer.projection();
+    let identity = definition_columns!();
+    format!(
+        r#"
 DECLARE /* culprit */ @ids xml=CONVERT(xml,@P1);
-SELECT /* culprit */ ids.id,
-"#,
-    definition_columns!(),
-    r#",
+SELECT /* culprit */ ids.id,{identity},
  p.engine_version, p.compatibility_level, DATALENGTH(p.query_plan) AS source_bytes,
  t.is_part_of_encrypted_module AS encrypted, t.has_restricted_text AS restricted,
  CASE WHEN DATALENGTH(p.query_plan) <= @P2 AND t.is_part_of_encrypted_module = 0
-       AND t.has_restricted_text = 0 THEN p.query_plan END AS payload
+       AND t.has_restricted_text = 0 THEN {value} END AS {column}
 FROM @ids.nodes('/ids/id') n(x)
 CROSS APPLY(SELECT x.value('@id[1]','bigint') AS id) ids
 LEFT JOIN sys.query_store_plan p ON p.plan_id = ids.id
 LEFT JOIN sys.query_store_query q ON q.query_id = p.query_id
 LEFT JOIN sys.query_store_query_text t ON t.query_text_id = q.query_text_id
 ORDER BY ids.id OPTION (MAXDOP 1)"#
-);
+    )
+}
 
 /// Query Store's queries behind the database's missing-index requests: the optimizer's request groups name the
 /// query_hash of each query that asked (SQL Server 2019+, Azure SQL). DMVs and Query Store's catalog only.

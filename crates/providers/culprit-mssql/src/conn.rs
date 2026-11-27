@@ -437,6 +437,9 @@ pub(crate) fn permission_hint() -> String {
 
 /// An error the server returned (`code`, its `message`), with what to do about it where Culprit knows.
 pub(crate) fn server_error(code: u32, message: String) -> Error {
+    if code == 51000 && message == crate::statistics::CATALOG_CHANGED {
+        return culprit_core::telemetry::CollectionStop::SourceChanged.error();
+    }
     match code {
         18456 | 18452 | 18470 | 18486 | 18487 | 18488 => {
             let hint = if message.contains("token-identified principal") {

@@ -97,7 +97,7 @@ impl Definitions {
         budget: &CollectionBudget,
         stream: TelemetryStream,
         token: Option<&str>,
-        variant_families: bool,
+        layout: crate::query_store::layout::NativeLayout,
     ) -> std::result::Result<CollectionRead, ReadError> {
         self.frozen = true;
         let offset =
@@ -139,9 +139,10 @@ impl Definitions {
             &selected.iter().map(i64::to_string).collect::<Vec<_>>(),
             kind,
             limit,
-            variant_families,
+            Some(layout),
         )
         .await?;
+        let variant_families = layout.variants == crate::query_store::variants_sql::Availability::Readable;
         let mut records = Vec::with_capacity(count);
         for (row, id) in rows.iter().zip(selected) {
             if decode::integer(row, "id")? != *id {

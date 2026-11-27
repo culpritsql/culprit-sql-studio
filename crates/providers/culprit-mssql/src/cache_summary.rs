@@ -2,14 +2,19 @@
 use crate::read::{NativeRead, ReadError, ReadSession, integer, invalid_data, optional_integer};
 use culprit_core::{Coverage, MeasurementScope, PlanCacheUse, Result, telemetry::*};
 
-const SUMMARY: &str = r#"SELECT COUNT_BIG(*) AS total_plans,COUNT_BIG(cp.size_in_bytes) AS known_sizes,
+fn summary_sql() -> String {
+    format!(
+        r#"SELECT COUNT_BIG(*) AS total_plans,COUNT_BIG(cp.size_in_bytes) AS known_sizes,
  SUM(CAST(cp.size_in_bytes AS bigint)) AS total_bytes,
  SUM(CASE WHEN cp.usecounts=1 AND cp.objtype='Adhoc' THEN CAST(1 AS bigint) ELSE 0 END) AS adhoc_lookup_one_entries,
  SUM(CASE WHEN cp.usecounts=1 AND cp.objtype='Adhoc' THEN CAST(cp.size_in_bytes AS bigint) ELSE 0 END) AS adhoc_lookup_one_bytes,
  SUM(CASE WHEN cp.usecounts=1 AND cp.objtype='Prepared' THEN CAST(1 AS bigint) ELSE 0 END) AS prepared_lookup_one_entries,
  SUM(CASE WHEN cp.usecounts=1 AND cp.objtype='Prepared' THEN CAST(cp.size_in_bytes AS bigint) ELSE 0 END) AS prepared_lookup_one_bytes
  FROM sys.dm_exec_cached_plans cp CROSS APPLY sys.dm_exec_plan_attributes(cp.plan_handle) pa
- WHERE pa.attribute='dbid' AND CAST(pa.value AS int)=DB_ID() OPTION(MAXDOP 1)"#;
+ WHERE {database} OPTION(MAXDOP 1)"#,
+        database = crate::cached_statements::DATABASE_PREDICATE
+    )
+}
 
 pub(crate) struct Summary {
     total_plans: u64,
@@ -75,7 +80,7 @@ impl Summary {
     }
 }
 pub(crate) async fn read<R: NativeRead>(reader: &mut R) -> Result<Summary> {
-    let rows = reader.query(SUMMARY, vec![], 2).await.map_err(ReadError::into_error)?;
+    let rows = reader.query(&summary_sql(), vec![], 2).await.map_err(ReadError::into_error)?;
     let [row] = rows.as_slice() else { return Err(invalid_data()) };
     let total = integer(row, "total_plans")?;
     if integer(row, "known_sizes")? != total {

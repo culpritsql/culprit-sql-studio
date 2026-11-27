@@ -348,14 +348,7 @@ impl<R: crate::read::NativeRead> Source<R> {
             let description = self.description.as_ref().ok_or_else(decode::malformed)?;
             return self
                 .definitions
-                .page(
-                    &mut self.session,
-                    &description.value,
-                    &self.request.budget,
-                    stream,
-                    token,
-                    description.layout.variants == crate::query_store::variants_sql::Availability::Readable,
-                )
+                .page(&mut self.session, &description.value, &self.request.budget, stream, token, description.layout)
                 .await;
         }
         if self.definitions.is_frozen() {

@@ -529,6 +529,9 @@ impl<R: NativeRead> Reader<R> {
         }
         Ok(compilations)
     }
+    pub(super) fn definition_layout(&self) -> Option<NativeLayout> {
+        self.layout.and(self.native_layout)
+    }
     pub(crate) fn variant_families_supported(&self) -> bool {
         self.variant_family_availability() == super::variants_sql::Availability::Readable
     }

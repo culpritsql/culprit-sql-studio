@@ -15,7 +15,9 @@ pub(crate) use statement::{native_statement_from_prefix, statement_from_prefix};
 pub(crate) fn relation() -> &'static str {
     "FROM sys.dm_exec_query_stats qs CROSS APPLY sys.dm_exec_plan_attributes(qs.plan_handle) pa OUTER APPLY sys.dm_exec_sql_text(qs.sql_handle) st"
 }
-pub(crate) const DATABASE_PREDICATE: &str = "pa.attribute='dbid' AND CAST(pa.value AS int)=DB_ID()";
+// Plan attributes are sql_variant. The optimizer may compare values before filtering by attribute name,
+// including app_domain values too large for int. Convert only the known database ID.
+pub(crate) const DATABASE_PREDICATE: &str = "pa.attribute='dbid' AND pa.value=CONVERT(sql_variant,DB_ID())";
 pub(crate) fn context_columns() -> String {
     context_columns_from("qs", "st", "pa.value")
 }
