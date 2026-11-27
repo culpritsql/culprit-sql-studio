@@ -27,4 +27,6 @@ Key facts:
 ## Optional
 
 - [Design](https://culpritsql.com/docs/design.md): how the product behaves and why
+- [Culprit Fleet](https://fleet.culpritsql.com/): self-hosted multi-region database fleet command center, archive time-machine and remote MCP server (`https://github.com/culpritsql/culprit-fleet`)
+- [Culprit Explain](https://explain.culpritsql.com/): client-side WebAssembly SQL execution plan, diff, deadlock and `.xel` visualizer (`https://github.com/culpritsql/culprit-explain`)
 - [Everything in one file](https://culpritsql.com/llms-full.txt): the overview, guide, coding agents, engine parity and provider docs concatenated
