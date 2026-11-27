@@ -149,20 +149,31 @@ pub(super) fn census_rows(
     let columns = request_columns(availability);
     let scope_basis = if scope.is_database() {
         "CASE WHEN r.request_id IS NOT NULL THEN CASE WHEN r.database_id=DB_ID() THEN 1
-   WHEN s.session_id IN(SELECT blocking_session_id FROM sys.dm_exec_requests WHERE database_id=DB_ID() AND blocking_session_id>0) THEN 4 ELSE 5 END
+   WHEN roles.blocks_database=1 THEN 4 ELSE 5 END
    WHEN tx.database_id=DB_ID() THEN 2 WHEN s.database_id=DB_ID() THEN 3
-   WHEN s.session_id IN(SELECT blocking_session_id FROM sys.dm_exec_requests WHERE database_id=DB_ID() AND blocking_session_id>0) THEN 4 ELSE 5 END"
+   WHEN roles.blocks_database=1 THEN 4 ELSE 5 END"
     } else {
         "6"
     };
+    // Merge the grouped roles once. A correlated nested loop enumerates native requests again for each idle session.
+    // The separate detail join keeps every in-scope MARS request and its native generation.
     let session_context = format!("{}{extra_columns}", super::session_context::COLUMNS);
     format!(
         r#"SELECT {columns},{session_context},
-  CASE WHEN s.session_id IN(SELECT blocking_session_id FROM sys.dm_exec_requests WHERE blocking_session_id>0) THEN 1 ELSE 0 END AS reported_blocker,
-  CASE WHEN NOT EXISTS(SELECT 1 FROM sys.dm_exec_requests ar WHERE ar.session_id=s.session_id) THEN 1 ELSE 0 END AS no_current_request,
+  COALESCE(roles.blocks_request,0) AS reported_blocker,
+  CASE WHEN r.request_id IS NULL AND COALESCE(roles.has_request,0)=0 THEN 1 ELSE 0 END AS no_current_request,
   {scope_basis} AS scope_basis,
   tx.transaction_id,CONVERT(varchar(40),CAST(tx.transaction_start AS datetime2),126) AS transaction_start
  FROM sys.dm_exec_sessions s
+ LEFT MERGE JOIN (
+  SELECT actor.session_id,MAX(actor.has_request) AS has_request,MAX(actor.blocks_request) AS blocks_request,
+   MAX(actor.blocks_database) AS blocks_database
+  FROM sys.dm_exec_requests observed
+  CROSS APPLY (VALUES (observed.session_id,1,0,0),
+   (observed.blocking_session_id,0,1,CASE WHEN observed.database_id=DB_ID() THEN 1 ELSE 0 END))
+   actor(session_id,has_request,blocks_request,blocks_database)
+  WHERE actor.session_id>0 GROUP BY actor.session_id
+ ) roles ON roles.session_id=s.session_id
  LEFT JOIN sys.dm_exec_requests r ON r.session_id=s.session_id AND (@P2=0 OR r.database_id=DB_ID())
  LEFT JOIN sys.dm_exec_sessions b ON b.session_id=r.blocking_session_id
  OUTER APPLY (
@@ -174,7 +185,7 @@ pub(super) fn census_rows(
  ) tx{extra_relation}
  WHERE s.is_user_process=1 AND s.session_id<>@@SPID
   AND (@P2=0 OR r.request_id IS NOT NULL OR s.database_id=DB_ID() OR (s.open_transaction_count>0 AND tx.transaction_id IS NOT NULL)
-   OR s.session_id IN(SELECT blocking_session_id FROM sys.dm_exec_requests WHERE database_id=DB_ID() AND blocking_session_id>0))
+   OR roles.blocks_database=1)
 "#
     )
 }

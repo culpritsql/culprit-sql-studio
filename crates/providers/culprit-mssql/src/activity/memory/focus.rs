@@ -81,36 +81,35 @@ fn select(frame: &mut MemoryFrame, focus: &ActivityRequestFocus) -> Result<Selec
     });
     let database = focus.target.database().ok_or_else(invalid_data)?;
     let mut subjects = frame.grants.iter().filter(|row| {
-        row.is_admission_participant(&database.database)
+        row.identity.id == numeric_key
             && row.request.as_ref().is_some_and(|request| {
                 request.key == original.key && request.statement_identity.as_ref() == Some(&focus.statement_identity)
             })
+            && row.is_admission_participant(&database.database)
     });
     let subject = subjects.next().cloned();
     if subjects.next().is_some() {
         return Err(invalid_data());
     }
-    let peers = subject
-        .as_ref()
-        .map(|subject| {
-            frame
-                .grants
-                .iter()
-                .filter(|row| subject.shares_admission_resource(row, &database.database))
-                .map(|row| row.identity.clone())
-                .collect::<Vec<_>>()
-        })
-        .unwrap_or_default();
+    let mut peers = Vec::new();
     frame.grants.retain(|row| {
-        subject.as_ref().is_some_and(|subject| row.identity == subject.identity) || peers.contains(&row.identity)
+        let Some(subject) = &subject else { return false };
+        if row.identity == subject.identity {
+            return true;
+        }
+        if subject.shares_admission_resource(row, &database.database) {
+            peers.push(row.identity.clone());
+            return true;
+        }
+        false
     });
-    frame.activity.records.retain(|row| {
-        frame.grants.iter().any(|grant| {
-            grant.request.as_ref().is_some_and(|request| {
-                request.key == row.facts.key && request.statement_identity == row.facts.statement_identity
-            })
-        })
-    });
+    let participants = frame
+        .grants
+        .iter()
+        .filter_map(|grant| grant.request.as_ref())
+        .map(|request| (&request.key, &request.statement_identity))
+        .collect::<BTreeSet<_>>();
+    frame.activity.records.retain(|row| participants.contains(&(&row.facts.key, &row.facts.statement_identity)));
     Ok(Selection {
         membership: if subject.is_some() {
             RequestMemoryMembership::Observed

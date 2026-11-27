@@ -59,20 +59,22 @@ fn limit_alias(name: &str) -> String {
 }
 
 pub(super) fn qualified_scope(owner: &crate::local_source::Context, shared_scope: bool) -> bool {
-    shared_scope && owner.activity.major >= MIN_NATIVE_MAJOR && NATIVE_EDITIONS.contains(&owner.activity.edition)
+    shared_scope && supports_platform(owner.activity.edition, owner.activity.major)
 }
 
-pub(super) fn inventory_sql(shared_scope: bool) -> String {
-    let names = names().map(|name| format!("N'{name}'")).collect::<Vec<_>>().join(",");
-    let limits = limit_names().map(|name| format!("N'{name}'")).collect::<Vec<_>>().join(",");
+pub(super) fn supports_platform(edition: i64, major: u32) -> bool {
+    major >= MIN_NATIVE_MAJOR && NATIVE_EDITIONS.contains(&edition)
+}
+
+pub(super) fn inventory_sql() -> String {
+    let columns = fields::inventory_columns(OBJECT, "workload_group.", names());
+    let limits = fields::inventory_columns(STORED_OBJECT, "workload_group_limits.", limit_names());
     let editions = NATIVE_EDITIONS.iter().map(i64::to_string).collect::<Vec<_>>().join(",");
     let admitted = format!(
-        "{}=1 AND TRY_CONVERT(int,SERVERPROPERTY('EngineEdition')) IN({editions}) AND TRY_CONVERT(int,SERVERPROPERTY('ProductMajorVersion'))>={MIN_NATIVE_MAJOR} AND HAS_PERMS_BY_NAME(NULL,NULL,'VIEW SERVER PERFORMANCE STATE')=1",
-        u8::from(shared_scope)
+        "TRY_CONVERT(int,SERVERPROPERTY('EngineEdition')) IN({editions}) AND TRY_CONVERT(int,SERVERPROPERTY('ProductMajorVersion'))>={MIN_NATIVE_MAJOR} AND HAS_PERMS_BY_NAME(NULL,NULL,'VIEW SERVER PERFORMANCE STATE')=1"
     );
     format!(
-        "SELECT N'workload_group.'+name AS name FROM sys.all_columns WHERE object_id=OBJECT_ID(N'{OBJECT}') AND name IN({names}) AND {admitted} \
-         UNION ALL SELECT N'workload_group_limits.'+name AS name FROM sys.all_columns WHERE object_id=OBJECT_ID(N'{STORED_OBJECT}') AND name IN({limits}) AND {admitted} AND HAS_PERMS_BY_NAME(NULL,NULL,'VIEW ANY DEFINITION')=1"
+        "{columns} AND {admitted} UNION ALL {limits} AND {admitted} AND HAS_PERMS_BY_NAME(NULL,NULL,'VIEW ANY DEFINITION')=1"
     )
 }
 

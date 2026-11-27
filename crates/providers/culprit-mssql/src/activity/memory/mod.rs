@@ -34,7 +34,7 @@ pub(crate) struct MemoryCapture {
 }
 impl MemoryFrame {
     pub fn into_observations(self) -> Result<Vec<ExecutionGrantObservation>> {
-        let requests = self
+        let mut requests = self
             .activity
             .records
             .into_iter()
@@ -45,7 +45,7 @@ impl MemoryFrame {
             .into_iter()
             .map(|mut grant| {
                 if let Some(before) = &grant.request {
-                    let current = requests.get(&before.key).ok_or_else(invalid_data)?.clone();
+                    let current = requests.remove(&before.key).ok_or_else(invalid_data)?;
                     grant.statement_relationship = if matches!(current.statement, DefinitionPayload::Available { .. }) {
                         GrantStatementRelationship::ObservedCurrentStatement
                     } else {
@@ -138,7 +138,7 @@ impl<R: NativeRead> ActivityReader<R> {
                 return Err(CollectionStop::SourceChanged.error());
             }
             let Some((grant, request)) = decode(row, &context, &layout)? else { continue };
-            if !identities.insert(grant.key()?) {
+            if !identities.insert(grant.identity.clone()) {
                 return Err(invalid_data());
             }
             grants.push(grant);
@@ -150,7 +150,7 @@ impl<R: NativeRead> ActivityReader<R> {
             return Err(CollectionStop::RowLimit.error());
         }
         let activity = ActivityFrame { context: context.clone(), records };
-        ActivityEvidence::validate(&activity.observations())?;
+        ActivityEvidence::validate_references(activity.records.iter().map(|record| &record.facts))?;
         let complete_scope = initial.is_qualified()
             && grants.iter().all(|row| row.request_association == RequestGrantAssociation::GenerationChecked);
         Ok(MemoryFrame { context, owner: initial, complete_scope, activity, grants })

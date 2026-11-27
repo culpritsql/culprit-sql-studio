@@ -142,10 +142,15 @@ async fn verify_metadata(fixture: &mut Fixture, pair: &ReservationPair) -> Resul
     let result = AssertUnwindSafe(until_cancelled(&cancellation, async {
         // These independent fixture plan probes preserve the old no-grant assertions. They are not source
         // acquisition queries, nor cost evidence for the boxed/MI/Azure production profiles.
-        let inventory_plans =
-            assert_no_execution_grant(&mut client, &crate::activity::memory::fields::inventory_sql(true), vec![])
-                .await
-                .len();
+        let workload_groups =
+            super::super::workload_group::supports_platform(pair.point.native_edition, pair.point.native_major);
+        let inventory_plans = assert_no_execution_grant(
+            &mut client,
+            &crate::activity::memory::fields::inventory_sql(true, workload_groups),
+            vec![],
+        )
+        .await
+        .len();
         let observation_plans = assert_no_execution_grant(
             &mut client,
             &pair.point.metadata.observation,

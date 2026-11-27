@@ -41,13 +41,10 @@ pub(super) fn qualified_scope(owner: &crate::local_source::Context) -> bool {
         && owner.source_instance().is_some_and(|resource| resource.kind == SharedResourceKind::Instance)
 }
 
-pub(super) fn inventory_sql(shared_scope: bool) -> String {
-    let selected = names().map(|name| format!("N'{name}'")).collect::<Vec<_>>().join(",");
-    let shared_scope = u8::from(shared_scope);
+pub(super) fn inventory_sql() -> String {
+    let columns = fields::inventory_columns(OBJECT, "resource.", names());
     format!(
-        "SELECT N'resource.'+name AS name FROM sys.all_columns WHERE object_id=OBJECT_ID(N'{OBJECT}') AND name IN ({selected}) \
-         AND {shared_scope}=1 \
-         AND (HAS_PERMS_BY_NAME(NULL,NULL,'VIEW SERVER PERFORMANCE STATE')=1 \
+        "{columns} AND (HAS_PERMS_BY_NAME(NULL,NULL,'VIEW SERVER PERFORMANCE STATE')=1 \
          OR (TRY_CONVERT(int,SERVERPROPERTY('ProductMajorVersion'))<16 AND HAS_PERMS_BY_NAME(NULL,NULL,'VIEW SERVER STATE')=1))"
     )
 }

@@ -190,6 +190,7 @@ async fn only_verified_same_resource_peers_survive_and_masked_resources_never_ga
             IdentityDetail::AzureDatabase,
         );
         let focused = reader.capture_focused_memory(&original_focus()).await.unwrap();
+        assert!(!focused.capture.complete_scope, "unverified grants still count against population coverage");
         assert_eq!(focused.capture.observations.len(), if masked { 1 } else { 2 });
         assert_eq!(focused.result.peers.len(), usize::from(!masked));
         assert_eq!(focused.result.resource.is_none(), masked);

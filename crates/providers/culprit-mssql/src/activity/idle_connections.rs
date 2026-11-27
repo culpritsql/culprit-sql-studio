@@ -28,7 +28,7 @@ const RELATION: &str = r#"
   WHERE r.request_id IS NULL AND s.login_time IS NOT NULL
    AND CONVERT(date,s.login_time)<>CONVERT(date,'19000101',112)
    AND LOWER(s.status) NOT IN(N'dormant',N'preconnect')
-   AND NOT EXISTS(SELECT 1 FROM sys.dm_exec_requests current_request WHERE current_request.session_id=s.session_id)
+   AND COALESCE(roles.has_request,0)=0
    AND c.session_id=s.session_id AND c.most_recent_session_id=s.session_id AND c.parent_connection_id IS NULL
  ) candidate
  ) pc"#;

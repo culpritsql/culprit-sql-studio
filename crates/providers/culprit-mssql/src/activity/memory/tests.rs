@@ -245,7 +245,8 @@ async fn tenant_authority_and_zero_resource_identifiers_do_not_qualify_shared_in
     assert!(rows[0].resource_observation.is_none());
     assert_eq!(rows[0].granted_kibibytes.as_deref(), Some("65536"));
     assert!(!reader.io.calls[3].sql.contains("JOIN sys.dm_exec_query_resource_semaphores"));
-    assert!(reader.io.calls[2].sql.contains("AND 0=1"));
+    assert!(!reader.io.calls[2].sql.contains("dm_exec_query_resource_semaphores"));
+    assert!(!reader.io.calls[2].sql.contains("resource_governor_workload_groups"));
     assert_eq!(reader.query_count(), 4);
 }
 

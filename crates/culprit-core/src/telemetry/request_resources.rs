@@ -188,13 +188,13 @@ impl ExecutionGrantObservation {
 
     /// Same-read candidates, never blockers or a complete resource population. Caller owns the read context.
     pub fn shares_admission_resource(&self, other: &Self, database: &str) -> bool {
-        self.is_admission_participant(database)
-            && other.is_admission_participant(database)
-            && self.source == other.source
+        self.source == other.source
             && self.resource.is_some()
             && self.resource == other.resource
-            && canonical_time(&self.observed_at).ok() == canonical_time(&other.observed_at).ok()
             && self.request.as_ref().map(|request| &request.key) != other.request.as_ref().map(|request| &request.key)
+            && self.is_admission_participant(database)
+            && other.is_admission_participant(database)
+            && canonical_time(&self.observed_at).ok() == canonical_time(&other.observed_at).ok()
     }
 
     /// Database captures retain unresolved native reservations without claiming them as database demand.

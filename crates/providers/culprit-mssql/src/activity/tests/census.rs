@@ -342,7 +342,8 @@ async fn explicit_census_adds_idle_primary_connection_without_changing_live_or_r
     assert!(
         query.contains("c.parent_connection_id IS NULL") && query.contains("c.most_recent_session_id=s.session_id")
     );
-    assert!(query.contains("current_request.session_id=s.session_id"));
+    assert!(query.contains("COALESCE(roles.has_request,0)=0"));
+    assert!(query.contains("(observed.session_id,1,0,0)"));
     assert!(
         !query.contains("current_request.database_id"),
         "foreign-database current requests must withhold idle identity"

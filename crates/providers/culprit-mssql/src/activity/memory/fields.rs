@@ -63,14 +63,23 @@ pub(super) struct Layout {
     resource: resource::Layout,
     workload_group: workload_group::Layout,
 }
-pub(super) fn inventory_sql(shared_scope: bool) -> String {
-    let names = names().map(|name| format!("N'{name}'")).collect::<Vec<_>>().join(",");
+/// Probe only the named system columns. COL_LENGTH also returns NULL for invisible metadata.
+pub(super) fn inventory_columns(object: &str, prefix: &str, names: impl Iterator<Item = &'static str>) -> String {
+    let values = names.map(|name| format!("(N'{name}')")).collect::<Vec<_>>().join(",");
     format!(
-        "SELECT /* culprit */ name FROM sys.all_columns WHERE object_id=OBJECT_ID(N'{OBJECT}') AND name IN ({names}) UNION ALL {} UNION ALL {} {}",
-        resource::inventory_sql(shared_scope),
-        workload_group::inventory_sql(shared_scope),
-        super::super::sql::QueryPolicy::MemoryDiagnostic.hints()
+        "SELECT /* culprit */ N'{prefix}'+c.name AS name FROM (VALUES {values}) c(name) WHERE COL_LENGTH(N'{object}',c.name) IS NOT NULL"
     )
+}
+
+pub(super) fn inventory_sql(shared_scope: bool, workload_group_scope: bool) -> String {
+    let mut probes = vec![inventory_columns(OBJECT, "", names())];
+    if shared_scope {
+        probes.push(resource::inventory_sql());
+    }
+    if workload_group_scope {
+        probes.push(workload_group::inventory_sql());
+    }
+    format!("{} {}", probes.join(" UNION ALL "), super::super::sql::QueryPolicy::MemoryDiagnostic.hints())
 }
 impl Layout {
     pub async fn read<R: NativeRead>(reader: &mut R, owner: &crate::local_source::Context) -> Result<Self> {
@@ -78,7 +87,7 @@ impl Layout {
         let workload_group_scope = workload_group::qualified_scope(owner, shared_scope);
         let rows = reader
             .query(
-                &inventory_sql(shared_scope),
+                &inventory_sql(shared_scope, workload_group_scope),
                 vec![],
                 FIELDS.len() + PROPERTIES.len() + resource::COLUMN_COUNT + workload_group::COLUMN_COUNT + 1,
             )
