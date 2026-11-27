@@ -421,6 +421,10 @@ jobs:
         run: |
           bun install --frozen-lockfile
           bunx playwright install --with-deps --only-shell chromium
+      - name: Build and verify the portable archive reader
+        run: |
+          python3 -B dev/build-archive-client.py
+          node dev/smoke-archive-client.mjs
       # The UI in a real browser against the demo: navigation, the editor, findings, schema and plans by keyboard.
       - name: Interaction tests
         working-directory: app

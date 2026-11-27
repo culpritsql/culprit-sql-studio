@@ -15,6 +15,7 @@ on:
       - ".github/scripts/stage_plan_viewer_repo.py"
       - ".github/workflows/plan-viewer-sync.yml"
       - "dev/build-plan-viewer.py"
+      - "dev/ts_model_declarations.py"
       - "dev/smoke-plan-viewer.mjs"
       - "dev/licenses.py"
       - "dev/check-boundaries.py"
