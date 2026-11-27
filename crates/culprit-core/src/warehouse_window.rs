@@ -218,6 +218,60 @@ pub struct WindowReplicationPoint {
     pub report: crate::ReplicationReport,
 }
 
+#[derive(Clone, Debug, Serialize, TS)]
+#[ts(export)]
+pub struct WindowStoragePoint {
+    pub original: DiagnosticCaptureRef,
+    pub native_clock: WindowNativeClock,
+    pub read_complete: bool,
+    pub report: crate::StorageReport,
+}
+
+#[derive(Clone, Debug, Serialize, TS)]
+#[ts(export)]
+pub struct WindowMemoryClerkPoint {
+    pub original: DiagnosticCaptureRef,
+    pub native_clock: WindowNativeClock,
+    pub read_complete: bool,
+    pub report: crate::MemoryClerkReport,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, TS)]
+#[serde(rename_all = "kebab-case")]
+#[ts(export)]
+pub enum WindowMemoryGrantKind {
+    RequestGrants,
+    SessionMemory,
+}
+
+#[derive(Clone, Debug, Serialize, TS)]
+#[ts(export)]
+pub struct WindowMemoryGrantPoint {
+    pub original: DiagnosticCaptureRef,
+    pub native_clock: WindowNativeClock,
+    pub read_complete: bool,
+    pub kind: WindowMemoryGrantKind,
+    pub report: crate::MemoryParticipantsReport,
+}
+
+#[derive(Clone, Debug, Serialize, TS)]
+#[ts(export)]
+pub struct WindowSpillPoint {
+    pub original: DiagnosticCaptureRef,
+    pub native_clock: WindowNativeClock,
+    pub read_complete: bool,
+    pub report: crate::CompletedSpillReport,
+}
+
+#[derive(Clone, Debug, Serialize, TS)]
+#[ts(export)]
+pub struct WindowJobsPoint {
+    pub original: DiagnosticCaptureRef,
+    pub native_clock: WindowNativeClock,
+    pub read_complete: bool,
+    pub report: crate::JobsReport,
+}
+
 #[derive(Clone, Debug, Default, Serialize, TS)]
 #[ts(export)]
 pub struct WindowTelemetry {
@@ -228,6 +282,16 @@ pub struct WindowTelemetry {
     pub replication: Vec<WindowReplicationPoint>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub node_resources: Vec<crate::NodeResources>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub storage: Vec<WindowStoragePoint>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub memory_clerks: Vec<WindowMemoryClerkPoint>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub memory_grants: Vec<WindowMemoryGrantPoint>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub spills: Vec<WindowSpillPoint>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub jobs: Vec<WindowJobsPoint>,
 }
 
 impl WindowTelemetry {
@@ -238,6 +302,11 @@ impl WindowTelemetry {
             && self.deadlocks.is_empty()
             && self.replication.is_empty()
             && self.node_resources.is_empty()
+            && self.storage.is_empty()
+            && self.memory_clerks.is_empty()
+            && self.memory_grants.is_empty()
+            && self.spills.is_empty()
+            && self.jobs.is_empty()
     }
 }
 

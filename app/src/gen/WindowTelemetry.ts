@@ -2,8 +2,13 @@
 import type { Deadlock } from "./Deadlock";
 import type { NodeResources } from "./NodeResources";
 import type { WindowActivityPoint } from "./WindowActivityPoint";
+import type { WindowJobsPoint } from "./WindowJobsPoint";
+import type { WindowMemoryClerkPoint } from "./WindowMemoryClerkPoint";
+import type { WindowMemoryGrantPoint } from "./WindowMemoryGrantPoint";
 import type { WindowReplicationPoint } from "./WindowReplicationPoint";
 import type { WindowResourceCapture } from "./WindowResourceCapture";
+import type { WindowSpillPoint } from "./WindowSpillPoint";
+import type { WindowStoragePoint } from "./WindowStoragePoint";
 import type { WindowWaitInterval } from "./WindowWaitInterval";
 
-export type WindowTelemetry = { resources: Array<WindowResourceCapture>, wait_intervals: Array<WindowWaitInterval>, activity: Array<WindowActivityPoint>, deadlocks: Array<Deadlock>, replication: Array<WindowReplicationPoint>, node_resources?: Array<NodeResources>, };
+export type WindowTelemetry = { resources: Array<WindowResourceCapture>, wait_intervals: Array<WindowWaitInterval>, activity: Array<WindowActivityPoint>, deadlocks: Array<Deadlock>, replication: Array<WindowReplicationPoint>, node_resources?: Array<NodeResources>, storage?: Array<WindowStoragePoint>, memory_clerks?: Array<WindowMemoryClerkPoint>, memory_grants?: Array<WindowMemoryGrantPoint>, spills?: Array<WindowSpillPoint>, jobs?: Array<WindowJobsPoint>, };

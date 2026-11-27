@@ -57,6 +57,13 @@ impl WarehouseWindowReport {
         }
         // Keep the existing incident/caller/role renderer as the one owner, without cloning the report.
         self.incident_limitations = crate::warehouse_connection::prepare_incident_report(&mut self.incidents);
+        if let Some(telemetry) = &mut self.telemetry {
+            for point in &mut telemetry.jobs {
+                for event in &mut point.report.executions.events {
+                    event.refresh_language();
+                }
+            }
+        }
     }
 }
 impl WindowRowPlacement {

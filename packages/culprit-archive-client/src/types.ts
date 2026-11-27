@@ -18,8 +18,14 @@ export type { WarehouseIncidentView } from "../../../app/src/gen/WarehouseIncide
 export type { WarehouseWindowQuery } from "../../../app/src/gen/WarehouseWindowQuery";
 export type { WarehouseWindowReport } from "../../../app/src/gen/WarehouseWindowReport";
 export type { WindowActivityPoint } from "../../../app/src/gen/WindowActivityPoint";
+export type { WindowJobsPoint } from "../../../app/src/gen/WindowJobsPoint";
+export type { WindowMemoryClerkPoint } from "../../../app/src/gen/WindowMemoryClerkPoint";
+export type { WindowMemoryGrantKind } from "../../../app/src/gen/WindowMemoryGrantKind";
+export type { WindowMemoryGrantPoint } from "../../../app/src/gen/WindowMemoryGrantPoint";
 export type { WindowReplicationPoint } from "../../../app/src/gen/WindowReplicationPoint";
 export type { WindowResourceCapture } from "../../../app/src/gen/WindowResourceCapture";
+export type { WindowSpillPoint } from "../../../app/src/gen/WindowSpillPoint";
+export type { WindowStoragePoint } from "../../../app/src/gen/WindowStoragePoint";
 export type { WindowTelemetry } from "../../../app/src/gen/WindowTelemetry";
 export type { WindowWaitDelta } from "../../../app/src/gen/WindowWaitDelta";
 export type { WindowWaitInterval } from "../../../app/src/gen/WindowWaitInterval";

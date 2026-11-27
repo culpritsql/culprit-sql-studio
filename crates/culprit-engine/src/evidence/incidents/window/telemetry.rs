@@ -1,8 +1,10 @@
-//! Pure projection of non-query window telemetry captures (resources, waits, activity, deadlocks, replication).
+//! Pure projection of non-query window telemetry captures (resources, waits, activity, deadlocks, replication,
+//! storage, memory clerks, memory grants, spills, and scheduled jobs).
 use super::*;
 use culprit_core::{
-    Deadlock, MeasurementScope, ResetMarker, ResourceSample, WindowActivityPoint, WindowReplicationPoint,
-    WindowResourceCapture, WindowTelemetry, WindowWaitDelta, WindowWaitInterval,
+    Deadlock, MeasurementScope, ResetMarker, ResourceSample, WindowActivityPoint, WindowJobsPoint,
+    WindowMemoryClerkPoint, WindowMemoryGrantKind, WindowMemoryGrantPoint, WindowReplicationPoint,
+    WindowResourceCapture, WindowSpillPoint, WindowStoragePoint, WindowTelemetry, WindowWaitDelta, WindowWaitInterval,
     telemetry::{ActivityWaitOwner, SnapshotDataset, SourceObservation, TelemetryCollection, WaitCounterObservation},
 };
 use std::collections::{BTreeMap, BTreeSet};
@@ -144,6 +146,84 @@ pub(super) fn project(
             });
         }
 
+        if capture.families().contains(&EvidenceFamily::OperationalSamples)
+            && let Some(snap) = source.observation.snapshot()
+        {
+            match snap.dataset {
+                SnapshotDataset::Operational => {
+                    if let Ok(analysis) = crate::collected_resources::storage(capture) {
+                        telemetry.storage.push(WindowStoragePoint {
+                            original: super::reference(capture)?,
+                            native_clock: native_clock.clone(),
+                            read_complete: capture.is_read_complete(),
+                            report: *analysis.report,
+                        });
+                    }
+                    if let Ok(analysis) = crate::collected_resources::memory_clerks(capture) {
+                        telemetry.memory_clerks.push(WindowMemoryClerkPoint {
+                            original: super::reference(capture)?,
+                            native_clock: native_clock.clone(),
+                            read_complete: capture.is_read_complete(),
+                            report: *analysis.report,
+                        });
+                    }
+                }
+                SnapshotDataset::CurrentRequestMemory => {
+                    if let Ok(analysis) = crate::collected_resources::request_memory(capture) {
+                        telemetry.memory_grants.push(WindowMemoryGrantPoint {
+                            original: super::reference(capture)?,
+                            native_clock: native_clock.clone(),
+                            read_complete: capture.is_read_complete(),
+                            kind: WindowMemoryGrantKind::RequestGrants,
+                            report: analysis.report,
+                        });
+                    }
+                }
+                SnapshotDataset::SessionMemory => {
+                    if let Ok(analysis) = crate::collected_resources::session_memory(capture) {
+                        telemetry.memory_grants.push(WindowMemoryGrantPoint {
+                            original: super::reference(capture)?,
+                            native_clock: native_clock.clone(),
+                            read_complete: capture.is_read_complete(),
+                            kind: WindowMemoryGrantKind::SessionMemory,
+                            report: analysis.report,
+                        });
+                    }
+                }
+                SnapshotDataset::CachedRuntime => {
+                    let def_capture = captures.iter().copied().find(|candidate| {
+                        candidate.range_id() != capture.range_id()
+                            && candidate.families().contains(&EvidenceFamily::ObjectDefinitions)
+                            && candidate.source().observation.snapshot().is_some_and(|s| {
+                                matches!(s.dataset, SnapshotDataset::CachedDefinitions | SnapshotDataset::RetainedPlans)
+                            })
+                    });
+                    let spill_analysis = def_capture
+                        .and_then(|defs| crate::collected_resources::completed_spills(capture, Some(defs)).ok())
+                        .or_else(|| crate::collected_resources::completed_spills(capture, None).ok());
+                    if let Some(analysis) = spill_analysis {
+                        telemetry.spills.push(WindowSpillPoint {
+                            original: super::reference(capture)?,
+                            native_clock: native_clock.clone(),
+                            read_complete: capture.is_read_complete(),
+                            report: analysis.report,
+                        });
+                    }
+                }
+                SnapshotDataset::Jobs => {
+                    if let Ok(analysis) = crate::collected_resources::jobs(capture) {
+                        telemetry.jobs.push(WindowJobsPoint {
+                            original: super::reference(capture)?,
+                            native_clock: native_clock.clone(),
+                            read_complete: capture.is_read_complete(),
+                            report: analysis.report,
+                        });
+                    }
+                }
+                _ => {}
+            }
+        }
+
         if capture.families().contains(&EvidenceFamily::WaitCounterSamples)
             && source.observation.snapshot().is_some_and(|snap| snap.dataset == SnapshotDataset::WaitCounters)
             && let WindowNativeClock::Observation { from, until } | WindowNativeClock::Interval { from, until } =
@@ -254,6 +334,11 @@ pub(super) fn project(
     telemetry.resources.sort_by(|a, b| clock_sort_key(&a.native_clock).cmp(&clock_sort_key(&b.native_clock)));
     telemetry.activity.sort_by(|a, b| clock_sort_key(&a.native_clock).cmp(&clock_sort_key(&b.native_clock)));
     telemetry.replication.sort_by(|a, b| clock_sort_key(&a.native_clock).cmp(&clock_sort_key(&b.native_clock)));
+    telemetry.storage.sort_by(|a, b| clock_sort_key(&a.native_clock).cmp(&clock_sort_key(&b.native_clock)));
+    telemetry.memory_clerks.sort_by(|a, b| clock_sort_key(&a.native_clock).cmp(&clock_sort_key(&b.native_clock)));
+    telemetry.memory_grants.sort_by(|a, b| clock_sort_key(&a.native_clock).cmp(&clock_sort_key(&b.native_clock)));
+    telemetry.spills.sort_by(|a, b| clock_sort_key(&a.native_clock).cmp(&clock_sort_key(&b.native_clock)));
+    telemetry.jobs.sort_by(|a, b| clock_sort_key(&a.native_clock).cmp(&clock_sort_key(&b.native_clock)));
     telemetry.deadlocks.sort_by(|a, b| b.at.cmp(&a.at));
     telemetry.wait_intervals.sort_by(|a, b| (&a.from, &a.until).cmp(&(&b.from, &b.until)));
 
@@ -264,5 +349,67 @@ fn clock_sort_key(clock: &WindowNativeClock) -> (&str, &str) {
     match clock {
         WindowNativeClock::Interval { from, until } | WindowNativeClock::Observation { from, until } => (from, until),
         WindowNativeClock::Unknown => ("", ""),
+    }
+}
+
+#[cfg(all(test, feature = "collector"))]
+mod tests {
+    use super::*;
+    use crate::collected_evidence::RetainedEvidenceFixture;
+    use culprit_evidence::analytical::{evidence::RecoveryPayloadBudget, test_support};
+
+    #[tokio::test]
+    async fn operational_window_telemetry_projects_storage_clerks_grants_spills_and_jobs() {
+        let (storage_src, storage_rows) = test_support::storage_evidence(test_support::StorageCase::FileCensus);
+        let storage_cap = RetainedEvidenceFixture::with_sequence(storage_src, storage_rows, 970_001)
+            .await
+            .read_families_with_recovery(&[EvidenceFamily::OperationalSamples], RecoveryPayloadBudget::default())
+            .await;
+
+        let (clerk_src, clerk_rows) =
+            test_support::instance_memory_clerk_evidence(test_support::MemoryClerkCase::Exact);
+        let clerk_cap = RetainedEvidenceFixture::with_sequence(clerk_src, clerk_rows, 970_002)
+            .await
+            .read_families_with_recovery(&[EvidenceFamily::OperationalSamples], RecoveryPayloadBudget::default())
+            .await;
+
+        let (grant_src, grant_rows) = test_support::request_memory_evidence_cases().remove(0);
+        let grant_cap = RetainedEvidenceFixture::with_sequence(grant_src, grant_rows, 970_003)
+            .await
+            .read_families_with_recovery(&[EvidenceFamily::OperationalSamples], RecoveryPayloadBudget::default())
+            .await;
+
+        let spill_case = test_support::completed_spill_evidence_cases()
+            .into_iter()
+            .find(|c| c.name == "recorded_spills")
+            .expect("recorded_spills fixture");
+        let spill_cap = RetainedEvidenceFixture::with_sequence(spill_case.runtime.0, spill_case.runtime.1, 970_004)
+            .await
+            .read_families_with_recovery(&[EvidenceFamily::OperationalSamples], RecoveryPayloadBudget::default())
+            .await;
+        let defs = spill_case.definitions.expect("definitions fixture");
+        let defs_cap = RetainedEvidenceFixture::with_sequence(defs.0, defs.1, 970_005)
+            .await
+            .read_families_with_recovery(&[EvidenceFamily::ObjectDefinitions], RecoveryPayloadBudget::default())
+            .await;
+
+        let (jobs_src, jobs_rows) = test_support::jobs_evidence_cases().remove(0);
+        let jobs_cap = RetainedEvidenceFixture::with_sequence(jobs_src, jobs_rows, 970_006)
+            .await
+            .read_families_with_recovery(&[EvidenceFamily::OperationalSamples], RecoveryPayloadBudget::default())
+            .await;
+
+        let refs = [&storage_cap, &clerk_cap, &grant_cap, &spill_cap, &defs_cap, &jobs_cap];
+        let projected = project(&refs, &|| Ok(())).expect("projection ok").expect("non-empty telemetry");
+
+        assert_eq!(projected.storage.len(), 1);
+        assert!(projected.storage[0].report.file_summary.is_some());
+        assert_eq!(projected.memory_clerks.len(), 1);
+        assert!(!projected.memory_clerks[0].report.entries.is_empty());
+        assert_eq!(projected.memory_grants.len(), 1);
+        assert_eq!(projected.memory_grants[0].kind, WindowMemoryGrantKind::RequestGrants);
+        assert_eq!(projected.spills.len(), 1);
+        assert!(!projected.spills[0].report.entries.is_empty());
+        assert_eq!(projected.jobs.len(), 1);
     }
 }
