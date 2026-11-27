@@ -274,6 +274,30 @@ pub struct WindowJobsPoint {
 
 #[derive(Clone, Debug, Default, Serialize, TS)]
 #[ts(export)]
+pub struct WindowSchemaCatalog {
+    pub observed_at: Option<String>,
+    pub tables: Vec<crate::TableStat>,
+    pub indexes: Vec<crate::IndexStat>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub columns: Vec<crate::ColumnInfo>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub foreign_keys: Vec<crate::ForeignKey>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub missing_indexes: Vec<crate::MissingIndex>,
+}
+
+impl WindowSchemaCatalog {
+    pub fn is_empty(&self) -> bool {
+        self.tables.is_empty()
+            && self.indexes.is_empty()
+            && self.columns.is_empty()
+            && self.foreign_keys.is_empty()
+            && self.missing_indexes.is_empty()
+    }
+}
+
+#[derive(Clone, Debug, Default, Serialize, TS)]
+#[ts(export)]
 pub struct WindowTelemetry {
     pub resources: Vec<WindowResourceCapture>,
     pub wait_intervals: Vec<WindowWaitInterval>,
@@ -292,6 +316,9 @@ pub struct WindowTelemetry {
     pub spills: Vec<WindowSpillPoint>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub jobs: Vec<WindowJobsPoint>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub schema: Option<WindowSchemaCatalog>,
 }
 
 impl WindowTelemetry {
@@ -307,6 +334,7 @@ impl WindowTelemetry {
             && self.memory_grants.is_empty()
             && self.spills.is_empty()
             && self.jobs.is_empty()
+            && self.schema.as_ref().is_none_or(WindowSchemaCatalog::is_empty)
     }
 }
 

@@ -1,11 +1,16 @@
 //! Pure projection of non-query window telemetry captures (resources, waits, activity, deadlocks, replication,
-//! storage, memory clerks, memory grants, spills, and scheduled jobs).
+//! storage, memory clerks, memory grants, spills, scheduled jobs, and schema catalogs).
 use super::*;
 use culprit_core::{
     Deadlock, MeasurementScope, ResetMarker, ResourceSample, WindowActivityPoint, WindowJobsPoint,
     WindowMemoryClerkPoint, WindowMemoryGrantKind, WindowMemoryGrantPoint, WindowReplicationPoint,
-    WindowResourceCapture, WindowSpillPoint, WindowStoragePoint, WindowTelemetry, WindowWaitDelta, WindowWaitInterval,
-    telemetry::{ActivityWaitOwner, SnapshotDataset, SourceObservation, TelemetryCollection, WaitCounterObservation},
+    WindowResourceCapture, WindowSchemaCatalog, WindowSpillPoint, WindowStoragePoint, WindowTelemetry, WindowWaitDelta,
+    WindowWaitInterval,
+    telemetry::{
+        ActivityWaitOwner, CatalogExpression, DefinitionPayload, MssqlIndexParentKind, MssqlIndexPresentation,
+        ObjectDefinitionFact, OperationalFact, SnapshotDataset, SourceObservation, TelemetryCollection,
+        WaitCounterObservation,
+    },
 };
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -21,11 +26,33 @@ pub(super) fn project(
     type WaitPoint<'a> =
         (DiagnosticCaptureRef, String, String, bool, Engine, MeasurementScope, Vec<&'a WaitCounterObservation>);
     let mut wait_groups: BTreeMap<String, Vec<WaitPoint<'_>>> = BTreeMap::new();
+    let mut schema_heads: Vec<(SnapshotDataset, (String, String), &EvidenceCapture)> = Vec::new();
 
     for capture in captures {
         check_cancelled()?;
         let source = capture.source();
         let native_clock = WindowNativeClock::from_original(source);
+
+        if capture.is_read_complete()
+            && let Some(snap) = source.observation.snapshot()
+            && matches!(
+                snap.dataset,
+                SnapshotDataset::Tables
+                    | SnapshotDataset::Indexes
+                    | SnapshotDataset::Columns
+                    | SnapshotDataset::ForeignKeys
+            )
+        {
+            let (f, u) = clock_sort_key(&native_clock);
+            let key = (f.to_owned(), u.to_owned());
+            if let Some(existing) = schema_heads.iter_mut().find(|(ds, _, _)| *ds == snap.dataset) {
+                if key >= existing.1 {
+                    *existing = (snap.dataset, key, *capture);
+                }
+            } else {
+                schema_heads.push((snap.dataset, key, *capture));
+            }
+        }
 
         if capture.families().contains(&EvidenceFamily::ResourceSamples)
             && source.observation.collection() == TelemetryCollection::ResourceHistory
@@ -328,6 +355,66 @@ pub(super) fn project(
                     waits,
                 });
             }
+        }
+    }
+
+    if !schema_heads.is_empty() {
+        let mut catalog = WindowSchemaCatalog::default();
+        for (dataset, (_, until), cap) in schema_heads {
+            if !until.is_empty() && catalog.observed_at.as_deref().is_none_or(|prev| until.as_str() > prev) {
+                catalog.observed_at = Some(until);
+            }
+            for record in cap.records() {
+                match (dataset, &record.row().record) {
+                    (SnapshotDataset::Tables, TelemetryRecord::Operational(obs)) => {
+                        if let OperationalFact::MssqlTable(table) = &obs.fact
+                            && let Some(projected) = table.as_ref().clone().into_table_stat()
+                        {
+                            catalog.tables.push(projected);
+                        }
+                    }
+                    (SnapshotDataset::Indexes, TelemetryRecord::Operational(obs)) => {
+                        if let OperationalFact::MssqlIndex(index) = &obs.fact
+                            && index.parent_kind != MssqlIndexParentKind::IndexedView
+                        {
+                            let filter = match &index.filter {
+                                Some(CatalogExpression {
+                                    payload: DefinitionPayload::Available { text, .. }, ..
+                                }) => Some(text.clone()),
+                                _ => None,
+                            };
+                            let presentation = MssqlIndexPresentation { filter, filter_facts: None, last_read: None };
+                            if let Some(projected) = index.as_ref().clone().into_index_stat(presentation) {
+                                catalog.indexes.push(projected);
+                            }
+                        }
+                    }
+                    (SnapshotDataset::Columns, TelemetryRecord::ObjectDefinition(row)) => {
+                        if let ObjectDefinitionFact::MssqlColumn(column) = &row.fact {
+                            let default = match &column.default {
+                                Some(CatalogExpression {
+                                    payload: DefinitionPayload::Available { text, .. }, ..
+                                }) => Some(text.clone()),
+                                _ => None,
+                            };
+                            catalog.columns.push(column.as_ref().clone().into_column_info(default));
+                        }
+                    }
+                    (SnapshotDataset::ForeignKeys, TelemetryRecord::ObjectDefinition(row)) => {
+                        if let ObjectDefinitionFact::MssqlForeignKey(fk) = &row.fact {
+                            catalog.foreign_keys.push(fk.as_ref().clone().into_foreign_key());
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+        catalog.tables.sort_by(|a, b| (&a.schema, &a.name).cmp(&(&b.schema, &b.name)));
+        catalog.indexes.sort_by(|a, b| (&a.schema, &a.table, &a.name).cmp(&(&b.schema, &b.table, &b.name)));
+        catalog.columns.sort_by(|a, b| (&a.schema, &a.table, a.ordinal).cmp(&(&b.schema, &b.table, b.ordinal)));
+        catalog.foreign_keys.sort_by(|a, b| (&a.schema, &a.table, &a.name).cmp(&(&b.schema, &b.table, &b.name)));
+        if !catalog.is_empty() {
+            telemetry.schema = Some(catalog);
         }
     }
 

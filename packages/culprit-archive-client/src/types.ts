@@ -24,6 +24,7 @@ export type { WindowMemoryGrantKind } from "../../../app/src/gen/WindowMemoryGra
 export type { WindowMemoryGrantPoint } from "../../../app/src/gen/WindowMemoryGrantPoint";
 export type { WindowReplicationPoint } from "../../../app/src/gen/WindowReplicationPoint";
 export type { WindowResourceCapture } from "../../../app/src/gen/WindowResourceCapture";
+export type { WindowSchemaCatalog } from "../../../app/src/gen/WindowSchemaCatalog";
 export type { WindowSpillPoint } from "../../../app/src/gen/WindowSpillPoint";
 export type { WindowStoragePoint } from "../../../app/src/gen/WindowStoragePoint";
 export type { WindowTelemetry } from "../../../app/src/gen/WindowTelemetry";
