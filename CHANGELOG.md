@@ -2,6 +2,19 @@
 
 Each release's notes are its section below: the release workflow publishes them on GitHub, and the desktop app shows them when it offers the update. A release without a section here isn't drafted.
 
+## 0.6.3
+
+### Fixes
+
+- **Recover a paused scan in SQL Studio.** When Culprit loses confirmation that a database request stopped, the desktop identifies the earlier request and keeps the last saved report available. After verifying that the request stopped, you can resume scanning in the app. Upgrades also recognize older workspace safety records and preserve pending work.
+- **Reduce SQL Server collection overhead.** Memory-grant reads, activity sampling, index metadata probes, plan-cache lookups and Query Store reads do less work on the monitored database. Incident follow-ups retain their statement and plan evidence.
+- **Read ClickHouse archives with native column types.** Archive filters preserve the types of the columns used to select published observations.
+
+### Improvements
+
+- **Set up telemetry archives in the desktop app.** The sidebar has an archive icon. The setup form groups the archive identity, telemetry warehouse and original-evidence storage, with credential guidance for each provider.
+- **Browse more published telemetry.** Archive window views include schema tables and indexes, storage, memory clerks, grants, spills and jobs when the collector has published those observations.
+
 ## 0.6.2
 
 ### Fixes
