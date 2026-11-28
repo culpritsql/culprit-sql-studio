@@ -224,7 +224,7 @@ helm upgrade --install culprit-collector \
 
 本番データベースへのライブ接続を一切行うことなく、ADX や ClickHouse から直接フリート全体のインシデント、時間範囲、クエリタイムライン、実行プラン、設定ドリフトを調査できます:
 
-- **Web コンソール:** **[fleet.culpritsql.com](https://fleet.culpritsql.com)**（または `culprit-archive-web` をセルフホスト）
+- **Web コンソール:** **[fleet.culpritsql.com](https://fleet.culpritsql.com)**（または **[culprit-fleet](https://github.com/culpritsql/culprit-fleet)** をセルフホスト）
 - **デスクトップアプリ:** Culprit SQL Studio のサイドバーから **アーカイブ** を開く
 - **CLI &amp; MCP:** `culprit resources`、`culprit window`、`culprit incident`、`culprit collect queries`（Grafana ダッシュボード &amp; アラートルール）、`culprit mcp --warehouse-evidence`
 

@@ -1,10 +1,15 @@
 export function Logo({ size = 22 }: { size?: number }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 32 32" aria-hidden="true">
-      <rect width="32" height="32" rx="8" fill="var(--brand)" />
-      <circle cx="14" cy="14" r="6.5" fill="none" stroke="var(--brand-ink)" strokeWidth="2.6" />
-      <path d="M19 19l5.5 5.5" stroke="var(--brand-ink)" strokeWidth="2.8" strokeLinecap="round" />
-      <circle cx="14" cy="14" r="2" fill="var(--brand-ink)" />
+    <svg width={size} height={size} viewBox="0 0 460 460" aria-hidden="true">
+      <rect width="460" height="460" rx="102" fill="var(--brand)" />
+      <path
+        d="M 283.33 301.78 A 106.25 106.25 0 1 1 283.33 158.22"
+        fill="none"
+        stroke="var(--brand-ink)"
+        strokeWidth="67.5"
+        strokeLinecap="butt"
+      />
+      <polygon points="340.5,179 391.5,230 340.5,281 289.5,230" fill="#e0484e" />
     </svg>
   );
 }

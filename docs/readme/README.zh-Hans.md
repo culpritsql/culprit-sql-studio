@@ -224,7 +224,7 @@ helm upgrade --install culprit-collector \
 
 直接基于 ADX 或 ClickHouse 探索全集群范围的故障事件、时间窗口、查询时间线、执行计划与配置漂移——全程无需直连生产数据库：
 
-- **Web 控制台：** **[fleet.culpritsql.com](https://fleet.culpritsql.com)**（或自行托管 `culprit-archive-web`）
+- **Web 控制台：** **[fleet.culpritsql.com](https://fleet.culpritsql.com)**（或自行托管 **[culprit-fleet](https://github.com/culpritsql/culprit-fleet)**）
 - **桌面应用：** 在 Culprit SQL Studio 侧边栏中打开**归档**（Archives）
 - **CLI 与 MCP：** `culprit resources`、`culprit window`、`culprit incident`、`culprit collect queries`（生成 Grafana 仪表盘与告警规则）以及 `culprit mcp --warehouse-evidence`
 

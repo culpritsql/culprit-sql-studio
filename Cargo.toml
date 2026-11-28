@@ -35,7 +35,7 @@ culprit-store-adx = { path = "crates/telemetry/culprit-store-adx", default-featu
 culprit-blob-azure = { path = "crates/recovery/culprit-blob-azure", default-features = false }
 culprit-blob-s3 = { path = "crates/recovery/culprit-blob-s3", default-features = false }
 culprit-store-clickhouse = { path = "crates/telemetry/culprit-store-clickhouse", default-features = false }
-zeroize = "1.9.1"
+zeroize = "1.9.2"
 culprit-core = { path = "crates/culprit-core" }
 culprit-plans = { path = "crates/culprit-plans" }
 culprit-read = { path = "crates/culprit-read" }
@@ -57,15 +57,15 @@ culprit-notify-teams = { path = "crates/notify/culprit-notify-teams" }
 culprit-notify-pagerduty = { path = "crates/notify/culprit-notify-pagerduty" }
 culprit-notify-webhook = { path = "crates/notify/culprit-notify-webhook" }
 culprit-notify-github = { path = "crates/notify/culprit-notify-github" }
-anyhow = "1.0.104"
+anyhow = "1.0.105"
 async-trait = "0.1.92"
 base64 = "0.23.1"
 chrono = { version = "0.4.45", default-features = false, features = ["clock", "std", "serde"] }
-clap = { version = "4.6.7", features = ["derive", "env"] }
+clap = { version = "4.6.10", features = ["derive", "env"] }
 dirs = "7.0.0"
-flate2 = "1.1.10"
+flate2 = "1.1.11"
 futures-util = "0.3.34"
-icu_locale_core = { version = "2.3.0", features = ["alloc"] }
+icu_locale_core = { version = "2.4.0", features = ["alloc"] }
 keyring = "4.2.0"
 ring = "0.17.14"
 mysql_async = { version = "0.37.1", default-features = false, features = ["minimal-rust", "default-rustls-ring"] }
@@ -85,11 +85,11 @@ tokio-postgres = "0.7.18"
 proptest = { version = "1.12.0", default-features = false, features = ["std"] }
 tokio-postgres-rustls = "0.14.0"
 tokio-util = { version = "0.7.20", features = ["compat"] }
-ureq = { version = "3.4.2", default-features = false, features = ["rustls"] }
+ureq = { version = "3.5.2", default-features = false, features = ["rustls"] }
 toml = "1.1.8"
 ts-rs = { version = "12.0.1", features = ["serde-json-impl"] }
-webpki-roots = "1.0.11"
-rustls-pki-types = "1.15.1"
+webpki-roots = "1.0.12"
+rustls-pki-types = "1.16.0"
 
 [profile.release]
 lto = "fat"

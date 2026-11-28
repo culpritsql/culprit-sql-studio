@@ -224,7 +224,7 @@ helm upgrade --install culprit-collector \
 
 Исследуйте инциденты по всему парку БД, временные окна, хронологию запросов, планы выполнения и дрейф конфигурации напрямую из ADX или ClickHouse — без единого прямого подключения к продакшен-базам:
 
-- **Веб-консоль:** **[fleet.culpritsql.com](https://fleet.culpritsql.com)** (или собственная инсталляция `culprit-archive-web`)
+- **Веб-консоль:** **[fleet.culpritsql.com](https://fleet.culpritsql.com)** (или собственная инсталляция **[culprit-fleet](https://github.com/culpritsql/culprit-fleet)**)
 - **Настольное приложение:** откройте раздел **Архивы** в боковой панели Culprit SQL Studio
 - **CLI и MCP:** `culprit resources`, `culprit window`, `culprit incident`, `culprit collect queries` (дашборды и правила алертинга Grafana) и `culprit mcp --warehouse-evidence`
 

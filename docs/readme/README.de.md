@@ -224,7 +224,7 @@ helm upgrade --install culprit-collector \
 
 Untersuchen Sie flottenweite Vorfälle, Zeitfenster, Abfrage-Zeitverläufe, Ausführungspläne und Konfigurations-Drift direkt aus ADX oder ClickHouse – ganz ohne aktive Verbindungen zu Ihren Produktionsdatenbanken:
 
-- **Webkonsole:** **[fleet.culpritsql.com](https://fleet.culpritsql.com)** (oder selbst gehostet über `culprit-archive-web`)
+- **Webkonsole:** **[fleet.culpritsql.com](https://fleet.culpritsql.com)** (oder selbst gehostet über **[culprit-fleet](https://github.com/culpritsql/culprit-fleet)**)
 - **Desktop-App:** Öffnen Sie **Archive** in der Seitenleiste von Culprit SQL Studio
 - **CLI &amp; MCP:** `culprit resources`, `culprit window`, `culprit incident`, `culprit collect queries` (Grafana-Dashboards &amp; Alarmregeln) und `culprit mcp --warehouse-evidence`
 

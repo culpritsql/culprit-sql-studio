@@ -15,7 +15,7 @@ culprit-read.workspace = true
 culprit-core.workspace = true
 culprit-engine.workspace = true
 chrono.workspace = true
-rmcp = { version = "3.9.0", default-features = false, features = ["server", "macros", "transport-io"] }
+rmcp = { version = "3.12.0", default-features = false, features = ["server", "macros", "transport-io"] }
 schemars = "1"
 serde.workspace = true
 serde_json.workspace = true

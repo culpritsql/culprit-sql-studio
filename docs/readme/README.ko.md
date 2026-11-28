@@ -224,7 +224,7 @@ helm upgrade --install culprit-collector \
 
 프로덕션 데이터베이스에 실시간 연결을 전혀 맺지 않고도 ADX 또는 ClickHouse에서 전체 플릿의 인시던트, 시간 범위, 쿼리 타임라인, 실행 계획 및 설정 드리프트를 바로 탐색할 수 있습니다:
 
-- **웹 콘솔:** **[fleet.culpritsql.com](https://fleet.culpritsql.com)** (또는 `culprit-archive-web` 자체 호스팅)
+- **웹 콘솔:** **[fleet.culpritsql.com](https://fleet.culpritsql.com)** (또는 **[culprit-fleet](https://github.com/culpritsql/culprit-fleet)** 자체 호스팅)
 - **데스크톱 앱:** Culprit SQL Studio 사이드바에서 **아카이브** 열기
 - **CLI 및 MCP:** `culprit resources`, `culprit window`, `culprit incident`, `culprit collect queries`(Grafana 대시보드 및 알림 규칙), `culprit mcp --warehouse-evidence`
 
