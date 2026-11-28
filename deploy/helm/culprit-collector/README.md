@@ -9,7 +9,7 @@ Deploys one hardened, non-root Culprit collector shard (`StatefulSet`) for bound
 No local Rust or CLI installation is needed—the published multi-arch container image (`linux/amd64` + `linux/arm64`) is the CLI:
 
 ```sh
-docker run --rm ghcr.io/culpritsql/culprit-collector:v0.6.3 \
+docker run --rm ghcr.io/culpritsql/culprit-collector:v0.6.4 \
   collect schema --store adx --format json > adx-schema.json
 ```
 
@@ -27,7 +27,7 @@ activation:
 
 image:
   repository: ghcr.io/culpritsql/culprit-collector
-  tag: v0.6.3
+  tag: v0.6.4
 
 serviceAccount:
   create: false
@@ -89,14 +89,14 @@ persistence:
 # Step 1: Deploy ConfigMap + one-shot namespace init Job (replicaCount=0)
 helm upgrade --install culprit-collector \
   oci://ghcr.io/culpritsql/charts/culprit-collector \
-  --version 0.6.3 \
+  --version 0.6.4 \
   --namespace db-monitoring \
   -f values.yaml
 
 # Step 2: Activate the collector shard once init completes and source quiescence is confirmed
 helm upgrade culprit-collector \
   oci://ghcr.io/culpritsql/charts/culprit-collector \
-  --version 0.6.3 \
+  --version 0.6.4 \
   --namespace db-monitoring \
   -f values.yaml \
   --set activation.initNamespaceJob.enabled=false \

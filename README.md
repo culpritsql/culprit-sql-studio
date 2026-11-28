@@ -30,9 +30,26 @@
   <a href="#get-started">Quick start</a> ·
   <a href="#what-you-get">Features</a> ·
   <a href="#supported-databases">Providers</a> ·
+  <a href="#collector-and-culprit-fleet">Collector &amp; Fleet</a> ·
   <a href="#coding-agents-and-ci">Agents &amp; CI</a> ·
-  <a href="docs/guide.md">Guide</a> ·
-  <a href="https://culpritsql.com">Website</a>
+  <a href="docs/guide.md">Guide</a><br>
+  <a href="https://culpritsql.com">culpritsql.com</a> ·
+  <a href="https://fleet.culpritsql.com">fleet.culpritsql.com</a> ·
+  <a href="https://explain.culpritsql.com">explain.culpritsql.com</a>
+</p>
+
+<p align="center">
+  <sub>
+    <strong>English</strong> ·
+    <a href="docs/readme/README.zh-Hans.md">简体中文</a> ·
+    <a href="docs/readme/README.ja.md">日本語</a> ·
+    <a href="docs/readme/README.ko.md">한국어</a> ·
+    <a href="docs/readme/README.ru.md">Русский</a> ·
+    <a href="docs/readme/README.de.md">Deutsch</a> ·
+    <a href="docs/readme/README.es.md">Español</a> ·
+    <a href="docs/readme/README.fr.md">Français</a> ·
+    <a href="docs/readme/README.pt-BR.md">Português</a>
+  </sub>
 </p>
 
 Culprit brings query statistics, execution plans, waits and schema context into one workflow. It ranks findings by impact and connects each one to evidence, a suggested fix and verification steps. Use it from the desktop app, terminal or a coding agent.
@@ -133,7 +150,7 @@ Cloud metrics add context such as Amazon RDS CPU credits, I/O limits and Azure t
 
 ### Compare and share plans
 
-Paste, drop or open a plan from another tool: SQL Server `.sqlplan`, PostgreSQL EXPLAIN text or JSON, YugabyteDB DIST output, or MySQL/MariaDB plans. Compare two versions with synchronized diagrams and highlighted changes in operators, access paths, row estimates and cost.
+Paste, drop or open a plan or event capture from another tool—or inspect it in the browser at [explain.culpritsql.com](https://explain.culpritsql.com): SQL Server `.sqlplan` and `.xel`, PostgreSQL EXPLAIN text or JSON, YugabyteDB DIST output, MySQL/MariaDB plans or ClickHouse `EXPLAIN PLAN json=1`. Compare two versions with synchronized diagrams and highlighted changes in operators, access paths, row estimates and cost.
 
 Comparisons also explain differences in captured parameters, statistics, parallelism and memory where the plans retain them. Share findings and plans as Markdown, a self-contained HTML page or a native plan file, with literal-value redaction enabled by default.
 
@@ -166,8 +183,48 @@ Live activity refreshes automatically and can be paused. On non-production conne
 | **Connections** | Connection strings and imports from Azure Data Studio, VS Code, DBeaver and DataGrip |
 | **Discovery and SSH** | Find Azure and AWS databases with your CLI login; connect through an [SSH jump host](docs/ssh.md) |
 | **Offline reports** | Saved scans, trends, historical comparisons and shared snapshots you can inspect without a database connection |
+| **Archives** | Read-only incident, time-window and execution-plan investigation over published Azure Data Explorer (ADX) and ClickHouse telemetry warehouses |
 | **Keyboard navigation** | A command palette (⌘K / Ctrl+K), view shortcuts, query tabs and actions |
-| **Languages** | English, German, Spanish and French for the interface and human-readable CLI output |
+| **Languages** | English, Simplified Chinese (简体中文), Japanese (日本語), Korean (한국어), Russian (Русский), German (Deutsch), Spanish (Español), French (Français) and Portuguese (Português) |
+
+## Collector and Culprit Fleet
+
+Run `culprit collect` as a bounded, read-only background collector to monitor databases continuously without connecting interactive users or agents to production. The collector writes sealed captures to a durable local outbox, backs up raw evidence in private **Azure Blob Storage** or **Amazon S3**, runs Culprit's pure diagnostic engine locally, and publishes incidents (`CulpritIncidentsV1`), findings (`CulpritFindingsV1`), schema/setting changes (`CulpritChangesV1`) and 13 raw evidence tables to **Azure Data Explorer (ADX)** or **ClickHouse**.
+
+### 1. Capture locally or generate warehouse DDL
+
+```sh
+# Capture a bounded snapshot into a local outbox (no warehouse required)
+culprit collect outbox init ./outbox
+culprit collect once shop --collection activity --outbox ./outbox
+
+# Or generate warehouse table and helper-view DDL directly from the container image
+docker run --rm ghcr.io/culpritsql/culprit-collector:v0.6.4 \
+  collect schema --store clickhouse --format sql > clickhouse-schema.sql
+```
+
+### 2. Deploy a hardened collector shard on Kubernetes
+
+Multi-arch images (`linux/amd64` and `linux/arm64`) ship at `ghcr.io/culpritsql/culprit-collector`, paired with an OCI Helm chart that defaults to zero replicas, enforces single-writer `StatefulSet` ownership (`65532:65532`, read-only root filesystem) and separates source, recovery and warehouse credentials:
+
+```sh
+helm upgrade --install culprit-collector \
+  oci://ghcr.io/culpritsql/charts/culprit-collector \
+  --version 0.6.4 \
+  --namespace db-monitoring \
+  --create-namespace \
+  -f values.yaml
+```
+
+### 3. Investigate in Culprit Fleet, SQL Studio or CLI
+
+Explore fleet-wide incidents, time windows, query timelines, execution plans and configuration drift directly from ADX or ClickHouse—with zero live connections to your production databases:
+
+- **Web console:** **[fleet.culpritsql.com](https://fleet.culpritsql.com)** (or self-host `culprit-archive-web`)
+- **Desktop app:** open **Archives** in the Culprit SQL Studio sidebar
+- **CLI &amp; MCP:** `culprit resources`, `culprit window`, `culprit incident`, `culprit collect queries` (Grafana dashboards &amp; alert rules) and `culprit mcp --warehouse-evidence`
+
+[Collector &amp; warehouse architecture →](docs/collector.md) · [Kubernetes Helm chart →](deploy/helm/culprit-collector/README.md)
 
 ## Coding agents and CI
 
@@ -257,6 +314,7 @@ bunx tauri build
 ## Learn more
 
 - **[Guide](docs/guide.md):** every check and command, the agent setup, measured speed, safety details and how to extend Culprit
+- **[Collector and warehouses](docs/collector.md):** background collection, ADX and ClickHouse schemas, Azure Blob/S3 recovery and [Culprit Fleet](https://fleet.culpritsql.com)
 - **[Architecture](docs/ARCHITECTURE.md):** the analysis pipeline, the evidence rules every check follows and the crate map
 - **[Design](docs/DESIGN.md):** how the product behaves and why
 - **[Coding agents](docs/agents.md):** MCP tools, permissions, approvals and the audit log

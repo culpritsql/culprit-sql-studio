@@ -2,8 +2,8 @@ apiVersion: v2
 name: culprit-collector
 description: Bounded, read-only database telemetry collector and pure diagnostic synthesizer for ADX and ClickHouse
 type: application
-version: 0.6.3
-appVersion: "0.6.3"
+version: 0.6.4
+appVersion: "0.6.4"
 home: https://culpritsql.com
 sources:
   - https://github.com/culpritsql/culprit-sql-studio

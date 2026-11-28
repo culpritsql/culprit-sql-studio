@@ -232,7 +232,7 @@ impl ArchiveWebApp {
         let lang = headers
             .get("x-culprit-lang")
             .map(String::as_str)
-            .filter(|code| matches!(*code, "en" | "de" | "es" | "fr"))
+            .filter(|code| culprit_core::i18n::language(code).is_some())
             .unwrap_or("en");
 
         match (method, path) {

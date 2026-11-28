@@ -94,6 +94,21 @@ function notify() {
   for (const listener of listeners) listener();
 }
 
+/** Match an exact BCP 47 tag, a language-script/region fallback (`zh-CN` -> `zh-Hans`, `pt` -> `pt-BR`), or a base tag. */
+export function matchCatalogTag(tag: string, available: ReadonlySet<string>): string | undefined {
+  if (available.has(tag)) return tag;
+  const lower = tag.toLowerCase();
+  if ((lower === "zh" || lower.startsWith("zh-hans") || lower === "zh-cn" || lower === "zh-sg") && available.has("zh-Hans")) {
+    return "zh-Hans";
+  }
+  if ((lower === "pt" || lower.startsWith("pt-")) && available.has("pt-BR")) {
+    return "pt-BR";
+  }
+  const base = tag.split("-")[0]!;
+  if (available.has(base)) return base;
+  return undefined;
+}
+
 /** The remembered choice, else the system's language when the app has it, else English. */
 function chosen(): string {
   try {
@@ -102,11 +117,11 @@ function chosen(): string {
   } catch {
     // No storage: fall through to the system's language.
   }
+  const available = new Set(catalogs.keys());
   const system = typeof navigator === "undefined" ? [] : (navigator.languages ?? [navigator.language]);
   for (const tag of system.filter((tag): tag is string => typeof tag === "string" && tag.length > 0)) {
-    if (catalogs.has(tag)) return tag;
-    const base = tag.split("-")[0]!;
-    if (catalogs.has(base)) return base;
+    const matched = matchCatalogTag(tag, available);
+    if (matched) return matched;
   }
   return "en";
 }

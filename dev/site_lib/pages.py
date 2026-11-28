@@ -1292,7 +1292,7 @@ def build_enterprise_page(locale: LocaleSpec, *, version: str) -> str:
             <span>0 Inbound DB Ports · 0 SQL Drivers in Web Binary</span>
           </div>
           <div class="arch-diagram-scroll">
-            <svg class="arch-svg" viewBox="0 0 1080 316" role="img" aria-label="High-level architecture diagram showing production databases read by culprit-collector inside a private VPC, streaming synthesized diagnoses to Azure Data Explorer or ClickHouse and sealed captures to Blob or S3, consumed read-only by Culprit Fleet, Remote MCP, and DRI alerts">
+            <svg class="arch-svg" viewBox="0 0 1180 316" role="img" aria-label="High-level architecture diagram showing production databases read by culprit-collector inside a private VPC, streaming synthesized diagnoses to Azure Data Explorer or ClickHouse and sealed captures to Blob or S3, consumed read-only by Culprit Fleet, Remote MCP, and DRI alerts">
               <defs>
                 <marker id="arr" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
                   <path d="M 0 1.5 L 8 5 L 0 8.5 z" fill="var(--accent)"/>
@@ -1303,97 +1303,97 @@ def build_enterprise_page(locale: LocaleSpec, *, version: str) -> str:
               </defs>
 
               <!-- Zone 1: Private DB Subnet (Databases + Bounded Collector) -->
-              <rect x="8" y="10" width="504" height="296" rx="12" fill="var(--bg-2)" stroke="var(--line-strong)" stroke-dasharray="5 4"/>
+              <rect x="8" y="10" width="596" height="296" rx="12" fill="var(--bg-2)" stroke="var(--line-strong)" stroke-dasharray="5 4"/>
               <text x="24" y="32" class="svg-mono" font-size="10.5" font-weight="650" fill="var(--text-3)" letter-spacing="0.8">ZONE 1 · PRIVATE DATABASE VPC / VNET</text>
 
               <!-- Databases Stack -->
-              <rect x="24" y="50" width="196" height="238" rx="10" fill="var(--surface)" stroke="var(--line-strong)"/>
+              <rect x="24" y="50" width="238" height="238" rx="10" fill="var(--surface)" stroke="var(--line-strong)"/>
               <text x="40" y="74" font-size="13.5" font-weight="680" fill="var(--text)">Production Databases</text>
               <text x="40" y="92" class="svg-mono" font-size="10.5" fill="var(--text-3)">Zero host agents installed</text>
 
-              <rect x="38" y="108" width="168" height="34" rx="6" fill="var(--bg-2)" stroke="var(--line)"/>
+              <rect x="38" y="108" width="210" height="34" rx="6" fill="var(--bg-2)" stroke="var(--line)"/>
               <text x="50" y="129" font-size="12" font-weight="600" fill="var(--text)">SQL Server &amp; Azure SQL</text>
 
-              <rect x="38" y="150" width="168" height="34" rx="6" fill="var(--bg-2)" stroke="var(--line)"/>
+              <rect x="38" y="150" width="210" height="34" rx="6" fill="var(--bg-2)" stroke="var(--line)"/>
               <text x="50" y="171" font-size="12" font-weight="600" fill="var(--text)">PostgreSQL &amp; AWS RDS</text>
 
-              <rect x="38" y="192" width="168" height="34" rx="6" fill="var(--bg-2)" stroke="var(--line)"/>
+              <rect x="38" y="192" width="210" height="34" rx="6" fill="var(--bg-2)" stroke="var(--line)"/>
               <text x="50" y="213" font-size="12" font-weight="600" fill="var(--text)">Timescale &amp; YugabyteDB</text>
 
-              <rect x="38" y="234" width="168" height="34" rx="6" fill="var(--bg-2)" stroke="var(--line)"/>
+              <rect x="38" y="234" width="210" height="34" rx="6" fill="var(--bg-2)" stroke="var(--line)"/>
               <text x="50" y="255" font-size="11.5" font-weight="600" fill="var(--text)">MySQL, MariaDB &amp; ClickHouse</text>
 
               <!-- Arrow DB -> Collector -->
-              <line x1="220" y1="169" x2="278" y2="169" stroke="var(--accent)" stroke-width="1.8" marker-end="url(#arr)"/>
-              <text x="249" y="153" text-anchor="middle" class="svg-mono" font-size="9.5" font-weight="600" fill="var(--accent)">READ-ONLY</text>
-              <text x="249" y="185" text-anchor="middle" class="svg-mono" font-size="9.5" fill="var(--text-3)">1s stmt cap</text>
+              <line x1="262" y1="169" x2="354" y2="169" stroke="var(--accent)" stroke-width="1.8" marker-end="url(#arr)"/>
+              <text x="310" y="154" text-anchor="middle" class="svg-mono" font-size="9.5" font-weight="600" fill="var(--accent)">READ-ONLY</text>
+              <text x="310" y="186" text-anchor="middle" class="svg-mono" font-size="9.5" fill="var(--text-3)">1s stmt cap</text>
 
               <!-- Collector Pod -->
-              <rect x="282" y="50" width="214" height="238" rx="10" fill="var(--surface)" stroke="var(--brand)" stroke-width="1.8"/>
-              <rect x="296" y="64" width="74" height="20" rx="4" fill="var(--brand-soft)"/>
-              <text x="333" y="78" text-anchor="middle" class="svg-mono" font-size="10" font-weight="700" fill="var(--text)">COLLECTOR</text>
-              <text x="296" y="104" font-size="14" font-weight="700" fill="var(--text)">culprit-collector</text>
-              <text x="296" y="121" class="svg-mono" font-size="10.5" fill="var(--text-3)">Helm / K8s · 0-replica default</text>
+              <rect x="358" y="50" width="230" height="238" rx="10" fill="var(--surface)" stroke="var(--brand)" stroke-width="1.8"/>
+              <rect x="372" y="64" width="76" height="20" rx="4" fill="var(--brand-soft)"/>
+              <text x="410" y="78" text-anchor="middle" class="svg-mono" font-size="10" font-weight="700" fill="var(--text)">COLLECTOR</text>
+              <text x="372" y="104" font-size="14" font-weight="700" fill="var(--text)">culprit-collector</text>
+              <text x="372" y="121" class="svg-mono" font-size="10.5" fill="var(--text-3)">Helm / K8s · 0-replica default</text>
 
-              <rect x="296" y="136" width="186" height="40" rx="6" fill="var(--bg-2)" stroke="var(--line)"/>
-              <text x="308" y="154" font-size="11.5" font-weight="630" fill="var(--text)">Bounded Native Readers</text>
-              <text x="308" y="168" class="svg-mono" font-size="10" fill="var(--text-3)">DMVs · pg_stat · Quiescence</text>
+              <rect x="372" y="136" width="202" height="40" rx="6" fill="var(--bg-2)" stroke="var(--line)"/>
+              <text x="384" y="154" font-size="11.5" font-weight="630" fill="var(--text)">Bounded Native Readers</text>
+              <text x="384" y="168" class="svg-mono" font-size="10" fill="var(--text-3)">DMVs · pg_stat · Quiescence</text>
 
-              <rect x="296" y="184" width="186" height="40" rx="6" fill="var(--bg-2)" stroke="var(--line)"/>
-              <text x="308" y="202" font-size="11.5" font-weight="630" fill="var(--text)">Pure Rust Diagnosis Engine</text>
-              <text x="308" y="216" class="svg-mono" font-size="10" fill="var(--text-3)">Local synthesis · 0 DB load</text>
+              <rect x="372" y="184" width="202" height="40" rx="6" fill="var(--bg-2)" stroke="var(--line)"/>
+              <text x="384" y="202" font-size="11.5" font-weight="630" fill="var(--text)">Pure Rust Diagnosis Engine</text>
+              <text x="384" y="216" class="svg-mono" font-size="10" fill="var(--text-3)">Local synthesis · 0 DB load</text>
 
-              <rect x="296" y="232" width="186" height="40" rx="6" fill="var(--bg-2)" stroke="var(--line)"/>
-              <text x="308" y="250" font-size="11.5" font-weight="630" fill="var(--text)">Durable Local Outbox</text>
-              <text x="308" y="264" class="svg-mono" font-size="9.5" fill="var(--text-3)">Survives restarts &amp; backfill</text>
+              <rect x="372" y="232" width="202" height="40" rx="6" fill="var(--bg-2)" stroke="var(--line)"/>
+              <text x="384" y="250" font-size="11.5" font-weight="630" fill="var(--text)">Durable Local Outbox</text>
+              <text x="384" y="264" class="svg-mono" font-size="9.5" fill="var(--text-3)">Survives restarts &amp; backfill</text>
 
               <!-- Outbound TLS Arrows Collector -> Storage -->
-              <line x1="496" y1="122" x2="564" y2="122" stroke="var(--accent)" stroke-width="1.8" marker-end="url(#arr)"/>
-              <line x1="496" y1="234" x2="564" y2="234" stroke="var(--text-3)" stroke-width="1.6" marker-end="url(#arr-muted)"/>
-              <text x="530" y="112" text-anchor="middle" class="svg-mono" font-size="9.5" font-weight="600" fill="var(--accent)">HTTPS</text>
+              <line x1="588" y1="122" x2="660" y2="122" stroke="var(--accent)" stroke-width="1.8" marker-end="url(#arr)"/>
+              <line x1="588" y1="234" x2="660" y2="234" stroke="var(--text-3)" stroke-width="1.6" marker-end="url(#arr-muted)"/>
+              <text x="634" y="112" text-anchor="middle" class="svg-mono" font-size="9.5" font-weight="600" fill="var(--accent)">HTTPS</text>
 
               <!-- Zone 2: Customer Warehouse & Object Store -->
-              <rect x="568" y="10" width="246" height="296" rx="12" fill="var(--bg-2)" stroke="var(--line-strong)"/>
-              <text x="584" y="32" class="svg-mono" font-size="10.5" font-weight="650" fill="var(--text-3)" letter-spacing="0.8">ZONE 2 · YOUR WAREHOUSE</text>
+              <rect x="664" y="10" width="250" height="296" rx="12" fill="var(--bg-2)" stroke="var(--line-strong)"/>
+              <text x="680" y="32" class="svg-mono" font-size="10.5" font-weight="650" fill="var(--text-3)" letter-spacing="0.8">ZONE 2 · YOUR WAREHOUSE</text>
 
-              <rect x="584" y="50" width="214" height="132" rx="10" fill="var(--surface)" stroke="var(--line-strong)"/>
-              <text x="598" y="74" font-size="13.5" font-weight="700" fill="var(--text)">ADX or ClickHouse</text>
-              <text x="598" y="92" class="svg-mono" font-size="10.5" fill="var(--green)">Synthesized Gold Streams</text>
-              <text x="598" y="114" class="svg-mono" font-size="11" fill="var(--text-2)">• CulpritIncidentsV1</text>
-              <text x="598" y="132" class="svg-mono" font-size="11" fill="var(--text-2)">• CulpritFindingsV1</text>
-              <text x="598" y="150" class="svg-mono" font-size="11" fill="var(--text-2)">• CulpritChangesV1</text>
-              <text x="598" y="168" class="svg-mono" font-size="10.5" fill="var(--text-3)">+ 13 typed raw evidence tables</text>
+              <rect x="680" y="50" width="218" height="132" rx="10" fill="var(--surface)" stroke="var(--line-strong)"/>
+              <text x="694" y="74" font-size="13.5" font-weight="700" fill="var(--text)">ADX or ClickHouse</text>
+              <text x="694" y="92" class="svg-mono" font-size="10.5" fill="var(--green)">Synthesized Gold Streams</text>
+              <text x="694" y="114" class="svg-mono" font-size="11" fill="var(--text-2)">• CulpritIncidentsV1</text>
+              <text x="694" y="132" class="svg-mono" font-size="11" fill="var(--text-2)">• CulpritFindingsV1</text>
+              <text x="694" y="150" class="svg-mono" font-size="11" fill="var(--text-2)">• CulpritChangesV1</text>
+              <text x="694" y="168" class="svg-mono" font-size="10.5" fill="var(--text-3)">+ 13 typed raw evidence tables</text>
 
-              <rect x="584" y="196" width="214" height="92" rx="10" fill="var(--surface)" stroke="var(--line-strong)"/>
-              <text x="598" y="220" font-size="13.5" font-weight="700" fill="var(--text)">Azure Blob or AWS S3</text>
-              <text x="598" y="238" class="svg-mono" font-size="10.5" fill="var(--text-3)">Conditional-object recovery</text>
-              <text x="598" y="258" class="svg-mono" font-size="11" fill="var(--text-2)">Sealed captures, plans &amp; .xel</text>
-              <text x="598" y="274" class="svg-mono" font-size="10" fill="var(--text-3)">Cryptographic EOF verification</text>
+              <rect x="680" y="196" width="218" height="92" rx="10" fill="var(--surface)" stroke="var(--line-strong)"/>
+              <text x="694" y="220" font-size="13.5" font-weight="700" fill="var(--text)">Azure Blob or AWS S3</text>
+              <text x="694" y="238" class="svg-mono" font-size="10.5" fill="var(--text-3)">Conditional-object recovery</text>
+              <text x="694" y="258" class="svg-mono" font-size="10.5" fill="var(--text-2)">Sealed captures, plans &amp; .xel</text>
+              <text x="694" y="274" class="svg-mono" font-size="10" fill="var(--text-3)">Cryptographic EOF verification</text>
 
               <!-- Compile-Time Airwall Line -->
-              <line x1="836" y1="16" x2="836" y2="300" stroke="var(--green)" stroke-width="1.5" stroke-dasharray="4 4"/>
-              <line x1="798" y1="96" x2="862" y2="96" stroke="var(--accent)" stroke-width="1.8" marker-end="url(#arr)"/>
-              <line x1="798" y1="172" x2="862" y2="172" stroke="var(--accent)" stroke-width="1.8" marker-end="url(#arr)"/>
-              <line x1="798" y1="248" x2="862" y2="248" stroke="var(--accent)" stroke-width="1.8" marker-end="url(#arr)"/>
+              <line x1="938" y1="16" x2="938" y2="300" stroke="var(--green)" stroke-width="1.5" stroke-dasharray="4 4"/>
+              <line x1="898" y1="96" x2="958" y2="96" stroke="var(--accent)" stroke-width="1.8" marker-end="url(#arr)"/>
+              <line x1="898" y1="172" x2="958" y2="172" stroke="var(--accent)" stroke-width="1.8" marker-end="url(#arr)"/>
+              <line x1="898" y1="248" x2="958" y2="248" stroke="var(--accent)" stroke-width="1.8" marker-end="url(#arr)"/>
 
               <!-- Zone 3: Zero-Driver Triage & Alerting -->
-              <rect x="866" y="10" width="206" height="296" rx="12" fill="var(--bg-2)" stroke="var(--line-strong)"/>
-              <text x="880" y="32" class="svg-mono" font-size="10.5" font-weight="650" fill="var(--green)" letter-spacing="0.8">0 DB DRIVERS COMPILED</text>
+              <rect x="962" y="10" width="210" height="296" rx="12" fill="var(--bg-2)" stroke="var(--line-strong)"/>
+              <text x="976" y="32" class="svg-mono" font-size="10.5" font-weight="650" fill="var(--green)" letter-spacing="0.8">0 DB DRIVERS COMPILED</text>
 
-              <rect x="880" y="50" width="178" height="72" rx="9" fill="var(--surface)" stroke="var(--line-strong)"/>
-              <text x="894" y="73" font-size="13" font-weight="700" fill="var(--text)">Culprit Fleet Web</text>
-              <text x="894" y="90" class="svg-mono" font-size="10.5" fill="var(--text-2)">Entra OIDC · RBAC</text>
-              <text x="894" y="106" class="svg-mono" font-size="10" fill="var(--accent)">fleet.culpritsql.com</text>
+              <rect x="976" y="50" width="182" height="72" rx="9" fill="var(--surface)" stroke="var(--line-strong)"/>
+              <text x="990" y="73" font-size="13" font-weight="700" fill="var(--text)">Culprit Fleet Web</text>
+              <text x="990" y="90" class="svg-mono" font-size="10.5" fill="var(--text-2)">Entra OIDC · RBAC</text>
+              <text x="990" y="106" class="svg-mono" font-size="10" fill="var(--accent)">fleet.culpritsql.com</text>
 
-              <rect x="880" y="134" width="178" height="72" rx="9" fill="var(--surface)" stroke="var(--line-strong)"/>
-              <text x="894" y="157" font-size="13" font-weight="700" fill="var(--text)">Remote Audited MCP</text>
-              <text x="894" y="174" class="svg-mono" font-size="10.5" fill="var(--text-2)">Claude · Codex · Cursor</text>
-              <text x="894" y="190" class="svg-mono" font-size="10" fill="var(--text-3)">POST /mcp + audit log</text>
+              <rect x="976" y="134" width="182" height="72" rx="9" fill="var(--surface)" stroke="var(--line-strong)"/>
+              <text x="990" y="157" font-size="13" font-weight="700" fill="var(--text)">Remote Audited MCP</text>
+              <text x="990" y="174" class="svg-mono" font-size="10.5" fill="var(--text-2)">Claude · Codex · Cursor</text>
+              <text x="990" y="190" class="svg-mono" font-size="10" fill="var(--text-3)">POST /mcp + audit log</text>
 
-              <rect x="880" y="218" width="178" height="70" rx="9" fill="var(--surface)" stroke="var(--line-strong)"/>
-              <text x="894" y="241" font-size="13" font-weight="700" fill="var(--text)">DRI On-Call Alerts</text>
-              <text x="894" y="258" class="svg-mono" font-size="10.5" fill="var(--text-2)">ADX / Grafana / notify</text>
-              <text x="894" y="274" class="svg-mono" font-size="10" fill="var(--text-3)">PagerDuty · Teams · Slack</text>
+              <rect x="976" y="218" width="182" height="70" rx="9" fill="var(--surface)" stroke="var(--line-strong)"/>
+              <text x="990" y="241" font-size="13" font-weight="700" fill="var(--text)">DRI On-Call Alerts</text>
+              <text x="990" y="258" class="svg-mono" font-size="10.5" fill="var(--text-2)">ADX / Grafana / notify</text>
+              <text x="990" y="274" class="svg-mono" font-size="10" fill="var(--text-3)">PagerDuty · Teams · Slack</text>
             </svg>
           </div>
         </div>"""

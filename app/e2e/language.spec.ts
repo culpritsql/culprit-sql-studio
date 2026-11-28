@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { expect, test, type Page } from "@playwright/test";
 import { openConnection } from "./demo";
 import type { IndexAdvice } from "../src/gen/IndexAdvice";
@@ -7,12 +7,21 @@ import type { Api } from "../src/lib/api";
 
 type AdviceCacheProbeWindow = typeof window & { adviceRequests: string[] };
 const pgAdvice = (JSON.parse(readFileSync(new URL("../../fixtures/index-advice.sample.json", import.meta.url), "utf8")) as Record<string, IndexAdvice>)["pg-demo"]!;
+const localesUrl = new URL("../../locales/", import.meta.url);
+const catalogCodes = readdirSync(localesUrl)
+  .filter((f) => f.endsWith(".json"))
+  .map((f) => f.replace(/\.json$/, ""));
+const catalog = (code: string) => JSON.parse(readFileSync(new URL(`../../locales/${code}.json`, import.meta.url), "utf8")) as Record<string, unknown>;
+const expectedOptionLabels = catalogCodes
+  .map((code) => ({ code, name: String((catalog(code)._meta as Record<string, string>).name) }))
+  .sort((a, b) => (a.code === "en" ? -1 : b.code === "en" ? 1 : a.name.localeCompare(b.name)))
+  .map((entry) => entry.name);
 
 test("The language picked in the sidebar is the page's, and stays across a reload", async ({ page }) => {
   await openConnection(page, "pg-demo");
   const picker = page.getByRole("complementary").getByRole("combobox");
   await expect(picker).toHaveValue("en");
-  await expect(picker.locator("option")).toHaveText(["English", "Deutsch", "Español", "Français"]);
+  await expect(picker.locator("option")).toHaveText(expectedOptionLabels);
   await picker.selectOption("es");
   await expect(page.locator("html")).toHaveAttribute("lang", "es");
   await page.reload();
@@ -21,18 +30,16 @@ test("The language picked in the sidebar is the page's, and stays across a reloa
 });
 
 // Every catalog the build found, each read as the app shows it: the sidebar's own words come from that file.
-const catalog = (code: string) => JSON.parse(readFileSync(new URL(`../../locales/${code}.json`, import.meta.url), "utf8")) as Record<string, string>;
-
-for (const code of ["de", "es", "fr"]) {
+for (const code of catalogCodes.filter((c) => c !== "en")) {
   test(`The app reads in ${code} once it is picked`, async ({ page }) => {
-    const words = catalog(code);
+    const words = catalog(code) as Record<string, string>;
     await openConnection(page, "pg-demo");
     await page.getByRole("complementary").getByRole("combobox").selectOption(code);
     const sidebar = page.getByRole("complementary");
-    const startsWith = (text: string) => new RegExp(`^${text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`);
+    const startsWith = (text: string) => new RegExp(`^${text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}($|\\s)`);
     await expect(sidebar.getByRole("combobox", { name: words["ui.sidebar.language"] })).toBeVisible();
     await expect(sidebar.getByRole("button", { name: startsWith(words["ui.common.view.findings"]!) })).toBeVisible();
-    await expect(sidebar.getByRole("button", { name: startsWith(catalog("en")["ui.common.view.findings"]!) })).toHaveCount(0);
+    await expect(sidebar.getByRole("button", { name: startsWith((catalog("en") as Record<string, string>)["ui.common.view.findings"]!) })).toHaveCount(0);
   });
 }
 

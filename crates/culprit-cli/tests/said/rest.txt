@@ -409,7 +409,7 @@ hint: SARIF is available for lint-sql, drift, scan, findings and analyze; use --
 [exit 1]
 $ culprit --format text --lang xx plan show nowhere
 [stderr]
-culprit: no language "xx" (known: en, de, es, fr); writing English
+culprit: no language "xx" (known: en, de, es, fr, pt-BR, ru, ja, zh-Hans, ko); writing English
 error: No file 'nowhere'
 hint: Pass a plan file, `-` for stdin, or <connection>:<query_id>[:<plan_id>]
 [exit 1]
@@ -675,7 +675,7 @@ $ culprit --format sarif drift <repo>/fixtures/mssql-demo.report.json <repo>/fix
               }
             }
           ],
-          "version": "0.6.3"
+          "version": "0.6.4"
         }
       }
     }

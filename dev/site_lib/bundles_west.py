@@ -57,7 +57,7 @@ BUNDLES_WEST: dict[str, dict] = {
         },
         "home": {
             "title": "Culprit SQL: Production Database Root-Cause & Fleet Platform",
-            "description": "Open-source (MIT) SQL root-cause platform for SQL Server, PostgreSQL, TimescaleDB, YugabyteDB, MySQL, MariaDB, and SQLite. Studio, 24/7 Fleet, Explain, CI, and MCP.",
+            "description": "MIT open-source SQL root-cause platform for SQL Server, PostgreSQL, TimescaleDB, YugabyteDB, MySQL, MariaDB, ClickHouse & SQLite. Studio, Fleet, Explain & MCP.",
             "eyebrow": "MIT Open Source · 8 Database Engines · Local, CI & 24/7 Fleet",
             "h1": "Database root-cause engineering, from laptop to 24/7 fleet.",
             "lede": "One Rust diagnosis engine across a 14 MB native Studio, offline Pull Request migration gates, browser WebAssembly plan analysis, and self-hosted ADX or ClickHouse fleet telemetry.",
@@ -127,7 +127,7 @@ BUNDLES_WEST: dict[str, dict] = {
                 {
                     "step": "01 · Sources",
                     "title": "8 Database Engines",
-                    "body": "Reads existing catalog & workload views (Query Store, DMVs, pg_stat_statements, performance_schema, .xel, SQLite) with short lock timeouts.",
+                    "body": "Reads existing catalog & workload views (Query Store, DMVs, pg_stat_statements, performance_schema, system.query_log, .xel, SQLite) with short lock timeouts.",
                     "tags": ["Read-only", "1s stmt cap"],
                 },
                 {
@@ -189,7 +189,7 @@ BUNDLES_WEST: dict[str, dict] = {
         },
         "studio": {
             "title": "Culprit SQL Studio, CLI & MCP Server for macOS, Windows & Linux",
-            "description": "14 MB native database performance desktop app, JSON/SARIF CLI, and 27-tool MCP server for SQL Server, PostgreSQL, MySQL, MariaDB, YugabyteDB, and SQLite.",
+            "description": "14 MB native desktop app, JSON/SARIF CLI & 27-tool MCP server for SQL Server, PostgreSQL, TimescaleDB, YugabyteDB, MySQL, MariaDB, ClickHouse & SQLite.",
             "eyebrow": "Desktop App · Native CLI · Local MCP Server · v__VERSION__",
             "h1": "A 14 MB native workbench that names your bottleneck in seconds.",
             "lede": "Instant startup, offline snapshot workspaces, side-by-side plan regressions, live blocking trees, virtual index verification, and an audited 27-tool MCP server for Claude Code, Codex, and Cursor.",
@@ -206,7 +206,7 @@ BUNDLES_WEST: dict[str, dict] = {
             "description": "100% client-side WebAssembly SQL execution plan viewer, structural plan comparator, deadlock graph analyzer, and binary .xel Extended Events inspector.",
             "eyebrow": "Rust -> WebAssembly · Zero Uploads · npm SDKs",
             "h1": "Inspect execution plans, deadlocks, and .xel traces in the browser.",
-            "lede": "Compiled from the same Rust crates as Studio (`@culpritsql/plans` and `@culpritsql/plan-viewer`), Culprit Explain parses SQL Server `.sqlplan` & `.xel`, PostgreSQL `EXPLAIN`, MySQL JSON, and YugabyteDB plans 100% locally in WebAssembly.",
+            "lede": "Compiled from the same Rust crates as Studio (`@culpritsql/plans` and `@culpritsql/plan-viewer`), Culprit Explain parses SQL Server `.sqlplan` & `.xel`, PostgreSQL `EXPLAIN`, MySQL JSON, ClickHouse, and YugabyteDB plans 100% locally in WebAssembly.",
         },
         "ci": {
             "title": "Culprit CI, VS Code & Test SDKs: Shift-Left SQL Guardrails",
@@ -224,7 +224,7 @@ BUNDLES_WEST: dict[str, dict] = {
         },
         "databases": {
             "title": "Supported Databases & Engine Parity Matrix · Culprit SQL",
-            "description": "Full capability matrix, required permissions, workload sources, and evidence rules across SQL Server, PostgreSQL, TimescaleDB, YugabyteDB, MySQL, MariaDB, SQLite.",
+            "description": "Capability matrix, permissions, workload sources & evidence rules across SQL Server, PostgreSQL, TimescaleDB, YugabyteDB, MySQL, MariaDB, ClickHouse & SQLite.",
             "eyebrow": "8 Database Providers · Shared Evidence Pipeline",
             "h1": "Supported databases and engine parity.",
             "lede": "One workspace, CLI contract, and MCP toolset across eight database engines—grounded in each engine's native statistics views without inventing numbers when a source is absent.",
@@ -299,7 +299,7 @@ BUNDLES_WEST: dict[str, dict] = {
         },
         "home": {
             "title": "Culprit SQL: Ursachenanalyse & Flotten-Plattform für Datenbanken",
-            "description": "Open-Source-Plattform (MIT) für SQL-Performance auf SQL Server, PostgreSQL, TimescaleDB, YugabyteDB, MySQL, MariaDB und SQLite. Studio, Fleet, Explain, CI & MCP.",
+            "description": "MIT-Open-Source-Plattform für SQL-Analyse auf SQL Server, PostgreSQL, TimescaleDB, YugabyteDB, MySQL, MariaDB, ClickHouse & SQLite: Studio, Fleet, Explain & MCP.",
             "eyebrow": "MIT Open Source · 8 Database Engines · Local, CI & 24/7 Fleet",
             "h1": "Datenbank-Ursachenanalyse vom Laptop bis zur 24/7-Flotte.",
             "lede": "Eine gemeinsame Rust-Diagnose-Engine für die 14 MB Desktop-App, Offline-PR-Gates in CI, WebAssembly-Plananalyse im Browser und selbstgehostete ADX- oder ClickHouse-Telemetrie.",
@@ -411,7 +411,7 @@ BUNDLES_WEST: dict[str, dict] = {
         },
         "studio": {
             "title": "Culprit SQL Studio, CLI & MCP-Server für macOS, Windows & Linux",
-            "description": "14 MB native Desktop-App, JSON/SARIF-CLI und MCP-Server mit 27 Tools für SQL Server, PostgreSQL, MySQL, MariaDB, YugabyteDB und SQLite.",
+            "description": "14 MB native Desktop-App, JSON/SARIF-CLI und MCP-Server mit 27 Tools für SQL Server, PostgreSQL, TimescaleDB, YugabyteDB, MySQL, MariaDB, ClickHouse und SQLite.",
             "eyebrow": "Desktop-App · Native CLI · Lokaler MCP-Server · v__VERSION__",
             "h1": "Eine 14 MB native Workbench, die Engpässe in Sekunden benennt.",
             "lede": "Sofortiger Start, Offline-Snapshots, Plan-Vergleiche, Live-Blockierbäume, virtuelle Indextests und ein auditierter MCP-Server für Claude Code, Codex und Cursor.",
@@ -428,7 +428,7 @@ BUNDLES_WEST: dict[str, dict] = {
             "description": "100 % clientseitiger WebAssembly-Viewer für SQL-Ausführungspläne, Plan-Diffs, Deadlock-Graphen und binäre SQL Server .xel Extended Events.",
             "eyebrow": "Rust -> WebAssembly · Keine Uploads · npm-SDKs",
             "h1": "Ausführungspläne, Deadlocks und .xel-Dateien lokal im Browser prüfen.",
-            "lede": "Kompiliert aus denselben Rust-Crates wie Studio verarbeitet Culprit Explain SQL Server .sqlplan & .xel, PostgreSQL EXPLAIN, MySQL JSON und YugabyteDB-Pläne vollständig lokal im Browser.",
+            "lede": "Kompiliert aus denselben Rust-Crates wie Studio verarbeitet Culprit Explain SQL Server .sqlplan & .xel, PostgreSQL EXPLAIN, MySQL JSON, ClickHouse und YugabyteDB-Pläne vollständig lokal im Browser.",
         },
         "ci": {
             "title": "Culprit CI, VS Code & Test-SDKs: SQL-Prüfungen in Pull Requests",
@@ -446,7 +446,7 @@ BUNDLES_WEST: dict[str, dict] = {
         },
         "databases": {
             "title": "Unterstützte Datenbanken & Funktionsmatrix · Culprit SQL",
-            "description": "Vollständige Funktionsmatrix, Berechtigungen, Statistikquellen und Evidenzregeln für SQL Server, PostgreSQL, TimescaleDB, YugabyteDB, MySQL, MariaDB, SQLite.",
+            "description": "Funktionsmatrix, Berechtigungen, Quellen und Evidenzregeln für SQL Server, PostgreSQL, TimescaleDB, YugabyteDB, MySQL, MariaDB, ClickHouse und SQLite.",
             "eyebrow": "8 Datenbank-Provider · Gemeinsame Evidenz-Pipeline",
             "h1": "Unterstützte Datenbanken und Engine-Parität.",
             "lede": "Ein einheitlicher Workflow für Desktop, CLI und MCP über acht Datenbank-Engines hinweg – basierend auf realen Systemstatistiken ohne geschätzte Scheinwerte.",
@@ -521,7 +521,7 @@ BUNDLES_WEST: dict[str, dict] = {
         },
         "home": {
             "title": "Culprit SQL: Plataforma de Causa Raíz y Flotas de Bases de Datos",
-            "description": "Plataforma open source (MIT) de rendimiento SQL para SQL Server, PostgreSQL, TimescaleDB, YugabyteDB, MySQL, MariaDB y SQLite. Studio, Fleet 24/7, Explain, CI y MCP.",
+            "description": "Plataforma MIT de rendimiento SQL para SQL Server, PostgreSQL, TimescaleDB, YugabyteDB, MySQL, MariaDB, ClickHouse y SQLite: Studio, Fleet 24/7, Explain y MCP.",
             "eyebrow": "MIT Open Source · 8 Database Engines · Local, CI & 24/7 Fleet",
             "h1": "Diagnóstico de causa raíz en bases de datos, del portátil a la flota 24/7.",
             "lede": "Un mismo motor en Rust para una app nativa de 14 MB, control offline de migraciones en Pull Requests, análisis WebAssembly en navegador y telemetría autohospedada en ADX o ClickHouse.",
@@ -633,7 +633,7 @@ BUNDLES_WEST: dict[str, dict] = {
         },
         "studio": {
             "title": "Culprit SQL Studio, CLI y Servidor MCP para macOS, Windows y Linux",
-            "description": "App nativa de 14 MB, CLI JSON/SARIF y servidor MCP con 27 herramientas para SQL Server, PostgreSQL, MySQL, MariaDB, YugabyteDB, TimescaleDB y SQLite.",
+            "description": "App nativa de 14 MB, CLI JSON/SARIF y servidor MCP con 27 herramientas para SQL Server, PostgreSQL, MySQL, MariaDB, YugabyteDB, TimescaleDB, ClickHouse y SQLite.",
             "eyebrow": "App de Escritorio · CLI Nativa · Servidor MCP Local · v__VERSION__",
             "h1": "Una estación nativa de 14 MB que identifica el cuello de botella al instante.",
             "lede": "Inicio en menos de un segundo, análisis offline, comparación de planes, árboles de bloqueo en vivo, índices virtuales y servidor MCP auditado.",
@@ -650,7 +650,7 @@ BUNDLES_WEST: dict[str, dict] = {
             "description": "Visualizador WebAssembly 100 % en cliente para planes SQL, comparación estructural, interbloqueos y archivos binarios Extended Events (.xel).",
             "eyebrow": "Rust -> WebAssembly · Sin Subidas · SDKs en npm",
             "h1": "Inspecciona planes de ejecución, deadlocks y archivos .xel en el navegador.",
-            "lede": "Compilado desde los mismos crates en Rust de Studio, Culprit Explain analiza .sqlplan, .xel, PostgreSQL EXPLAIN, MySQL JSON y YugabyteDB localmente en WebAssembly.",
+            "lede": "Compilado desde los mismos crates en Rust de Studio, Culprit Explain analiza .sqlplan, .xel, PostgreSQL EXPLAIN, MySQL JSON, ClickHouse y YugabyteDB localmente en WebAssembly.",
         },
         "ci": {
             "title": "Culprit CI, VS Code y Tests: Control Preventivo SQL en Pull Requests",
@@ -668,7 +668,7 @@ BUNDLES_WEST: dict[str, dict] = {
         },
         "databases": {
             "title": "Bases de Datos Compatibles y Matriz de Paridad · Culprit SQL",
-            "description": "Matriz de capacidades, permisos requeridos, fuentes y reglas de evidencia en SQL Server, PostgreSQL, TimescaleDB, YugabyteDB, MySQL, MariaDB y SQLite.",
+            "description": "Matriz de capacidades, permisos requeridos, fuentes y reglas de evidencia en SQL Server, PostgreSQL, TimescaleDB, YugabyteDB, MySQL, MariaDB, ClickHouse y SQLite.",
             "eyebrow": "8 Proveedores · Pipeline de Evidencia Unificado",
             "h1": "Bases de datos compatibles y paridad de motores.",
             "lede": "Un mismo flujo en escritorio, CLI y MCP para ocho motores, basado estrictamente en las vistas nativas de cada servidor.",
@@ -743,7 +743,7 @@ BUNDLES_WEST: dict[str, dict] = {
         },
         "home": {
             "title": "Culprit SQL : Diagnostic SQL & Flottes de Bases de Données",
-            "description": "Plateforme open source (MIT) de performance SQL pour SQL Server, PostgreSQL, TimescaleDB, YugabyteDB, MySQL, MariaDB, SQLite. Studio, Fleet, Explain, CI & MCP.",
+            "description": "Plateforme MIT de performance SQL pour SQL Server, PostgreSQL, TimescaleDB, YugabyteDB, MySQL, MariaDB, ClickHouse et SQLite : Studio, Fleet, Explain, CI & MCP.",
             "eyebrow": "MIT Open Source · 8 Database Engines · Local, CI & 24/7 Fleet",
             "h1": "Diagnostic SQL déterministe, du poste local à la flotte 24/7.",
             "lede": "Un moteur Rust unique propulsant une application native de 14 Mo, le contrôle hors ligne des migrations en Pull Request, l'analyse WebAssembly dans le navigateur et la télémétrie sur ADX ou ClickHouse.",
@@ -855,7 +855,7 @@ BUNDLES_WEST: dict[str, dict] = {
         },
         "studio": {
             "title": "Culprit SQL Studio, CLI & Serveur MCP (macOS, Windows & Linux)",
-            "description": "Application native de 14 Mo, CLI JSON/SARIF et serveur MCP à 27 outils pour SQL Server, PostgreSQL, MySQL, MariaDB, YugabyteDB, TimescaleDB et SQLite.",
+            "description": "Application native de 14 Mo, CLI JSON/SARIF et serveur MCP à 27 outils pour SQL Server, PostgreSQL, MySQL, MariaDB, YugabyteDB, TimescaleDB, ClickHouse et SQLite.",
             "eyebrow": "App Bureau · CLI Native · Serveur MCP Local · v__VERSION__",
             "h1": "Un atelier natif de 14 Mo qui identifie vos goulots SQL en secondes.",
             "lede": "Ouverture instantanée, espaces hors ligne, comparaison de plans, arbres de blocage en direct, index virtuels et serveur MCP audité.",
@@ -872,7 +872,7 @@ BUNDLES_WEST: dict[str, dict] = {
             "description": "Visualiseur WebAssembly 100 % côté client pour plans d'exécution SQL, comparaison structurelle, deadlocks et traces Extended Events (.xel).",
             "eyebrow": "Rust -> WebAssembly · Zéro Upload · SDKs npm",
             "h1": "Analysez plans d'exécution, deadlocks et fichiers .xel dans le navigateur.",
-            "lede": "Compilé depuis les mêmes crates Rust que Studio, Culprit Explain décode .sqlplan, .xel, PostgreSQL EXPLAIN, MySQL JSON et YugabyteDB 100 % localement.",
+            "lede": "Compilé depuis les mêmes crates Rust que Studio, Culprit Explain décode .sqlplan, .xel, PostgreSQL EXPLAIN, MySQL JSON, ClickHouse et YugabyteDB 100 % localement.",
         },
         "ci": {
             "title": "Culprit CI, VS Code & SDKs de Test : Garde-Fous SQL en Pull Request",
@@ -890,7 +890,7 @@ BUNDLES_WEST: dict[str, dict] = {
         },
         "databases": {
             "title": "Bases de Données Compatibles & Matrice de Parité · Culprit SQL",
-            "description": "Matrice des capacités, privilèges requis et règles de preuve pour SQL Server, PostgreSQL, TimescaleDB, YugabyteDB, MySQL, MariaDB et SQLite.",
+            "description": "Matrice des capacités, privilèges requis et règles de preuve pour SQL Server, PostgreSQL, TimescaleDB, YugabyteDB, MySQL, MariaDB, ClickHouse et SQLite.",
             "eyebrow": "8 Fournisseurs · Pipeline de Preuves Partagé",
             "h1": "Bases de données prises en charge et parité des moteurs.",
             "lede": "Un même espace de travail, contrat CLI et serveur MCP sur huit moteurs SQL, fondé sur les statistiques natives de chaque base.",
@@ -965,7 +965,7 @@ BUNDLES_WEST: dict[str, dict] = {
         },
         "home": {
             "title": "Culprit SQL: Plataforma de Causa Raiz e Frotas de Bancos de Dados",
-            "description": "Plataforma open source (MIT) de performance SQL para SQL Server, PostgreSQL, TimescaleDB, YugabyteDB, MySQL, MariaDB e SQLite. Studio, Fleet 24/7, Explain, CI e MCP.",
+            "description": "Plataforma MIT de performance SQL para SQL Server, PostgreSQL, TimescaleDB, YugabyteDB, MySQL, MariaDB, ClickHouse e SQLite: Studio, Fleet 24/7, Explain e MCP.",
             "eyebrow": "MIT Open Source · 8 Database Engines · Local, CI & 24/7 Fleet",
             "h1": "Engenharia de causa raiz em bancos de dados, do notebook à frota 24/7.",
             "lede": "Um único motor em Rust para o app nativo de 14 MB, validação offline de migrações em Pull Requests, análise WebAssembly no navegador e telemetria auto-hospedada no ADX ou ClickHouse.",
@@ -1077,7 +1077,7 @@ BUNDLES_WEST: dict[str, dict] = {
         },
         "studio": {
             "title": "Culprit SQL Studio, CLI e Servidor MCP para macOS, Windows e Linux",
-            "description": "App nativo de 14 MB, CLI JSON/SARIF e servidor MCP com 27 ferramentas para SQL Server, PostgreSQL, MySQL, MariaDB, YugabyteDB, TimescaleDB e SQLite.",
+            "description": "App nativo de 14 MB, CLI JSON/SARIF e servidor MCP com 27 ferramentas para SQL Server, PostgreSQL, MySQL, MariaDB, YugabyteDB, TimescaleDB, ClickHouse e SQLite.",
             "eyebrow": "App Desktop · CLI Nativa · Servidor MCP Local · v__VERSION__",
             "h1": "Uma bancada nativa de 14 MB que aponta seu gargalo SQL em segundos.",
             "lede": "Inicialização instantânea, snapshots offline, comparação de planos, árvores de bloqueio ao vivo, índices virtuais e servidor MCP auditado.",
@@ -1094,7 +1094,7 @@ BUNDLES_WEST: dict[str, dict] = {
             "description": "Visualizador WebAssembly 100% client-side para planos de execução SQL, comparação estrutural, deadlocks e arquivos Extended Events (.xel).",
             "eyebrow": "Rust -> WebAssembly · Zero Uploads · SDKs npm",
             "h1": "Inspecione planos de execução, deadlocks e arquivos .xel no navegador.",
-            "lede": "Compilado a partir dos mesmos crates Rust do Studio, o Culprit Explain analisa .sqlplan, .xel, PostgreSQL EXPLAIN, MySQL JSON e YugabyteDB localmente em WebAssembly.",
+            "lede": "Compilado a partir dos mesmos crates Rust do Studio, o Culprit Explain analisa .sqlplan, .xel, PostgreSQL EXPLAIN, MySQL JSON, ClickHouse e YugabyteDB localmente em WebAssembly.",
         },
         "ci": {
             "title": "Culprit CI, VS Code e Testes: Proteção SQL em Pull Requests",
@@ -1112,7 +1112,7 @@ BUNDLES_WEST: dict[str, dict] = {
         },
         "databases": {
             "title": "Bancos de Dados Suportados e Matriz de Paridade · Culprit SQL",
-            "description": "Matriz de recursos, permissões exigidas e regras de evidência em SQL Server, PostgreSQL, TimescaleDB, YugabyteDB, MySQL, MariaDB e SQLite.",
+            "description": "Matriz de recursos, permissões exigidas e regras de evidência em SQL Server, PostgreSQL, TimescaleDB, YugabyteDB, MySQL, MariaDB, ClickHouse e SQLite.",
             "eyebrow": "8 Provedores · Pipeline Único de Evidências",
             "h1": "Bancos de dados suportados e paridade de motores.",
             "lede": "Um mesmo espaço de trabalho, CLI e servidor MCP em oito bancos de dados, fundamentado nas visões nativas de cada motor.",

@@ -2,6 +2,22 @@
 
 Each release's notes are its section below: the release workflow publishes them on GitHub, and the desktop app shows them when it offers the update. A release without a section here isn't drafted.
 
+## 0.6.4
+
+### Added
+
+- **ClickHouse diagnostics across SQL Studio, CLI, collector and Plan Viewer.** Connect to ClickHouse over read-only HTTP(S) (`clickhouse://`, verified TLS on port `8443` by default) to inspect `system.query_log` workloads, exceptions and time-bucketed comparisons, `system.processes` live requests, MergeTree schema and sorting keys, `EXPLAIN PLAN json=1` pipeline steps, and operational health across active parts, merges, failed mutations, Keeper and replication queues, `Distributed` send queues and asynchronous inserts. `culprit collect` captures bounded ClickHouse operational windows and targeted `query_id` + `system.part_log` follow-up investigations for ADX and ClickHouse archives, and `@culpritsql/plans` and Plan Viewer parse ClickHouse execution plan JSON offline.
+- **Five additional interface languages.** SQL Studio, the web viewer and human-readable CLI output now include Simplified Chinese (`zh-Hans`), Japanese (`ja`), Korean (`ko`), Russian (`ru`) and Portuguese (`pt-BR`) alongside English, German, Spanish and French.
+
+### Improvements
+
+- **Unified Archives welcome screen and scrollable chart change lists.** **Archives** opens with an incident-investigation welcome card listing saved archives, supported warehouses (Azure Data Explorer and ClickHouse) and original-evidence stores (Azure Blob Storage and Amazon S3). Hovering or focusing a change marker on a time chart shows every recorded change in a window-bounded, wheel- and keyboard-scrollable list before selecting it to compare before and after.
+
+### Fixes
+
+- **Clearer scan failure messages and ClickHouse connection options in SQL Studio.** Failed scans show the full error message alongside workspace recovery details, and ClickHouse connection forms and cards omit SSH jump-host fields that ClickHouse's HTTP(S) transport does not use.
+- **Keep Azure SQL firewall login denials from blocking later scans.** Login rejections from the SQL firewall (`40615` and `40914`) confirm that no database session started, so later scans and reads are not held behind unconfirmed connection work.
+
 ## 0.6.3
 
 ### Fixes

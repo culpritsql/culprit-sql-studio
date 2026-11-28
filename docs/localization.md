@@ -1,6 +1,6 @@
 # Localization
 
-Culprit speaks English, Spanish, French and German. Every word it shows (the app's buttons and headings, each finding's
+Culprit speaks English, Simplified Chinese, Japanese, Korean, Russian, German, Spanish, French and Portuguese. Every word it shows (the app's buttons and headings, each finding's
 title, summary, fix and verify steps, metric labels, notes) comes from a **language catalog**: one JSON file per language
 in [`locales/`](../locales).
 

@@ -57,7 +57,7 @@ BUNDLES_EAST: dict[str, dict] = {
         },
         "home": {
             "title": "Culprit SQL：生产级数据库根因诊断与全栈集群可观测平台",
-            "description": "基于 MIT 开源的 SQL 根因工程平台，支持 SQL Server、PostgreSQL、TimescaleDB、YugabyteDB、MySQL、MariaDB 与 SQLite，涵盖 Studio、Fleet、Explain、CI 与 MCP。",
+            "description": "基于 MIT 开源的 SQL 根因工程平台，支持 SQL Server、PostgreSQL、TimescaleDB、YugabyteDB、MySQL、MariaDB、ClickHouse 与 SQLite，涵盖 Studio、Fleet、Explain、CI 与 MCP。",
             "eyebrow": "MIT 开源 · 支持 8 大数据库引擎 · 本地、CI 与 7x24 集群",
             "h1": "从本地工作站到 7x24 生产集群的确定性 SQL 根因工程。",
             "lede": "同一套纯 Rust 诊断引擎，驱动 14 MB 原生 Studio 桌面端、Pull Request 离线迁移门禁、浏览器 WebAssembly 执行计划工作台，以及构建在自有 ADX 或 ClickHouse 上的集群遥测中心。",
@@ -169,7 +169,7 @@ BUNDLES_EAST: dict[str, dict] = {
         },
         "studio": {
             "title": "Culprit SQL Studio、CLI 与本地 MCP 服务 (macOS / Windows / Linux)",
-            "description": "14 MB 原生数据库性能诊断桌面端、JSON/SARIF 命令行与 27 工具 MCP 服务，支持 SQL Server、PostgreSQL、MySQL、MariaDB、YugabyteDB 与 SQLite。",
+            "description": "14 MB 原生数据库性能诊断桌面端、JSON/SARIF 命令行与 27 工具 MCP 服务，支持 SQL Server、PostgreSQL、TimescaleDB、YugabyteDB、MySQL、MariaDB、ClickHouse 与 SQLite。",
             "eyebrow": "原生桌面端 · CLI · 本地 MCP 服务 · v__VERSION__",
             "h1": "14 MB 原生性能工作台，数秒定位慢查询与锁等待根因。",
             "lede": "亚秒级打开、离线快照分析、执行计划回归对比、实时阻塞树、虚拟索引验证，以及面向 Claude Code、Codex 与 Cursor 的受审计 MCP 服务。",
@@ -186,7 +186,7 @@ BUNDLES_EAST: dict[str, dict] = {
             "description": "100% 纯前端 WebAssembly SQL 执行计划可视化、算子差异对比、死锁图分析与 SQL Server 二进制 .xel 扩展事件查看器。",
             "eyebrow": "Rust -> WebAssembly · 零网络上传 · npm SDK",
             "h1": "在浏览器本地即时解析执行计划、死锁图与 .xel 跟踪文件。",
-            "lede": "由与 Studio 同源的 Rust 核心编译为 WebAssembly，Culprit Explain 完全在浏览器本地解析 .sqlplan、.xel、PostgreSQL EXPLAIN、MySQL JSON 与 YugabyteDB 计划。",
+            "lede": "由与 Studio 同源的 Rust 核心编译为 WebAssembly，Culprit Explain 完全在浏览器本地解析 .sqlplan、.xel、PostgreSQL EXPLAIN、MySQL JSON、ClickHouse 与 YugabyteDB 计划。",
         },
         "ci": {
             "title": "Culprit CI、VS Code 与测试 SDK：Pull Request SQL 左移门禁",
@@ -204,7 +204,7 @@ BUNDLES_EAST: dict[str, dict] = {
         },
         "databases": {
             "title": "支持的数据库引擎与功能对齐矩阵 · Culprit SQL",
-            "description": "SQL Server、PostgreSQL、TimescaleDB、YugabyteDB、MySQL、MariaDB 与 SQLite 的完整功能支持矩阵、权限配置与证据准则。",
+            "description": "SQL Server、PostgreSQL、TimescaleDB、YugabyteDB、MySQL、MariaDB、ClickHouse 与 SQLite 的完整功能支持矩阵、权限配置与证据准则。",
             "eyebrow": "8 大数据库引擎 · 统一证据流水线",
             "h1": "受支持的数据库与引擎能力矩阵。",
             "lede": "桌面端、CLI 与 MCP 在八种数据库上共享同一套工作流，严格忠实于各数据库原生统计视图，缺失数据源绝不伪造为零值或健康结论。",
@@ -279,8 +279,8 @@ BUNDLES_EAST: dict[str, dict] = {
         },
         "home": {
             "title": "Culprit SQL: 本番データベース根本原因解析・フリート基盤",
-            "description": "SQL Server、PostgreSQL、TimescaleDB、YugabyteDB、MySQL、MariaDB、SQLite対応のMITオープンソースSQL診断基盤。Studio、Fleet、Explain、CI、MCPを提供。",
-            "eyebrow": "MITオープンソース · SQL Server · PostgreSQL · TimescaleDB · YugabyteDB · MySQL · MariaDB · SQLite",
+            "description": "SQL Server、PostgreSQL、TimescaleDB、YugabyteDB、MySQL、MariaDB、ClickHouse、SQLite対応のMITオープンソースSQL診断基盤。Studio、Fleet、Explain、CI、MCPを提供。",
+            "eyebrow": "MITオープンソース · SQL Server · PostgreSQL · TimescaleDB · YugabyteDB · MySQL · MariaDB · ClickHouse · SQLite",
             "h1": "ローカル開発から24時間本番フリートまで、決定論的なSQL根本原因解析を。",
             "lede": "単一の純粋Rust診断エンジンが、14 MBのネイティブStudio、PRマイグレーション検証CI、ブラウザWebAssembly実行計画解析、自社ADX / ClickHouse上のフリート監視を一貫して駆動します。",
             "trust": ["設計レベルで読み取り専用", "セルフホスト · SaaSロックインなし", "監査ログ付きMCPサーバー", "完全無料 · MITライセンス"],
@@ -290,7 +290,7 @@ BUNDLES_EAST: dict[str, dict] = {
                     "num": "01 · ローカル & CLI",
                     "name": "Studio・CLI・MCP",
                     "h2": "14 MBネイティブアプリ、10 msのCLI、27ツールのローカルMCP。",
-                    "p": "7種類のDBエンジンへ読み取り専用で接続。Query Store、pg_stat_statements、performance_schema、拡張イベントからDB時間消費の大きい原因と安全な修正手順を特定します。",
+                    "p": "8種類のDBエンジンへ読み取り専用で接続。Query Store、pg_stat_statements、performance_schema、拡張イベントからDB時間消費の大きい原因と安全な修正手順を特定します。",
                     "bullets": [
                         "証拠ルールに基づく__CHECK_COUNT__項目の高精度診断（誤検知を排除）",
                         "1秒未満で起動。資格情報はOSキーチェーン・Entra ID・AWS IAMで安全に管理",
@@ -391,7 +391,7 @@ BUNDLES_EAST: dict[str, dict] = {
         },
         "studio": {
             "title": "Culprit SQL Studio・CLI・MCPサーバー (macOS / Windows / Linux)",
-            "description": "SQL Server、PostgreSQL、MySQL、MariaDB、YugabyteDB、TimescaleDB、SQLite対応の14 MBネイティブアプリ、JSON/SARIF CLI、27ツールのMCPサーバー。",
+            "description": "SQL Server、PostgreSQL、MySQL、MariaDB、YugabyteDB、TimescaleDB、ClickHouse、SQLite対応の14 MBネイティブアプリ、JSON/SARIF CLI、27ツールのMCPサーバー。",
             "eyebrow": "デスクトップアプリ · ネイティブCLI · ローカルMCP · v__VERSION__",
             "h1": "ボトルネックを数秒で特定する14 MBのネイティブワークベンチ。",
             "lede": "瞬時の起動、オフラインスナップショット、実行計画比較、ライブブロッキングツリー、仮想インデックス検証、監査付きMCPサーバーを統合。",
@@ -408,7 +408,7 @@ BUNDLES_EAST: dict[str, dict] = {
             "description": "100%クライアントサイドWebAssemblyで動作するSQL実行計画ビューア、構造差分比較、デッドロック解析、SQL Server .xel拡張イベントインスペクター。",
             "eyebrow": "Rust -> WebAssembly · サーバー送信ゼロ · npm SDK",
             "h1": "実行計画・デッドロック・.xelトレースをブラウザ内で完結解析。",
-            "lede": "Studioと同じRustクレートからWebAssemblyへコンパイルされ、.sqlplan、.xel、PostgreSQL EXPLAIN、MySQL JSON、YugabyteDB計画をローカルで高速解析します。",
+            "lede": "Studioと同じRustクレートからWebAssemblyへコンパイルされ、.sqlplan、.xel、PostgreSQL EXPLAIN、MySQL JSON、ClickHouse、YugabyteDB計画をローカルで高速解析します。",
         },
         "ci": {
             "title": "Culprit CI・VS Code・テストSDK: Pull RequestのSQL品質ゲート",
@@ -426,10 +426,10 @@ BUNDLES_EAST: dict[str, dict] = {
         },
         "databases": {
             "title": "対応データベースと機能パリティ一覧 · Culprit SQL",
-            "description": "SQL Server、PostgreSQL、TimescaleDB、YugabyteDB、MySQL、MariaDB、SQLiteの機能比較マトリクス、必要権限、統計ソースと証拠ルール。",
+            "description": "SQL Server、PostgreSQL、TimescaleDB、YugabyteDB、MySQL、MariaDB、ClickHouse、SQLiteの機能比較マトリクス、必要権限、統計ソースと証拠ルール。",
             "eyebrow": "8つのDBプロバイダー · 共通エビデンスパイプライン",
             "h1": "対応データベースとエンジン機能パリティ。",
-            "lede": "7種類のデータベースに対して共通のワークスペース・CLI・MCPを提供し、各エンジンのネイティブ統計を正確に解釈します。",
+            "lede": "8種類のデータベースに対して共通のワークスペース・CLI・MCPを提供し、各エンジンのネイティブ統計を正確に解釈します。",
             "matrix_title": "エンジン別機能マトリクス",
         },
         "releases": {
@@ -501,8 +501,8 @@ BUNDLES_EAST: dict[str, dict] = {
         },
         "home": {
             "title": "Culprit SQL: 프로덕션 데이터베이스 근본 원인 분석 및 플릿 플랫폼",
-            "description": "SQL Server, PostgreSQL, TimescaleDB, YugabyteDB, MySQL, MariaDB, SQLite를 지원하는 MIT 오픈소스 SQL 진단 플랫폼. Studio, Fleet, Explain, CI, MCP 제공.",
-            "eyebrow": "MIT 오픈소스 · SQL Server · PostgreSQL · TimescaleDB · YugabyteDB · MySQL · MariaDB · SQLite",
+            "description": "SQL Server, PostgreSQL, TimescaleDB, YugabyteDB, MySQL, MariaDB, ClickHouse, SQLite를 지원하는 MIT 오픈소스 SQL 진단 플랫폼. Studio, Fleet, Explain, CI, MCP 제공.",
+            "eyebrow": "MIT 오픈소스 · SQL Server · PostgreSQL · TimescaleDB · YugabyteDB · MySQL · MariaDB · ClickHouse · SQLite",
             "h1": "노트북부터 24/7 운영 플릿까지, 결정론적 데이터베이스 근본 원인 분석.",
             "lede": "단일 순수 Rust 진단 엔진으로 14 MB 네이티브 Studio, 오프라인 PR 마이그레이션 검증, 브라우저 WebAssembly 실행 계획 분석, 자체 호스팅 ADX / ClickHouse 플릿 텔레메트리를 통합합니다.",
             "trust": ["설계 수준 읽기 전용", "자체 호스팅 · SaaS 종속 없음", "감사 로그 기반 에이전트 MCP", "100% 무료 · MIT 라이선스"],
@@ -599,7 +599,7 @@ BUNDLES_EAST: dict[str, dict] = {
                 ("비용 효율성", "코어·시트당 라이선스 비용 제로", "고가의 레거시 DBM 솔루션을 MIT 오픈소스와 자체 ClickHouse / ADX 스토리지로 대체하세요."),
             ],
             "db_kicker": "지원 데이터베이스",
-            "db_title": "일곱 가지 데이터베이스 엔진을 하나의 워크플로로.",
+            "db_title": "여덟 가지 데이터베이스 엔진을 하나의 워크플로로.",
             "db_lede": "각 데이터베이스 프로바이더의 필수 권한, 수집 뷰 및 증거 기준을 확인하세요.",
             "faq_title": "기술 FAQ",
             "faqs": [
@@ -613,7 +613,7 @@ BUNDLES_EAST: dict[str, dict] = {
         },
         "studio": {
             "title": "Culprit SQL Studio, CLI & MCP 서버 (macOS, Windows, Linux)",
-            "description": "SQL Server, PostgreSQL, MySQL, MariaDB, YugabyteDB, TimescaleDB, SQLite용 14 MB 네이티브 데스크톱 앱, JSON/SARIF CLI 및 27개 도구 MCP 서버.",
+            "description": "SQL Server, PostgreSQL, MySQL, MariaDB, YugabyteDB, TimescaleDB, ClickHouse, SQLite용 14 MB 네이티브 데스크톱 앱, JSON/SARIF CLI 및 27개 도구 MCP 서버.",
             "eyebrow": "데스크톱 앱 · 네이티브 CLI · 로컬 MCP 서버 · v__VERSION__",
             "h1": "수 초 내에 데이터베이스 병목을 지목하는 14 MB 네이티브 워크벤치.",
             "lede": "즉각적인 기동, 오프라인 스냅샷, 실행 계획 비교, 실시간 블로킹 트리, 가상 인덱스 테스트 및 감사형 MCP 서버를 제공합니다.",
@@ -630,7 +630,7 @@ BUNDLES_EAST: dict[str, dict] = {
             "description": "100% 클라이언트 사이드 WebAssembly SQL 실행 계획 뷰어, 구조적 플랜 비교, 데드락 그래프 분석기 및 SQL Server .xel 확장 이벤트 인스펙터.",
             "eyebrow": "Rust -> WebAssembly · 서버 업로드 제로 · npm SDK",
             "h1": "브라우저에서 실행 계획, 데드락, .xel 트레이스를 로컬로 분석하세요.",
-            "lede": "Studio와 동일한 Rust 크레이트를 WebAssembly로 컴파일하여 .sqlplan, .xel, PostgreSQL EXPLAIN, MySQL JSON, YugabyteDB 플랜을 외부 전송 없이 즉시 해석합니다.",
+            "lede": "Studio와 동일한 Rust 크레이트를 WebAssembly로 컴파일하여 .sqlplan, .xel, PostgreSQL EXPLAIN, MySQL JSON, ClickHouse, YugabyteDB 플랜을 외부 전송 없이 즉시 해석합니다.",
         },
         "ci": {
             "title": "Culprit CI, VS Code & 테스트 SDK: Pull Request SQL 안전 가드레일",
@@ -648,10 +648,10 @@ BUNDLES_EAST: dict[str, dict] = {
         },
         "databases": {
             "title": "지원 데이터베이스 및 엔진 기능 매트릭스 · Culprit SQL",
-            "description": "SQL Server, PostgreSQL, TimescaleDB, YugabyteDB, MySQL, MariaDB, SQLite의 전체 기능 매트릭스, 필요 권한, 워크로드 소스 및 증거 규칙.",
+            "description": "SQL Server, PostgreSQL, TimescaleDB, YugabyteDB, MySQL, MariaDB, ClickHouse, SQLite의 전체 기능 매트릭스, 필요 권한, 워크로드 소스 및 증거 규칙.",
             "eyebrow": "8개 데이터베이스 프로바이더 · 단일 증거 파이프라인",
             "h1": "지원 데이터베이스 및 엔진 패리티.",
-            "lede": "일곱 가지 데이터베이스 엔진에서 동일한 워크스페이스, CLI, MCP 도구를 사용하며 각 엔진의 네이티브 통계 뷰를 정확히 반영합니다.",
+            "lede": "여덟 가지 데이터베이스 엔진에서 동일한 워크스페이스, CLI, MCP 도구를 사용하며 각 엔진의 네이티브 통계 뷰를 정확히 반영합니다.",
             "matrix_title": "엔진별 기능 비교 매트릭스",
         },
         "releases": {
@@ -723,8 +723,8 @@ BUNDLES_EAST: dict[str, dict] = {
         },
         "home": {
             "title": "Culprit SQL: Диагностика Первопричин и Мониторинг Парка СУБД",
-            "description": "Открытая (MIT) платформа диагностики SQL для SQL Server, PostgreSQL, TimescaleDB, YugabyteDB, MySQL, MariaDB и SQLite: Studio, Fleet 24/7, Explain, CI и MCP.",
-            "eyebrow": "MIT Open Source · SQL Server · PostgreSQL · TimescaleDB · YugabyteDB · MySQL · MariaDB · SQLite",
+            "description": "Открытая (MIT) платформа диагностики SQL для SQL Server, PostgreSQL, TimescaleDB, YugabyteDB, MySQL, MariaDB, ClickHouse и SQLite: Studio, Fleet, Explain и MCP.",
+            "eyebrow": "MIT Open Source · SQL Server · PostgreSQL · TimescaleDB · YugabyteDB · MySQL · MariaDB · ClickHouse · SQLite",
             "h1": "Инженерная диагностика СУБД: от ноутбука до продакшн-парка 24/7.",
             "lede": "Единое Rust-ядро для нативного приложения Studio (14 МБ), офлайн-проверок миграций в Pull Request, WebAssembly-анализатора планов в браузере и телеметрии на базе вашего ADX или ClickHouse.",
             "trust": ["Только чтение на уровне архитектуры", "Self-Hosted · Без привязки к SaaS", "Аудируемый MCP для ИИ-агентов", "Бесплатно · Лицензия MIT"],
@@ -835,7 +835,7 @@ BUNDLES_EAST: dict[str, dict] = {
         },
         "studio": {
             "title": "Culprit SQL Studio, CLI и MCP-сервер для macOS, Windows и Linux",
-            "description": "Нативное приложение 14 МБ, CLI с выводом JSON/SARIF и MCP-сервер на 27 инструментов для SQL Server, PostgreSQL, MySQL, MariaDB, YugabyteDB и SQLite.",
+            "description": "Нативное приложение 14 МБ, JSON/SARIF CLI и MCP-сервер (27 инструментов) для SQL Server, PostgreSQL, TimescaleDB, YugabyteDB, MySQL, MariaDB, ClickHouse и SQLite.",
             "eyebrow": "Нативное приложение · CLI · Локальный MCP · v__VERSION__",
             "h1": "Нативная среда 14 МБ, находящая узкие места БД за секунды.",
             "lede": "Мгновенный старт, офлайн-снимки, сравнение планов, живые деревья блокировок, виртуальные индексы и аудируемый MCP-сервер для Claude Code, Codex и Cursor.",
@@ -852,7 +852,7 @@ BUNDLES_EAST: dict[str, dict] = {
             "description": "Клиентский WebAssembly-анализатор планов выполнения SQL, структурного сравнения, графов дедлоков и бинарных файлов Extended Events (.xel).",
             "eyebrow": "Rust -> WebAssembly · Без загрузок на сервер · npm SDK",
             "h1": "Разбирайте планы выполнения, дедлоки и трассы .xel прямо в браузере.",
-            "lede": "Собранный в WebAssembly из тех же Rust-крейтов, что и Studio, Culprit Explain локально анализирует .sqlplan, .xel, PostgreSQL EXPLAIN, MySQL JSON и планы YugabyteDB.",
+            "lede": "Собранный в WebAssembly из тех же Rust-крейтов, что и Studio, Culprit Explain локально анализирует .sqlplan, .xel, PostgreSQL EXPLAIN, MySQL JSON, ClickHouse и планы YugabyteDB.",
         },
         "ci": {
             "title": "Culprit CI, VS Code и SDK Тестов: Защита SQL в Pull Request",
@@ -870,7 +870,7 @@ BUNDLES_EAST: dict[str, dict] = {
         },
         "databases": {
             "title": "Поддерживаемые СУБД и Матрица Возможностей · Culprit SQL",
-            "description": "Матрица возможностей, привилегии и правила доказательств для SQL Server, PostgreSQL, TimescaleDB, YugabyteDB, MySQL, MariaDB и SQLite.",
+            "description": "Матрица возможностей, привилегии и правила доказательств для SQL Server, PostgreSQL, TimescaleDB, YugabyteDB, MySQL, MariaDB, ClickHouse и SQLite.",
             "eyebrow": "8 провайдеров СУБД · Единый конвейер анализа",
             "h1": "Поддерживаемые базы данных и матрица возможностей.",
             "lede": "Единый интерфейс приложения, CLI и MCP для восьми СУБД с честной интерпретацией нативной статистики каждого сервера.",
