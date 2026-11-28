@@ -34,8 +34,8 @@
   <a href="#coding-agents-and-ci">エージェント &amp; CI</a> ·
   <a href="../guide.md">ガイド</a><br>
   <a href="https://culpritsql.com">culpritsql.com</a> ·
-  <a href="https://fleet.culpritsql.com">fleet.culpritsql.com</a> ·
-  <a href="https://explain.culpritsql.com">explain.culpritsql.com</a>
+  <a href="https://fleet.culpritsql.com">ライブ Fleet デモ</a> ·
+  <a href="https://explain.culpritsql.com">実行計画 &amp; .xel 解析</a>
 </p>
 
 <p align="center">

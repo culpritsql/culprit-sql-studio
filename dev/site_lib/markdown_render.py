@@ -236,13 +236,27 @@ def summarize_markdown(md_text: str, fallback: str, min_len: int = 115, max_len:
     text = re.sub(r"^#+\s+.*$", " ", text, flags=re.MULTILINE)
     text = re.sub(r"\*\*Full Changelog\*\*:.*$", " ", text, flags=re.MULTILINE)
     text = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", text)
-    text = re.sub(r"[`*_>#-]", " ", text)
+    text = re.sub(r"`([^`\n]+)`", r"\1", text)
+    text = re.sub(r"\([^()\n]{0,120}\)", " ", text)
+    text = re.sub(r"(?<!\w)[*_]+|[*_]+(?!\w)", " ", text)
+    text = re.sub(r"(?:^|\s)[>#-]+(?=\s)", " ", text)
+    text = re.sub(r"[()]", " ", text)
     text = re.sub(r"\s+", " ", text).strip()
     if len(text) < 40:
         text = fallback
     elif len(text) < min_len:
         text = f"{text} {fallback}"
     if len(text) > max_len:
-        cut = text[: max_len - 1].rsplit(" ", 1)[0].rstrip(".,;:")
-        text = cut + "."
+        window = text[: max_len - 1]
+        sent_idx = max(window.rfind(". "), window.rfind("; "))
+        if sent_idx >= 60:
+            return window[:sent_idx].rstrip(".,;:") + "."
+        cut = window.rsplit(" ", 1)[0].rstrip(".,;:-")
+        stop_tail = {
+            "a", "an", "and", "as", "at", "by", "for", "from", "in",
+            "into", "of", "on", "or", "over", "the", "to", "via", "with",
+        }
+        while " " in cut and cut.rsplit(" ", 1)[-1].lower() in stop_tail:
+            cut = cut.rsplit(" ", 1)[0].rstrip(".,;:-")
+        text = cut + "…"
     return text

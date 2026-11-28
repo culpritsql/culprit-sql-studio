@@ -34,8 +34,8 @@
   <a href="#coding-agents-and-ci">智能体与 CI</a> ·
   <a href="../guide.md">使用指南</a><br>
   <a href="https://culpritsql.com">culpritsql.com</a> ·
-  <a href="https://fleet.culpritsql.com">fleet.culpritsql.com</a> ·
-  <a href="https://explain.culpritsql.com">explain.culpritsql.com</a>
+  <a href="https://fleet.culpritsql.com">Fleet 在线演示</a> ·
+  <a href="https://explain.culpritsql.com">在线执行计划与 .xel 分析</a>
 </p>
 
 <p align="center">
