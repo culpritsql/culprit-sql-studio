@@ -7,7 +7,12 @@ use crate::{
 use futures_util::FutureExt;
 use std::time::Duration;
 const MAX_INTERVAL_WAIT_MS: u64 = 60_000;
-const CONFIGURE: &str = "ALTER DATABASE /* culprit */ CURRENT SET QUERY_STORE (INTERVAL_LENGTH_MINUTES=1)";
+const CONFIGURE: &str = concat!(
+    "ALTER DATABASE /* culprit */ CURRENT SET QUERY_STORE ",
+    "(OPERATION_MODE=READ_WRITE, QUERY_CAPTURE_MODE=ALL, INTERVAL_LENGTH_MINUTES=1); ",
+    "WAITFOR /* culprit */ DELAY '00:00:00.250'; ",
+    "EXEC /* culprit */ sys.sp_query_store_flush_db"
+);
 const FLUSH: &str = "EXEC /* culprit */ sys.sp_query_store_flush_db";
 const WINDOW: &str = concat!(
     "SELECT TOP(2) /* culprit */ ",
@@ -157,5 +162,9 @@ mod tests {
         }
         assert!(!WINDOW.contains("DISTINCT"));
         assert!(WINDOW.contains("EXISTS(SELECT 1 FROM sys.query_store_runtime_stats"));
+        let tagged = crate::statement_origin::monitoring_batch(CONFIGURE);
+        assert!(tagged.contains("INTERVAL_LENGTH_MINUTES=1"));
+        assert!(tagged.contains("WAITFOR /* culprit */ DELAY '00:00:00.250'"));
+        assert!(tagged.contains(crate::statement_origin::MONITORING_QUERY_MARKER));
     }
 }

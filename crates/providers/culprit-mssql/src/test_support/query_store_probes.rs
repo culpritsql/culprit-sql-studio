@@ -52,6 +52,8 @@ const OWNED_TABLE_SETUP_SQL: &str = r#"CREATE TABLE /* culprit */ dbo.culprit_ow
 INSERT /* culprit */ dbo.culprit_owned_compile_probe(id) VALUES(1);
 SELECT /* culprit */ COUNT_BIG(*) AS fixture_rows,MIN(id) AS fixture_value
 FROM dbo.culprit_owned_compile_probe OPTION(MAXDOP 1)"#;
+const FLUSH_CAPTURE_SQL: &str =
+    "WAITFOR /* culprit */ DELAY '00:00:00.100'; EXEC /* culprit */ sys.sp_query_store_flush_db";
 const EMPTY_LOOKUP_INVENTORY_SQL: &str = r#"SELECT /* culprit */ COUNT_BIG(*) AS query_rows,
  COUNT_BIG(CASE WHEN CHARINDEX(@P1,t.query_sql_text)>0 THEN 1 END) AS marker_query_rows,
  COUNT_BIG(CASE WHEN CHARINDEX(@P2,t.query_sql_text)>0 THEN 1 END) AS alias_query_rows
@@ -193,7 +195,7 @@ async fn seed_and_resolve<R: ProbeRead>(
         progress.probes_completed += 1;
     }
     progress.stage = SetupStage::Flush;
-    owner.query("EXEC /* culprit */ sys.sp_query_store_flush_db", vec![], 1).await.map_err(ReadError::into_error)?;
+    owner.query(FLUSH_CAPTURE_SQL, vec![], 1).await.map_err(ReadError::into_error)?;
     progress.flush_completed = true;
     progress.stage = SetupStage::Lookup;
     let sql = format!(

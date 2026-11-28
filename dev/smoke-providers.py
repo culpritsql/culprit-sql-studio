@@ -383,6 +383,14 @@ class Database:
             raise RuntimeError(f"{self.fixture.name} stopped during startup ({state}, exit {exit_code})")
 
     def readiness_query(self):
+        if self.fixture.engine == "mssql":
+            # `master` accepts `SELECT 1` ~5s after container start, before background startup tasks finish ~8-10s
+            # post-boot and flush plan caches (`CACHESTORE_OBJCP` / `CACHESTORE_SQLCP`) and initialize Query Store
+            # background workers. Wait until all databases are ONLINE and post-boot stabilization settles.
+            return """IF EXISTS (SELECT 1 FROM sys.databases WHERE state <> 0)
+ OR DATEDIFF(millisecond, (SELECT sqlserver_start_time FROM sys.dm_os_sys_info), SYSDATETIME()) < 15000
+ THROW 51000, N'Owned SQL Server fixture is still in startup stabilization.', 1;
+SELECT 1;"""
         return "SELECT 1;"
 
     def restart(self):
@@ -723,14 +731,6 @@ class ScalarGrantDatabase(EmptyCatalogDatabase):
         # unshared floor for `dbo.scalar_probe`'s `CACHESTORE_OBJCP` entry even across multi-second semaphore waits.
         super().__init__(replace(fixture, memory="4g"))
 
-    def readiness_query(self):
-        # `master` accepts `SELECT 1` ~5s after container start, before background startup tasks finish ~8-10s post-boot
-        # and flush `Object Plans` (`CACHESTORE_OBJCP`). Wait until all databases are ONLINE and post-boot settles.
-        return """IF EXISTS (SELECT 1 FROM sys.databases WHERE state <> 0)
- OR DATEDIFF(millisecond, (SELECT sqlserver_start_time FROM sys.dm_os_sys_info), SYSDATETIME()) < 15000
- THROW 51000, N'Owned scalar-grant SQL Server fixture is still in startup stabilization.', 1;
-SELECT 1;"""
-
     def seed(self):
         super().seed()
         # Warm system catalog metadata in `master` before the Rust fixture creates its own derived database.
@@ -792,8 +792,10 @@ class AgentDatabase(Database):
         return environment, command
 
     def readiness_query(self):
-        # A reported Running service can precede Agent's own initialized database connection.
-        return """IF NOT EXISTS (
+        # A reported Running service can precede post-boot stabilization and Agent's own initialized database session.
+        return """IF EXISTS (SELECT 1 FROM sys.databases WHERE state <> 0)
+ OR DATEDIFF(millisecond, (SELECT sqlserver_start_time FROM sys.dm_os_sys_info), SYSDATETIME()) < 15000
+ OR NOT EXISTS (
  SELECT 1 FROM sys.dm_exec_sessions WHERE program_name=N'SQLAgent - Generic Refresher'
 ) THROW 51000, N'Owned Agent fixture is not ready.', 1;
 SELECT 1;"""

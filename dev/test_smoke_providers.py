@@ -792,6 +792,20 @@ class MssqlNativePrerequisites(unittest.TestCase):
         recipe = next(fixture for fixture in smoke.FIXTURES if fixture.name == "mssql")
         return fixture_type(smoke.replace(recipe, name=name))
 
+    def test_every_mssql_fixture_awaits_online_databases_and_post_boot_stabilization(self):
+        for fixture_type in (smoke.Database, smoke.EmptyCatalogDatabase, smoke.ScalarGrantDatabase,
+                             smoke.FullTextDatabase, smoke.AgentDatabase):
+            with self.subTest(fixture_type=fixture_type.__name__):
+                database = self.fixture(fixture_type, f"mssql-{fixture_type.__name__.lower()}")
+                readiness = database.readiness_query()
+                self.assertIn("sys.databases WHERE state <> 0", readiness)
+                self.assertIn("sqlserver_start_time", readiness)
+                self.assertIn("15000", readiness)
+        for fixture in smoke.FIXTURES:
+            if fixture.engine == "mssql":
+                continue
+            self.assertEqual(smoke.Database(fixture).readiness_query(), "SELECT 1;")
+
     def test_empty_catalog_reuses_database_preparation_without_a_seed_table_reader_or_workload(self):
         empty = self.fixture(smoke.EmptyCatalogDatabase, "mssql-empty-catalog")
         empty.sql = Mock()
