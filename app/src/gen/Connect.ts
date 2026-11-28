@@ -13,6 +13,10 @@ choice: string,
  */
 file: boolean, 
 /**
+ * Whether Culprit can forward this connection over an SSH jump host.
+ */
+ssh: boolean, 
+/**
  * What to paste, or the path to type, as an example.
  */
 example: string, 

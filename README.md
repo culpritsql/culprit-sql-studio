@@ -16,6 +16,7 @@
   <img alt="YugabyteDB" src="https://img.shields.io/badge/YugabyteDB-C94B25?style=flat-square">
   <img alt="MySQL" src="https://img.shields.io/badge/MySQL-00758F?style=flat-square&logo=mysql&logoColor=white">
   <img alt="MariaDB" src="https://img.shields.io/badge/MariaDB-003545?style=flat-square&logo=mariadb&logoColor=white">
+  <img alt="ClickHouse" src="https://img.shields.io/badge/ClickHouse-FFCC01?style=flat-square&logo=clickhouse&logoColor=black">
   <img alt="SQLite" src="https://img.shields.io/badge/SQLite-003B57?style=flat-square&logo=sqlite&logoColor=white">
   <br>
   <img alt="MCP server" src="https://img.shields.io/badge/MCP-ready-1b1a18?style=flat-square">
@@ -81,6 +82,7 @@ The browser demo uses included snapshots and needs no database connection.
 | [**YugabyteDB**](docs/providers/yugabyte.md) | Native YSQL/DocDB counters, DIST plans, sharding and scoped activity sources |
 | [**MySQL**](docs/providers/mysql.md) | `performance_schema`, `sys`, EXPLAIN and the slow query log |
 | [**MariaDB**](docs/providers/mariadb.md) | Performance schema, slow log, user statistics, MariaDB plans and lock views |
+| [**ClickHouse**](docs/providers/clickhouse.md) | Logged initial queries (`system.query_log`), MergeTree parts/merges, mutations, replication and `EXPLAIN PLAN` |
 | [**SQLite**](docs/providers/sqlite.md) | Read-only file inspection, `EXPLAIN QUERY PLAN` and framework query logs |
 
 Features depend on the engine, enabled sources and your login’s permissions. Missing sources appear with a reason and setup guidance. See [Engine parity](docs/parity.md) for the feature comparison and verified versions.

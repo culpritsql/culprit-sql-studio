@@ -4658,6 +4658,7 @@
   "engine.ssh.unreachable": "SSH could not reach the bastion or database",
   "engine.ssh.unreachable_hint": "Check the SSH host alias, VPN and database endpoint. The database hostname must be reachable from the bastion.",
   "engine.ssh.unresolved_identity": "Cannot resolve the SSH identity file path",
+  "engine.ssh.unsupported": "SSH forwarding is not supported for {engine} connections",
   "engine.ssh.unsupported_options": "The installed OpenSSH client does not support the required options",
   "engine.ssh.unsupported_options_hint": "Update the OpenSSH client, then retry",
   "engine.store.bad_name": "'{name}' is not a valid connection name",

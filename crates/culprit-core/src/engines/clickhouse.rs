@@ -20,6 +20,7 @@ impl EngineSpec for ClickHouse {
             "clickhouse://reader@db.example.com:8443/analytics",
             key!("core.engines.clickhouse.accepts"),
         )
+        .without_ssh()
     }
     fn connection_security(&self) -> Option<crate::ConnectionSecuritySpec> {
         use crate::ConnectionSecurityMode as Mode;

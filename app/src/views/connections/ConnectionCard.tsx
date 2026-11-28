@@ -101,7 +101,7 @@ export function ConnectionCard({ connection: c }: { connection: ConnectionInfo }
         <span className="conn-tools">
           {c.auth === "password" && !c.has_secret && <SetPassword name={c.name} />}
           {(file || c.query_log) && <QueryLogSetting connection={c} />}
-          {!file && <SshSetting connection={c} />}
+          {connectFacts(c.engine).ssh && <SshSetting connection={c} />}
           <ConnectionSettingsButton connection={c} />
           <AgentAccessMenu connection={c} />
           <button type="button" className="btn ghost conn-rename" title={t("ui.connection_card.rename", { name: c.name })} aria-label={t("ui.connection_card.rename", { name: c.name })}

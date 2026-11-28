@@ -42,6 +42,9 @@ pub(crate) fn normalize(mut ssh: SshConfig, engine: Engine) -> Result<SshConfig>
     if !engine.has_server() {
         return Err(Error::invalid(t!("engine.ssh.file_database")));
     }
+    if !engine.spec().connect().ssh {
+        return Err(Error::invalid(t!("engine.ssh.unsupported", engine = engine.label())));
+    }
     let input = ssh.destination.trim().strip_prefix("ssh://").unwrap_or(ssh.destination.trim());
     let (user, host) = input.rsplit_once('@').map_or((None, input), |(user, host)| (Some(user), host));
     if let Some(user) = user

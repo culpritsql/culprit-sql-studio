@@ -58,7 +58,7 @@ BUNDLES_EAST: dict[str, dict] = {
         "home": {
             "title": "Culprit SQL：生产级数据库根因诊断与全栈集群可观测平台",
             "description": "基于 MIT 开源的 SQL 根因工程平台，支持 SQL Server、PostgreSQL、TimescaleDB、YugabyteDB、MySQL、MariaDB 与 SQLite，涵盖 Studio、Fleet、Explain、CI 与 MCP。",
-            "eyebrow": "MIT 开源 · 支持 7 大数据库引擎 · 本地、CI 与 7x24 集群",
+            "eyebrow": "MIT 开源 · 支持 8 大数据库引擎 · 本地、CI 与 7x24 集群",
             "h1": "从本地工作站到 7x24 生产集群的确定性 SQL 根因工程。",
             "lede": "同一套纯 Rust 诊断引擎，驱动 14 MB 原生 Studio 桌面端、Pull Request 离线迁移门禁、浏览器 WebAssembly 执行计划工作台，以及构建在自有 ADX 或 ClickHouse 上的集群遥测中心。",
             "trust": ["架构级只读保证", "私有化自托管 · 零 SaaS 绑定", "带完整审计的编码智能体 MCP", "100% 免费开源 (MIT)"],
@@ -68,7 +68,7 @@ BUNDLES_EAST: dict[str, dict] = {
                     "num": "01 · 本地与 CLI",
                     "name": "Studio、CLI 与 MCP",
                     "h2": "14 MB 原生桌面应用、10 ms 命令行与 27 工具本地 MCP 服务。",
-                    "p": "只读连接七大数据库引擎，直接解析 Query Store、pg_stat_statements、performance_schema 与扩展事件，按数据库耗时占比排序瓶颈并给出生产安全的修复步骤。",
+                    "p": "只读连接八大数据库引擎，直接解析 Query Store、pg_stat_statements、performance_schema 与扩展事件，按数据库耗时占比排序瓶颈并给出生产安全的修复步骤。",
                     "bullets": [
                         "__CHECK_COUNT__ 项严格遵循证据门槛的诊断检查，拒绝误报",
                         "亚秒级启动；凭据保存在系统钥匙串、Entra ID 或 AWS IAM",
@@ -124,7 +124,7 @@ BUNDLES_EAST: dict[str, dict] = {
             "arch_title": "统一纯 Rust 内核，每一跳均具备可验证的安全边界。",
             "arch_lede": "所有形态共享同一套确定性解析器与证据规则流水线，数据库凭据始终隔离在您的受控网络之内。",
             "bp_stages": [
-                {"step": "01 · 数据源", "title": "7 大数据库引擎", "body": "以极短锁超时读取系统目录与统计视图，绝不更改库表配置。", "tags": ["只读采集", "1s 语句上限"]},
+                {"step": "01 · 数据源", "title": "8 大数据库引擎", "body": "以极短锁超时读取系统目录与统计视图，绝不更改库表配置。", "tags": ["只读采集", "1s 语句上限"]},
                 {"step": "02 · 受限采集", "title": "CLI 与 Collector", "body": "运行于研发终端或 VPC Kubernetes Pod，本地封存原始证据并执行纯函数诊断。", "tags": ["culprit scan", "culprit collect"]},
                 {"step": "03 · 自有存储", "title": "ADX / ClickHouse + 对象存储", "body": "将 CulpritIncidentsV1、CulpritFindingsV1 与 CulpritChangesV1 发布至您的集群。", "tags": ["零 SaaS", "自有数仓"]},
                 {"step": "04 · 协同与门禁", "title": "Studio、Fleet、CI 与 MCP", "body": "工程师与编码智能体直接检索根因、计划差异与 PR 风险，零生产库负载。", "tags": ["Web 零驱动", "SARIF 2.1.0"]},
@@ -139,7 +139,7 @@ BUNDLES_EAST: dict[str, dict] = {
             "diag_title": "一张卡片完整呈现证据链、生产安全修复 SQL 与验证方法。",
             "stats": [
                 ("__CHECK_COUNT__", "项证据驱动的检查"),
-                ("7", "款受支持数据库引擎"),
+                ("8", "款受支持数据库引擎"),
                 ("27", "个受审计 MCP 智能体工具"),
                 ("$0", "MIT 协议 · 零席位与核心税"),
             ],
@@ -155,7 +155,7 @@ BUNDLES_EAST: dict[str, dict] = {
                 ("成本结构", "零按核或按席位授权费", "以 MIT 开源软件配合高性价比自有 ClickHouse 或 ADX 存储替代昂贵的传统商业 DBM 套件。"),
             ],
             "db_kicker": "支持的数据库",
-            "db_title": "一套诊断工作流贯通七种数据库引擎。",
+            "db_title": "一套诊断工作流贯通八种数据库引擎。",
             "db_lede": "查看各数据库引擎所需的最小权限、性能数据源与证据边界说明。",
             "faq_title": "技术常见问题",
             "faqs": [
@@ -205,9 +205,9 @@ BUNDLES_EAST: dict[str, dict] = {
         "databases": {
             "title": "支持的数据库引擎与功能对齐矩阵 · Culprit SQL",
             "description": "SQL Server、PostgreSQL、TimescaleDB、YugabyteDB、MySQL、MariaDB 与 SQLite 的完整功能支持矩阵、权限配置与证据准则。",
-            "eyebrow": "7 大数据库引擎 · 统一证据流水线",
+            "eyebrow": "8 大数据库引擎 · 统一证据流水线",
             "h1": "受支持的数据库与引擎能力矩阵。",
-            "lede": "桌面端、CLI 与 MCP 在七种数据库上共享同一套工作流，严格忠实于各数据库原生统计视图，缺失数据源绝不伪造为零值或健康结论。",
+            "lede": "桌面端、CLI 与 MCP 在八种数据库上共享同一套工作流，严格忠实于各数据库原生统计视图，缺失数据源绝不伪造为零值或健康结论。",
             "matrix_title": "跨数据库引擎能力对比矩阵",
         },
         "releases": {
@@ -346,7 +346,7 @@ BUNDLES_EAST: dict[str, dict] = {
             "arch_title": "単一のRustコア。すべての境界で厳格なセキュリティ分離。",
             "arch_lede": "全プロダクトが同一の決定論的パーサーと証拠ルールを共有し、DB資格情報は常に自社ネットワーク内に留まります。",
             "bp_stages": [
-                {"step": "01 · 観測元", "title": "7つのDBエンジン", "body": "短いロックタイムアウトで既存の統計・カタログビューのみを読み取ります。", "tags": ["読み取り専用", "1秒上限"]},
+                {"step": "01 · 観測元", "title": "8つのDBエンジン", "body": "短いロックタイムアウトで既存の統計・カタログビューのみを読み取ります。", "tags": ["読み取り専用", "1秒上限"]},
                 {"step": "02 · 収集・解析", "title": "CLI & 境界付きCollector", "body": "開発端末またはVPC内Podで動作し、証跡を封印してローカル診断を実行。", "tags": ["culprit scan", "culprit collect"]},
                 {"step": "03 · 自社基盤", "title": "ADX / ClickHouse + Blob / S3", "body": "CulpritIncidentsV1・CulpritFindingsV1・CulpritChangesV1を自社基盤へ保存。", "tags": ["SaaS不要", "自社DWH"]},
                 {"step": "04 · 調査 & CI", "title": "Studio・Fleet・CI・MCP", "body": "本番DBへ接続せずに根本原因、計画差分、PRリスクを即座に調査。", "tags": ["DBドライバ0", "SARIF 2.1.0"]},
@@ -361,7 +361,7 @@ BUNDLES_EAST: dict[str, dict] = {
             "diag_title": "根拠・本番で安全な修正SQL・検証手順を1枚のカードに凝縮。",
             "stats": [
                 ("__CHECK_COUNT__", "証拠ベースの診断チェック"),
-                ("7", "対応データベースエンジン"),
+                ("8", "対応データベースエンジン"),
                 ("27", "監査対応MCPツール"),
                 ("$0", "MITライセンス · シート課金なし"),
             ],
@@ -377,7 +377,7 @@ BUNDLES_EAST: dict[str, dict] = {
                 ("コスト最適化", "コア課金・ユーザー課金ゼロ", "高額な商用DBMライセンスをMITソフトウェアと自社ClickHouse / ADXへ置換可能。"),
             ],
             "db_kicker": "対応データベース",
-            "db_title": "7つのデータベースエンジンを単一のワークフローで診断。",
+            "db_title": "8つのデータベースエンジンを単一のワークフローで診断。",
             "db_lede": "各プロバイダーの必要権限、統計ソース、証拠ルールの詳細を確認できます。",
             "faq_title": "技術FAQ",
             "faqs": [
@@ -427,7 +427,7 @@ BUNDLES_EAST: dict[str, dict] = {
         "databases": {
             "title": "対応データベースと機能パリティ一覧 · Culprit SQL",
             "description": "SQL Server、PostgreSQL、TimescaleDB、YugabyteDB、MySQL、MariaDB、SQLiteの機能比較マトリクス、必要権限、統計ソースと証拠ルール。",
-            "eyebrow": "7つのDBプロバイダー · 共通エビデンスパイプライン",
+            "eyebrow": "8つのDBプロバイダー · 共通エビデンスパイプライン",
             "h1": "対応データベースとエンジン機能パリティ。",
             "lede": "7種類のデータベースに対して共通のワークスペース・CLI・MCPを提供し、各エンジンのネイティブ統計を正確に解釈します。",
             "matrix_title": "エンジン別機能マトリクス",
@@ -512,7 +512,7 @@ BUNDLES_EAST: dict[str, dict] = {
                     "num": "01 · 로컬 & CLI",
                     "name": "Studio, CLI & MCP",
                     "h2": "14 MB 네이티브 데스크톱 앱, 10 ms CLI, 27개 도구의 로컬 MCP 서버.",
-                    "p": "7개 데이터베이스 엔진에 읽기 전용으로 연결하여 Query Store, pg_stat_statements, performance_schema, 확장 이벤트에서 병목 원인과 안전한 수정 방법을 제시합니다.",
+                    "p": "8개 데이터베이스 엔진에 읽기 전용으로 연결하여 Query Store, pg_stat_statements, performance_schema, 확장 이벤트에서 병목 원인과 안전한 수정 방법을 제시합니다.",
                     "bullets": [
                         "증거 규칙으로 검증된 __CHECK_COUNT__개 정밀 진단 체크 (오탐 방지)",
                         "1초 미만 실행; OS 키체인, Entra ID, AWS IAM 자격증명 연동",
@@ -568,7 +568,7 @@ BUNDLES_EAST: dict[str, dict] = {
             "arch_title": "단일 Rust 엔진. 모든 구간에서 검증되는 보안 경계.",
             "arch_lede": "모든 제품은 동일한 결정론적 파서와 증거 파이프라인을 공유하며 DB 자격증명은 네트워크 외부로 유출되지 않습니다.",
             "bp_stages": [
-                {"step": "01 · 데이터 소스", "title": "7개 DB 엔진", "body": "짧은 락 타임아웃으로 기존 카탈로그 및 통계 뷰만 안전하게 조회합니다.", "tags": ["읽기 전용", "1초 제한"]},
+                {"step": "01 · 데이터 소스", "title": "8개 DB 엔진", "body": "짧은 락 타임아웃으로 기존 카탈로그 및 통계 뷰만 안전하게 조회합니다.", "tags": ["읽기 전용", "1초 제한"]},
                 {"step": "02 · 수집", "title": "CLI & 제한형 Collector", "body": "워크스테이션 또는 VPC Pod에서 실행되어 원본 증거를 봉인하고 로컬 진단을 수행합니다.", "tags": ["culprit scan", "culprit collect"]},
                 {"step": "03 · 자체 스토리지", "title": "ADX / ClickHouse + Blob / S3", "body": "CulpritIncidentsV1, CulpritFindingsV1, CulpritChangesV1 테이블을 자체 클러스터에 게시합니다.", "tags": ["SaaS 없음", "자체 웨어하우스"]},
                 {"step": "04 · 분석 & CI", "title": "Studio, Fleet, CI & MCP", "body": "운영 DB 부하 없이 근본 원인, 플랜 비교, PR 마이그레이션 위험을 즉시 확인합니다.", "tags": ["DB 드라이버 0", "SARIF 2.1.0"]},
@@ -583,7 +583,7 @@ BUNDLES_EAST: dict[str, dict] = {
             "diag_title": "근거 데이터, 안전한 수정 SQL, 검증 명령을 한 장의 카드에.",
             "stats": [
                 ("__CHECK_COUNT__", "증거 기반 진단 체크"),
-                ("7", "지원 데이터베이스 엔진"),
+                ("8", "지원 데이터베이스 엔진"),
                 ("27", "감사형 MCP 에이전트 도구"),
                 ("$0", "MIT 라이선스 · 시트당 비용 제로"),
             ],
@@ -649,7 +649,7 @@ BUNDLES_EAST: dict[str, dict] = {
         "databases": {
             "title": "지원 데이터베이스 및 엔진 기능 매트릭스 · Culprit SQL",
             "description": "SQL Server, PostgreSQL, TimescaleDB, YugabyteDB, MySQL, MariaDB, SQLite의 전체 기능 매트릭스, 필요 권한, 워크로드 소스 및 증거 규칙.",
-            "eyebrow": "7개 데이터베이스 프로바이더 · 단일 증거 파이프라인",
+            "eyebrow": "8개 데이터베이스 프로바이더 · 단일 증거 파이프라인",
             "h1": "지원 데이터베이스 및 엔진 패리티.",
             "lede": "일곱 가지 데이터베이스 엔진에서 동일한 워크스페이스, CLI, MCP 도구를 사용하며 각 엔진의 네이티브 통계 뷰를 정확히 반영합니다.",
             "matrix_title": "엔진별 기능 비교 매트릭스",
@@ -734,7 +734,7 @@ BUNDLES_EAST: dict[str, dict] = {
                     "num": "01 · Локально и CLI",
                     "name": "Studio, CLI и MCP",
                     "h2": "Нативное приложение 14 МБ, CLI за 10 мс и локальный MCP из 27 инструментов.",
-                    "p": "Подключайтесь в режиме чтения к семи СУБД. Culprit анализирует Query Store, pg_stat_statements, performance_schema и Extended Events, ранжируя узкие места по доле времени БД.",
+                    "p": "Подключайтесь в режиме чтения к восьми СУБД. Culprit анализирует Query Store, pg_stat_statements, performance_schema и Extended Events, ранжируя узкие места по доле времени БД.",
                     "bullets": [
                         "__CHECK_COUNT__ детерминированных проверок со строгими правилами доказательств",
                         "Мгновенный запуск; пароли хранятся в системной связке ключей, Entra ID или AWS IAM",
@@ -790,7 +790,7 @@ BUNDLES_EAST: dict[str, dict] = {
             "arch_title": "Единое ядро на Rust. Жёсткие границы безопасности на каждом узле.",
             "arch_lede": "Все компоненты используют один детерминированный конвейер анализа, сохраняя учётные данные внутри вашего периметра.",
             "bp_stages": [
-                {"step": "01 · Источники", "title": "7 движков СУБД", "body": "Читает только системные представления и статистику с коротким таймаутом блокировок.", "tags": ["Read-only", "Лимит 1 с"]},
+                {"step": "01 · Источники", "title": "8 движков СУБД", "body": "Читает только системные представления и статистику с коротким таймаутом блокировок.", "tags": ["Read-only", "Лимит 1 с"]},
                 {"step": "02 · Сбор", "title": "CLI и Collector", "body": "Работает локально или в Kubernetes VPC, запечатывает данные и выполняет диагностику.", "tags": ["culprit scan", "culprit collect"]},
                 {"step": "03 · Ваше хранилище", "title": "ADX / ClickHouse + Blob / S3", "body": "Публикует CulpritIncidentsV1, CulpritFindingsV1 и CulpritChangesV1 в ваш кластер.", "tags": ["Без SaaS", "Свой DWH"]},
                 {"step": "04 · Триаж и CI", "title": "Studio, Fleet, CI и MCP", "body": "Инженеры и агенты исследуют инциденты, планы и PR без нагрузки на прод.", "tags": ["0 драйверов БД", "SARIF 2.1.0"]},
@@ -805,7 +805,7 @@ BUNDLES_EAST: dict[str, dict] = {
             "diag_title": "Доказательства, безопасное исправление и способ проверки в одной карточке.",
             "stats": [
                 ("__CHECK_COUNT__", "проверок на базе метрик"),
-                ("7", "поддерживаемых СУБД"),
+                ("8", "поддерживаемых СУБД"),
                 ("27", "инструментов MCP с аудитом"),
                 ("$0", "лицензия MIT · 0 $ за место"),
             ],
@@ -821,7 +821,7 @@ BUNDLES_EAST: dict[str, dict] = {
                 ("Экономика", "Ноль платежей за ядра и пользователей", "Замените дорогие проприетарные системы мониторинга открытым ПО MIT на базе своего ClickHouse или ADX."),
             ],
             "db_kicker": "Поддерживаемые СУБД",
-            "db_title": "Единый рабочий процесс для семи баз данных.",
+            "db_title": "Единый рабочий процесс для восьми баз данных.",
             "db_lede": "Изучите необходимые права доступа, системные представления и правила оценки для каждого провайдера.",
             "faq_title": "Частые технические вопросы",
             "faqs": [
@@ -871,9 +871,9 @@ BUNDLES_EAST: dict[str, dict] = {
         "databases": {
             "title": "Поддерживаемые СУБД и Матрица Возможностей · Culprit SQL",
             "description": "Матрица возможностей, привилегии и правила доказательств для SQL Server, PostgreSQL, TimescaleDB, YugabyteDB, MySQL, MariaDB и SQLite.",
-            "eyebrow": "7 провайдеров СУБД · Единый конвейер анализа",
+            "eyebrow": "8 провайдеров СУБД · Единый конвейер анализа",
             "h1": "Поддерживаемые базы данных и матрица возможностей.",
-            "lede": "Единый интерфейс приложения, CLI и MCP для семи СУБД с честной интерпретацией нативной статистики каждого сервера.",
+            "lede": "Единый интерфейс приложения, CLI и MCP для восьми СУБД с честной интерпретацией нативной статистики каждого сервера.",
             "matrix_title": "Сравнительная матрица возможностей по движкам",
         },
         "releases": {

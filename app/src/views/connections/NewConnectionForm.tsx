@@ -59,7 +59,7 @@ export function NewConnectionForm({ onDone, canCancel }: { onDone: () => void; c
   const focusInput = useRef(engine !== null);
   const ids = useId();
   const facts = engine ? connectFacts(engine) : null;
-  const viaSsh = ssh !== null && !!facts && !facts.file;
+  const viaSsh = ssh !== null && !!facts?.ssh;
   const action = useRef(new LatestRequest());
 
   useEffect(() => {
@@ -120,6 +120,7 @@ export function NewConnectionForm({ onDone, canCancel }: { onDone: () => void; c
     if (next === engine) return;
     // A path and a connection string are different things: switching between a file and a server starts over.
     if (engine && connectFacts(engine).file !== connectFacts(next).file) setInput("");
+    if (!connectFacts(next).ssh) setSsh(null);
     setEngine(next);
     setSwitched(false);
     setTest({ status: "idle" });
@@ -163,7 +164,7 @@ export function NewConnectionForm({ onDone, canCancel }: { onDone: () => void; c
     password_env: null,
     security: resolvedSecurity,
     auth: null,
-    ssh: facts?.file ? undefined : sshConfig(ssh) ?? undefined,
+    ssh: facts?.ssh ? sshConfig(ssh) ?? undefined : undefined,
   });
 
   const startTest = () => {
@@ -295,7 +296,7 @@ export function NewConnectionForm({ onDone, canCancel }: { onDone: () => void; c
             )}
             <span />
             <ConnectionSecurityFields engine={engine} info={parsed.security} value={resolvedSecurity} source={security ? "custom" : parsed.security?.settings.mode ? "from_string" : "default"} modeRef={securityMode} onChange={setSecurity} onError={(error) => setTest({ status: "error", error })} />
-            {!facts?.file && <><span /><SshFields value={ssh} disabled={test.status === "busy"} onChange={(value) => {
+            {facts?.ssh && <><span /><SshFields value={ssh} disabled={test.status === "busy"} onChange={(value) => {
               action.current.invalidate(); setSsh(value); setTest({ status: "idle" });
             }} /></>}
             <span />

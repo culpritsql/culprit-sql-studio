@@ -58,7 +58,7 @@ BUNDLES_WEST: dict[str, dict] = {
         "home": {
             "title": "Culprit SQL: Production Database Root-Cause & Fleet Platform",
             "description": "Open-source (MIT) SQL root-cause platform for SQL Server, PostgreSQL, TimescaleDB, YugabyteDB, MySQL, MariaDB, and SQLite. Studio, 24/7 Fleet, Explain, CI, and MCP.",
-            "eyebrow": "MIT Open Source · 7 Database Engines · Local, CI & 24/7 Fleet",
+            "eyebrow": "MIT Open Source · 8 Database Engines · Local, CI & 24/7 Fleet",
             "h1": "Database root-cause engineering, from laptop to 24/7 fleet.",
             "lede": "One Rust diagnosis engine across a 14 MB native Studio, offline Pull Request migration gates, browser WebAssembly plan analysis, and self-hosted ADX or ClickHouse fleet telemetry.",
             "trust": ["Read-only by construction", "Self-hosted · Zero SaaS lock-in", "Audited MCP for coding agents", "100% Free & MIT Licensed"],
@@ -68,7 +68,7 @@ BUNDLES_WEST: dict[str, dict] = {
                     "num": "01 · Local & CLI",
                     "name": "Studio, CLI & MCP",
                     "h2": "14 MB native desktop app, 10 ms CLI, and 27-tool local MCP.",
-                    "p": "Connect read-only to seven database engines. Culprit reads Query Store, pg_stat_statements, performance_schema, and Extended Events to rank what costs database time and prove how to fix it.",
+                    "p": "Connect read-only to eight database engines. Culprit reads Query Store, pg_stat_statements, performance_schema, and Extended Events to rank what costs database time and prove how to fix it.",
                     "bullets": [
                         "__CHECK_COUNT__ evidence-gated checks with zero false-flag heuristics",
                         "Sub-second startup; credentials stay in OS keychain, Entra ID, or AWS IAM",
@@ -126,7 +126,7 @@ BUNDLES_WEST: dict[str, dict] = {
             "bp_stages": [
                 {
                     "step": "01 · Sources",
-                    "title": "7 Database Engines",
+                    "title": "8 Database Engines",
                     "body": "Reads existing catalog & workload views (Query Store, DMVs, pg_stat_statements, performance_schema, .xel, SQLite) with short lock timeouts.",
                     "tags": ["Read-only", "1s stmt cap"],
                 },
@@ -159,7 +159,7 @@ BUNDLES_WEST: dict[str, dict] = {
             "diag_title": "Evidence, production-safe fix, and verification in one card.",
             "stats": [
                 ("__CHECK_COUNT__", "evidence-gated checks"),
-                ("7", "database engines supported"),
+                ("8", "database engines supported"),
                 ("27", "audited MCP agent tools"),
                 ("$0", "MIT license · zero per-seat tax"),
             ],
@@ -175,7 +175,7 @@ BUNDLES_WEST: dict[str, dict] = {
                 ("Economics", "Zero Per-Core or Per-Seat Fees", "Replace $3k-$8k/instance/year legacy DBM licenses with MIT software and commodity ClickHouse or Azure Data Explorer storage."),
             ],
             "db_kicker": "Supported Databases",
-            "db_title": "One diagnostic workflow across seven engines.",
+            "db_title": "One diagnostic workflow across eight engines.",
             "db_lede": "Inspect exact source requirements, permissions, and evidence rules for every supported database provider.",
             "faq_title": "Technical FAQ",
             "faqs": [
@@ -225,9 +225,9 @@ BUNDLES_WEST: dict[str, dict] = {
         "databases": {
             "title": "Supported Databases & Engine Parity Matrix · Culprit SQL",
             "description": "Full capability matrix, required permissions, workload sources, and evidence rules across SQL Server, PostgreSQL, TimescaleDB, YugabyteDB, MySQL, MariaDB, SQLite.",
-            "eyebrow": "7 Database Providers · Shared Evidence Pipeline",
+            "eyebrow": "8 Database Providers · Shared Evidence Pipeline",
             "h1": "Supported databases and engine parity.",
-            "lede": "One workspace, CLI contract, and MCP toolset across seven database engines—grounded in each engine's native statistics views without inventing numbers when a source is absent.",
+            "lede": "One workspace, CLI contract, and MCP toolset across eight database engines—grounded in each engine's native statistics views without inventing numbers when a source is absent.",
             "matrix_title": "Cross-engine capability matrix",
         },
         "releases": {
@@ -300,7 +300,7 @@ BUNDLES_WEST: dict[str, dict] = {
         "home": {
             "title": "Culprit SQL: Ursachenanalyse & Flotten-Plattform für Datenbanken",
             "description": "Open-Source-Plattform (MIT) für SQL-Performance auf SQL Server, PostgreSQL, TimescaleDB, YugabyteDB, MySQL, MariaDB und SQLite. Studio, Fleet, Explain, CI & MCP.",
-            "eyebrow": "MIT Open Source · 7 Database Engines · Local, CI & 24/7 Fleet",
+            "eyebrow": "MIT Open Source · 8 Database Engines · Local, CI & 24/7 Fleet",
             "h1": "Datenbank-Ursachenanalyse vom Laptop bis zur 24/7-Flotte.",
             "lede": "Eine gemeinsame Rust-Diagnose-Engine für die 14 MB Desktop-App, Offline-PR-Gates in CI, WebAssembly-Plananalyse im Browser und selbstgehostete ADX- oder ClickHouse-Telemetrie.",
             "trust": ["Strikt schreibgeschützt", "Self-Hosted · Kein SaaS-Zwang", "Auditierter MCP-Server für Agenten", "100 % kostenlos & MIT-lizenziert"],
@@ -310,7 +310,7 @@ BUNDLES_WEST: dict[str, dict] = {
                     "num": "01 · Lokal & CLI",
                     "name": "Studio, CLI & MCP",
                     "h2": "14 MB native Desktop-App, 10 ms CLI und lokaler MCP-Server.",
-                    "p": "Verbinden Sie sich schreibgeschützt mit sieben Datenbank-Engines. Culprit liest Query Store, pg_stat_statements, performance_schema und Extended Events und liefert Ursache, sicheren Fix und Nachweis.",
+                    "p": "Verbinden Sie sich schreibgeschützt mit acht Datenbank-Engines. Culprit liest Query Store, pg_stat_statements, performance_schema und Extended Events und liefert Ursache, sicheren Fix und Nachweis.",
                     "bullets": [
                         "__CHECK_COUNT__ evidenzbasierte Prüfungen ohne Fehlalarme",
                         "Start in unter einer Sekunde; Passwörter im OS-Schlüsselbund, Entra ID oder IAM",
@@ -366,7 +366,7 @@ BUNDLES_WEST: dict[str, dict] = {
             "arch_title": "Ein Rust-Kern. Klare Sicherheitsgrenzen auf jeder Stufe.",
             "arch_lede": "Alle Culprit-Oberflächen nutzen denselben deterministischen Parser und dieselben Evidenzregeln – Zugangsdaten verlassen niemals Ihr Netzwerk.",
             "bp_stages": [
-                {"step": "01 · Quellen", "title": "7 Datenbank-Engines", "body": "Liest vorhandene Katalog- und Statistik-Views mit kurzen Sperr-Timeouts.", "tags": ["Read-only", "1s Timeout"]},
+                {"step": "01 · Quellen", "title": "8 Datenbank-Engines", "body": "Liest vorhandene Katalog- und Statistik-Views mit kurzen Sperr-Timeouts.", "tags": ["Read-only", "1s Timeout"]},
                 {"step": "02 · Erfassung", "title": "CLI & Bounded Collector", "body": "Läuft lokal oder als Kubernetes-Pod im VPC und führt die Rust-Diagnose lokal aus.", "tags": ["culprit scan", "culprit collect"]},
                 {"step": "03 · Ihr Speicher", "title": "ADX / ClickHouse + Blob / S3", "body": "Schreibt CulpritIncidentsV1, CulpritFindingsV1 und CulpritChangesV1 in Ihr eigenes Cluster.", "tags": ["Kein SaaS", "Eigenes Warehouse"]},
                 {"step": "04 · Analyse & CI", "title": "Studio, Fleet, CI & MCP", "body": "Teams und Agenten untersuchen Ursachen, Plan-Diffs und Migrationsrisiken ohne Live-DB-Last.", "tags": ["0 DB-Treiber", "SARIF 2.1.0"]},
@@ -381,7 +381,7 @@ BUNDLES_WEST: dict[str, dict] = {
             "diag_title": "Evidenz, produktionssicherer Fix und Verifikation auf einer Karte.",
             "stats": [
                 ("__CHECK_COUNT__", "evidenzbasierte Prüfungen"),
-                ("7", "unterstützte Datenbanken"),
+                ("8", "unterstützte Datenbanken"),
                 ("27", "auditierte MCP-Tools"),
                 ("$0", "MIT-Lizenz · keine Sitzplatzkosten"),
             ],
@@ -397,7 +397,7 @@ BUNDLES_WEST: dict[str, dict] = {
                 ("Wirtschaftlichkeit", "Keine Kosten pro Kern oder Nutzer", "Ersetzen Sie teure Legacy-DBM-Suiten durch MIT-Software und eigenen Objektspeicher."),
             ],
             "db_kicker": "Unterstützte Datenbanken",
-            "db_title": "Ein konsistenter Workflow über sieben Datenbank-Engines.",
+            "db_title": "Ein konsistenter Workflow über acht Datenbank-Engines.",
             "db_lede": "Prüfen Sie Berechtigungen, Statistikquellen und Evidenzregeln für jeden Datenbank-Provider.",
             "faq_title": "Häufige technische Fragen",
             "faqs": [
@@ -447,9 +447,9 @@ BUNDLES_WEST: dict[str, dict] = {
         "databases": {
             "title": "Unterstützte Datenbanken & Funktionsmatrix · Culprit SQL",
             "description": "Vollständige Funktionsmatrix, Berechtigungen, Statistikquellen und Evidenzregeln für SQL Server, PostgreSQL, TimescaleDB, YugabyteDB, MySQL, MariaDB, SQLite.",
-            "eyebrow": "7 Datenbank-Provider · Gemeinsame Evidenz-Pipeline",
+            "eyebrow": "8 Datenbank-Provider · Gemeinsame Evidenz-Pipeline",
             "h1": "Unterstützte Datenbanken und Engine-Parität.",
-            "lede": "Ein einheitlicher Workflow für Desktop, CLI und MCP über sieben Datenbank-Engines hinweg – basierend auf realen Systemstatistiken ohne geschätzte Scheinwerte.",
+            "lede": "Ein einheitlicher Workflow für Desktop, CLI und MCP über acht Datenbank-Engines hinweg – basierend auf realen Systemstatistiken ohne geschätzte Scheinwerte.",
             "matrix_title": "Engine-übergreifende Funktionsmatrix",
         },
         "releases": {
@@ -522,7 +522,7 @@ BUNDLES_WEST: dict[str, dict] = {
         "home": {
             "title": "Culprit SQL: Plataforma de Causa Raíz y Flotas de Bases de Datos",
             "description": "Plataforma open source (MIT) de rendimiento SQL para SQL Server, PostgreSQL, TimescaleDB, YugabyteDB, MySQL, MariaDB y SQLite. Studio, Fleet 24/7, Explain, CI y MCP.",
-            "eyebrow": "MIT Open Source · 7 Database Engines · Local, CI & 24/7 Fleet",
+            "eyebrow": "MIT Open Source · 8 Database Engines · Local, CI & 24/7 Fleet",
             "h1": "Diagnóstico de causa raíz en bases de datos, del portátil a la flota 24/7.",
             "lede": "Un mismo motor en Rust para una app nativa de 14 MB, control offline de migraciones en Pull Requests, análisis WebAssembly en navegador y telemetría autohospedada en ADX o ClickHouse.",
             "trust": ["Solo lectura por diseño", "Autohospedado · Cero SaaS", "MCP auditado para agentes de IA", "100 % gratuito y licencia MIT"],
@@ -532,7 +532,7 @@ BUNDLES_WEST: dict[str, dict] = {
                     "num": "01 · Local y CLI",
                     "name": "Studio, CLI y MCP",
                     "h2": "App nativa de 14 MB, CLI de 10 ms y servidor MCP local con 27 herramientas.",
-                    "p": "Conéctate en modo solo lectura a siete motores. Culprit analiza Query Store, pg_stat_statements, performance_schema y Extended Events para priorizar el coste real y cómo corregirlo.",
+                    "p": "Conéctate en modo solo lectura a ocho motores. Culprit analiza Query Store, pg_stat_statements, performance_schema y Extended Events para priorizar el coste real y cómo corregirlo.",
                     "bullets": [
                         "__CHECK_COUNT__ comprobaciones basadas en evidencia sin falsos positivos",
                         "Arranque instantáneo; credenciales en el llavero del SO, Entra ID o AWS IAM",
@@ -588,7 +588,7 @@ BUNDLES_WEST: dict[str, dict] = {
             "arch_title": "Un motor puro en Rust. Límites de seguridad estrictos en cada etapa.",
             "arch_lede": "Todos los productos comparten el mismo analizador determinista manteniendo las credenciales aisladas en tu red.",
             "bp_stages": [
-                {"step": "01 · Orígenes", "title": "7 Motores SQL", "body": "Lee vistas de catálogo y estadísticas con tiempos de bloqueo cortos.", "tags": ["Solo lectura", "Límite 1s"]},
+                {"step": "01 · Orígenes", "title": "8 Motores SQL", "body": "Lee vistas de catálogo y estadísticas con tiempos de bloqueo cortos.", "tags": ["Solo lectura", "Límite 1s"]},
                 {"step": "02 · Captura", "title": "CLI y Collector Acotado", "body": "Se ejecuta en local o en Kubernetes dentro de tu VPC con presupuestos estrictos.", "tags": ["culprit scan", "culprit collect"]},
                 {"step": "03 · Tu Almacén", "title": "ADX / ClickHouse + Blob / S3", "body": "Publica CulpritIncidentsV1, CulpritFindingsV1 y CulpritChangesV1 en tu clúster.", "tags": ["Cero SaaS", "Tu Warehouse"]},
                 {"step": "04 · Triaje y CI", "title": "Studio, Fleet, CI y MCP", "body": "Ingenieros y agentes investigan incidentes, planes y PRs sin tocar producción.", "tags": ["0 drivers BD", "SARIF 2.1.0"]},
@@ -603,7 +603,7 @@ BUNDLES_WEST: dict[str, dict] = {
             "diag_title": "Evidencia, corrección segura en producción y verificación en una vista.",
             "stats": [
                 ("__CHECK_COUNT__", "reglas basadas en evidencia"),
-                ("7", "motores de base de datos"),
+                ("8", "motores de base de datos"),
                 ("27", "herramientas MCP auditadas"),
                 ("$0", "licencia MIT · sin pago por usuario"),
             ],
@@ -619,7 +619,7 @@ BUNDLES_WEST: dict[str, dict] = {
                 ("Economía", "Cero tarifas por núcleo o asiento", "Sustituye licencias heredadas por software MIT sobre tu propio ClickHouse o ADX."),
             ],
             "db_kicker": "Bases de datos compatibles",
-            "db_title": "Un flujo de diagnóstico unificado en siete motores.",
+            "db_title": "Un flujo de diagnóstico unificado en ocho motores.",
             "db_lede": "Consulta permisos requeridos, vistas utilizadas y límites de evidencia de cada proveedor.",
             "faq_title": "Preguntas frecuentes técnicas",
             "faqs": [
@@ -669,9 +669,9 @@ BUNDLES_WEST: dict[str, dict] = {
         "databases": {
             "title": "Bases de Datos Compatibles y Matriz de Paridad · Culprit SQL",
             "description": "Matriz de capacidades, permisos requeridos, fuentes y reglas de evidencia en SQL Server, PostgreSQL, TimescaleDB, YugabyteDB, MySQL, MariaDB y SQLite.",
-            "eyebrow": "7 Proveedores · Pipeline de Evidencia Unificado",
+            "eyebrow": "8 Proveedores · Pipeline de Evidencia Unificado",
             "h1": "Bases de datos compatibles y paridad de motores.",
-            "lede": "Un mismo flujo en escritorio, CLI y MCP para siete motores, basado estrictamente en las vistas nativas de cada servidor.",
+            "lede": "Un mismo flujo en escritorio, CLI y MCP para ocho motores, basado estrictamente en las vistas nativas de cada servidor.",
             "matrix_title": "Matriz de capacidades por motor",
         },
         "releases": {
@@ -744,7 +744,7 @@ BUNDLES_WEST: dict[str, dict] = {
         "home": {
             "title": "Culprit SQL : Diagnostic SQL & Flottes de Bases de Données",
             "description": "Plateforme open source (MIT) de performance SQL pour SQL Server, PostgreSQL, TimescaleDB, YugabyteDB, MySQL, MariaDB, SQLite. Studio, Fleet, Explain, CI & MCP.",
-            "eyebrow": "MIT Open Source · 7 Database Engines · Local, CI & 24/7 Fleet",
+            "eyebrow": "MIT Open Source · 8 Database Engines · Local, CI & 24/7 Fleet",
             "h1": "Diagnostic SQL déterministe, du poste local à la flotte 24/7.",
             "lede": "Un moteur Rust unique propulsant une application native de 14 Mo, le contrôle hors ligne des migrations en Pull Request, l'analyse WebAssembly dans le navigateur et la télémétrie sur ADX ou ClickHouse.",
             "trust": ["Lecture seule par conception", "Auto-hébergé · Zéro SaaS", "Serveur MCP audité pour agents IA", "100 % gratuit & licence MIT"],
@@ -754,7 +754,7 @@ BUNDLES_WEST: dict[str, dict] = {
                     "num": "01 · Local & CLI",
                     "name": "Studio, CLI & MCP",
                     "h2": "Application native de 14 Mo, CLI en 10 ms et serveur MCP à 27 outils.",
-                    "p": "Connectez-vous en lecture seule à sept moteurs SQL. Culprit lit Query Store, pg_stat_statements, performance_schema et Extended Events pour classer les requêtes par coût réel.",
+                    "p": "Connectez-vous en lecture seule à huit moteurs SQL. Culprit lit Query Store, pg_stat_statements, performance_schema et Extended Events pour classer les requêtes par coût réel.",
                     "bullets": [
                         "__CHECK_COUNT__ vérifications fondées sur des preuves mesurées",
                         "Démarrage instantané ; secrets dans le trousseau OS, Entra ID ou AWS IAM",
@@ -810,7 +810,7 @@ BUNDLES_WEST: dict[str, dict] = {
             "arch_title": "Un seul moteur Rust. Des frontières de sécurité strictes à chaque étape.",
             "arch_lede": "Chaque brique Culprit exécute le même pipeline d'analyse déterministe tout en isolant les accès dans votre réseau.",
             "bp_stages": [
-                {"step": "01 · Sources", "title": "7 Moteurs de Bases", "body": "Interroge uniquement les vues catalogue et statistiques avec délais courts.", "tags": ["Lecture seule", "Max 1s"]},
+                {"step": "01 · Sources", "title": "8 Moteurs de Bases", "body": "Interroge uniquement les vues catalogue et statistiques avec délais courts.", "tags": ["Lecture seule", "Max 1s"]},
                 {"step": "02 · Collecte", "title": "CLI & Collecteur Borné", "body": "Tourne sur poste d'ingénieur ou pod Kubernetes VPC et scelle les preuves localement.", "tags": ["culprit scan", "culprit collect"]},
                 {"step": "03 · Stockage", "title": "ADX / ClickHouse + Blob / S3", "body": "Publie CulpritIncidentsV1, CulpritFindingsV1 et CulpritChangesV1 chez vous.", "tags": ["Zéro SaaS", "Votre Entrepôt"]},
                 {"step": "04 · Triage & CI", "title": "Studio, Fleet, CI & MCP", "body": "Ingénieurs et agents analysent causes racines, diffs et PRs sans solliciter la prod.", "tags": ["0 pilote DB", "SARIF 2.1.0"]},
@@ -825,7 +825,7 @@ BUNDLES_WEST: dict[str, dict] = {
             "diag_title": "La preuve, le correctif sûr en production et sa vérification.",
             "stats": [
                 ("__CHECK_COUNT__", "vérifications sur preuves"),
-                ("7", "moteurs SQL pris en charge"),
+                ("8", "moteurs SQL pris en charge"),
                 ("27", "outils MCP audités"),
                 ("$0", "licence MIT · zéro taxe par siège"),
             ],
@@ -841,7 +841,7 @@ BUNDLES_WEST: dict[str, dict] = {
                 ("Modèle économique", "Zéro coût par cœur ou utilisateur", "Remplacez les suites propriétaires coûteuses par du logiciel MIT sur ClickHouse ou ADX."),
             ],
             "db_kicker": "Bases de données prises en charge",
-            "db_title": "Un flux de travail unifié sur sept moteurs de bases.",
+            "db_title": "Un flux de travail unifié sur huit moteurs de bases.",
             "db_lede": "Consultez les privilèges requis, sources statistiques et limites de preuve pour chaque moteur.",
             "faq_title": "Questions techniques fréquentes",
             "faqs": [
@@ -891,9 +891,9 @@ BUNDLES_WEST: dict[str, dict] = {
         "databases": {
             "title": "Bases de Données Compatibles & Matrice de Parité · Culprit SQL",
             "description": "Matrice des capacités, privilèges requis et règles de preuve pour SQL Server, PostgreSQL, TimescaleDB, YugabyteDB, MySQL, MariaDB et SQLite.",
-            "eyebrow": "7 Fournisseurs · Pipeline de Preuves Partagé",
+            "eyebrow": "8 Fournisseurs · Pipeline de Preuves Partagé",
             "h1": "Bases de données prises en charge et parité des moteurs.",
-            "lede": "Un même espace de travail, contrat CLI et serveur MCP sur sept moteurs SQL, fondé sur les statistiques natives de chaque base.",
+            "lede": "Un même espace de travail, contrat CLI et serveur MCP sur huit moteurs SQL, fondé sur les statistiques natives de chaque base.",
             "matrix_title": "Matrice des capacités par moteur",
         },
         "releases": {
@@ -966,7 +966,7 @@ BUNDLES_WEST: dict[str, dict] = {
         "home": {
             "title": "Culprit SQL: Plataforma de Causa Raiz e Frotas de Bancos de Dados",
             "description": "Plataforma open source (MIT) de performance SQL para SQL Server, PostgreSQL, TimescaleDB, YugabyteDB, MySQL, MariaDB e SQLite. Studio, Fleet 24/7, Explain, CI e MCP.",
-            "eyebrow": "MIT Open Source · 7 Database Engines · Local, CI & 24/7 Fleet",
+            "eyebrow": "MIT Open Source · 8 Database Engines · Local, CI & 24/7 Fleet",
             "h1": "Engenharia de causa raiz em bancos de dados, do notebook à frota 24/7.",
             "lede": "Um único motor em Rust para o app nativo de 14 MB, validação offline de migrações em Pull Requests, análise WebAssembly no navegador e telemetria auto-hospedada no ADX ou ClickHouse.",
             "trust": ["Somente leitura por construção", "Auto-hospedado · Zero SaaS", "MCP auditado para agentes de IA", "100% gratuito e licença MIT"],
@@ -976,7 +976,7 @@ BUNDLES_WEST: dict[str, dict] = {
                     "num": "01 · Local e CLI",
                     "name": "Studio, CLI e MCP",
                     "h2": "App nativo de 14 MB, CLI de 10 ms e servidor MCP local com 27 ferramentas.",
-                    "p": "Conecte-se em modo somente leitura a sete bancos de dados. O Culprit lê Query Store, pg_stat_statements, performance_schema e Extended Events para apontar o gargalo e a correção segura.",
+                    "p": "Conecte-se em modo somente leitura a oito bancos de dados. O Culprit lê Query Store, pg_stat_statements, performance_schema e Extended Events para apontar o gargalo e a correção segura.",
                     "bullets": [
                         "__CHECK_COUNT__ verificações baseadas em evidências sem falsos alertas",
                         "Abertura em menos de 1 segundo; senhas no chaveiro do SO, Entra ID ou AWS IAM",
@@ -1032,7 +1032,7 @@ BUNDLES_WEST: dict[str, dict] = {
             "arch_title": "Um motor puro em Rust. Fronteiras rígidas de segurança em cada etapa.",
             "arch_lede": "Todos os produtos executam o mesmo pipeline determinístico mantendo credenciais isoladas na sua rede.",
             "bp_stages": [
-                {"step": "01 · Fontes", "title": "7 Motores SQL", "body": "Lê apenas visões de catálogo e estatísticas existentes com timeouts curtos.", "tags": ["Somente leitura", "Timeout 1s"]},
+                {"step": "01 · Fontes", "title": "8 Motores SQL", "body": "Lê apenas visões de catálogo e estatísticas existentes com timeouts curtos.", "tags": ["Somente leitura", "Timeout 1s"]},
                 {"step": "02 · Coleta", "title": "CLI e Collector Limitado", "body": "Roda na máquina do engenheiro ou em pod Kubernetes na VPC e sela as evidências.", "tags": ["culprit scan", "culprit collect"]},
                 {"step": "03 · Seu Storage", "title": "ADX / ClickHouse + Blob / S3", "body": "Publica CulpritIncidentsV1, CulpritFindingsV1 e CulpritChangesV1 no seu cluster.", "tags": ["Zero SaaS", "Seu Warehouse"]},
                 {"step": "04 · Triagem e CI", "title": "Studio, Fleet, CI e MCP", "body": "Engenheiros e agentes investigam incidentes, diffs e PRs sem conexão ativa na prod.", "tags": ["0 drivers BD", "SARIF 2.1.0"]},
@@ -1047,7 +1047,7 @@ BUNDLES_WEST: dict[str, dict] = {
             "diag_title": "Evidência, correção segura para produção e verificação em um cartão.",
             "stats": [
                 ("__CHECK_COUNT__", "verificações com evidência"),
-                ("7", "bancos de dados suportados"),
+                ("8", "bancos de dados suportados"),
                 ("27", "ferramentas MCP auditadas"),
                 ("$0", "licença MIT · zero taxa por usuário"),
             ],
@@ -1063,7 +1063,7 @@ BUNDLES_WEST: dict[str, dict] = {
                 ("Economia", "Zero Custo por Núcleo ou Assento", "Substitua suítes legadas caras por software MIT sobre seu próprio ClickHouse ou ADX."),
             ],
             "db_kicker": "Bancos de Dados Suportados",
-            "db_title": "Um fluxo de trabalho unificado em sete motores.",
+            "db_title": "Um fluxo de trabalho unificado em oito motores.",
             "db_lede": "Confira permissões necessárias, fontes de estatísticas e limites de evidência de cada provedor.",
             "faq_title": "Perguntas Técnicas Frequentes",
             "faqs": [
@@ -1113,9 +1113,9 @@ BUNDLES_WEST: dict[str, dict] = {
         "databases": {
             "title": "Bancos de Dados Suportados e Matriz de Paridade · Culprit SQL",
             "description": "Matriz de recursos, permissões exigidas e regras de evidência em SQL Server, PostgreSQL, TimescaleDB, YugabyteDB, MySQL, MariaDB e SQLite.",
-            "eyebrow": "7 Provedores · Pipeline Único de Evidências",
+            "eyebrow": "8 Provedores · Pipeline Único de Evidências",
             "h1": "Bancos de dados suportados e paridade de motores.",
-            "lede": "Um mesmo espaço de trabalho, CLI e servidor MCP em sete bancos de dados, fundamentado nas visões nativas de cada motor.",
+            "lede": "Um mesmo espaço de trabalho, CLI e servidor MCP em oito bancos de dados, fundamentado nas visões nativas de cada motor.",
             "matrix_title": "Matriz de capacidades entre motores",
         },
         "releases": {

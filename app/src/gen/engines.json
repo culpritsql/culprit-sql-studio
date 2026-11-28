@@ -42,6 +42,7 @@
     "connect": {
       "choice": "SQL Server",
       "file": false,
+      "ssh": true,
       "example": "Server=tcp:shop.database.windows.net;Database=shop;User ID=app",
       "accepts": "core.engines.mssql.accepts"
     },
@@ -183,6 +184,7 @@
     "connect": {
       "choice": "PostgreSQL",
       "file": false,
+      "ssh": true,
       "example": "postgres://app@db.example.com:5432/shop",
       "accepts": "core.engines.postgres.accepts"
     },
@@ -344,6 +346,7 @@
     "connect": {
       "choice": "YugabyteDB",
       "file": false,
+      "ssh": true,
       "example": "yugabyte://yugabyte@db.example.com:5433/yugabyte",
       "accepts": "core.engines.yugabyte.accepts"
     },
@@ -516,6 +519,7 @@
     "connect": {
       "choice": "MySQL / MariaDB",
       "file": false,
+      "ssh": true,
       "example": "mysql://app@db.example.com:3306/shop",
       "accepts": "core.engines.mysql.accepts"
     },
@@ -687,6 +691,7 @@
     "connect": {
       "choice": "SQLite",
       "file": true,
+      "ssh": false,
       "example": "~/code/shop/db/production.sqlite3",
       "accepts": "core.engines.sqlite.accepts"
     },
@@ -804,6 +809,7 @@
     "connect": {
       "choice": "ClickHouse",
       "file": false,
+      "ssh": false,
       "example": "clickhouse://reader@db.example.com:8443/analytics",
       "accepts": "core.engines.clickhouse.accepts"
     },

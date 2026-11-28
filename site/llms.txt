@@ -1,6 +1,6 @@
 # Culprit SQL
 
-> Free, open-source (MIT) database root-cause and fleet reliability platform for SQL Server, PostgreSQL, TimescaleDB, YugabyteDB, MySQL, MariaDB, and SQLite. One shared Rust diagnosis and execution-plan engine powers a 14 MB native desktop app (`Culprit SQL Studio`), a JSON/SARIF CLI (`culprit`), a 27-tool local and remote MCP server, a bounded 24/7 Kubernetes collector (`culprit collect`) writing to Azure Data Explorer or ClickHouse, a zero-driver fleet web UI (`Culprit Fleet`), a client-side WebAssembly plan/deadlock/`.xel` analyzer (`Culprit Explain`), and shift-left CI/IDE/test guardrails.
+> Free, open-source (MIT) database root-cause and fleet reliability platform for SQL Server, PostgreSQL, TimescaleDB, YugabyteDB, MySQL, MariaDB, ClickHouse, and SQLite. One shared Rust diagnosis and execution-plan engine powers a 14 MB native desktop app (`Culprit SQL Studio`), a JSON/SARIF CLI (`culprit`), a 27-tool local and remote MCP server, a bounded 24/7 Kubernetes collector (`culprit collect`) writing to Azure Data Explorer or ClickHouse, a zero-driver fleet web UI (`Culprit Fleet`), a client-side WebAssembly plan/deadlock/`.xel` analyzer (`Culprit Explain`), and shift-left CI/IDE/test guardrails.
 
 Key facts:
 
@@ -28,6 +28,7 @@ Key facts:
 - [YugabyteDB](https://culpritsql.com/databases/yugabytedb/): YSQL/DocDB metrics, `DIST` plans, and `yb_pg_stat_plans` ([Markdown](https://culpritsql.com/docs/providers/yugabyte.md))
 - [MySQL](https://culpritsql.com/databases/mysql/): `performance_schema`, `sys`, `EXPLAIN ANALYZE`, and slow query log ([Markdown](https://culpritsql.com/docs/providers/mysql.md))
 - [MariaDB](https://culpritsql.com/databases/mariadb/): MariaDB JSON plans, `ANALYZE FORMAT=JSON`, and `userstat` ([Markdown](https://culpritsql.com/docs/providers/mariadb.md))
+- [ClickHouse](https://culpritsql.com/databases/clickhouse/): `system.query_log` families, MergeTree parts/merges/mutations, replication, and `EXPLAIN PLAN` ([Markdown](https://culpritsql.com/docs/providers/clickhouse.md))
 - [SQLite](https://culpritsql.com/databases/sqlite/): read-only file inspection, `EXPLAIN QUERY PLAN`, and framework query logs ([Markdown](https://culpritsql.com/docs/providers/sqlite.md))
 
 ## Reference Markdown

@@ -530,6 +530,8 @@ pub struct Connect {
     pub choice: String,
     /// The database is a file on this computer (SQLite), chosen rather than pasted.
     pub file: bool,
+    /// Whether Culprit can forward this connection over an SSH jump host.
+    pub ssh: bool,
     /// What to paste, or the path to type, as an example.
     pub example: String,
     /// Message key: what Culprit reads, in a sentence.
@@ -538,7 +540,12 @@ pub struct Connect {
 
 impl Connect {
     fn server(choice: &str, example: &str, accepts: &'static str) -> Connect {
-        Connect { choice: choice.into(), file: false, example: example.into(), accepts: accepts.into() }
+        Connect { choice: choice.into(), file: false, ssh: true, example: example.into(), accepts: accepts.into() }
+    }
+
+    fn without_ssh(mut self) -> Connect {
+        self.ssh = false;
+        self
     }
 }
 

@@ -594,6 +594,10 @@ fn ssh_settings_that_cannot_be_used_say_why_in_english() {
         "SSH forwarding is available for server databases; SQLite opens a local file"
     );
     assert_eq!(said(ssh("-x@bastion"), Engine::Postgres).message, "The SSH user name contains unsupported characters");
+    assert_eq!(
+        said(ssh("bastion"), Engine::Clickhouse).message,
+        "SSH forwarding is not supported for ClickHouse connections"
+    );
     assert_eq!(said(ssh("[::1"), Engine::Postgres).message, "The SSH IPv6 address needs a closing bracket");
     let e = said(ssh("bad host!"), Engine::Postgres);
     assert_eq!(e.message, "Enter an SSH host alias or [user@]hostname");

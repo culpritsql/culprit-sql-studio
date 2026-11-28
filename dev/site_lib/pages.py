@@ -254,6 +254,7 @@ def render_footer(locale: LocaleSpec) -> str:
             <li><a href="/databases/timescaledb/">TimescaleDB</a></li>
             <li><a href="/databases/yugabytedb/">YugabyteDB</a></li>
             <li><a href="/databases/mysql/">MySQL &amp; MariaDB</a></li>
+            <li><a href="/databases/clickhouse/">ClickHouse</a></li>
             <li><a href="/databases/sqlite/">SQLite</a></li>
           </ul>
         </div>
@@ -1320,7 +1321,7 @@ def build_enterprise_page(locale: LocaleSpec, *, version: str) -> str:
               <text x="50" y="213" font-size="12" font-weight="600" fill="var(--text)">Timescale &amp; YugabyteDB</text>
 
               <rect x="38" y="234" width="168" height="34" rx="6" fill="var(--bg-2)" stroke="var(--line)"/>
-              <text x="50" y="255" font-size="12" font-weight="600" fill="var(--text)">MySQL &amp; MariaDB</text>
+              <text x="50" y="255" font-size="11.5" font-weight="600" fill="var(--text)">MySQL, MariaDB &amp; ClickHouse</text>
 
               <!-- Arrow DB -> Collector -->
               <line x1="220" y1="169" x2="278" y2="169" stroke="var(--accent)" stroke-width="1.8" marker-end="url(#arr)"/>

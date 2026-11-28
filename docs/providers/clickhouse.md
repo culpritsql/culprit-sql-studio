@@ -1,68 +1,105 @@
 # ClickHouse
 
+[Engine parity](../parity.md)
+
+Culprit inspects ClickHouse servers over read-only HTTP(S), scoping each connection to one node and one database. Workload families, exceptions and execution profiles come from `system.query_log`, live requests come from `system.processes`, physical query steps come from `EXPLAIN PLAN json=1`, and MergeTree operational diagnostics cover parts, merges, mutations, replication queues, distributed send queues and asynchronous inserts.
+
 ## Connecting
 
-Choose **ClickHouse** in Studio or add a source connection to the CLI workspace. Use the server’s HTTP interface. The default is HTTPS on port 8443 with certificate and host verification.
+Select **ClickHouse** in Culprit SQL Studio or register a `clickhouse://` HTTP(S) endpoint on the CLI:
 
 ```sh
-culprit conn add analytics --url 'clickhouse://culprit_reader@ch.example.com:8443/analytics' --password-env CULPRIT_SOURCE_PASSWORD
+# Production HTTPS endpoint (port 8443, TLS certificate & hostname verification enabled by default)
+culprit conn add analytics --env prod --url 'clickhouse://culprit_reader@ch.example.com:8443/analytics' --password-env CULPRIT_SOURCE_PASSWORD
 culprit scan analytics
+
+# Local plaintext fixture over HTTP (explicit port + ?sslmode=disable)
+culprit conn add ch-local --env dev --url 'clickhouse://culprit_reader@127.0.0.1:8123/analytics?sslmode=disable'
 ```
 
-For a local plaintext fixture, specify its actual HTTP port and add `?sslmode=disable`. The native TCP ports 9000 and 9440 use a different protocol. Each scan follows one node and one database. For predictable replica coverage, configure a connection per node or a session-affine endpoint.
+| Capability | ClickHouse provider behavior |
+|---|---|
+| Transport & TLS | Speaks ClickHouse's HTTP(S) interface (`8443` default, `sslmode=verify-full` with optional `sslrootcert`); native TCP ports `9000` / `9440` use a different wire protocol and are not used |
+| Node & database scope | Each connection inspects **one node and one database**; for predictable replica coverage behind a load balancer, save a connection per node or use a session-affine endpoint |
+| Authentication | Dedicated password (stored in OS keychain or `--password-env`) or explicitly configured passwordless reader; cloud IAM/Entra tokens and SSH jump-host forwarding (`--ssh`) are refused |
+| Session safety | Sends read-only execution settings and per-query resource ceilings on every HTTP request and maintains a dedicated HTTP session ID through final identity verification |
 
 ## Permissions and setup
 
-Use a dedicated reader. Grant visibility of the monitored database and the system tables the role is allowed to inspect. For example, the following grants enable workload history and catalog inspection for an existing reader.
+Create a least-privilege ClickHouse reader and grant catalog visibility on the monitored database plus `SELECT` on the `system.*` tables you want Culprit to inspect:
 
 ```sql
+-- Core catalog and query-history visibility
 GRANT SHOW TABLES, SHOW COLUMNS ON analytics.* TO culprit_reader;
 GRANT SELECT ON system.databases TO culprit_reader;
 GRANT SELECT ON system.tables TO culprit_reader;
 GRANT SELECT ON system.columns TO culprit_reader;
 GRANT SELECT ON system.query_log TO culprit_reader;
+
+-- Live requests and MergeTree / cluster operational health
+GRANT SELECT ON system.processes TO culprit_reader;
+GRANT SELECT ON system.parts TO culprit_reader;
+GRANT SELECT ON system.merges TO culprit_reader;
+GRANT SELECT ON system.mutations TO culprit_reader;
+GRANT SELECT ON system.replicas TO culprit_reader;
+GRANT SELECT ON system.replication_queue TO culprit_reader;
+GRANT SELECT ON system.distribution_queue TO culprit_reader;
+GRANT SELECT ON system.asynchronous_insert_log TO culprit_reader;
+GRANT SELECT ON system.part_log TO culprit_reader;
 ```
 
-Culprit sends a read-only setting and per-query resource limits with every request. A settings profile that fixes or forbids these settings can reject the read before the system table is accessed. Keep the account's grants restricted to the required reads and have its administrator configure the allowed values in its settings profile. ClickHouse supports bounded exceptions for individual settings. [ClickHouse settings constraints](https://clickhouse.com/docs/operations/settings/constraints-on-settings)
-
-For health and investigations, grant `SELECT` individually on the system tables in the table below. Live uses `system.processes`. Editor queries and estimated plans additionally require the reader to access the selected objects. Native role visibility, query logging, retention and log flush timing determine what appears. Culprit reads the existing logs. It does not enable logging or issue `SYSTEM FLUSH LOGS`.
+- **Settings profile constraints**: Because Culprit attaches a read-only flag and per-query resource bounds (`max_rows_to_read`, `max_bytes_to_read`, `max_memory_usage`, timeouts) to every HTTP query, a restrictive ClickHouse settings profile that marks those settings `CONST` / `READONLY` can reject requests before touching `system.*`. Configure bounded exceptions in the reader's profile where needed; see [ClickHouse settings constraints](https://clickhouse.com/docs/operations/settings/constraints-on-settings).
+- **Non-intrusive log reads**: Running `EXPLAIN PLAN` or read-only editor queries additionally requires `SELECT` on the referenced tables. Culprit reads whatever `system.query_log` and `system.part_log` rows have already flushed—it never enables logging or issues `SYSTEM FLUSH LOGS`.
 
 ## Workload and plans
 
-Query families group retained terminal events by `normalized_query_hash`. Counts include initial requests whose native database list names exactly the selected database. A distributed request is counted at its initiator. The desktop can show a bounded SQL sample for each family. The archive retains family hashes, intervals, runs, elapsed time, rows, bytes and the full-population totals used for shares. A complete SQL sample within the size limit passes through Culprit’s SQL redactor before export. Oversized samples retain an explicit reason alongside the counters. Rows read measure ClickHouse rows, and elapsed time can include work on other nodes.
-
-Use Plans or the read-only editor for `EXPLAIN PLAN json=1`. Plans show ClickHouse’s physical steps. Estimated costs, actual operator timings and historical execution plans are unavailable from that output.
+| Capability | ClickHouse source and behavior |
+|---|---|
+| Statement workload | Groups completed initial requests in `system.query_log` by `normalized_query_hash` where the query's native `databases` list names the selected database |
+| Distributed queries | Counted once at the initiating node; `read_rows` counts ClickHouse rows read and elapsed duration can include remote shard work |
+| Timelines & comparison | Time-bucketed execution and latency series plus two-period comparisons across logged initial requests |
+| SQL sample redaction | Bounded SQL samples pass through Culprit's SQL literal redactor before export; oversized statements retain their exact counters with an explicit truncation note |
+| Execution plans | Runs `EXPLAIN PLAN json=1` in Studio, CLI and the read-only editor (and imports ClickHouse plan JSON in [explain.culpritsql.com](https://explain.culpritsql.com)) to visualize physical pipeline steps |
+| Unavailable plan metrics | ClickHouse `EXPLAIN PLAN` does not emit relational optimizer cost numbers, actual per-operator timings or retained historical plans |
 
 ## Live activity and waits
 
-Live lists visible foreground initial requests whose current database matches the connection. It displays the native query ID, user, elapsed time, read rows and current statement. A current database is session context. It does not identify every database a live query may touch.
+Live queries `system.processes` for visible foreground initial requests whose current session database matches the connection—displaying native `query_id`, user, elapsed duration, rows read and current SQL text.
+
+- **Database context boundary**: A process's current database reflects session state rather than every cross-database table a running query might read.
+- **Wait & progress model**: ClickHouse records query duration and resource/profile counters rather than relational lock-wait chains or an exclusive wait-category breakdown.
+- **Session termination**: Outside `prod` connections, terminating an active request issues `KILL QUERY WHERE query_id = '...' SYNC;`.
 
 ## Schema and indexes
 
-Schema reads table engines, available row and byte totals, the presence of a primary key and typed column metadata. MergeTree sorting keys and data-skipping indexes have different semantics from relational covering indexes. Missing native row counts remain unknown.
+Schema inspection reads `system.databases`, `system.tables` and `system.columns` to report table engines (`MergeTree`, `ReplicatedMergeTree`, `Distributed`, etc.), row and on-disk byte totals, primary-key presence and typed column definitions.
+
+- **MergeTree vs B-tree semantics**: MergeTree sorting keys (`ORDER BY` / sparse primary index) and data-skipping indexes operate on granules and parts rather than row-level B-tree pointers. Culprit never emits relational `CREATE INDEX` covering scripts or "unused index" drop verdicts against ClickHouse tables; instead, findings direct you to sorting keys, selected marks/parts and insert batching.
 
 ## Limits and evidence
 
 | Source | What an investigator can establish |
 |---|---|
-| `system.query_log` | The reporting node recorded an execution failure. Named exceptions distinguish memory, concurrency, timeout, disk space, Keeper and too-many-parts failures. Cancellation remains history. |
-| `system.parts` and `system.merges` | Active part counts per partition and current merge work. Counts provide context for write pressure. |
-| `system.mutations` | Unfinished mutation with a recorded failed part and failure time. |
-| `system.replicas` and `system.replication_queue` | Read-only or expired replica sessions, a queue with at least five minutes of native delay, and tasks with retry exceptions. |
-| `system.distribution_queue` | A blocked distributed send queue with pending data files. The archive uses an opaque queue identity. |
-| `system.asynchronous_insert_log` | Recorded parsing and flush failures for asynchronous inserts. |
-| `system.query_log` and `system.part_log` | A focused lookup of the original failed execution and optional part events on a table it named during the five minutes ending at the failure. Concurrent part events establish activity on that table, not responsibility for the failure. |
+| `system.query_log` | Recorded execution failures on the observed node—distinguishing memory limits, concurrency caps, timeouts, disk-space errors, Keeper errors and `TOO_MANY_PARTS` from benign cancellations |
+| `system.parts` & `system.merges` | Active part counts per partition and in-flight background merges to contextualize insert/merge write pressure |
+| `system.mutations` | Unfinished `ALTER TABLE ... UPDATE / DELETE` mutations with a recorded failed part and failure timestamp |
+| `system.replicas` & `system.replication_queue` | Read-only or expired Keeper/ZooKeeper replica sessions, queues delayed `>= 5` minutes, and tasks failing with retry exceptions |
+| `system.distribution_queue` | Blocked `Distributed` table send queues with pending on-disk batch files (exported with an opaque queue identity) |
+| `system.asynchronous_insert_log` | Parsing and flush errors (`FlushError`) for asynchronous inserts |
+| `system.query_log` & `system.part_log` | Targeted follow-up of one failed `query_id` plus concurrent part events on a named table during the 5 minutes preceding the failure (context, not causal blame) |
 
-The operational recipe collects a 15-minute query-log window plus current table state. For failed executions it also retains the available per-query CPU and I/O counters, selected marks and parts, and spill counters. These come from the original query log row in the same read. Native statement limits bound threads, elapsed time, memory and input size. Row caps and unreadable sources remain visible in coverage. One node cannot establish cluster-wide health. Collection requires its original ClickHouse HTTP session through the final identity check. An unconfirmed native shutdown retains the normal workspace collection fence.
+- **Per-request guardrails**: Native HTTP reads enforce an **8-second** statement timeout, **`2,000,000`** max rows read, **`128 MiB`** max bytes read / memory usage, and an **`8 MiB`** HTTP response ceiling. Unreadable tables and row caps appear explicitly in source coverage, single-node scans never claim cluster-wide health, and unconfirmed HTTP session shutdowns fence subsequent background collection.
 
-Save the same named source in the collector workspace and select the operational recipe. The fleet’s recovery and analytical destination settings control publication. The following commands capture one database into a local outbox.
+### Background telemetry and focused investigations
+
+`culprit collect` captures a 15-minute `system.query_log` window (including CPU/I/O profile counters, selected marks/parts and spill counters on failed queries) alongside current MergeTree, mutation, replication and queue state:
 
 ```sh
 culprit collect outbox init ./outbox
 culprit collect once analytics --collection operational --outbox ./outbox
 ```
 
-For an exact execution follow-up, use `collect once analytics --selection focus.json --outbox ./outbox`. In Health, expand the original failure under ClickHouse operations and use **Copy collector selection** to get the JSON. It carries the database identity and native microsecond timestamps. The table is optional. A missing retained execution produces a retention gap.
+To capture a targeted follow-up for a specific failed query (`system.query_log` + 5-minute `system.part_log` window), expand the failure under **Health → ClickHouse operations** in Studio and click **Copy collector selection**, then pass that selector file to `culprit collect once analytics --selection focus.json --outbox ./outbox`:
 
 ```json
 {
@@ -79,8 +116,11 @@ For an exact execution follow-up, use `collect once analytics --selection focus.
 }
 ```
 
-Select ADX in the collector’s warehouse settings to publish ClickHouse observations there. The source reader and the ADX query and ingestion identities are configured independently. The same operational evidence can be published to a ClickHouse warehouse. See the [collector configuration](../collector.md) and [Helm chart](../../deploy/helm/culprit-collector/README.md).
+Sealed ClickHouse captures publish to either **Azure Data Explorer (ADX)** or a **ClickHouse** telemetry warehouse using independent source, recovery and warehouse credentials. See [collector configuration](../collector.md) and the [Helm chart](../../deploy/helm/culprit-collector/README.md).
 
 ## Verification
 
-`dev/smoke-clickhouse-source.py` starts a disposable ClickHouse server and verifies native query families, a refused insert, a failed mutation, a malformed asynchronous insert and a query that exceeds the server’s group limit. Its `--provider-test` option also exercises the HTTP provider, finding input, archive recipe, focused lookup, editor and plan parser. Use `--image` to select a server version. Production resource cost depends on log volume, retention, table count and the server’s visibility policy.
+`dev/smoke-clickhouse-source.py` boots a disposable ClickHouse container and verifies query-family aggregation, `TOO_MANY_PARTS` insert refusals, failed mutations, malformed asynchronous inserts and memory/group-by limit exceptions (`--provider-test` also exercises the HTTP provider, archive recipe, focused lookup, read-only editor and plan parser; pass `--image` to test specific ClickHouse versions).
+
+- Disposable smoke suite: [`dev/smoke-clickhouse-source.py`](../../dev/smoke-clickhouse-source.py)
+- Declared ClickHouse sources: [`culprit-clickhouse/src/sources.rs`](../../crates/providers/culprit-clickhouse/src/sources.rs)

@@ -1674,7 +1674,7 @@ table.data-table {
   font-weight: 580;
 }
 
-/* Dark-mode provider monochrome icon inversion */
+/* Dark-mode provider monochrome icon inversion & light-mode ClickHouse yellow legibility */
 html[data-theme="dark"] [data-provider="mysql"] .provider-logo img,
 html[data-theme="dark"] [data-provider="mariadb"] .provider-logo img,
 html[data-theme="dark"] [data-provider="timescale"] .provider-logo img {
@@ -1685,6 +1685,14 @@ html[data-theme="dark"] [data-provider="timescale"] .provider-logo img {
   html:not([data-theme="light"]) [data-provider="mariadb"] .provider-logo img,
   html:not([data-theme="light"]) [data-provider="timescale"] .provider-logo img {
     filter: brightness(0) invert(1);
+  }
+}
+html[data-theme="light"] [data-provider="clickhouse"] .provider-logo img {
+  filter: brightness(0.84) saturate(1.2);
+}
+@media (prefers-color-scheme: light) {
+  html:not([data-theme="dark"]) [data-provider="clickhouse"] .provider-logo img {
+    filter: brightness(0.84) saturate(1.2);
   }
 }
 

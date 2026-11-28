@@ -82,6 +82,7 @@ impl EngineSpec for Sqlite {
         Connect {
             choice: "SQLite".into(),
             file: true,
+            ssh: false,
             example: "~/code/shop/db/production.sqlite3".into(),
             accepts: key!("core.engines.sqlite.accepts").into(),
         }
