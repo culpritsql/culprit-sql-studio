@@ -262,7 +262,7 @@ pub fn coverage_note(plan: &Plan) -> Option<String> {
         (Engine::Mysql, false) if mariadb => Some(t!("insight.note.mariadb_estimated")),
         (Engine::Mysql, true) if mariadb => Some(t!("insight.note.mariadb_actual")),
         (Engine::Mssql, false) => Some(t!("insight.note.mssql_estimated")),
-        (Engine::Mssql, true) => None,
+        (Engine::Mssql, true) | (Engine::Clickhouse, _) => None,
         (Engine::Yugabyte, false) => Some(t!("insight.note.yugabyte_estimated")),
         (Engine::Yugabyte, true) => Some(t!("insight.note.yugabyte_actual")),
         (Engine::Postgres, false) => Some(t!("insight.note.postgres_estimated")),
@@ -756,7 +756,7 @@ fn elapsed_ms(plan: &Plan) -> Option<f64> {
 pub fn estimated_work_threshold(plan: &Plan) -> Option<f64> {
     Some(match plan.engine {
         // SQLite's plans carry no cost, and DocDB costs have no calibrated materiality threshold here.
-        Engine::Sqlite | Engine::Yugabyte => return None,
+        Engine::Sqlite | Engine::Yugabyte | Engine::Clickhouse => return None,
         // A 10K-row clustered index scan costs about 0.1.
         Engine::Mssql => 0.1,
         // seq_page_cost is 1: about 100 pages plus the per-row CPU of 10K rows.

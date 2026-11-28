@@ -7,6 +7,7 @@ use culprit_core::{CheckEvidence, Snapshot, SourceState, source_id, t};
 /// Facts a source can contribute, independent of any check's identifier.
 #[derive(Clone, Copy, Debug)]
 pub enum Observation {
+    ClickHouse,
     LogFailures,
     RequestCounts,
     Spaces,
@@ -254,6 +255,7 @@ impl Requirement<'_> {
         match self {
             Self::Observed(observation, sources) => {
                 let known = match observation {
+                    Observation::ClickHouse => !s.operations.clickhouse.is_empty(),
                     Observation::LogFailures => !s.operations.log_failures.is_empty(),
                     Observation::RequestCounts => s.queries().iter().any(|q| q.requests.is_some()),
                     Observation::Spaces => !s.operations.spaces.is_empty(),

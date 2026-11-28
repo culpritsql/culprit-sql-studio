@@ -1,32 +1,39 @@
-# Culprit SQL Studio
+# Culprit SQL
 
-> Free, open-source (MIT) database performance tool for SQL Server, PostgreSQL, TimescaleDB, YugabyteDB, MySQL, MariaDB and SQLite: a desktop app for macOS, Windows and Linux, a CLI and an MCP server for coding agents. It reads the statistics the database already keeps (Query Store, plan cache, pg_stat_statements, performance_schema; for SQLite, the file and the query log its framework already writes) and explains each problem in one sentence: what is slow, what it costs in database time, how to fix it and how to verify the fix. Read-only by design; nothing leaves the user's machine.
+> Free, open-source (MIT) database root-cause and fleet reliability platform for SQL Server, PostgreSQL, TimescaleDB, YugabyteDB, MySQL, MariaDB, and SQLite. One shared Rust diagnosis and execution-plan engine powers a 14 MB native desktop app (`Culprit SQL Studio`), a JSON/SARIF CLI (`culprit`), a 27-tool local and remote MCP server, a bounded 24/7 Kubernetes collector (`culprit collect`) writing to Azure Data Explorer or ClickHouse, a zero-driver fleet web UI (`Culprit Fleet`), a client-side WebAssembly plan/deadlock/`.xel` analyzer (`Culprit Explain`), and shift-left CI/IDE/test guardrails.
 
 Key facts:
 
-- Finds slow queries, plan regressions, missing and unused indexes, repeated-query patterns, parameter-sensitive plans, lock waits, blocking chains, deadlocks, FK lock contention, ID/sequence exhaustion, partition hazards, spills and stale statistics: __CHECK_COUNT__ checks, ranked by evidence, urgency and measured impact. Repetition alone does not prove an N+1 bug.
-- Explains execution plans in plain words, draws them, compares any two plans with a one-sentence reason why one is slower, and tests virtual indexes where the provider supports HypoPG.
-- Lints SQL migrations (`culprit lint-sql`, MCP `lint_sql`, and live inline editor diagnostics) offline against a saved snapshot's real table sizes, row counts, column types, indexes and active workload, with `--write` auto-fixes and `--format sarif` for GitHub Pull Request annotations.
-- `culprit mcp` serves 27 tools (dashboard, findings, query plans and insights, migration linting, schema drift, what changed, blocking, waits, index advice, verify, read-only queries the person approves) to Claude Code, Codex, Cursor and any MCP client. Every CLI command also prints JSON (or SARIF 2.1.0).
-- Safe on production: scans read statistics and catalog views only; statements run as reads only when Culprit can prove they only read; anything else on production asks first; fixes are shown, never applied.
-- Connections need read access to the relevant statistics and catalog, or to the SQLite file. Each provider guide lists its permissions, optional sources and limitations.
-- Database coverage, setup and verified versions are indexed in Engine parity, with one consistently structured guide per provider.
+- **Deterministic evidence-gated checks (`__CHECK_COUNT__` checks)**: slow queries ranked by share of database time, plan regressions, missing/unused/duplicate indexes, parameter-sensitive plans, blocking chains, deadlocks, lock escalations, subtransaction/MultiXact SLRU pressure, sequence/XID exhaustion, spills, cloud posture, and table-locking SQL migrations.
+- **Strict safety & isolation**: scans query catalog and statistics views only with short lock timeouts; `Culprit Fleet` compiles zero SQL database drivers into its web tier; `Culprit Explain` runs 100% client-side in WebAssembly; `@culpritsql/ci` lints migrations offline against saved schema snapshots.
+- **Coding agents (`culprit mcp`)**: 27 tools for Claude Code, Codex, Cursor, and any MCP client, governed by per-connection policies, statement-by-statement read-only rollback approvals, and `culprit audit`.
+- **9 localized languages**: English (`/`), Simplified Chinese (`/zh/`), Japanese (`/ja/`), Korean (`/ko/`), Russian (`/ru/`), German (`/de/`), Spanish (`/es/`), French (`/fr/`), and Portuguese (`/pt/`).
 
-## Docs
+## Platform Surfaces
 
-- [Overview](https://culpritsql.com/docs/readme.md): what Culprit does, the features, coding agents, safety, supported databases and how to get started
-- [Guide](https://culpritsql.com/docs/guide.md): every check and command, the agent setup, measured speed, safety details and how to extend Culprit
-- [Coding agents](https://culpritsql.com/docs/agents.md): the CLI contract, the MCP tools, per-connection permissions, approvals and the audit log
-- [Engine parity](https://culpritsql.com/docs/parity.md): feature comparison and the setup, measurement, limit and verification guide for every provider
+- [Culprit SQL Home](https://culpritsql.com/): architecture overview, surface switcher, governance specs, and supported engines
+- [Studio, CLI & Local MCP](https://culpritsql.com/studio/): 14 MB macOS/Windows/Linux desktop app, CLI, and 27-tool MCP server
+- [Fleet & Bounded Collector](https://culpritsql.com/fleet/): self-hosted 24/7 fleet triage on Azure Data Explorer or ClickHouse (`https://fleet.culpritsql.com/`)
+- [Explain & WebAssembly SDKs](https://culpritsql.com/explain/): client-side `.sqlplan`, `.xel` Extended Events, `EXPLAIN`, and deadlock analyzer (`https://explain.culpritsql.com/`)
+- [CI, VS Code & Developer Guardrails](https://culpritsql.com/ci/): `@culpritsql/ci` SARIF PR gates, `Culprit SQL for VS Code`, `@culpritsql/test`, and `@culpritsql/devtools`
+- [Enterprise Security & Governance](https://culpritsql.com/enterprise/): trust boundaries, identity/keychain/OIDC, air-gapped deployment, and MIT licensing
+- [Release Notes & Changelog](https://culpritsql.com/releases/): synced GitHub Releases across Studio, Collector, VS Code, CI, and Wasm packages ([RSS](https://culpritsql.com/releases/rss.xml))
 
-## Download
+## Supported Databases
 
-- [Latest release](https://github.com/culpritsql/culprit-sql-studio/releases/latest): macOS (universal, signed and notarized), Windows x64 installer, Linux AppImage and .deb, and the CLI for each. `culprit update` brings a downloaded CLI to the latest release.
-- [Source code](https://github.com/culpritsql/culprit-sql-studio): Rust core, CLI and MCP server; Tauri and React desktop app
+- [Engine Parity Matrix](https://culpritsql.com/databases/): cross-engine feature comparison and evidence guarantees
+- [SQL Server & Azure SQL Database](https://culpritsql.com/databases/sql-server/): Query Store, plan cache, DMVs, and Extended Events ([Markdown](https://culpritsql.com/docs/providers/mssql.md))
+- [PostgreSQL & Amazon RDS](https://culpritsql.com/databases/postgresql/): `pg_stat_statements`, HypoPG virtual indexes, and `EXPLAIN` ([Markdown](https://culpritsql.com/docs/providers/postgres.md))
+- [TimescaleDB](https://culpritsql.com/databases/timescaledb/): hypertables, compressed chunks, and background job diagnostics ([Markdown](https://culpritsql.com/docs/providers/timescale.md))
+- [YugabyteDB](https://culpritsql.com/databases/yugabytedb/): YSQL/DocDB metrics, `DIST` plans, and `yb_pg_stat_plans` ([Markdown](https://culpritsql.com/docs/providers/yugabyte.md))
+- [MySQL](https://culpritsql.com/databases/mysql/): `performance_schema`, `sys`, `EXPLAIN ANALYZE`, and slow query log ([Markdown](https://culpritsql.com/docs/providers/mysql.md))
+- [MariaDB](https://culpritsql.com/databases/mariadb/): MariaDB JSON plans, `ANALYZE FORMAT=JSON`, and `userstat` ([Markdown](https://culpritsql.com/docs/providers/mariadb.md))
+- [SQLite](https://culpritsql.com/databases/sqlite/): read-only file inspection, `EXPLAIN QUERY PLAN`, and framework query logs ([Markdown](https://culpritsql.com/docs/providers/sqlite.md))
 
-## Optional
+## Reference Markdown
 
-- [Design](https://culpritsql.com/docs/design.md): how the product behaves and why
-- [Culprit Fleet](https://fleet.culpritsql.com/): self-hosted multi-region database fleet command center, archive time-machine and remote MCP server (`https://github.com/culpritsql/culprit-fleet`)
-- [Culprit Explain](https://explain.culpritsql.com/): client-side WebAssembly SQL execution plan, diff, deadlock and `.xel` visualizer (`https://github.com/culpritsql/culprit-explain`)
-- [Everything in one file](https://culpritsql.com/llms-full.txt): the overview, guide, coding agents, engine parity and provider docs concatenated
+- [Overview](https://culpritsql.com/docs/readme.md)
+- [User & CLI Guide](https://culpritsql.com/docs/guide.md)
+- [Coding Agents & MCP](https://culpritsql.com/docs/agents.md)
+- [Architecture & Evidence Rules](https://culpritsql.com/docs/architecture.md)
+- [Complete Concatenated Documentation](https://culpritsql.com/llms-full.txt)

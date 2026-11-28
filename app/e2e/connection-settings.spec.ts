@@ -49,6 +49,7 @@ for (const [engine, label, input, options] of [
   ["postgres", "PostgreSQL", "postgres://reader@db.example.com/orders", 6],
   ["yugabyte", "YugabyteDB", "yugabyte://reader@db.example.com/orders", 6],
   ["mysql", "MySQL / MariaDB", "mariadb://reader@db.example.com/orders", 6],
+  ["clickhouse", "ClickHouse", "clickhouse://reader@db.example.com:8443/orders", 3],
   ["sqlite", "SQLite", "/tmp/orders.db", 0],
 ] as const) {
   test(`New ${label} connections expose only their supported security controls`, async ({ page }) => {

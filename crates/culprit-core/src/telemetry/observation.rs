@@ -47,6 +47,9 @@ impl TelemetryCollection {
 #[serde(tag = "kind", rename_all = "kebab-case")]
 #[ts(export)]
 pub enum CollectionSelection {
+    ClickHouseInvestigation {
+        focus: Box<ClickHouseInvestigation>,
+    },
     CollectorConnection {
         attempt: CaptureIdentity,
     },
@@ -133,6 +136,7 @@ pub enum CollectionSelection {
 impl CollectionSelection {
     pub fn collection(&self) -> TelemetryCollection {
         match self {
+            Self::ClickHouseInvestigation { .. } => TelemetryCollection::Snapshot(SnapshotDataset::Operational),
             Self::SourceRead { focus, .. } => focus.question.collection(),
             Self::ResourcePoolSettings => TelemetryCollection::Snapshot(SnapshotDataset::Settings),
             Self::QueryHistory { .. } => TelemetryCollection::QueryHistory,
@@ -434,6 +438,10 @@ impl DiagnosticCaptureDescription {
 #[serde(tag = "kind", content = "data", rename_all = "kebab-case")]
 #[ts(export)]
 pub enum SourceObservation {
+    ClickHouseInvestigation {
+        snapshot: StateSnapshotDescription,
+        focus: Box<ClickHouseInvestigation>,
+    },
     CollectorConnection(CollectorConnectionDescription),
     /// Provisional ordinary snapshot. This actual read owner supplies no global data incarnation.
     PagedSnapshotAcquisition {
@@ -651,6 +659,7 @@ impl SourceObservation {
             Self::DatabasePerformanceCounters { .. } => {
                 TelemetryCollection::Snapshot(SnapshotDataset::DatabasePerformanceCounters)
             }
+            Self::ClickHouseInvestigation { .. } => TelemetryCollection::Snapshot(SnapshotDataset::Operational),
             Self::TableMemory { .. } => TelemetryCollection::Snapshot(SnapshotDataset::TableMemory),
             Self::MssqlPoolCurrent { snapshot, .. } => TelemetryCollection::Snapshot(snapshot.dataset),
             Self::MssqlPoolSettings { .. } => TelemetryCollection::Snapshot(SnapshotDataset::Settings),
@@ -711,6 +720,7 @@ impl SourceObservation {
             Self::Activity(_) => TelemetryRange::Current,
             Self::FocusedBlocking { result, .. } => TelemetryRange::Focused { key: result.focus.key()? },
             Self::CacheEntryMemory { focus, .. } => TelemetryRange::Focused { key: focus.key()? },
+            Self::ClickHouseInvestigation { focus, .. } => TelemetryRange::Focused { key: focus.key()? },
             Self::TableMemory { target, .. } => TelemetryRange::Focused { key: target.key()? },
             Self::ColumnstoreRowgroups { target, .. } => TelemetryRange::Focused { key: target.key()? },
             Self::FullTextPopulations { target, .. } => TelemetryRange::Focused { key: target.key()? },
@@ -866,6 +876,9 @@ impl SourceObservation {
                 group_replication_header_is_valid(snapshot) && metadata.is_valid()
             }
             Self::Galera { snapshot, metadata } => galera_header_is_valid(snapshot) && metadata.is_valid(),
+            Self::ClickHouseInvestigation { snapshot, focus } => {
+                snapshot.is_valid() && snapshot.dataset == SnapshotDataset::Operational && focus.is_valid()
+            }
             Self::TableMemory { snapshot, target, metadata, .. } => {
                 table_memory_header_is_valid(snapshot) && target.is_valid() && metadata.is_valid()
             }
@@ -982,6 +995,7 @@ impl SourceObservation {
             | Self::MaintenanceProgress { snapshot, .. }
             | Self::CurrentRequestWork { snapshot, .. }
             | Self::ColumnstoreRowgroups { snapshot, .. }
+            | Self::ClickHouseInvestigation { snapshot, .. }
             | Self::TableMemory { snapshot, .. }
             | Self::MssqlPoolCurrent { snapshot, .. }
             | Self::MssqlPoolSettings { snapshot, .. }
@@ -1014,6 +1028,7 @@ impl SourceObservation {
             | Self::MaintenanceProgress { snapshot, .. }
             | Self::CurrentRequestWork { snapshot, .. }
             | Self::ColumnstoreRowgroups { snapshot, .. }
+            | Self::ClickHouseInvestigation { snapshot, .. }
             | Self::TableMemory { snapshot, .. }
             | Self::MssqlPoolCurrent { snapshot, .. }
             | Self::MssqlPoolSettings { snapshot, .. }
@@ -1070,6 +1085,7 @@ impl SourceObservation {
             | Self::SuspectPages { snapshot, .. }
             | Self::DatabasePerformanceCounters { snapshot, .. }
             | Self::ColumnstoreRowgroups { snapshot, .. }
+            | Self::ClickHouseInvestigation { snapshot, .. }
             | Self::TableMemory { snapshot, .. }
             | Self::GroupReplication { snapshot, .. }
             | Self::Galera { snapshot, .. }
@@ -1402,6 +1418,11 @@ impl CollectionDescription {
                 && &description.step_id == step_id
                 && description.records.saturating_add(description.checkpoint_records)
                     <= request.budget.max_snapshot_rows;
+        }
+        if matches!(request.selection, CollectionSelection::ClickHouseInvestigation { .. })
+            || matches!(self.observation, SourceObservation::ClickHouseInvestigation { .. })
+        {
+            return matches!((&self.observation,&request.selection), (SourceObservation::ClickHouseInvestigation {snapshot,focus},CollectionSelection::ClickHouseInvestigation {focus:requested}) if focus==requested && self.target==CollectionTarget::Database(focus.target.clone()) && snapshot.records<=request.budget.max_snapshot_rows);
         }
         if matches!(&request.selection, CollectionSelection::TableMemory { .. })
             || matches!(&self.observation, SourceObservation::TableMemory { .. })

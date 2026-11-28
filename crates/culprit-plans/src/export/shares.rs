@@ -139,6 +139,7 @@ fn read_unit_for_message(plan: &Plan) -> &'static str {
     match plan.engine.spec().statement_metrics().reads {
         culprit_core::engines::ReadUnit::Pages => "pages",
         culprit_core::engines::ReadUnit::RowsExamined => "rows_examined",
+        culprit_core::engines::ReadUnit::RowsRead => "rows_read",
     }
 }
 

@@ -1,7 +1,7 @@
 // What the SQL editor adds to CodeMirror: lint marks, colors from the app's code tokens, and the dialect's language
 // with completion from the connection's catalog.
 import type { CompletionSource } from "@codemirror/autocomplete";
-import { MariaSQL, MSSQL, MySQL, PostgreSQL, SQLite, keywordCompletionSource, schemaCompletionSource } from "@codemirror/lang-sql";
+import { StandardSQL, MariaSQL, MSSQL, MySQL, PostgreSQL, SQLite, keywordCompletionSource, schemaCompletionSource } from "@codemirror/lang-sql";
 import { HighlightStyle, LanguageSupport, syntaxHighlighting } from "@codemirror/language";
 import { StateEffect, StateField, type Extension } from "@codemirror/state";
 import { Decoration, EditorView, type DecorationSet } from "@codemirror/view";
@@ -59,7 +59,7 @@ export const sqlColors = syntaxHighlighting(
  * after `alias.`, where only that table's columns make sense.
  */
 export function sqlLanguage(engine: Engine, product: string | null | undefined, catalog: Catalog | null, report: Report | null): Extension {
-  const dialect = { mssql: MSSQL, postgres: PostgreSQL, mysql: isMariadb(engine, product) ? MariaSQL : MySQL, sqlite: SQLite }[sqlSyntax(engine)];
+  const dialect = { clickhouse: StandardSQL, mssql: MSSQL, postgres: PostgreSQL, mysql: isMariadb(engine, product) ? MariaSQL : MySQL, sqlite: SQLite }[sqlSyntax(engine)];
   const keywords = keywordCompletionSource(dialect, true);
   const keywordsOutsideMembers: CompletionSource = (context) => (/[\w"`\]]\.\w*$/.test(context.state.sliceDoc(Math.max(0, context.pos - 120), context.pos)) ? null : keywords(context));
   return new LanguageSupport(dialect.language, [

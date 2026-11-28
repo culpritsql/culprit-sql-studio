@@ -300,6 +300,9 @@ fn admit_shared_evidence<T>(
 pub fn redact_snapshot(snapshot: &Snapshot) -> Snapshot {
     let engine = snapshot.server.engine;
     let mut s = snapshot.clone();
+    for point in &mut s.operations.clickhouse {
+        point.redact_for_sharing(opaque);
+    }
     if let Some(read) = &mut s.operations.postgres_settings {
         read.withdraw_for_sharing();
     }

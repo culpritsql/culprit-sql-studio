@@ -7,6 +7,7 @@ use ts_rs::TS;
 #[serde(rename_all = "kebab-case")]
 #[ts(export)]
 pub enum PlanFormat {
+    ClickHouseJson,
     ShowplanXml,
     PostgresJson,
     YugabyteJson,
@@ -20,6 +21,7 @@ pub enum PlanFormat {
 impl PlanFormat {
     pub fn label(self) -> String {
         match self {
+            PlanFormat::ClickHouseJson => t!("core.engines.clickhouse.plan_format"),
             PlanFormat::ShowplanXml => t!("engine.plans.format.showplan_xml"),
             PlanFormat::PostgresJson => t!("engine.plans.format.postgres_json"),
             PlanFormat::YugabyteJson => t!("engine.plans.format.yugabyte_json"),

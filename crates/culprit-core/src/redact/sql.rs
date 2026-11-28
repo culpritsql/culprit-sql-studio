@@ -73,7 +73,7 @@ fn mask_prose_values(text: &str, engine: Engine) -> String {
             continue;
         }
         if in_code_span && engine != Engine::Mysql && chars[i] == '"' {
-            let end = skip_quoted(&chars, i, '"', false);
+            let end = skip_quoted(&chars, i, '"', engine == Engine::Clickhouse);
             out.extend(&chars[i..end]);
             i = end;
             continue;
@@ -89,7 +89,7 @@ fn mask_prose_values(text: &str, engine: Engine) -> String {
                 && !word(i.checked_sub(2).and_then(|k| chars.get(k)));
             if !word(prev) || prefix {
                 let is_e_quote = prev.is_some_and(|p| p.eq_ignore_ascii_case(&'E')) && prefix;
-                let backslashes = engine == Engine::Mysql || is_e_quote;
+                let backslashes = matches!(engine, Engine::Mysql | Engine::Clickhouse) || is_e_quote;
                 let (end, closed) = skip_quoted_smart(&chars, i, '\'', backslashes, is_e_quote, true);
                 out.push_str("'?'");
                 if !closed {
@@ -100,7 +100,7 @@ fn mask_prose_values(text: &str, engine: Engine) -> String {
             }
         }
         if chars[i] == '$'
-            && engine.sql_syntax() == crate::SqlSyntax::Postgres
+            && engine.sql_syntax().dollar_quoted_strings()
             && let Some(tag_end) = dollar_tag(&chars, i)
         {
             let tag: Vec<char> = chars[i..=tag_end].to_vec();
@@ -155,6 +155,7 @@ fn redact(text: &str, engine: Engine, numbers: bool) -> String {
     // For each open parenthesis: whether it belongs to a sized type, so numbers in it are sizes.
     let mut parens: Vec<bool> = Vec::new();
     let mut last_word = String::new();
+    let mut clickhouse_insert = false;
     let mut i = 0;
     let at = |k: usize| chars.get(k).copied();
     while i < chars.len() {
@@ -166,7 +167,7 @@ fn redact(text: &str, engine: Engine, numbers: bool) -> String {
                 out.push_str(if end > i + 2 { "-- …" } else { "--" });
                 i = end;
             }
-            '#' if engine == Engine::Mysql => {
+            '#' if matches!(engine, Engine::Mysql | Engine::Clickhouse) => {
                 let end = chars[i..].iter().position(|&x| matches!(x, '\n' | '\r')).map_or(chars.len(), |p| i + p);
                 out.push_str("# …");
                 i = end;
@@ -190,7 +191,7 @@ fn redact(text: &str, engine: Engine, numbers: bool) -> String {
             }
             '\'' => {
                 let is_e_quote = i > 0 && matches!(chars[i - 1], 'e' | 'E') && last_word.eq_ignore_ascii_case("e");
-                let escapes = engine == Engine::Mysql || is_e_quote;
+                let escapes = matches!(engine, Engine::Mysql | Engine::Clickhouse) || is_e_quote;
                 let (end, closed) = skip_quoted_smart(&chars, i, '\'', escapes, is_e_quote, false);
                 // A pattern keeps where its wildcards are (`'%?%'`): that's its shape, not data, and a leading % is
                 // what stops an index from being used.
@@ -214,7 +215,7 @@ fn redact(text: &str, engine: Engine, numbers: bool) -> String {
                 last_word.clear();
             }
             '"' => {
-                let end = skip_quoted(&chars, i, '"', false);
+                let end = skip_quoted(&chars, i, '"', engine == Engine::Clickhouse);
                 out.extend(&chars[i..end]);
                 last_word = chars[i + 1..end.saturating_sub(1).max(i + 1)].iter().collect();
                 i = end;
@@ -225,13 +226,13 @@ fn redact(text: &str, engine: Engine, numbers: bool) -> String {
                 last_word = chars[i + 1..end.saturating_sub(1).max(i + 1)].iter().collect();
                 i = end;
             }
-            '`' if matches!(engine, Engine::Mysql | Engine::Sqlite) => {
-                let end = skip_quoted(&chars, i, '`', false);
+            '`' if matches!(engine, Engine::Mysql | Engine::Sqlite | Engine::Clickhouse) => {
+                let end = skip_quoted(&chars, i, '`', engine == Engine::Clickhouse);
                 out.extend(&chars[i..end]);
                 last_word.clear();
                 i = end;
             }
-            '$' if engine.sql_syntax() == crate::SqlSyntax::Postgres => {
+            '$' if engine.sql_syntax().dollar_quoted_strings() => {
                 if let Some(tag_end) = dollar_tag(&chars, i) {
                     let tag: Vec<char> = chars[i..=tag_end].to_vec();
                     let close = find(&chars, tag_end + 1, &tag).map_or(chars.len(), |p| p + tag.len());
@@ -258,7 +259,7 @@ fn redact(text: &str, engine: Engine, numbers: bool) -> String {
                 let end = word_end(
                     &chars,
                     i + 1 + usize::from(next == Some('@')),
-                    engine.sql_syntax() == crate::SqlSyntax::Postgres,
+                    engine.sql_syntax().dollar_quoted_strings(),
                 );
                 out.extend(&chars[i..end]);
                 last_word.clear();
@@ -286,9 +287,17 @@ fn redact(text: &str, engine: Engine, numbers: bool) -> String {
                 i = end;
             }
             _ if c.is_alphabetic() || c == '_' => {
-                let end = word_end(&chars, i, engine.sql_syntax() == crate::SqlSyntax::Postgres);
+                let end = word_end(&chars, i, engine.sql_syntax().dollar_quoted_strings());
                 last_word = chars[i..end].iter().collect();
                 out.push_str(&last_word);
+                if engine == Engine::Clickhouse && parens.is_empty() {
+                    clickhouse_insert |= last_word.eq_ignore_ascii_case("insert");
+                    if clickhouse_insert && last_word.eq_ignore_ascii_case("format") {
+                        // Raw input following INSERT FORMAT is not SQL and can contain unquoted application data.
+                        out.push_str(" …");
+                        break;
+                    }
+                }
                 i = end;
             }
             _ => {

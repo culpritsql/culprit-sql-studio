@@ -1101,6 +1101,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "culprit-clickhouse"
+version = "0.6.3"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "culprit-core",
+ "culprit-plans",
+ "culprit-read",
+ "ring",
+ "serde",
+ "serde_json",
+ "tokio",
+ "ureq",
+]
+
+[[package]]
 name = "culprit-cloud"
 version = "0.6.3"
 dependencies = [
@@ -1164,6 +1180,7 @@ dependencies = [
  "culprit-blob-azure",
  "culprit-blob-s3",
  "culprit-checks",
+ "culprit-clickhouse",
  "culprit-cloud",
  "culprit-collector",
  "culprit-core",

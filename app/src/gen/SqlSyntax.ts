@@ -3,4 +3,4 @@
 /**
  * The SQL grammar a server speaks, independently of its storage engine and measurements.
  */
-export type SqlSyntax = "mssql" | "postgres" | "mysql" | "sqlite";
+export type SqlSyntax = "clickhouse" | "mssql" | "postgres" | "mysql" | "sqlite";

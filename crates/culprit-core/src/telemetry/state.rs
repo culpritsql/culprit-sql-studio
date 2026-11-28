@@ -603,6 +603,7 @@ pub enum OperationalFact {
     PostgresTransactionMetadata(Box<PostgresTransactionMetadata>),
     ReadableSecondaryRecovery(Box<ReadableSecondaryRecoveryPoint>),
     MssqlOutOfMemory(Box<MssqlOutOfMemoryObservation>),
+    ClickHouse(Box<ClickHouseObservation>),
     MysqlErrorLog(Box<MysqlErrorLogObservation>),
     PostgresLog(Box<PostgresLogFailureObservation>),
     MssqlExtendedEvent(Box<MssqlExtendedEventObservation>),
@@ -671,6 +672,7 @@ impl OperationalFact {
             Self::PostgresTransactionMetadata(observation) => observation.key(),
             Self::ReadableSecondaryRecovery(point) => point.key(),
             Self::MssqlOutOfMemory(observation) => observation.key(),
+            Self::ClickHouse(point) => point.identity().key(),
             Self::MysqlErrorLog(observation) => observation.key(),
             Self::PostgresLog(observation) => observation.key(),
             Self::MssqlExtendedEvent(observation) => observation.key(),
@@ -735,6 +737,11 @@ impl OperationalFact {
             // Only the explicitly named native memory-metadata columns are retained. They contain no SQL payload
             // or connection identity; malformed native JSON is qualified without inventing a SQL redaction pass.
             Self::MssqlOutOfMemory(_) => {}
+            Self::ClickHouse(point) => {
+                if let ClickHouseObservation::QueryFamily(row) = point.as_mut() {
+                    row.redact_statement();
+                }
+            }
             Self::MysqlErrorLog(observation) => observation.redact(),
             Self::PostgresLog(observation) => observation.redact(),
             Self::MssqlExtendedEvent(observation) => observation.redact(),
@@ -854,6 +861,7 @@ impl OperationalFact {
             Self::PostgresTransactionMetadata(observation) => observation.is_valid(),
             Self::ReadableSecondaryRecovery(point) => point.is_valid(),
             Self::MssqlOutOfMemory(observation) => observation.is_valid(),
+            Self::ClickHouse(point) => point.is_valid(),
             Self::MysqlErrorLog(observation) => observation.is_valid(),
             Self::PostgresLog(observation) => observation.is_valid(),
             Self::MssqlExtendedEvent(observation) => observation.is_valid(),
@@ -933,6 +941,7 @@ impl OperationalObservation {
                 {
                     self.source == crate::source_id::PROCESSOR_TOPOLOGY
                 }
+                OperationalFact::ClickHouse(point) => self.source == point.source_name(),
                 OperationalFact::MssqlCdc(point) => self.source == point.source(),
                 OperationalFact::MssqlChangeFeed(point) => self.source == point.source(),
                 OperationalFact::MssqlBackupHistory(_) => self.source == MSSQL_BACKUP_HISTORY_SOURCE,

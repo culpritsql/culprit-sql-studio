@@ -302,7 +302,10 @@ fn widening_bringing_back_and_write_costs_say_what_they_said() {
         Widening::Refused(why) => format!("refused: {why}"),
     };
     let mut out = Vec::new();
-    for engine in Engine::ALL {
+    let mut clickhouse = base.clone();
+    clickhouse.server.engine = Engine::Clickhouse;
+    assert!(matches!(widen_index(&clickhouse, &plain, &cols(&["created_at"])), Widening::Refused(_)));
+    for engine in [Engine::Mssql, Engine::Postgres, Engine::Yugabyte, Engine::Mysql, Engine::Sqlite] {
         for version in ["16.0", "11.4", "MariaDB"] {
             let mut s = base.clone();
             s.server.engine = engine;

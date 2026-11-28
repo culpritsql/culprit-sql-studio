@@ -3,6 +3,7 @@ import type { ActivityHistory } from "./ActivityHistory";
 import type { CachedRuntimeRead } from "./CachedRuntimeRead";
 import type { CapturedOperationalRead } from "./CapturedOperationalRead";
 import type { CleanupSnapshot } from "./CleanupSnapshot";
+import type { ClickHouseObservation } from "./ClickHouseObservation";
 import type { ClusterHealth } from "./ClusterHealth";
 import type { CompilationSnapshot } from "./CompilationSnapshot";
 import type { CompilerAdmissionSnapshot } from "./CompilerAdmissionSnapshot";
@@ -38,7 +39,7 @@ import type { SuspectPageHistoryRead } from "./SuspectPageHistoryRead";
 import type { TaskSpaceSnapshot } from "./TaskSpaceSnapshot";
 import type { TerminationHistory } from "./TerminationHistory";
 
-export type OperationalStats = { 
+export type OperationalStats = { clickhouse?: Array<ClickHouseObservation>, 
 /**
  * Raw settings and the actual held acquisition, separate from independent display/statistics values.
  */

@@ -2,68 +2,61 @@
 
 [Engine parity](../parity.md)
 
-Culprit opens SQLite database files read-only. Schema, planner statistics and file allocation are available without changing the application; recorded workload comes from an optional application query log.
+Culprit opens SQLite database files strictly read-only (`SQLITE_OPEN_READ_ONLY` + `PRAGMA query_only = ON`). Schema inspection, `sqlite_stat1` planner statistics, bounded `dbstat` storage analysis and `EXPLAIN QUERY PLAN` work immediately with zero application changes; statement workload history comes from an optional framework or JSONL query log (`crates/culprit-querylog`).
 
 ## Connecting
 
-Choose **SQLite** and select the database file, or save its path through the CLI.
+Select **SQLite** in Studio and pick a `.sqlite3` / `.db` file, or register the path on the CLI:
 
 ```sh
-culprit conn add app --url db/production.sqlite3
+# Add a read-only SQLite file connection
+culprit conn add app --env prod --url db/production.sqlite3
+
+# Explicitly attach or disable an application query log
 culprit conn set app --query-log log/production.log
+culprit conn set app --no-query-log
 ```
 
-Paths are stored as file connections, with no network credentials. Culprit can discover a compatible framework log beside the database or in nearby `log`/`logs` directories. An environment-specific database is not paired automatically with another environment's log. A log can also be selected explicitly or disabled on the connection.
+File connections store local paths and require no network credentials. When `--query-log` is not set, Culprit automatically checks beside the database file, `./log/`, `./logs/`, and `../log/` for a matching log (`production.sqlite3` → `production.log`), while refusing to pair an environment-named database (`production.sqlite3`) with another environment's log (`development.log`).
 
 ## Permissions and setup
 
-Culprit needs read access to the database and any selected query log. It opens the file with read-only flags and `query_only`; it does not add a hook, driver wrapper or required code change to the application.
+Culprit needs filesystem read permission on the database file (plus its `-wal` / `-shm` companions when WAL mode is active) and on any attached query log.
 
-A framework log must actually include SQL and durations before it can provide performance totals. Unsupported lines or a file without usable statements receive an explanation. Connection-local application settings cannot be discovered by opening a separate connection.
+- **Zero application instrumentation required**: Culprit never installs hooks, triggers, extensions or driver wrappers, and never runs `WAL` checkpoints or `VACUUM`.
+- **Connection-local pragmas**: Settings persisted in the database header (`journal_mode`, `auto_vacuum`, `page_size`, `user_version`) are read directly; per-connection pragmas (`synchronous`, `foreign_keys`, `cache_size`, `busy_timeout`) belong to your application's own connections, so Culprit explains how to verify them in application code rather than guessing from its own connection.
 
 ## Workload and plans
 
-SQLite keeps no Query Store or server statement history. Culprit groups logged statements by fingerprint and can report observed runs, total/average/max duration and the spread over the log's own period. Structured error records retain recognized error categories separately; missing durations stay out of performance totals. Statements referring to tables outside this database are excluded where that mismatch can be established.
+Because SQLite embeds no shared Query Store or `pg_stat_statements` memory across OS processes, Culprit reconstructs statement workload from your application's query log—fingerprinting SQL shapes, redacting literals, tallying calls/total/avg/max latency, and tracking structured `SQLITE_BUSY` / error counts separately from timed runs.
 
-`EXPLAIN QUERY PLAN` supplies scans, searches, temporary b-trees and automatically built indexes. Shell tree output and pipe-delimited EQP rows can also be imported. The plan has no measured rows, optimizer costs or operator timing. Culprit cannot use its separate file connection to recover the application's historical parameter values or loaded modules.
+For execution plans, Culprit runs `EXPLAIN QUERY PLAN` read-only against the database schema (and imports sqlite3 CLI tree or pipe-delimited EQP text in Studio, CLI and [explain.culpritsql.com](https://explain.culpritsql.com)), surfacing full-table scans (`SCAN`), index searches (`SEARCH`), temporary B-tree sorts (`USE TEMP B-TREE`) and transient `AUTOMATIC COVERING INDEX` builds.
 
 ### If your framework already logs SQL
 
-Culprit reads these logs as they are:
+Culprit parses standard framework SQL logs out of the box with no format changes:
 
-| Framework | What to turn on |
+| Framework | Logger configuration |
 |---|---|
-| Rails | The debug log level, the default in development |
-| Django | The `django.db.backends` logger at `DEBUG` |
+| Ruby on Rails | Standard `debug` log level (default in development) |
+| Django | `django.db.backends` logger at `DEBUG` |
 | Entity Framework Core | `Microsoft.EntityFrameworkCore.Database.Command` at `Information` |
-| Phoenix / Ecto | The debug log |
+| Phoenix / Ecto | Standard Ecto `debug` query logger |
 
-Culprit finds the log by itself when it sits beside the database, in a `log/` folder beside it, or in the parent folder's
-`log/`. A log named after the database comes first (`production.sqlite3` → `production.log`). Otherwise, point Culprit
-at it:
-
-```sh
-culprit conn set app --query-log /path/to/production.log
-```
-
-In the app, use **Add query log** on the connection.
+Point Culprit at any log file with `culprit conn set app --query-log /path/to/app.log` (or **Add query log** in Studio), or analyze a log standalone without a saved connection via `culprit logs`.
 
 ### Logging queries yourself
 
-With plain `sqlite3` and no ORM (FastAPI, Flask, a script), nothing writes a query log. A small wrapper can, in the
-format Culprit reads: one JSON object per line.
+For applications using raw `sqlite3` without an ORM (FastAPI, Flask, Go, Rust or CLI tools), emit one JSON line (`JSONL`) per query:
 
 ```json
-{"sql": "SELECT * FROM listings WHERE city = ? AND price < ? LIMIT ?", "ms": 4.2, "at": "2026-10-16T09:12:03.120+00:00"}
+{"sql": "SELECT id, title FROM listings WHERE city = ? AND price < ? LIMIT ?", "ms": 4.2, "at": "2026-10-16T09:12:03.120+00:00"}
 ```
 
-- `sql`: the statement as you pass it to `execute`, with its `?` placeholders. Culprit removes literal values anyway,
-  but logging placeholders keeps your users' data out of the file.
-- `ms`: how long it took, in milliseconds.
-- `at`: when it ran, as an ISO 8601 timestamp with a time zone. It's optional, but without it Culprit can give shares
-  of time and not rates per day.
-
-In Python:
+- `sql`: Parameterized SQL (`?` / `:name` placeholders keep user values out of the log file; Culprit also strips literals during ingestion).
+- `ms`: Elapsed milliseconds across **both `execute()` and row iteration** (`sqlite3` steps lazily as rows are fetched).
+- `at` *(optional)*: ISO 8601 timestamp with UTC offset (enables per-day rate calculations and window labels; without timestamps, Culprit shows percentage shares only).
+- `request_id` *(optional)*: Correlates repeated statement shapes within one HTTP request/job for high-confidence N+1 detection.
 
 ```python
 import json, time
@@ -82,69 +75,39 @@ def query(conn, sql, params=()):
     return rows
 ```
 
-Time the statement until its rows are fetched, not only `execute()`. Python's `sqlite3` returns from `execute()` at the
-first row, and SQLite does the rest of the work while the rows are read.
-
-Write the log to a file of its own, named after the database (`app.db` → `app.log`) and kept beside it, and Culprit
-finds it on every scan.
-
 ### What the report says about a log
 
-- Each shape is ranked by its total time in the log; different `WHERE` clauses are different shapes, listed side by
-  side.
-- The log covers its own period: the report names it ("the 50 minutes the Rails log covers"), never "the last 50
-  minutes".
-- The log is read line by line and never kept. Only statement shapes, with values removed, reach the report.
-- A database named after an environment is never paired with another environment's log, and statements on tables the
-  database doesn't have are left out.
+- **Ranked by total recorded time**: Distinct `WHERE` / `ORDER BY` shapes appear side by side with exact run counts and latency distributions.
+- **Honest windowing**: Reports cite the exact span covered by the log (*"over the 50 minutes the Rails log covers"*), never claiming *"the last 50 minutes"*.
+- **Streaming privacy**: Logs are streamed line by line; raw literals, free-form error text and raw `request_id` tokens never enter the saved report, and queries referencing tables absent from the opened SQLite file are excluded.
 
 ## Live activity and waits
 
-SQLite has no server session list, wait counters, blocking graph, live operator progress or deadlock history for Culprit to query. Those views report the missing capability instead of showing zero activity.
-
-Application logs can record errors such as `SQLITE_BUSY`, but a file inspection does not identify the application's connection or transaction holding a lock. Culprit's SQLite connection is read-only; the editor does not offer committed writes or measured application runs through it.
+SQLite is an in-process embedded library with no server session table, wait-event DMV or live lock graph. Studio and CLI mark live session/wait capabilities unavailable rather than displaying empty `0` dashboards, and keep the SQL editor strictly read-only on SQLite files.
 
 ## Schema and indexes
 
-| Snapshot part |SQLite source | Notes |
+| Snapshot area | SQLite source | How Culprit reads it |
 |---|---|---|
-| Server | `sqlite_version()`, `PRAGMA compile_options` | The library Culprit links, not the application's: settings that live in the file are what's reported |
-| Tables, columns | `sqlite_schema`, `PRAGMA table_list`, `PRAGMA table_xinfo` | Ordinary and virtual tables keep their original DDL. SQLite identifies module-owned shadow tables, which are excluded from ordinary table checks; virtual tables stay visible, without guessed rows or sizes. Hidden module columns are omitted; generated columns remain visible |
-| Row counts | Counted in the same `dbstat` pass as the sizes; `sqlite_stat1` (after `ANALYZE`) otherwise | Never `COUNT(*)`. A rowid table's rows are its leaf pages' cells, a `WITHOUT ROWID` table's every cell. Unknown, not zero, when neither source can be read |
-| Indexes | `PRAGMA index_list`, `PRAGMA index_xinfo` | Partial indexes keep their `WHERE`; no usage counters exist, so "never read" is never claimed |
-| Foreign keys | `PRAGMA foreign_key_list` | |
-| Size and free space | `PRAGMA page_count`, `page_size`, `freelist_count`; `dbstat` when compiled in | Counted rows and per-object sizes require a whole-file pass within the read budget; see Limits and evidence |
-| Settings | `PRAGMA journal_mode`, `auto_vacuum`, `page_size`, `user_version` | Per-connection pragmas (`synchronous`, `foreign_keys`, `cache_size`) are the application's choice and can't be read from outside: advice says so instead of guessing |
-| Plans | `EXPLAIN QUERY PLAN` | Free to run on any statement: Culprit plans statements itself, read-only |
-| Workload | None by itself; optionally a log the framework already writes | See Workload and plans |
+| Engine & header | `sqlite_version()`, `PRAGMA compile_options`, `page_size`, `journal_mode`, `auto_vacuum`, `user_version` | Reports persistent file header state alongside the linked SQLite library version |
+| Tables & columns | `sqlite_schema`, `PRAGMA table_list`, `PRAGMA table_xinfo` | Preserves ordinary, `WITHOUT ROWID`, generated-column and virtual tables while excluding internal FTS/R-Tree shadow tables from standalone table checks |
+| Row counts & sizes | Single-pass `dbstat` virtual table (within read budget) or `sqlite_stat1` | Never runs `SELECT COUNT(*)` on user tables; leaf cells count rowid rows, unknown stays `None` (never `0`) if over budget |
+| Indexes & stats | `PRAGMA index_list`, `PRAGMA index_xinfo`, `sqlite_stat1` | Preserves partial-index `WHERE` clauses, expression indexes and per-index `ANALYZE` statistics coverage |
+| Foreign keys | `PRAGMA foreign_key_list` | Detects unindexed child foreign keys that cause parent `DELETE` / `UPDATE` table scans |
+| Free space & WAL | `PRAGMA page_count`, `freelist_count` + filesystem `.sqlite3-wal` stat | Measures freelist fragmentation and on-disk WAL size without checkpointing or truncating the WAL |
 
-Schema and index advice can identify unindexed foreign keys, duplicate or overlapping indexes, missing per-index planner statistics, large free-page allocation and automatic indexes built by the planner. Without a log, workload impact is unknown and advice stays limited to the file evidence. SQLite records no index-usage counters, so an index is never called unused from an invented zero.
+- **Schema & migration checks**: Flags unindexed foreign keys, duplicate/prefix-redundant indexes, missing `ANALYZE` (`sqlite_stat1`) statistics, freelist bloat and planner `AUTOMATIC INDEX` warnings. Because SQLite keeps no index-read counters, Culprit **never** flags an index as unused. `culprit lint-sql migrations/ --format sarif` lints SQLite schema migrations offline in CI and VS Code.
 
 ## Limits and evidence
 
-### Background telemetry
-
-The collector exports bounded native file/schema metadata through the same owned reader as scans. It releases the
-read transaction and closes the connection before paging, with a 250 ms metadata ceiling and file-replacement
-checks. It runs no `dbstat` page scan and exports no schema/default bodies. Server activity and native statement
-history are unsupported; supplied framework logs remain app evidence. See [collector source coverage](../collector.md#other-provider-source-coverage).
-
-A whole-file `dbstat` read is bounded by both size and time: up to 4 GiB and three seconds in WAL mode, or 128 MiB and half a second with a rollback journal. Beyond those budgets, sizes or counted rows stay unknown and the scan explains why. WAL allocation is read from filesystem metadata; the scan neither checkpoints nor deletes the WAL.
-
-Culprit's linked SQLite library can differ from the application's. Per-connection pragmas such as `foreign_keys`, `synchronous`, `cache_size` and `busy_timeout` describe the application's connection, not a setting Culprit can safely infer from its own.
-
-Logs preserve their recorded period. No timestamps means shares can be shown but per-day rates cannot. Repeated statement shapes do not by themselves prove an N+1 bug; request correlation needs explicit evidence. Raw request identifiers and arbitrary error messages are not retained. See the shared [evidence rules](coverage.md).
-
-### Operational evidence
-
-Additional file and log evidence includes per-index `sqlite_stat1` coverage, WAL allocation from filesystem metadata, recognized structured SQL errors even without durations, and repeated shapes correlated by an explicit `request_id`.
-
-No checkpoint is run and the WAL is never deleted. WAL allocation does not measure uncheckpointed work. Missing durations stay out of performance totals. Raw error messages, literal values and request IDs are not retained. Repetition does not prove an N+1 bug. External logs with shared table names cannot prove database attribution.
+- **Bounded `dbstat` read budgets (writers never wait)**: Full-file `dbstat` page inspection is capped at **4 GiB and 3 seconds** in WAL mode, or **128 MiB and 500 ms** with a rollback journal (where an open reader holds a shared lock that blocks writers). Files exceeding those bounds skip `dbstat` cleanly and report why.
+- **Background telemetry (`culprit collect`)**: Exports **10 bounded `sqlite.*` metadata recipes** with a **250 ms** metadata ceiling—verifying file inode/replacement identity before and after each read, releasing the read snapshot before paging output, and skipping `dbstat` and default/DDL bodies. See [collector source coverage](../collector.md#other-provider-source-coverage) and [evidence rules](coverage.md).
+- **N+1 attribution**: High call counts alone do not trigger an N+1 finding unless corroborated by explicit `request_id` correlation or repeated loop evidence.
 
 ## Verification
 
-The [SQLite fixture](../../dev/sqlite/README.md) provides a reproducible database and query logs; the saved SQLite snapshot records library version 3.53.2. Tests cover file-size/read budgets, cancellation, read-only operation, EQP parsing, query-log attachment and missing measurements.
+Verified against SQLite **3.53.2** using the reproducible fixture and framework query logs in [`dev/sqlite/README.md`](../../dev/sqlite/README.md)—covering WAL vs rollback-journal read budgets, inode replacement detection, `query_only` enforcement, EQP parsing and log correlation.
 
-Source declarations are in [`culprit-sqlite/src/sources.rs`](../../crates/providers/culprit-sqlite/src/sources.rs); framework formats and statement grouping live in [`culprit-querylog`](../../crates/culprit-querylog).
-
-Source references: [SQLite error semantics](https://www.sqlite.org/rescode.html).
+- Declared SQLite sources: [`culprit-sqlite/src/sources.rs`](../../crates/providers/culprit-sqlite/src/sources.rs)
+- Query-log parser (`Rails`, `Django`, `EF Core`, `Ecto`, `JSONL`): [`crates/culprit-querylog`](../../crates/culprit-querylog)
+- Native error codes: [SQLite result and extended error codes](https://www.sqlite.org/rescode.html)

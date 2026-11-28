@@ -53,7 +53,7 @@ fn config_cases(snapshot: &Snapshot) -> Vec<ConfigCase<'_>> {
     match snapshot.server.engine {
         Engine::Mssql => mssql::decide(snapshot).into_iter().map(ConfigCase::Mssql).collect(),
         Engine::Postgres => postgres::decide(snapshot).into_iter().map(ConfigCase::Postgres).collect(),
-        Engine::Yugabyte => Vec::new(),
+        Engine::Yugabyte | Engine::Clickhouse => Vec::new(),
         Engine::Mysql => mysql::decide(snapshot).into_iter().map(ConfigCase::Mysql).collect(),
         Engine::Sqlite => sqlite::decide(snapshot).into_iter().map(ConfigCase::Sqlite).collect(),
     }

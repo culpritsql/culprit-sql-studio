@@ -86,6 +86,9 @@ impl Idle {
             .map(|r| {
                 let reads = format::count(r);
                 match read_unit {
+                    ReadUnit::RowsRead => {
+                        t!("check.heavy_query.idle.reads_per_run_rows_read", n = r, reads = reads)
+                    }
                     ReadUnit::RowsExamined => {
                         t!("check.heavy_query.idle.reads_per_run_rows_examined", n = r, reads = reads)
                     }
@@ -329,6 +332,7 @@ pub(in crate::checks::queries) fn idle_time(snapshot: &Snapshot, q: &QueryStat) 
     }
     let engine = snapshot.server.engine;
     let read_cost = match engine.spec().statement_metrics().reads {
+        ReadUnit::RowsRead => ROW_READ_MS,
         ReadUnit::RowsExamined => ROW_READ_MS,
         ReadUnit::Pages => PAGE_READ_MS,
     };

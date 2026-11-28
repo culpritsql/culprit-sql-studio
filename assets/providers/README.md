@@ -14,6 +14,7 @@ Product names and logos identify the supported databases and belong to their res
 | `mysql.svg` | [Devicon](https://raw.githubusercontent.com/devicons/devicon/6a37858047b0e8d9c9c0e68f4a071fc410652e89/icons/mysql/mysql-original.svg) | [MIT](DEVICON-LICENSE.txt) |
 | `mariadb.svg` | [Devicon](https://raw.githubusercontent.com/devicons/devicon/6a37858047b0e8d9c9c0e68f4a071fc410652e89/icons/mariadb/mariadb-original.svg) | [MIT](DEVICON-LICENSE.txt) |
 | `sqlite.svg` | [Devicon](https://raw.githubusercontent.com/devicons/devicon/6a37858047b0e8d9c9c0e68f4a071fc410652e89/icons/sqlite/sqlite-original.svg) | [MIT](DEVICON-LICENSE.txt) |
+| `clickhouse.svg` | [Simple Icons](https://raw.githubusercontent.com/simple-icons/simple-icons/4672316908c58ef9342f3069fe7ebe50d30d45b2/icons/clickhouse.svg) | [CC0-1.0](SIMPLE-ICONS-LICENSE.txt) |
 | `timescale.svg` | [Simple Icons](https://raw.githubusercontent.com/simple-icons/simple-icons/4672316908c58ef9342f3069fe7ebe50d30d45b2/icons/timescale.svg) | [CC0-1.0](SIMPLE-ICONS-LICENSE.txt) |
 
 Devicon copyright and licence notices are retained inside its SVGs so they also travel with built app and website assets. Upstream revisions are pinned in the source links.

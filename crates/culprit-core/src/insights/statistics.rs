@@ -147,6 +147,7 @@ fn output_misestimates(cx: &Cx) -> Vec<Draft> {
                     t!("insight.misestimate.fix.refresh", table = table_leaf(t)),
                     Some(Engine::Mysql.dialect().refresh_statistics(&qualified(Engine::Mysql, t))),
                 ),
+                (None, Engine::Clickhouse, Some(_)) => (t!("core.engines.clickhouse.sort_key"), None),
                 (None, Engine::Sqlite, Some(t)) => (
                     t!("insight.misestimate.fix.refresh", table = table_leaf(t)),
                     Some(Engine::Sqlite.dialect().refresh_statistics(&qualified(Engine::Sqlite, t))),

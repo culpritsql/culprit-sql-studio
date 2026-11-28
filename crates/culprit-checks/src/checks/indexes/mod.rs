@@ -56,6 +56,9 @@ pub(crate) enum Widening {
 /// insight that wants an index to cover a lookup can use it too.
 pub(crate) fn widen_index(snapshot: &Snapshot, existing: &IndexStat, include: &[String]) -> Widening {
     let engine = snapshot.server.engine;
+    if engine == Engine::Clickhouse {
+        return Widening::Refused(t!("core.engines.clickhouse.sort_key"));
+    }
     let target = qualified(engine, &existing.schema, &existing.table);
     let name = quote(engine, &existing.name);
     let add = lacking_includes(existing, include);
@@ -80,7 +83,7 @@ pub(crate) fn widen_index(snapshot: &Snapshot, existing: &IndexStat, include: &[
         return Widening::Refused(match engine {
             Engine::Yugabyte => t!("common.widen_index.yugabyte", index = &existing.name),
             Engine::Postgres => t!("common.widen_index.postgres", index = &existing.name),
-            Engine::Mssql | Engine::Mysql | Engine::Sqlite => {
+            Engine::Mssql | Engine::Mysql | Engine::Clickhouse | Engine::Sqlite => {
                 t!("common.widen_index.no_include", engine = snapshot.server.name())
             }
         });
@@ -176,6 +179,7 @@ fn bring_back(snapshot: &Snapshot, existing: &IndexStat, wanted: &[String]) -> F
             (format!("ALTER TABLE {target} ALTER INDEX {name} VISIBLE;"), t!("common.bring_back.mysql", index = index))
         }
         // SQLite has no disabled or invisible indexes: rebuilding is all there is.
+        Engine::Clickhouse => return Fix { summary: t!("core.engines.clickhouse.sort_key"), sql: None, cost: None },
         Engine::Sqlite => (
             format!("REINDEX {};", qualified(engine, &existing.schema, &existing.name)),
             t!("common.bring_back.sqlite", index = index),

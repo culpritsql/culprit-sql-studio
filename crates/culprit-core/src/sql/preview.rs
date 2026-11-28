@@ -103,6 +103,7 @@ pub fn table_preview_sql(engine: Engine, options: &TablePreviewOptions) -> Resul
     let limit = options.limit.clamp(1, crate::limits::MAX_RESULT_ROWS);
     // Always quote catalog names, including lowercase reserved words. The advice dialect may omit simple quotes.
     let quote = |name: &str| match engine.sql_syntax() {
+        SqlSyntax::Clickhouse => engine.dialect().quote(name),
         SqlSyntax::Mssql => format!("[{}]", name.replace(']', "]]")),
         SqlSyntax::Mysql => format!("`{}`", name.replace('`', "``")),
         SqlSyntax::Postgres | SqlSyntax::Sqlite => format!("\"{}\"", name.replace('"', "\"\"")),

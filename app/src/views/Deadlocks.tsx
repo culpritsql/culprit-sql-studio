@@ -69,6 +69,8 @@ function sourceLine(engine: Engine): string {
       return t("ui.deadlocks.source.mysql");
     case "postgres":
       return t("ui.deadlocks.source.postgres");
+    case "clickhouse":
+      return t("core.engines.clickhouse.inspect_query");
     case "yugabyte":
       return t("ui.deadlocks.source.yugabyte");
     case "sqlite":

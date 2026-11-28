@@ -101,6 +101,7 @@ fn statement_and_sampling_semantics_cover_every_engine_and_round_trip() {
         (Engine::Yugabyte, "Planning", Some("Rows changed per run"), "log", Some(WaitSampling::Sessions)),
         (Engine::Mysql, "Planning", None, "log", Some(WaitSampling::Counters)),
         (Engine::Sqlite, "Planning", Some("Rows returned per run"), "log", None),
+        (Engine::Clickhouse, "Planning", None, "log volume", None),
     ];
     assert_eq!(cases.map(|c| c.0), Engine::ALL, "Declare the semantics of each new engine explicitly");
     for (engine, planning, rows, log, sampling) in cases {

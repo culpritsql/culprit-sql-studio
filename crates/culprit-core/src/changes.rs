@@ -266,6 +266,7 @@ pub fn compare(connection: &str, engine: Engine, data: PeriodData, options: &Com
         notes.push(match data.source {
             TimelineSource::QueryStore => t!("core.changes.coverage.query_store", share = share),
             TimelineSource::Scans => t!("core.changes.coverage.scans", share = share),
+            TimelineSource::ClickHouseLog => t!("provider.clickhouse.compare", share = share),
             TimelineSource::SlowLog => t!("core.changes.coverage.slow_log", share = share),
             TimelineSource::NativeIntervals => t!("core.changes.coverage.native_intervals", share = share),
         });
@@ -344,6 +345,7 @@ fn judge(
         ChangeStatus::NotComparable => Some(q.untracked.clone().unwrap_or_else(|| match source {
             TimelineSource::QueryStore => t!("core.changes.reason.query_store"),
             TimelineSource::Scans => t!("core.changes.reason.scans"),
+            TimelineSource::ClickHouseLog => t!("provider.clickhouse.timeline"),
             TimelineSource::SlowLog => t!("core.changes.reason.slow_log"),
             TimelineSource::NativeIntervals => t!("core.changes.reason.native_intervals"),
         })),

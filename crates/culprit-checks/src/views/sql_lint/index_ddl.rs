@@ -117,7 +117,7 @@ pub(super) fn check_drop_or_truncate(
                     supports_concurrent_index(snapshot, Some(table)) && !upper.iter().any(|t| t == "CONCURRENTLY")
                 }
                 Engine::Mysql => !has_mysql_online_ddl(upper),
-                Engine::Mssql | Engine::Yugabyte | Engine::Sqlite => false,
+                Engine::Mssql | Engine::Yugabyte | Engine::Clickhouse | Engine::Sqlite => false,
             };
             if !is_blocking {
                 return;
@@ -539,7 +539,7 @@ pub(super) fn check_create_index(
         Engine::Postgres => supports_concurrent_index(snapshot, Some(table)) && !has_concurrently,
         Engine::Mssql => supports_online_index(snapshot) && !has_mssql_online_on(&upper),
         Engine::Mysql => !has_mysql_online_ddl(&upper),
-        Engine::Yugabyte | Engine::Sqlite => false,
+        Engine::Yugabyte | Engine::Clickhouse | Engine::Sqlite => false,
     };
     if !is_blocking {
         return;
@@ -584,7 +584,7 @@ pub(super) fn check_create_index(
                 cost: Some(t!("view.sql_lint.create_index.mysql.cost")),
             });
         }
-        Engine::Yugabyte | Engine::Sqlite => {}
+        Engine::Yugabyte | Engine::Clickhouse | Engine::Sqlite => {}
     }
     push_table_metrics(&mut f, rows, bytes);
     f.verify = vec![t!("view.sql_lint.create_index.verify")];

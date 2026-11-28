@@ -75,12 +75,17 @@ fn query_family_cases(snapshot: &Snapshot) -> Vec<FamilyCase<'_>> {
         let differ = match (split, engine) {
             (
                 FamilySplit::Declarations(examples),
-                Engine::Mssql | Engine::Postgres | Engine::Yugabyte | Engine::Mysql | Engine::Sqlite,
+                Engine::Mssql
+                | Engine::Postgres
+                | Engine::Yugabyte
+                | Engine::Mysql
+                | Engine::Clickhouse
+                | Engine::Sqlite,
             ) => Differ::Declarations(examples),
             (FamilySplit::Values | FamilySplit::Unknown, Engine::Mssql) => Differ::Literals,
             (
                 FamilySplit::Values | FamilySplit::Unknown,
-                Engine::Postgres | Engine::Yugabyte | Engine::Mysql | Engine::Sqlite,
+                Engine::Postgres | Engine::Yugabyte | Engine::Mysql | Engine::Clickhouse | Engine::Sqlite,
             ) => Differ::ValueLists,
         };
         let share = if total_ms > 0.0 { family.total_time_ms / total_ms } else { 0.0 };
@@ -349,7 +354,7 @@ pub(super) fn family_split(snapshot: &Snapshot, family: &culprit_core::QueryFami
             _ => Some(FamilySplit::Unknown),
         },
         // Entries are grouped with their value lists collapsed: without a list, the copies are the same text.
-        Engine::Postgres | Engine::Yugabyte | Engine::Mysql | Engine::Sqlite => {
+        Engine::Postgres | Engine::Yugabyte | Engine::Mysql | Engine::Clickhouse | Engine::Sqlite => {
             has_value_list(&family.sample).then_some(FamilySplit::Values)
         }
     }

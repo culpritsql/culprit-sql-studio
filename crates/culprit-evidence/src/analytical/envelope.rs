@@ -160,6 +160,7 @@ pub fn capture_context(manifest: &RangeManifest, manifest_digest: &str) -> Resul
         | SourceObservation::CurrentRequestWork { snapshot, .. }
         | SourceObservation::ColumnstoreRowgroups { snapshot, .. }
         | SourceObservation::FullTextPopulations { snapshot, .. }
+        | SourceObservation::ClickHouseInvestigation { snapshot, .. }
         | SourceObservation::TableMemory { snapshot, .. }
         | SourceObservation::MssqlPoolCurrent { snapshot, .. }
         | SourceObservation::MssqlPoolSettings { snapshot, .. }

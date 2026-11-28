@@ -116,6 +116,12 @@ fn qualify(source: &CollectionDescription) -> std::result::Result<DiagnosticSour
     }
     let snapshot = source.observation.snapshot().ok_or(Issue::UnsupportedSource)?;
     let kind = match snapshot.dataset {
+        SnapshotDataset::Operational
+            if source.target.engine() == crate::Engine::Clickhouse
+                && source.source == CLICKHOUSE_OPERATIONAL_SOURCE =>
+        {
+            DiagnosticSourceKind::ClickHouseOperational
+        }
         SnapshotDataset::Operational if source.target.engine() == crate::Engine::Mssql => {
             DiagnosticSourceKind::WorkerQueues
         }
@@ -138,6 +144,11 @@ fn qualify(source: &CollectionDescription) -> std::result::Result<DiagnosticSour
         return Err(Issue::InvalidSource);
     }
     match (&source.target, kind) {
+        (CollectionTarget::Database(db), DiagnosticSourceKind::ClickHouseOperational)
+            if source.partition == SourcePartition::Target
+                && db.incarnation.is_some()
+                && matches!(&db.location,crate::DatabaseLocation::Server {instance:Some(node),..} if valid_key(node)) =>
+            {}
         (
             CollectionTarget::Shared(owner),
             DiagnosticSourceKind::MemoryFailures

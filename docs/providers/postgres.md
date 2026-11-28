@@ -2,164 +2,105 @@
 
 [Engine parity](../parity.md)
 
-Culprit uses PostgreSQL catalog and statistics views for PostgreSQL, including supported managed services such as Amazon RDS. Statement history comes from `pg_stat_statements` and Culprit's own saved scans.
+Culprit inspects self-hosted PostgreSQL, Amazon RDS, Amazon Aurora PostgreSQL, Azure Database for PostgreSQL Flexible Server and Google Cloud SQL using read-only catalog and statistics views. Cumulative workload history comes from `pg_stat_statements` paired with Culprit's saved scans for clean time-window deltas.
 
 ## Connecting
 
-Choose **PostgreSQL** and paste a PostgreSQL URL, libpq parameters, JDBC string or host/database address.
+Select **PostgreSQL** in Studio or supply a `postgres://` URL, `libpq` key-value string or JDBC URL on the CLI. Existing connections from DBeaver, DataGrip, pgAdmin or VS Code can be imported with `culprit conn import`.
 
 ```sh
-culprit conn add shop --env staging --url 'postgres://app@db.example.com:5432/shop'
+# Standard connection (remote TLS defaults to sslmode=verify-full)
+culprit conn add shop --env prod --url 'postgres://culprit_reader@db.example.com:5432/shop'
+
+# Amazon RDS / Aurora PostgreSQL with short-lived AWS IAM auth token
+culprit conn add shop-rds --env prod --auth aws-iam --url 'postgres://culprit_reader@shop.cluster-xyz.us-east-1.rds.amazonaws.com:5432/shop'
+
+# Azure Database for PostgreSQL with Microsoft Entra ID
+culprit conn add shop-az --env prod --auth entra --url 'postgres://culprit_reader@shop.postgres.database.azure.com:5432/shop'
+
+# Through an SSH jump host
+culprit conn add shop-priv --env prod --ssh ubuntu@bastion.example.com --url 'postgres://culprit_reader@10.0.4.12:5432/shop'
 ```
 
-The connection's TLS and password settings use the shared connection store. TimescaleDB uses this provider and is detected automatically; its additional behavior is documented on the [TimescaleDB page](timescale.md). YugabyteDB has a [separate native provider](yugabyte.md).
+- **TLS & credentials**: Passwords stay in the OS keychain; AWS IAM (`--auth aws-iam`) and Microsoft Entra ID (`--auth entra`) mint short-lived tokens per session. Managed cloud posture (RDS parameters, CloudWatch metrics, unencrypted session checks via `pg_stat_ssl`) enriches health views when cloud access is configured.
+- **Engine routing**: [TimescaleDB](timescale.md) uses this provider and is detected automatically when the `timescaledb` extension is installed. [YugabyteDB](yugabyte.md) uses its own dedicated provider (`--engine yugabyte`); connecting to YugabyteDB with the PostgreSQL provider stops cleanly before calling heap storage APIs.
 
 ## Permissions and setup
 
-`pg_read_all_stats` or `pg_monitor` provides broader visibility into recorded statements and monitoring views. A restricted login can see less; hidden or unreadable sources do not become zero counts.
+Grant PostgreSQL's built-in `pg_read_all_stats` role (or `pg_monitor`) so Culprit can read query texts across roles and inspect session/storage statistics without superuser access:
 
-`pg_stat_statements` must be loaded and its extension view installed in the database for statement counters. If the server already loads the module, installing the extension exposes existing statistics without another restart. `track_io_timing` and `pg_stat_statements.track_planning` control additional measurements. Hypothetical index testing requires `hypopg`.
+```sql
+CREATE ROLE culprit_reader WITH LOGIN PASSWORD '<strong-password>';
+GRANT CONNECT ON DATABASE shop TO culprit_reader;
+GRANT pg_read_all_stats TO culprit_reader;
 
-Planning can invoke functions. Culprit restricts elevated planning to safely owned statements and refuses planning while other roles' reachable functions could borrow those privileges. Plans are obtained in read-only transactions that are rolled back.
+-- Run inside the target database for workload history and zero-cost virtual index testing:
+CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
+CREATE EXTENSION IF NOT EXISTS hypopg;
+```
+
+- **Recommended server settings**: Enable `track_io_timing = on` (data-file and temp I/O timings) and `pg_stat_statements.track_planning = on` (planner overhead) when permitted. On managed services such as RDS where `ALTER SYSTEM` is unavailable, Culprit emits safe database-scoped tuning advice (`ALTER DATABASE shop SET ...`) where applicable.
+- **Privilege-safe `EXPLAIN`**: Planning a query in PostgreSQL can invoke immutable/inlined SQL or PL/pgSQL functions. Culprit refuses elevated generic planning when untrusted roles' reachable functions could execute with the monitoring role's privileges, and always wraps plan checks in read-only transactions that roll back.
 
 ## Workload and plans
 
-| Feature | Coverage |
+| Capability | PostgreSQL source and behavior |
 |---|---|
-| Statement statistics | Cumulative `pg_stat_statements` calls, duration, rows and available read/write, planning and JIT measurements |
-| Timeline and period comparison | Differences between Culprit's saved scans; the server does not retain Query Store-style runtime intervals |
-| Captured plans | Safe generic plans; PostgreSQL 12–15 uses prepared statements and newer versions can use `EXPLAIN (GENERIC_PLAN)` |
-| Estimated / measured plans | `EXPLAIN` for estimates; `EXPLAIN (ANALYZE, BUFFERS)` for an explicitly requested measured run |
-| Last actual plan | Not retained by these statement counters; an `auto_explain` capture must come from the server log |
-| Plan import | Text and JSON `EXPLAIN`, including psql output |
-| Virtual indexes | `hypopg` evaluates candidate indexes in session memory without building persistent indexes |
-| Runtime spread | Minimum, average, maximum and standard deviation per statement; aggregate spread does not identify the values used in slow executions |
-| Statement families | Normalized texts and differences such as IN-list or VALUES lengths |
+| Statement statistics | Cumulative `pg_stat_statements` calls, total/min/max/mean/stddev time, rows, shared/local/temp blocks, I/O timings, WAL bytes, planning and JIT counters |
+| Period comparison | Computes exact deltas between Culprit's saved scans (`culprit changes`) after verifying matching database identity and `pg_stat_statements_info.stats_reset` |
+| Automatic plan capture | Safe generic plans via `EXPLAIN (GENERIC_PLAN)` on PostgreSQL 16+ or prepared-statement generic plans on PostgreSQL 12–15 |
+| Measured plans | `EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)` run on explicit user request inside a rolled-back read-only transaction |
+| Virtual indexes (`hypopg`) | Tests candidate indexes in backend memory (`culprit explain shop --sql '...' --with-index 'CREATE INDEX ON orders (customer_id)'`) without touching disk or locking tables |
+| Plan import | Renders JSON and text `EXPLAIN` plans (including `psql` output) in Studio, CLI and [explain.culpritsql.com](https://explain.culpritsql.com) |
+| Statement families | Groups normalized queries that differ only by `IN (...)` or `VALUES (...)` list lengths |
 
-A changed query text receives its own identity. Statistics resets, eviction and scope changes constrain comparisons; the date of a Culprit scan is not the beginning of a cumulative counter's history.
-
-Scans and statement-counter export share one native temporary-work projection: exact read/write block counts,
-the source's block size, and separately available read/write timings. Adding these scan fields uses the existing
-statement read. Resource totals can include planning and execution work; parallel I/O time is not an exclusive
-elapsed-time component, and current `track_io_timing` cannot qualify historical zeros. Recorded temporary work is
-query context, without a guessed disk speed, spilling operator or memory-limit recommendation. Actual plan spill
-evidence remains separate. Archived `statement-work` analysis reads the same typed observations without SQL access.
+Temporary file block reads/writes (`temp_blks_read`, `temp_blks_written`) and `temp_blk_read_time` / `temp_blk_write_time` are projected in the primary statement read with their exact block size—never extrapolated into guessed disk throughput or `work_mem` formulas without actual plan spill evidence.
 
 ## Live activity and waits
 
-`pg_stat_activity` provides sessions and current activity; `pg_blocking_pids` supplies blocking relationships. Live wait sampling observes busy sessions once a second. `pg_stat_progress_*` views add progress for supported operations, while an estimated plan remains separate from measured live operator activity.
+Live combines `pg_stat_activity`, `pg_blocking_pids()`, lock catalogs and `pg_stat_progress_*` (`vacuum`, `analyze`, `create_index`, `cluster`, `copy`, `basebackup`) to display active queries, idle-in-transaction blockers, live wait-event sampling (1 Hz over active sessions) and operation progress.
 
-These sources do not retain a history of every wait. Recorded statement I/O timing covers timed data-file work; WAL-writer and commit work is not assumed to be part of the statement's execution time.
-
-Explicit retained Activity capture brackets its metadata point with the existing native instance reader. Its
-six-statement ceiling includes session setup, two database/process checks, two native member checks and the
-Activity projection. The member uses PostgreSQL's system identifier and observed server address/port; configured
-routes and database updateability do not supply it. A denied control read or unavailable endpoint retains partial
-observations without focused follow-up authority. A later successful check cannot repair missing original identity.
-Focused blocking binds the original member, process, backend start, request start and statement token, then rechecks
-them before retaining its bounded lock closure. These point checks do not prove uninterrupted identity between reads,
-and the source recipes remain cost-unqualified until their exact native routes are measured and approved.
-
-The database keeps a cumulative deadlock count. Import the relevant PostgreSQL log lines to reconstruct the participants and pattern. Cancel and terminate actions are available outside production, subject to the login's permissions.
-
-### Supplied structured diagnostics
-
-Analyze an explicitly supplied local PostgreSQL log without a saved connection, workspace or database credentials:
+- **Blocking & lock closure**: Focused blocking analysis verifies PostgreSQL's system identifier, server address/port, PID, `backend_start`, `xact_start` and query token before and after capturing bounded lock wait chains.
+- **Session actions**: Outside `prod` connections, Studio exposes both `pg_cancel_backend` (cancel current query) and `pg_terminate_backend` (close connection).
+- **Deadlock history & structured logs**: `pg_stat_database.deadlocks` tracks cumulative count; full participant lock graphs and SQLSTATE failures are decoded offline from PostgreSQL JSON (`jsonlog`) or CSV (`csvlog`) server logs without needing database credentials or `pg_read_file`:
 
 ```sh
-culprit logs ./postgres.jsonl --input-format json --json
-culprit logs ./postgres.csv --input-format csv
+# Offline analysis of PostgreSQL 15+ jsonlog or PostgreSQL 14+ 26-column csvlog (use csv13 for PG 13)
+culprit logs ./postgresql.jsonl --input-format json --json
+culprit logs ./postgresql.csv --input-format csv
 ```
 
-`json` selects native PostgreSQL JSON logs; `csv` requires the documented 26-column PostgreSQL 14+ layout. Use
-`csv13` explicitly for the older 24-column native layout. A truncated modern row is never guessed to be an older
-layout. The same provider parser and pure explanations serve supplied bytes, local files and authenticated native
-records; intake never calls `pg_read_file`, changes logging, reads an application's tables or executes its SQL.
-
-SQLSTATE supplies the condition: allocation failure, deadlock, resource/connection/configuration limits, unavailable
-locks, cancellation and supported termination classes. `57014` establishes cancellation without deciding whether
-the client, a timeout or another cause initiated it. `25P04` identifies the separate native transaction-timeout
-condition. Unknown codes remain available as unclassified diagnostics rather than acquiring a cause from message text.
-
-Raw messages, detail/context strings and client labels are omitted from the result; retained SQL has its literals
-redacted. A qualified deadlock graph contains only reported participants and lock edges. Unsupported or malformed
-details withhold the graph while retaining an otherwise valid native `40P01` condition and affected statement.
-
-Native event time keeps its original text and is qualified as UTC only when an explicit supported offset establishes
-it. Local intake dates never replace an unknown native clock. The database name is affected context, not proof of a
-resource owner. Session IDs and second-resolution starts are native quasi-identities; CSV and JSON line counters are
-independent. Neither a recycled PID nor matching session text creates a current-session/query join.
-
-Input bytes, record/field sizes, record counts and JSON output each have a cap. Defaults read at most 1 MiB, decode
-at most 1,024 records, and bound records/fields to 64/32 KiB. Valid conditions survive malformed neighboring records
-with explicit partial qualification and exit code 2. The artifact digest identifies the supplied prefix, not a native
-incident or host, and equal records remain distinct captured positions. Local analysis does not publish an
-unverified host/database association into a warehouse or claim complete log history. Managed feed collection still
-needs independently qualified acquisition, identity and retention handling.
-
-Source format references: [PostgreSQL structured logging](https://www.postgresql.org/docs/18/runtime-config-logging.html#RUNTIME-CONFIG-LOGGING-JSONLOG)
-and [SQLSTATE conditions](https://www.postgresql.org/docs/18/errcodes-appendix.html).
+`culprit logs` classifies SQLSTATE conditions (`40P01` deadlocks with reconstructed participant lock edges, `53200` OOM, `57014` query canceled, `25P04` idle-in-transaction timeout, lock/connection exhaustion), redacts SQL literals, omits free-form detail text, and caps single-pass reads at 1 MiB / 1,024 records by default.
 
 ## Schema and indexes
 
-The catalog supplies tables, columns, constraints, statistics and index definitions. `pg_stat_user_indexes` provides usage; the collector records counter history where it can establish the reset period. PostgreSQL does not emit SQL Server-style missing-index requests: advice comes from captured plans, foreign keys, scans and the current index set.
+Catalog and statistics readers inspect tables, partitions, columns, constraints, extended statistics, index definitions, `pg_stat_user_tables`, `pg_stat_user_indexes`, `pg_statio_user_*`, PostgreSQL 16+ `pg_stat_io`, and PostgreSQL 17+ `pg_stat_checkpointer`.
 
-Ordinary tables can use concurrent index builds or drops where PostgreSQL supports them. Invalid indexes are distinguished from indexes that are disabled or no longer maintained. Table-level statistics, autovacuum, dead tuples, HOT updates, transaction IDs, MultiXacts, sequence allocation and replication evidence retain their own scope and timestamps.
-
-For managed hypertables and chunks, use the separate [TimescaleDB coverage](timescale.md); an empty parent heap is not hypertable storage.
+- **PostgreSQL-native index advice**: Candidate indexes come from plan filter/join/sort operators, unindexed foreign keys and sequential-scan evidence—validated in milliseconds when `hypopg` is installed. DDL uses `CREATE INDEX CONCURRENTLY` and `DROP INDEX CONCURRENTLY` on ordinary tables, and distinguishes invalid (`!indisvalid`) remnants from active or disabled indexes.
+- **Storage, vacuum & wraparound health**: Evaluates dead-tuple bloat, autovacuum lag and per-table freeze/MultiXact age (`relfrozenxid`, `relminmxid`), HOT update ratios blocked by indexed columns, sequence exhaustion (`pg_sequences`), replication slot `xmin` / `catalog_xmin` retention, WAL archiver failures (`pg_stat_archiver`), standby recovery conflicts and PostgreSQL 15+ logical subscription errors.
+- **Offline SQL migration linting**: `culprit lint-sql migrations/ --format sarif` catches non-concurrent index builds, volatile column defaults, missing `lock_timeout` guards, unvalidated `ADD CONSTRAINT` table scans and unsafe type rewrites before deployment.
 
 ## Limits and evidence
 
-PostgreSQL heap and buffer measurements describe PostgreSQL storage. They are not reused for engines that share its SQL grammar but use different storage.
+### Connection safety and wire bounds
 
-Statement counters are aggregates, not traces. A plan captured today uses the collector's current role and settings and need not match the application's earlier custom plan. Statement errors, deadlock graphs, historical parameters and `auto_explain` output require log or application evidence.
+Every scan, probe, plan capture and collector poll shares one owned PostgreSQL wire reader with strict guardrails:
 
-Per-day rates require enough dated history. A restart alone does not prove that PostgreSQL counters were reset, and absence claims require a week of counters. Shared [evidence rules](coverage.md) govern those conclusions.
+| Guardrail | Limit |
+|---|---|
+| Session posture | `SET default_transaction_read_only = on`, catalog-only `search_path`, `lock_timeout = '2s'`, parallel workers disabled for catalog queries |
+| Statement timeouts | `20s` for scan/collector reads; `10s` for interactive enrichments |
+| Result caps | `10,000` rows and `8 MiB` payload per query; `512` batches and `60s` ceiling across a full parallel snapshot |
+| Cancellation fencing | Interrupted sessions are drained to `ReadyForQuery` or retired without automatic retry; unconfirmed shutdowns fence subsequent background polls |
 
-### Operational evidence
+### Background telemetry (`culprit collect`)
 
-Operational sources cover independent database/table MultiXact ages, shared archive failures, current-database subscription errors on PostgreSQL 15+, standby recovery cancellations, sequence allocation bounds and cleanup retained by a replication slot's `catalog_xmin`.
+The fleet collector exports **24 `postgres.*` telemetry recipes** to Azure Data Explorer (ADX) or ClickHouse—covering statement counters (polled separately from redacted SQL text), bounded catalog fingerprints, table/index/I/O stats, persistent blocking activity and instance posture without running `EXPLAIN` or reading user table rows. See [PostgreSQL collector coverage](../collector.md#postgresql-source-coverage).
 
-Counters retain their own reset clocks. New event findings require a comparable interval inside the requested period. Catalog-only retention does not establish retained application rows. Generic plans do not identify the plan used by historical requests, or prove that every listed partition ran.
-
-### Normal read ownership and limits
-
-Normal probes, snapshot metadata, plans and scan enrichments use the same owned PostgreSQL wire reader as
-telemetry. Existing queries, bound plan-metadata parameters and typed decoders are reused. The original read-only
-setup keeps the collector statement limit of 20 seconds, the 2-second lock limit and catalog search path;
-interactive enrichments retain their 10-second statement limit. Each text result retains at most 10,000 rows and
-8 MiB of value bytes. Parameterized table metadata now observes these same retention limits without interpolating
-names into SQL.
-
-A normal snapshot's existing parallel readers share an additional ceiling of 512 admitted query/setup batches and
-60 seconds. Optional readers retain any stricter original limit; probes and enrichments also retain their shorter
-caller deadline. Aggregate exhaustion is explicit, rather than a complete successful scan. This is a client safety
-limit, not a measurement or approval of database CPU, memory grants or source cost.
-
-Errors are drained to the original response's completion before reuse. Cancellation keeps the original client and
-route owned until ReadyForQuery or an explicitly unconfirmed shutdown; interrupted normal sessions are retired
-without an automatic replacement login. An unavailable acknowledgement fences subsequent native work. Transaction
-trust checks and their existing rollback/deallocation statements use that same owner. Detailed metrics for normal
-scan/probe acquisitions remain separate from retained telemetry-capture overhead; this change supplies no historical
-capture or cost qualification.
-
-### Background telemetry
-
-The CLI can archive 16 snapshot datasets and persistent activity through the shared collector service. See the
-[PostgreSQL collection table](../collector.md#postgresql-source-coverage) for selections, native sources and starting
-cadences. Scans and collection share the native readers; the collector uses bounded read-only sessions, catalog-only
-search paths, statement/lock timeouts, disabled parallel query and bounded working memory. A canceled connection is
-not reused, and an unconfirmed shutdown blocks subsequent native work.
-
-Counter polling omits query text. Definitions are collected separately and redacted for export. Catalog collection
-retains native attributes and expression fingerprints without deparsing user expressions or reading table contents.
-Size estimates remain labeled as estimates. Current blocking is an observation at poll time; short events between
-polls and deadlock graphs require other evidence. Background capture does not run EXPLAIN or measured queries.
+ PostgreSQL heap/buffer rules never carry over to engines that merely speak the PostgreSQL wire protocol. Cumulative counters are never treated as reset on simple postmaster restart unless `stats_reset` changed, per-day rates require dated history, and unused-index verdicts require at least 7 days of continuous counters. See the shared [evidence rules](coverage.md).
 
 ## Verification
 
-Coverage has been exercised on PostgreSQL 15–18, including Amazon RDS; saved fixtures include PostgreSQL 18.6. The [PostgreSQL fixture](../../dev/postgres/README.md) reproduces workload and schema problems. Parser fixtures and provider/embedding tests cover captured plans, missing measurements and offline replay.
+Exercised across **PostgreSQL 15–18** (including Amazon RDS and saved PostgreSQL 18.6 fixtures). Reproduce workload, bloat, wraparound, foreign-key and lock-contention scenarios locally with [`dev/postgres/README.md`](../../dev/postgres/README.md).
 
-The provider's declared sources are in [`culprit-postgres/src/sources.rs`](../../crates/providers/culprit-postgres/src/sources.rs). Optional timing and extension features are tested independently of the base catalog.
-
-Source references: [PostgreSQL vacuum thresholds and MultiXacts](https://www.postgresql.org/docs/18/routine-vacuuming.html), [sequence allocation](https://www.postgresql.org/docs/18/view-pg-sequences.html).
+All declared PostgreSQL sources live in [`culprit-postgres/src/sources.rs`](../../crates/providers/culprit-postgres/src/sources.rs). References: [PostgreSQL routine vacuuming & MultiXacts](https://www.postgresql.org/docs/18/routine-vacuuming.html), [`pg_sequences`](https://www.postgresql.org/docs/18/view-pg-sequences.html), and [JSON/CSV structured logging](https://www.postgresql.org/docs/18/runtime-config-logging.html#RUNTIME-CONFIG-LOGGING-JSONLOG).

@@ -297,6 +297,7 @@ fn second_statement_at<'a>(tokens: &[Token<'a>], nesting: u8) -> Option<&'a str>
 /// Statements a read starts with, per engine.
 fn read_starts(engine: Engine) -> &'static [&'static str] {
     match engine.sql_syntax() {
+        crate::SqlSyntax::Clickhouse => &["SELECT", "WITH", "SHOW", "DESCRIBE", "DESC", "EXPLAIN"],
         crate::SqlSyntax::Mssql => &["SELECT", "WITH"],
         crate::SqlSyntax::Postgres => &["SELECT", "WITH", "TABLE", "VALUES", "SHOW", "EXPLAIN"],
         crate::SqlSyntax::Mysql => &["SELECT", "WITH", "TABLE", "VALUES", "SHOW", "EXPLAIN", "DESCRIBE", "DESC"],
@@ -348,6 +349,7 @@ fn side_effect_functions(engine: Engine) -> &'static [&'static str] {
         crate::SqlSyntax::Mysql => {
             &["get_lock", "release_lock", "release_all_locks", "load_file", "master_pos_wait", "source_pos_wait"]
         }
+        crate::SqlSyntax::Clickhouse => &["file", "url", "remote", "remotesecure", "executable", "input"],
         crate::SqlSyntax::Mssql => &["openrowset", "opendatasource", "openquery"],
         // Loading native code, and the file functions of the CLI and the fileio extension.
         crate::SqlSyntax::Sqlite => &["load_extension", "readfile", "writefile", "edit", "fts3_tokenizer"],
@@ -362,7 +364,7 @@ fn side_effect_family(engine: Engine, name: &str) -> bool {
         return true;
     }
     match engine.sql_syntax() {
-        crate::SqlSyntax::Sqlite => false,
+        crate::SqlSyntax::Sqlite | crate::SqlSyntax::Clickhouse => false,
         crate::SqlSyntax::Postgres => {
             (n.starts_with("pg_") && n.contains("reset"))
                 || n.contains("replication_slot")

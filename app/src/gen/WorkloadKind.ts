@@ -5,4 +5,4 @@
  * query log keeps only the runs it logged, performance_schema's histograms count from the server's start, the plan
  * cache forgets what it evicts. A provider sets it; [`Workload::kind`] reads it.
  */
-export type WorkloadKind = "query-store" | "plan-cache" | "statement-stats" | "performance-schema" | "slow-log" | "query-log";
+export type WorkloadKind = "click-house-query-log" | "query-store" | "plan-cache" | "statement-stats" | "performance-schema" | "slow-log" | "query-log";

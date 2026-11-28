@@ -4,6 +4,7 @@ use super::*;
 fn each_sql_grammar_classifies_only_its_own_current_maintenance_operations() {
     for engine in Engine::ALL {
         let cases = match engine.sql_syntax() {
+            SqlSyntax::Clickhouse => vec![],
             SqlSyntax::Mssql => vec![
                 ("ALTER INDEX [ix] ON [dbo].[orders] REBUILD WITH (ONLINE = ON)", MaintenanceKind::IndexRebuild),
                 ("ALTER INDEX ALL ON dbo.orders REORGANIZE", MaintenanceKind::IndexReorganize),
@@ -33,7 +34,7 @@ fn each_sql_grammar_classifies_only_its_own_current_maintenance_operations() {
         }
         assert_eq!(
             maintenance_statement("CREATE UNIQUE INDEX ix ON orders (id)", engine).unwrap(),
-            Some(MaintenanceKind::IndexCreate)
+            (engine != Engine::Clickhouse).then_some(MaintenanceKind::IndexCreate)
         );
     }
 }

@@ -113,7 +113,7 @@ fn failing_runs(snapshot: &Snapshot) -> Vec<FailingRuns<'_>> {
             let fix = match snapshot.server.engine {
                 Engine::Mssql if timeouts => FailingFix::Timeout,
                 Engine::Mssql => FailingFix::CaptureErrors,
-                Engine::Mysql | Engine::Postgres | Engine::Yugabyte | Engine::Sqlite => {
+                Engine::Mysql | Engine::Postgres | Engine::Yugabyte | Engine::Clickhouse | Engine::Sqlite => {
                     FailingFix::Error(match costs.top_error.as_deref().unwrap_or("").split_whitespace().next() {
                         Some("1205") => ErrorCode::LockWaitTimeout,
                         Some("1213") => ErrorCode::Deadlock,

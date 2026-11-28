@@ -55,7 +55,7 @@ pub(crate) fn index_writes(snapshot: &Snapshot, t: &culprit_core::TableStat) -> 
     let (total, days) = measured_writes(snapshot, &t.schema, &t.name)?;
     let hot = match snapshot.server.engine {
         Engine::Postgres => t.storage.as_ref().and_then(|s| s.hot_updates).unwrap_or(0.0).min(t.updates.unwrap_or(0.0)),
-        Engine::Mssql | Engine::Yugabyte | Engine::Mysql | Engine::Sqlite => 0.0,
+        Engine::Mssql | Engine::Yugabyte | Engine::Mysql | Engine::Clickhouse | Engine::Sqlite => 0.0,
     };
     Some(IndexWrites { total: (total - hot).max(0.0), days, statements: snapshot.server.engine == Engine::Mssql })
 }
@@ -132,7 +132,7 @@ fn over_indexed_tables(snapshot: &Snapshot) -> Vec<OverIndexed<'_>> {
             upkeep: match snapshot.server.engine {
                 Engine::Mssql => Upkeep::Statements,
                 Engine::Postgres => Upkeep::Entries,
-                Engine::Yugabyte | Engine::Mysql | Engine::Sqlite => Upkeep::Changes,
+                Engine::Yugabyte | Engine::Mysql | Engine::Clickhouse | Engine::Sqlite => Upkeep::Changes,
             },
             severity,
             score: base_score(severity) + (writes.log10() - 4.0).max(0.0) * 3.0,

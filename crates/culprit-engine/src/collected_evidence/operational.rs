@@ -88,6 +88,37 @@ pub(crate) fn analyze_operational_original(
 
 fn populate_operational(original: &dyn OriginalProjection, snapshot: &mut Snapshot) -> Result<()> {
     let read = original.operational_read()?;
+    if read.description.source == CLICKHOUSE_OPERATIONAL_SOURCE {
+        let header = read.description.observation.snapshot().ok_or_else(invalid)?;
+        for coverage in &header.sources {
+            if snapshot.source_outcome(&coverage.source).is_none() {
+                snapshot.sources.push(culprit_core::SourceOutcome {
+                    source: coverage.source.clone(),
+                    state: coverage.state,
+                    reason: None,
+                });
+            }
+            set_source_state(snapshot, &coverage.source, coverage.state, read.read_complete);
+        }
+        for row in &read.observations {
+            let OperationalFact::ClickHouse(point) = &row.fact else {
+                return Err(invalid());
+            };
+            if !point.is_valid()
+                || !point.fits_source(&read.description)
+                || row.source != point.source_name()
+                || point.identity().key()? != row.key
+            {
+                return Err(invalid());
+            }
+            snapshot.operations.clickhouse.push(point.as_ref().clone());
+        }
+        snapshot.workload = clickhouse_workload(&snapshot.operations.clickhouse)?;
+        if snapshot.workload.is_some() {
+            snapshot.server.capabilities.push(culprit_core::Capability::ClickHouseQueryLog);
+        }
+        return Ok(());
+    }
     if read
         .description
         .observation
@@ -419,4 +450,38 @@ fn set_source_state(snapshot: &mut Snapshot, name: &str, state: SourceState, com
             outcome.reason = None;
         }
     }
+}
+
+fn clickhouse_workload(points: &[ClickHouseObservation]) -> Result<Option<culprit_core::Workload>> {
+    let mut families = points
+        .iter()
+        .filter_map(|point| match point {
+            ClickHouseObservation::QueryFamily(family) => Some(family),
+            _ => None,
+        })
+        .peekable();
+    let Some(&first) = families.peek() else {
+        return Ok(None);
+    };
+    let hours = culprit_core::changes::Period { start: first.from.clone(), end: first.until.clone() }.hours();
+    if hours <= 0.0 {
+        return Err(invalid());
+    }
+    let mut queries = Vec::new();
+    let mut seen = std::collections::BTreeSet::new();
+    for family in families {
+        if family.from != first.from
+            || family.until != first.until
+            || family.population != first.population
+            || !seen.insert(&family.family)
+        {
+            return Err(invalid());
+        }
+        let text = match &family.sample {
+            DefinitionPayload::Available { text, .. } => text.clone(),
+            DefinitionPayload::Unavailable { .. } => String::new(),
+        };
+        queries.push(family.statement(text));
+    }
+    Ok(Some(first.population.workload(first.from.clone(), first.until.clone(), hours, queries)))
 }

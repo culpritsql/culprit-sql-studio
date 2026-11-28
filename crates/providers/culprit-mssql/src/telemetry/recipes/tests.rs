@@ -97,6 +97,7 @@ async fn selection(selector: RecipeSelector) -> CollectionSelection {
     let from = "2020-01-01T06:00:00Z".to_owned();
     let until = "2020-01-01T07:00:00Z".to_owned();
     match selector {
+        RecipeSelector::ClickHouseInvestigation => panic!("not a SQL Server recipe"),
         RecipeSelector::ResourcePoolSettings => CollectionSelection::ResourcePoolSettings,
         RecipeSelector::WorkerStarvation => super::super::worker_starvation::tests::request(false).await.selection,
         RecipeSelector::Collection(TelemetryCollection::QueryHistory) => {

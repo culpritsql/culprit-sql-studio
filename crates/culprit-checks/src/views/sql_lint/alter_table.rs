@@ -944,6 +944,6 @@ fn is_metadata_only_type_change(engine: Engine, old_type: &str, new_type: &str) 
             ),
             _ => false,
         },
-        Engine::Mysql | Engine::Sqlite => false,
+        Engine::Mysql | Engine::Clickhouse | Engine::Sqlite => false,
     }
 }

@@ -440,6 +440,7 @@ fn advice(engine: Engine, kind: HeadKind, head: &str, wait_type: Option<&str>) -
                 Engine::Mssql => t!("core.blocking.advice.prevent.mssql"),
                 Engine::Postgres | Engine::Yugabyte => t!("core.blocking.advice.prevent.postgres"),
                 Engine::Mysql => t!("core.blocking.advice.prevent.mysql"),
+                Engine::Clickhouse => t!("core.engines.clickhouse.inspect_query"),
                 Engine::Sqlite => t!("core.blocking.advice.prevent.sqlite"),
             };
             [t!("core.blocking.advice.idle_in_transaction", head = head), prevent].join(" ")
@@ -745,7 +746,8 @@ mod tests {
         }
         let on = LockWait { object: Some("shop.orders".into()), mode: None, resource: None, ..lock("1") };
         out.push(format!("object only: {}", lock_phrase(None, Some(&on)).unwrap()));
-        for engine in Engine::ALL {
+        // These fixtures use backend session IDs and relational row-lock graphs.
+        for engine in [Engine::Mssql, Engine::Postgres, Engine::Yugabyte, Engine::Mysql, Engine::Sqlite] {
             for state in ["sleeping", "idle in transaction", "running", "dormant"] {
                 for (elapsed, waiters, wait) in
                     [(Some(48_000.0), 1, "LCK_M_S"), (None, 2, "LCK_M_X"), (None, 1, "PAGELATCH")]

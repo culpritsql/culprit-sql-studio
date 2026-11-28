@@ -4,6 +4,9 @@ use super::*;
 
 pub(super) fn health(report: &Report) -> Tile {
     let s = &report.snapshot;
+    if s.server.engine == Engine::Clickhouse {
+        return clickhouse_health(report);
+    }
     if s.pressure.as_ref().is_none_or(|p| p.signals.is_empty()) {
         if let Some(resources) = &s.operations.node_resources {
             let available = resources.nodes.iter().filter(|n| n.available).count();
@@ -191,5 +194,33 @@ fn operational(report: &Report, mut tile: Tile) -> Tile {
         item.status = Some(status);
         tile.items.push(item);
     }
+    tile
+}
+
+/// A native verdict can establish a condition even when another source is missing.
+fn clickhouse_health(report: &Report) -> Tile {
+    use culprit_core::{SourceState, telemetry::CLICKHOUSE_INCIDENT_SOURCES};
+    let snapshot = &report.snapshot;
+    let complete = CLICKHOUSE_INCIDENT_SOURCES
+        .iter()
+        .filter(|name| {
+            snapshot
+                .source_outcome(name)
+                .is_some_and(|source| matches!(source.state, SourceState::Collected | SourceState::Empty))
+        })
+        .count();
+    let (status, headline) = if let Some(finding) = worst_finding(report, "clickhouse-health") {
+        (severity_status(finding.severity), finding.title.clone())
+    } else if complete == CLICKHOUSE_INCIDENT_SOURCES.len() {
+        (TileStatus::Info, t!("provider.clickhouse.health_observed"))
+    } else {
+        (TileStatus::Unavailable, t!("provider.clickhouse.health_partial"))
+    };
+    let mut tile = Tile::new(TileKey::Health, status, headline);
+    tile.detail = Some(t!(
+        "provider.clickhouse.health_coverage",
+        sources = format::count(complete as f64),
+        total = format::count(CLICKHOUSE_INCIDENT_SOURCES.len() as f64)
+    ));
     tile
 }

@@ -4,4 +4,4 @@
  * What a statement's reads are counted in: pages on most engines, rows examined on MySQL and MariaDB (the rows the
  * storage engine handed to the server). Messages `select` on it.
  */
-export type ReadUnit = "pages" | "rows_examined";
+export type ReadUnit = "rows_read" | "pages" | "rows_examined";

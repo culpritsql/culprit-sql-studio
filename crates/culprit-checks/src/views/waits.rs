@@ -141,7 +141,7 @@ pub fn explain(snapshot: &Snapshot) -> Option<WaitsReport> {
             notes.push(t!("view.waits.note.mysql", server = snapshot.server.name()));
         }
         Engine::Mssql if scope == WaitScope::SinceStartup => notes.push(waits_capture_note(snapshot)),
-        Engine::Mssql | Engine::Sqlite => {}
+        Engine::Mssql | Engine::Clickhouse | Engine::Sqlite => {}
     }
     Some(WaitsReport { engine, scope, source, total_ms: Some(total_ms), categories, notes, activity })
 }
@@ -301,6 +301,7 @@ fn scope_and_source(snapshot: &Snapshot) -> (WaitScope, String) {
     let attributed = app_queries(snapshot).any(|q| q.waits.iter().any(|w| w.wait_ms > 0.0));
     match engine {
         Engine::Yugabyte => (WaitScope::Statements, t!("view.waits.source.yugabyte")),
+        Engine::Clickhouse => (WaitScope::Statements, t!("core.engines.clickhouse.waits")),
         Engine::Sqlite => (WaitScope::SinceStartup, t!("view.waits.source.sqlite")),
         Engine::Mssql if attributed => {
             let keys = [
@@ -506,7 +507,7 @@ pub(crate) fn snapshot_with(engine: Engine) -> Snapshot {
         Engine::Mssql => include_str!("../../../../fixtures/mssql-demo.json"),
         Engine::Postgres => include_str!("../../../../fixtures/postgres-demo.json"),
         Engine::Mysql => include_str!("../../../../fixtures/mysql-demo.json"),
-        Engine::Sqlite => panic!("no SQLite snapshot fixture for waits"),
+        Engine::Sqlite | Engine::Clickhouse => panic!("no sampled waits fixture for {engine:?}"),
         Engine::Yugabyte => include_str!("../../../../fixtures/yugabyte-demo.json"),
     };
     let mut snapshot: Snapshot = serde_json::from_str(text).expect("fixture is a snapshot");
@@ -840,7 +841,11 @@ mod tests {
             assert!(!category_info("cpu", engine).1.contains("THREADPOOL"));
             let (label, meaning) = category_info("workers", engine);
             assert_eq!(label, "Execution workers");
-            assert!(meaning.contains("execution worker") && meaning.contains("CPU"));
+            if engine.spec().unavailable_wait_categories().is_some() {
+                assert_eq!(meaning, t!("core.engines.clickhouse.waits"));
+            } else {
+                assert!(meaning.contains("execution worker") && meaning.contains("CPU"));
+            }
         }
     }
 
@@ -907,7 +912,7 @@ mod log_governance_tests {
 
     #[test]
     fn a_forged_mechanism_or_another_engines_same_named_wait_cannot_supply_typed_subtotals() {
-        for engine in Engine::ALL.into_iter().filter(|engine| *engine != Engine::Sqlite) {
+        for engine in Engine::ALL.into_iter().filter(|engine| engine.spec().wait_sampling().is_some()) {
             let mut snapshot = snapshot_with(engine);
             snapshot.waits = vec![WaitStat {
                 category: "Log Governance".into(),

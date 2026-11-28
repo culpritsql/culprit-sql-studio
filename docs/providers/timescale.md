@@ -2,100 +2,82 @@
 
 [Engine parity](../parity.md)
 
-Culprit detects TimescaleDB through its PostgreSQL provider and reads the extension's public information and size APIs. Hypertables and managed chunks retain their own storage semantics.
+Culprit detects TimescaleDB automatically through its PostgreSQL provider and queries the extension's public catalog views and size functions directly—keeping logical hypertables, compressed columnstore chunks, continuous aggregates and background jobs distinct from ordinary PostgreSQL heaps.
 
 ## Connecting
 
-Choose **PostgreSQL** when connecting to TimescaleDB or Tiger Cloud. Culprit detects the `timescaledb` extension and displays its version alongside PostgreSQL's version. PostgreSQL connection strings, TLS settings, password/keychain handling, query execution, live sessions, explain/analyze, saved scans, exports and plan comparisons use the PostgreSQL provider.
+Choose **PostgreSQL** in Studio or on the CLI when connecting to self-hosted TimescaleDB or Tiger Cloud. Culprit detects the installed `timescaledb` extension and displays both the TimescaleDB and PostgreSQL versions.
 
 ```sh
-culprit conn add metrics --env staging --url 'postgres://app@db.example.com:5432/metrics'
+# Self-hosted TimescaleDB or Tiger Cloud (TLS defaults to sslmode=verify-full)
+culprit conn add metrics --env prod --url 'postgres://culprit_reader@tsdb.example.com:5432/metrics'
+
+# Through an SSH jump host
+culprit conn add metrics-priv --env prod --ssh bastion@10.0.1.5 --url 'postgres://culprit_reader@10.0.3.20:5432/metrics'
 ```
+
+Connection store credentials, OS keychain secrets, SSH jump hosts (`--ssh`), IDE connection imports (`culprit conn import`), live sessions, `EXPLAIN` and saved-scan comparisons work identically to the [PostgreSQL provider](postgres.md).
 
 ## Permissions and setup
 
-Use PostgreSQL monitoring access such as `pg_read_all_stats` or `pg_monitor`, plus access to the extension's information views and public size functions. `pg_stat_statements` supplies the PostgreSQL workload counters when installed and available.
+Grant PostgreSQL's read-only statistics role plus `USAGE` / `SELECT` on TimescaleDB's public informational views and size functions:
 
-Culprit detects the existing `timescaledb` extension and its installed schema. A missing or denied extension source records its own coverage reason. It does not install the extension, create hypertables or manage the application's TimescaleDB jobs.
+```sql
+CREATE ROLE culprit_reader WITH LOGIN PASSWORD '<strong-password>';
+GRANT CONNECT ON DATABASE metrics TO culprit_reader;
+GRANT pg_read_all_stats TO culprit_reader;
+
+-- Inside the target database (if workload history or virtual index testing is needed):
+CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
+CREATE EXTENSION IF NOT EXISTS hypopg;
+```
+
+- **Non-intrusive discovery**: Culprit inspects the existing `timescaledb` extension and its schema; if a view or size function is restricted, only that TimescaleDB capability is marked unavailable with a clear note. Culprit never installs extensions, alters compression/retention policies, or triggers background jobs.
+- **Job history visibility**: Note that PostgreSQL's `pg_monitor` / `pg_read_all_stats` roles alone do not bypass TimescaleDB's owner filtering on some job history views—partial visibility is labeled explicitly rather than reported as zero failures.
 
 ## Workload and plans
 
-Statement statistics, fingerprints, timelines and saved-scan comparisons use the [PostgreSQL workload sources](postgres.md#workload-and-plans). They keep the statement counters' own period, not a period inferred from chunk creation or compression.
+Statement counters, query fingerprints, saved-scan deltas, virtual index testing (`hypopg`) and JSON/CSV server-log diagnostics use the [PostgreSQL workload sources](postgres.md#workload-and-plans). Counter windows reflect `pg_stat_statements` history—never an interval guessed from chunk creation dates.
 
-PostgreSQL EXPLAIN and explicit measured runs use the PostgreSQL provider. Plan preparation links physical chunk reads to their owning hypertable so the advisor can target the logical object. An unknown managed chunk receives no guessed index script. Plan import, comparison and sharing use the same engine-neutral workflow.
+- **Chunk-to-hypertable plan attribution**: During `EXPLAIN` and plan analysis, Culprit resolves physical `_timescaledb_internal` chunk scans back to their owning logical hypertable so findings and index candidates point to the table engineers actually maintain.
+- **Safe unknowns**: If an internal chunk cannot be mapped to a readable hypertable catalog entry, Culprit withholds generated DDL rather than emitting an index script against an internal chunk table.
 
 ## Live activity and waits
 
-Sessions, blocking chains, cancellation, live session sampling and PostgreSQL progress views use the [PostgreSQL live sources](postgres.md#live-activity-and-waits). They do not constitute a TimescaleDB policy or job history.
-
-A deadlock counter remains PostgreSQL's database counter; reconstructing a deadlock pattern requires the relevant server-log records. Managed-service restrictions can make individual sources unavailable.
+Live sessions, lock-wait graphs, 1 Hz session wait sampling, progress views and non-production cancel/terminate actions use the [PostgreSQL live sources](postgres.md#live-activity-and-waits). Deadlock counts come from `pg_stat_database`, and full deadlock graphs can be decoded offline from PostgreSQL JSON/CSV logs via `culprit logs`.
 
 ### Background jobs
 
-`culprit scan metrics --collect-native-failures` also reads supported job diagnostics. Scans and
-`culprit collect once metrics --collection jobs` share one bounded reader of the installed public
-`timescaledb_information.jobs`, `job_stats`, `job_history`, `job_errors` and `continuous_aggregates` views. Culprit discovers available
-columns and permissions before selecting a view; it never runs jobs or changes history logging.
+Opt into TimescaleDB background-job and continuous-aggregate diagnostics during a scan (`culprit scan metrics --collect-native-failures`) or a targeted capture (`culprit collect once metrics --collection jobs`):
 
-The result retains schedules, reported state, exact run/failure totals and recent retained runs or error codes.
-It reads at most 256 job-state rows, 256 run rows and 64 continuous-aggregate configuration rows within the same
-512-row total allowance, with a one-second statement timeout and five-second total budget. A successful bounded read can still have incomplete native history because of owner visibility,
-retention or disabled success logging. `pg_monitor` alone does not grant database-owner visibility.
+| View / catalog | Captured facts and bounds |
+|---|---|
+| `timescaledb_information.jobs` & `job_stats` | Schedules, current state, total runs and exact failure counters (up to 256 job rows) |
+| `job_history` & `job_errors` | Recent retained outcomes and error codes when installed on the server version (up to 256 run rows) |
+| `continuous_aggregates` | View/source/materialization names plus `materialized_only`, compression and granular-refresh flags (up to 64 rows; [catalog reference](https://www.tigerdata.com/docs/reference/timescaledb/informational-views/continuous_aggregates)) |
 
-Aggregate details retain current view/source/materialization names and materialized-only, compression and supported
-granular-refresh settings. A separate coverage result records missing, denied or truncated catalog reads. No view
-definition, job configuration, watermark function or application data is read for these settings. Catalog names do
-not attach historical jobs to current objects; the settings do not measure refresh lag, backlog or completeness.
-See the [public continuous-aggregate catalog](https://www.tigerdata.com/docs/reference/timescaledb/informational-views/continuous_aggregates).
-
-Health shows folded job details. CLI archive analysis uses `--analysis jobs`; MCP includes a bounded summary in
-`waits`. A reported running state does not identify a worker or query, and historical procedure labels do not
-establish today's job definition or owner. The new reader remains cost-unqualified for automatic production
-scheduling; the limits above bound collection, without proving its server-side cost.
+- **Strict read budget**: Capped at 512 total rows across all views inside a 1-second statement timeout and 5-second total deadline. Culprit probes column availability before querying and never reads view SQL definitions, watermark functions or user rows.
+- **Offline inspection**: View captured job health in Studio under **Health**, on the CLI via `--analysis jobs`, or through MCP's `waits` summary. Configuration flags describe current catalog settings—not refresh lag or worker ownership.
 
 ## Schema and indexes
 
-Culprit reads the extension's public `timescaledb_information.hypertables`, `dimensions`, and `chunks` views, plus `approximate_row_count`, `hypertable_detailed_size`, `chunks_detailed_size`, and `hypertable_index_size` in the extension's installed schema. Each source has its own coverage result; a permission or version error becomes a visible note.
+Culprit queries `timescaledb_information.hypertables`, `dimensions` and `chunks`, together with `approximate_row_count()`, `hypertable_detailed_size()`, `chunks_detailed_size()` and `hypertable_index_size()` in the extension's schema:
 
-The Schema view lists the logical hypertable once. Its row estimate and storage include its managed chunks, including compressed storage. Expand **Managed chunks** for each chunk's row estimate, size and rowstore/columnstore state. Large chunk lists initially render 20 rows and expose 20 more at a time.
-
-Physical chunks are associated with their owning hypertable in plan analysis. Actionable index advice targets the hypertable, using `WITH (timescaledb.transaction_per_chunk)` for non-unique indexes. Ordinary tables retain PostgreSQL's concurrent index syntax. Unique index drift scripts require every collected partition dimension. TimescaleDB's [per-chunk index builds](https://github.com/timescale/Tiger-Data-Docs/blob/main/src/content/docs/reference/timescaledb/hypertables/create_index.mdx) can still block operations on the chunk currently being indexed; they are not lock-free.
+- **Unified logical hypertable view**: Studio's **Schema** browser lists each hypertable once, aggregating estimated rows and storage across all rowstore and compressed columnstore chunks. Expand **Managed chunks** to inspect per-chunk sizes, row estimates and compression state (paginated 20 chunks at a time).
+- **Hypertable-aware index DDL & `lint-sql`**: PostgreSQL rejects `CREATE INDEX CONCURRENTLY` on hypertables. Both the index advisor and `culprit lint-sql` emit `CREATE INDEX ... ON hypertable (...) WITH (timescaledb.transaction_per_chunk)` for non-unique hypertable indexes while keeping `CONCURRENTLY` for ordinary tables, and verify that unique indexes include all partitioning dimensions. Note that [per-chunk index builds](https://github.com/timescale/Tiger-Data-Docs/blob/main/src/content/docs/reference/timescaledb/hypertables/create_index.mdx) still lock the active chunk being built.
 
 ## Limits and evidence
 
-### Background telemetry
-
-Timescale shares PostgreSQL's bounded telemetry reader, counters and persistent activity. Background relation
-metadata describes native PostgreSQL relations; it does not aggregate logical hypertable or compressed-chunk
-sizes. The app's extension-specific storage enrichment remains separate. See
-[collector source coverage](../collector.md#other-provider-source-coverage) before scheduling profiles.
-
-- Parent `pg_stat_user_tables` and `pg_stat_user_indexes` counters do not measure all chunk activity. Logical hypertable scans, writes, vacuum/analyze timestamps and index usage are unknown. Culprit does not call a parent index unused based on its empty counters. Index sizes use TimescaleDB's aggregate API.
-- `_timescaledb_*` storage, compressed implementation tables and continuous-aggregate materializations are not independent application tables. They are excluded from standalone schema/index/maintenance advice. Continuous aggregate definitions, jobs, retention/compression policies, columnstore-specific sparse indexes and columnstore tuning are not managed by Culprit.
-- When the native hypertable catalog cannot be read, Culprit withholds potentially misleading table/index measurements, explains the missing source, and avoids concurrent index DDL on unresolved tables. When only chunk details fail, logical totals remain available but an unidentified internal chunk receives no index script.
-- Row counts are estimates, not `COUNT(*)`. Sizes describe storage allocation, not an estimate of reclaimable space. PostgreSQL database-wide vacuum/freeze and operational measurements remain relevant; heap measurements from an empty logical parent are not graded as hypertable health.
-- The DDL tab does not pretend an ordinary `CREATE TABLE` can recreate a hypertable. Use a TimescaleDB-aware schema export for partitioning, compression and policies.
-- Legacy distributed hypertables and older extension versions have not been verified. Missing APIs follow the same partial-coverage path rather than substituting parent heap measurements. Managed-service permission restrictions may also make individual sources unavailable.
-
-The shared [evidence rules](coverage.md) apply to PostgreSQL sources and extension-specific measurements.
+- **No false "unused index" claims on hypertables**: Parent hypertable entries in `pg_stat_user_tables` and `pg_stat_user_indexes` stay at zero because reads/writes hit child chunks. Culprit marks logical hypertable scan/usage counters unknown instead of flagging parent indexes as unused or grading empty parent heaps for bloat.
+- **Internal schemas excluded**: `_timescaledb_*` backing tables, compressed chunk relations and continuous-aggregate materialization tables are excluded from standalone schema/maintenance findings.
+- **Graceful partial coverage**: If `timescaledb_information.hypertables` is unreadable, Culprit withholds table/index storage grades and suppresses `CONCURRENTLY` DDL on unresolved relations rather than treating hypertables as empty heaps.
+- **DDL export & background collector**: Studio's DDL tab notes that recreating a hypertable requires `create_hypertable()` and policy exports rather than plain `CREATE TABLE`. Background `culprit collect` shares PostgreSQL's bounded wire reader for native relation metrics (without aggregating logical hypertable sizes in background polls); see [collector source coverage](../collector.md#other-provider-source-coverage) and the shared [evidence rules](coverage.md).
 
 ## Verification
 
-Local verification used TimescaleDB **2.31.0** on PostgreSQL **17.11**, including real hypertables, compressed chunks and an ordinary table. Tiger Cloud hostnames are recognized, but a hosted Tiger Cloud account has not been tested. [Reproduce the local database and workload](../../dev/timescale/README.md).
+Verified against **TimescaleDB 2.31.0** on **PostgreSQL 17.11** using `public.sensor_readings` (**120,000 rows across 14 chunks, 7 compressed**) alongside ordinary heap tables (`fixtures/timescale-demo.report.json`). Reproduce the database workload and background-job test cases locally:
 
-Job-reader conformance also covers real retained failures, owner-filtered visibility, missing extension,
-row/query/byte limits and confirmed reader shutdown on disposable fixtures. These checks establish native
-compatibility; representative production work-cost qualification remains outstanding.
-[Run the native job cases](../../dev/timescale/jobs.md).
-
-The captured example has `public.sensor_readings` with **120,000 rows, 14 chunks and seven compressed chunks**, plus `public.devices`. `fixtures/timescale-demo.report.json` contains the actual collected input and today's analysis. The development browser renders this saved report without a database connection.
-
-The extension collector is [`culprit-postgres/src/timescale.rs`](../../crates/providers/culprit-postgres/src/timescale.rs); its sources are declared alongside the PostgreSQL sources.
-
-### Screenshots
-
-These are actual rendered views of the live-collected report, with its own captured sessions rather than another demo database's activity:
-
-![TimescaleDB dashboard](../screenshots/timescale-dashboard.png)
-
-![Hypertable with managed rowstore and compressed chunks](../screenshots/timescale-hypertable.png)
+- Disposable database & compression fixture: [`dev/timescale/README.md`](../../dev/timescale/README.md)
+- Retained job-failure & permission test cases: [`dev/timescale/jobs.md`](../../dev/timescale/jobs.md)
+- Extension reader implementation: [`culprit-postgres/src/timescale.rs`](../../crates/providers/culprit-postgres/src/timescale.rs)
+- Live fixture screenshots: [TimescaleDB dashboard](../screenshots/timescale-dashboard.png) · [Hypertable with rowstore and compressed chunks](../screenshots/timescale-hypertable.png)

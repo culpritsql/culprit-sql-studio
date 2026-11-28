@@ -34,6 +34,7 @@ pub struct CatalogColumn {
 /// Columns of every user table and view, in table order.
 pub(crate) fn columns_sql(engine: Engine) -> &'static str {
     match engine {
+        Engine::Clickhouse => "/* culprit */ SELECT c.database, c.table, if(t.engine = 'View', 'VIEW', 'BASE TABLE'), c.name, c.type FROM system.columns AS c INNER JOIN system.tables AS t ON (t.database,t.name)=(c.database,c.table) WHERE c.database=currentDatabase() ORDER BY c.table,c.position",
         Engine::Mssql => {
             "SELECT c.TABLE_SCHEMA, c.TABLE_NAME, t.TABLE_TYPE, c.COLUMN_NAME, c.DATA_TYPE
                FROM INFORMATION_SCHEMA.COLUMNS c
@@ -104,6 +105,7 @@ pub(crate) async fn columns(provider: &dyn Provider, engine: Engine) -> Result<R
 
 pub(crate) fn databases_sql(engine: Engine) -> &'static str {
     match engine {
+        Engine::Clickhouse => "/* culprit */ SELECT name FROM system.databases ORDER BY name",
         Engine::Mssql => "SELECT name FROM sys.databases WHERE state = 0 ORDER BY name",
         Engine::Postgres | Engine::Yugabyte => "SELECT datname FROM pg_database WHERE NOT datistemplate ORDER BY datname",
         Engine::Sqlite => "SELECT name FROM pragma_database_list ORDER BY seq",

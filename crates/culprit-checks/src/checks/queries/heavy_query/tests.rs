@@ -729,6 +729,10 @@ fn embedded_native_timers_and_declared_read_units_do_not_require_a_provider_iden
         let evidence = idle_time(&snapshot, query).unwrap().evidence(&snapshot, query);
         let verify = verify_line(&snapshot, query, Expect::Measure);
         match engine.spec().statement_metrics().reads {
+            ReadUnit::RowsRead => {
+                assert!(evidence.contains("1 row read per run"), "{evidence}");
+                assert!(verify.contains("rows read"), "{verify}");
+            }
             ReadUnit::RowsExamined => {
                 assert!(evidence.contains("1 row examined per run"), "{evidence}");
                 assert!(verify.contains("rows examined"), "{verify}");

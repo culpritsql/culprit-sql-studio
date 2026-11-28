@@ -19,10 +19,12 @@ fn classify(tokens: &[Token<'_>], syntax: SqlSyntax) -> Result<Option<Maintenanc
     if !balanced(tokens) {
         return Err(invalid());
     }
-    if word(tokens, 0, "CREATE") {
+    if syntax != SqlSyntax::Clickhouse && word(tokens, 0, "CREATE") {
         return create_index(tokens, syntax);
     }
     match syntax {
+        SqlSyntax::Clickhouse => Ok((word(tokens, 0, "OPTIMIZE") && word(tokens, 1, "TABLE") && tokens.len() > 2)
+            .then_some(MaintenanceKind::TableOptimize)),
         SqlSyntax::Mssql => mssql(tokens),
         SqlSyntax::Postgres => postgres(tokens),
         SqlSyntax::Mysql => mysql(tokens),
@@ -52,6 +54,7 @@ fn create_index(tokens: &[Token<'_>], syntax: SqlSyntax) -> Result<Option<Mainte
         .any(|modifier| word(tokens, at, modifier))
     {
         let allowed = match syntax {
+            SqlSyntax::Clickhouse => false,
             SqlSyntax::Mssql => ["UNIQUE", "CLUSTERED", "NONCLUSTERED", "COLUMNSTORE", "SPATIAL"]
                 .iter()
                 .any(|modifier| word(tokens, at, modifier)),

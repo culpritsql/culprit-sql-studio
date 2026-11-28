@@ -12,6 +12,8 @@ cloud permissions, private networking, retention-scale costs and production sour
 require live qualification. The deployment example starts with **zero replicas**. Its resource requests and cadences
 are starting configurations, not measured capacity claims.
 
+A [ClickHouse source](providers/clickhouse.md) can publish operational captures to ADX or ClickHouse. Its database connection, permissions, native query IDs and retention belong to the monitored source. Configure recovery and the warehouse destination independently.
+
 ## Automatic diagnoses
 
 Configured [warehouse queries and alerts](warehouse-queries.md) bind one existing archive namespace and expose

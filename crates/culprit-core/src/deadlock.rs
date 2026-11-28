@@ -429,12 +429,13 @@ pub fn classify(engine: Engine, deadlock: &mut Deadlock) {
             kind: Some(DeadlockFixKind::ParallelPlan),
         }],
     };
-    if pattern != DeadlockPattern::Parallelism {
+    if pattern != DeadlockPattern::Parallelism && engine != Engine::Clickhouse {
         // What the application catches: the engine's error number, or the code it reports a deadlock with.
         let detail = match engine {
             Engine::Mssql => t!("core.deadlock.fix.retry.detail_error", error = "1205"),
             Engine::Mysql => t!("core.deadlock.fix.retry.detail_error", error = "1213"),
             Engine::Postgres | Engine::Yugabyte => t!("core.deadlock.fix.retry.detail_code", code = "SQLSTATE 40P01"),
+            Engine::Clickhouse => t!("core.engines.clickhouse.inspect_query"),
             Engine::Sqlite => t!("core.deadlock.fix.retry.detail_code", code = "SQLITE_BUSY"),
         };
         fixes.push(DeadlockFix {
@@ -834,7 +835,8 @@ mod tests {
         ] {
             out.push(format!("{pattern:?}: {}", pattern.label()));
         }
-        for engine in Engine::ALL {
+        // These fixtures use backend session IDs and relational row-lock graphs.
+        for engine in [Engine::Mssql, Engine::Postgres, Engine::Yugabyte, Engine::Mysql, Engine::Sqlite] {
             // Every pattern on SQL Server; elsewhere the cases whose fixes are the engine's own.
             for (name, case) in every_case()
                 .into_iter()

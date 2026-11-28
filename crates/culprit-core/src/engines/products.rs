@@ -6,6 +6,7 @@ use ts_rs::TS;
 #[serde(rename_all = "lowercase")]
 #[ts(export)]
 pub enum DatabaseProduct {
+    Clickhouse,
     Mssql,
     Postgres,
     Timescale,

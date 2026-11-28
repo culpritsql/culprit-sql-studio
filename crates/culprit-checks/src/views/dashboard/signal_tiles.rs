@@ -28,7 +28,9 @@ pub(super) fn file_name(s: &Snapshot, f: &FileIo) -> String {
         (Engine::Postgres, FileKind::Log, _) => t!("view.dashboard.storage.file.wal"),
         (Engine::Postgres, FileKind::Temp, _) => t!("view.dashboard.storage.file.temp"),
         (Engine::Postgres, _, _) => t!("view.dashboard.storage.file.data"),
-        (Engine::Mssql | Engine::Yugabyte | Engine::Mysql | Engine::Sqlite, _, _) => f.name.clone(),
+        (Engine::Mssql | Engine::Yugabyte | Engine::Mysql | Engine::Clickhouse | Engine::Sqlite, _, _) => {
+            f.name.clone()
+        }
     }
 }
 
@@ -160,7 +162,12 @@ pub(super) fn storage(report: &Report) -> Tile {
             Engine::Mysql if !s.server.has(Capability::PerformanceSchema) => {
                 t!("view.dashboard.storage.no_performance_schema", family = family)
             }
-            Engine::Mssql | Engine::Postgres | Engine::Yugabyte | Engine::Mysql | Engine::Sqlite => {
+            Engine::Mssql
+            | Engine::Postgres
+            | Engine::Yugabyte
+            | Engine::Mysql
+            | Engine::Clickhouse
+            | Engine::Sqlite => {
                 t!("view.dashboard.storage.none")
             }
         };
@@ -252,12 +259,22 @@ pub(super) fn connections(report: &Report) -> Tile {
             Engine::Postgres if !culprit_core::version_at_least(&s.server.version, [14, 0, 0]) => {
                 t!("view.dashboard.connections.postgres_old")
             }
-            engine @ (Engine::Mssql | Engine::Postgres | Engine::Yugabyte | Engine::Mysql | Engine::Sqlite)
+            engine @ (Engine::Mssql
+            | Engine::Postgres
+            | Engine::Yugabyte
+            | Engine::Mysql
+            | Engine::Clickhouse
+            | Engine::Sqlite)
                 if !engine.has_server() =>
             {
                 t!("view.dashboard.connections.serverless", engine = engine.to_string())
             }
-            Engine::Mssql | Engine::Postgres | Engine::Yugabyte | Engine::Mysql | Engine::Sqlite => {
+            Engine::Mssql
+            | Engine::Postgres
+            | Engine::Yugabyte
+            | Engine::Mysql
+            | Engine::Clickhouse
+            | Engine::Sqlite => {
                 t!("view.dashboard.connections.none")
             }
         };
@@ -331,9 +348,46 @@ pub(super) fn lag_text(r: &Replica) -> String {
         .unwrap_or_else(|| t!("view.dashboard.replication.in_sync"))
 }
 
+fn clickhouse_replication(snapshot: &Snapshot) -> Tile {
+    use culprit_core::{SourceState, telemetry::ClickHouseObservation};
+    let outcome = snapshot.source_outcome("system.replicas");
+    let mut count = 0;
+    let mut affected = 0;
+    let mut queued = 0u64;
+    for point in &snapshot.operations.clickhouse {
+        if let ClickHouseObservation::Replica(replica) = point {
+            count += 1;
+            affected += usize::from(point.incident().is_some());
+            queued = queued.saturating_add(replica.queue_size);
+        }
+    }
+    let (status, message) = if affected > 0 {
+        (TileStatus::Watch, t!("provider.clickhouse.replication.faults", affected = format::count(affected as f64)))
+    } else if !outcome.is_some_and(|o| matches!(o.state, SourceState::Empty | SourceState::Collected)) {
+        (TileStatus::Unavailable, t!("view.dashboard.replication.unreadable", family = family(&snapshot.server)))
+    } else if count == 0 {
+        (TileStatus::Info, t!("provider.clickhouse.replication.empty"))
+    } else {
+        (
+            TileStatus::Info,
+            t!(
+                "provider.clickhouse.replication.observed",
+                replicas = format::count(count as f64),
+                queued = format::count(queued as f64)
+            ),
+        )
+    };
+    let mut tile = Tile::new(TileKey::Replication, status, message);
+    tile.detail = outcome.and_then(|outcome| outcome.reason.as_ref()).map(ToString::to_string);
+    tile
+}
+
 /// How far replicas and replication slots are behind, worst first.
 pub(super) fn replication(report: &Report) -> Tile {
     let s = &report.snapshot;
+    if s.server.engine == Engine::Clickhouse {
+        return clickhouse_replication(s);
+    }
     let family = family(&s.server);
     let replicas = s.pressure.as_ref().map(|p| p.replicas.as_slice()).unwrap_or_default();
     if replicas.is_empty() {
@@ -357,6 +411,7 @@ pub(super) fn replication(report: &Report) -> Tile {
             Engine::Postgres => t!("view.dashboard.replication.none_postgres"),
             Engine::Mssql => t!("view.dashboard.replication.none_mssql"),
             Engine::Mysql => t!("view.dashboard.replication.none_mysql", family = family),
+            Engine::Clickhouse => return clickhouse_replication(s),
             Engine::Sqlite => t!("view.dashboard.replication.none_sqlite"),
         };
         return Tile::new(TileKey::Replication, TileStatus::Good, none);
@@ -497,15 +552,17 @@ pub(super) fn failures(report: &Report) -> Tile {
     if counted.is_empty() {
         let why = match s.server.engine {
             Engine::Postgres => t!("view.dashboard.failures.postgres"),
-            Engine::Mssql | Engine::Yugabyte | Engine::Mysql | Engine::Sqlite
+            Engine::Mssql | Engine::Yugabyte | Engine::Mysql | Engine::Clickhouse | Engine::Sqlite
                 if w.kind() == Some(culprit_core::WorkloadKind::SlowLog) =>
             {
                 t!("view.dashboard.failures.slow_log", family = family)
             }
-            Engine::Mssql | Engine::Yugabyte | Engine::Mysql | Engine::Sqlite if w.log.is_some() => {
+            Engine::Mssql | Engine::Yugabyte | Engine::Mysql | Engine::Clickhouse | Engine::Sqlite
+                if w.log.is_some() =>
+            {
                 t!("view.dashboard.failures.app_log", log = w.log.as_deref().unwrap_or_default())
             }
-            Engine::Mssql | Engine::Yugabyte | Engine::Mysql | Engine::Sqlite => {
+            Engine::Mssql | Engine::Yugabyte | Engine::Mysql | Engine::Clickhouse | Engine::Sqlite => {
                 t!("view.dashboard.failures.none_reported", family = family)
             }
         };

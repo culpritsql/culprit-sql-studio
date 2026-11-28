@@ -30,9 +30,9 @@ struct Rules {
 
 fn rules(engine: SqlSyntax) -> Rules {
     match engine {
-        SqlSyntax::Mysql => Rules {
+        SqlSyntax::Mysql | SqlSyntax::Clickhouse => Rules {
             backslash_escapes: true,
-            double_quote_is_string: true,
+            double_quote_is_string: engine == SqlSyntax::Mysql,
             hash_comments: true,
             backticks: true,
             brackets: false,

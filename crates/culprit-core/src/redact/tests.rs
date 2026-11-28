@@ -729,3 +729,15 @@ fn fuzz_redact_sql_and_prose_are_idempotent_and_never_leak_planted_literals() {
 }
 
 mod instance_resources;
+
+#[test]
+fn clickhouse_archives_remove_heredocs_escaped_strings_comments_and_raw_insert_payloads() {
+    for statement in [
+        "SELECT $doc$PLANTED_DATA$doc$ FROM events",
+        r"SELECT 'it\'s PLANTED_DATA' FROM events",
+        "SELECT n FROM events # PLANTED_DATA",
+        "INSERT INTO events FORMAT TSV\nPLANTED_DATA",
+    ] {
+        assert!(!redact_sql(statement, Engine::Clickhouse).contains("PLANTED_DATA"), "{statement}");
+    }
+}

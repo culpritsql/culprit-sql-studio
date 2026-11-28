@@ -138,6 +138,7 @@ fn engine_slug(engine: Engine) -> &'static str {
         Engine::Yugabyte => "yugabyte",
         Engine::Mysql => "mysql",
         Engine::Sqlite => "sqlite",
+        Engine::Clickhouse => "clickhouse",
     }
 }
 

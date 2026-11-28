@@ -171,6 +171,7 @@ function WaitsSkeleton() {
 const NO_WAIT_HISTORY: Record<Engine, () => string> = {
   mssql: () => t("ui.waits_panel.no_history.mssql"),
   postgres: () => t("ui.waits_panel.no_history.postgres"),
+  clickhouse: () => t("core.engines.clickhouse.waits"),
   yugabyte: () => t("ui.waits_panel.no_history.yugabyte"),
   mysql: () => t("ui.waits_panel.no_history.mysql"),
   sqlite: () => t("ui.waits_panel.no_history.sqlite"),

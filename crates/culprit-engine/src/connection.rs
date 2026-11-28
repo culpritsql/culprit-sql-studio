@@ -603,6 +603,7 @@ impl Connections<'_> {
                 options.insert("trustServerCertificateCA".into(), aws::RDS_CA.into());
             }
             Engine::Sqlite => {}
+            Engine::Clickhouse => return Err(Error::invalid(t!("provider.clickhouse.auth"))),
             Engine::Yugabyte => {
                 return Err(Error::invalid(t!("engine.connection.yugabyte_not_rds")));
             }

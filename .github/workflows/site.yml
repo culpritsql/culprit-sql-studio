@@ -1,6 +1,6 @@
 name: Website
 
-# Publishes culpritsql.com (site/, plus the docs as markdown for llms.txt) to GitHub Pages when either changes on main.
+# Publishes culpritsql.com (9-locale platform pages, database guides, GitHub release notes, docs, and blog) to GitHub Pages.
 on:
   push:
     branches: [main]
@@ -9,14 +9,21 @@ on:
       - "assets/providers/**"
       - "docs/**"
       - "README.md"
+      - "CHANGELOG.md"
       - "dev/site.sh"
       - "dev/site-build.py"
+      - "dev/site-verify.py"
+      - "dev/site_lib/**"
       - "Cargo.toml"
       - "fixtures/checks.sample.json"
       - ".github/workflows/site.yml"
+  release:
+    types: [published]
+  schedule:
+    - cron: "17 4 * * *"
   workflow_dispatch:
   repository_dispatch:
-    types: [blog-updated]
+    types: [blog-updated, release-published]
 
 permissions:
   contents: read
@@ -48,6 +55,8 @@ jobs:
       - name: Assemble the site
         env:
           BLOG_DIST: _blog_src/dist
+          CULPRIT_FETCH_RELEASES: "1"
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: bash dev/site.sh
       - uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
       - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0

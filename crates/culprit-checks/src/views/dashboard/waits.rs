@@ -193,6 +193,7 @@ pub(super) fn waits_missing(s: &Snapshot) -> Tile {
     let family = family(&s.server);
     let mut tile = match s.server.engine {
         Engine::Yugabyte => Tile::new(TileKey::Waits, TileStatus::Unavailable, t!("view.dashboard.waits.yugabyte")),
+        Engine::Clickhouse => Tile::new(TileKey::Waits, TileStatus::Unavailable, t!("core.engines.clickhouse.waits")),
         Engine::Sqlite => Tile::new(TileKey::Waits, TileStatus::Unavailable, t!("view.dashboard.waits.sqlite")),
         Engine::Postgres => {
             let mut tile = Tile::new(TileKey::Waits, TileStatus::Unavailable, t!("view.dashboard.waits.postgres"));

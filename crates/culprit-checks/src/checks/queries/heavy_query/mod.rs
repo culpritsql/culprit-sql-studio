@@ -21,7 +21,14 @@ pub fn heavy_query_info() -> CheckInfo {
         id: "heavy-query".into(),
         title: t!("check.heavy_query.info.title"),
         category: Category::Queries,
-        engines: vec![Engine::Mssql, Engine::Postgres, Engine::Yugabyte, Engine::Mysql, Engine::Sqlite],
+        engines: vec![
+            Engine::Clickhouse,
+            Engine::Mssql,
+            Engine::Postgres,
+            Engine::Yugabyte,
+            Engine::Mysql,
+            Engine::Sqlite,
+        ],
         requires: vec![],
         description: t!("check.heavy_query.info.description"),
     }
@@ -372,7 +379,7 @@ fn render(snapshot: &Snapshot, q: &QueryStat, case: &HeavyCase) -> Finding {
     f.actionability = case.actionability;
     let share = format::percent(case.impact.share);
     let read_unit = snapshot.server.engine.spec().statement_metrics().reads;
-    let rows_examined = read_unit == ReadUnit::RowsExamined;
+    let rows_examined = matches!(read_unit, ReadUnit::RowsExamined | ReadUnit::RowsRead);
     // A statement that stopped running is told in the past: it took its share until it stopped, whatever it spent the
     // time on.
     let tense = if case.stopped { "past" } else { "present" };
@@ -578,6 +585,7 @@ fn render(snapshot: &Snapshot, q: &QueryStat, case: &HeavyCase) -> Finding {
     let basis = crate::support::totals_basis(snapshot, q);
     if let Some(r) = q.reads_per_execution() {
         let (label, unit) = match read_unit {
+            ReadUnit::RowsRead => (t!("common.metric.rows_read_per_run"), Unit::Rows),
             ReadUnit::RowsExamined => (t!("common.metric.rows_examined_per_run"), Unit::Rows),
             ReadUnit::Pages => (t!("common.metric.pages_read_per_run"), Unit::Pages),
         };
@@ -650,6 +658,7 @@ fn verify_line(snapshot: &Snapshot, q: &QueryStat, expect: Expect) -> String {
     let read_unit = snapshot.server.engine.spec().statement_metrics().reads;
     if matches!(expect, Expect::Measure) {
         return match read_unit {
+            ReadUnit::RowsRead => t!("check.heavy_query.verify.measure_rows_read"),
             ReadUnit::RowsExamined => t!("check.heavy_query.verify.measure_rows_examined"),
             ReadUnit::Pages => t!("check.heavy_query.verify.measure_pages"),
         };
@@ -673,7 +682,7 @@ fn verify_line(snapshot: &Snapshot, q: &QueryStat, expect: Expect) -> String {
         Expect::Measure => unreachable!(),
         Expect::Storage => t!("check.heavy_query.verify.storage"),
         Expect::RecordedWait => t!("check.heavy_query.verify.recorded_wait"),
-        Expect::CheaperRuns if read_unit == ReadUnit::RowsExamined => {
+        Expect::CheaperRuns if matches!(read_unit, ReadUnit::RowsExamined | ReadUnit::RowsRead) => {
             t!("check.heavy_query.verify.cheaper_runs_rows_examined", time = time)
         }
         Expect::CheaperRuns => t!("check.heavy_query.verify.cheaper_runs_pages", time = time),

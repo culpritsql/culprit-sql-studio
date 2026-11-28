@@ -66,7 +66,7 @@ pub fn database_resource(engine: Engine) -> Option<&'static str> {
     match engine {
         Engine::Mssql => Some("https://database.windows.net/"),
         Engine::Postgres | Engine::Mysql => Some("https://ossrdbms-aad.database.windows.net"),
-        Engine::Yugabyte | Engine::Sqlite => None,
+        Engine::Yugabyte | Engine::Sqlite | Engine::Clickhouse => None,
     }
 }
 

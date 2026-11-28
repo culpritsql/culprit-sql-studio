@@ -684,13 +684,7 @@ fn dedupe(list: &mut Vec<ImportCandidate>) {
 }
 
 fn target_key(engine: Engine, host: &str, port: Option<u16>, db: Option<&str>, user: Option<&str>) -> String {
-    let port = port.unwrap_or(match engine {
-        Engine::Mssql => 1433,
-        Engine::Postgres => 5432,
-        Engine::Yugabyte => 5433,
-        Engine::Mysql => 3306,
-        Engine::Sqlite => 0,
-    });
+    let port = port.or_else(|| engine.spec().default_port()).unwrap_or(0);
     format!(
         "{engine:?}|{}|{port}|{}|{}",
         host.to_ascii_lowercase(),

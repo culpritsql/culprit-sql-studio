@@ -7,6 +7,7 @@ pub use qualification::*;
 #[serde(rename_all = "kebab-case")]
 #[ts(export)]
 pub enum DiagnosticSourceKind {
+    ClickHouseOperational,
     MemoryFailures,
     NativeFailures,
     Cleanup,
@@ -65,6 +66,9 @@ impl DiagnosticPopulation {
 #[serde(tag = "kind", rename_all = "kebab-case", deny_unknown_fields)]
 #[ts(export)]
 pub enum DiagnosticOriginalCondition {
+    ClickHouse {
+        incident: ClickHouseIncident,
+    },
     MssqlOutOfMemory,
     /// Positive native worker wait/work queue only; no actor or selected-database ownership is invented.
     MssqlWorkerQueue,
@@ -96,6 +100,7 @@ impl DiagnosticOriginalCondition {
         match self {
             Self::MssqlOutOfMemory => DiagnosticSourceKind::MemoryFailures,
             Self::MssqlWorkerQueue => DiagnosticSourceKind::WorkerQueues,
+            Self::ClickHouse { .. } => DiagnosticSourceKind::ClickHouseOperational,
             Self::MysqlError | Self::PostgresFailure | Self::MssqlExtendedEvent => DiagnosticSourceKind::NativeFailures,
             Self::DeadlockEvent => DiagnosticSourceKind::Deadlocks,
             Self::MssqlCleanupBoundary { .. } => DiagnosticSourceKind::Cleanup,
@@ -128,6 +133,7 @@ impl DiagnosticOriginalCondition {
             }
             Self::MssqlOutOfMemory
             | Self::MssqlWorkerQueue
+            | Self::ClickHouse { .. }
             | Self::MysqlError
             | Self::PostgresFailure
             | Self::MssqlExtendedEvent
@@ -148,6 +154,7 @@ impl DiagnosticOriginalCondition {
             (
                 Self::MssqlOutOfMemory
                 | Self::MssqlWorkerQueue
+                | Self::ClickHouse { .. }
                 | Self::MysqlError
                 | Self::PostgresFailure
                 | Self::MssqlExtendedEvent
@@ -166,6 +173,16 @@ impl DiagnosticOriginalCondition {
     pub fn from_record(source: &CollectionDescription, record: &TelemetryRecord) -> Option<Self> {
         let source_kind = diagnostic_original_source_kind(source)?;
         let condition = match (source_kind, record) {
+            (DiagnosticSourceKind::ClickHouseOperational, TelemetryRecord::Operational(row)) => {
+                let OperationalFact::ClickHouse(point) = &row.fact else { return None };
+                if !point.fits_source(source)
+                    || row.source != point.source_name()
+                    || row.key != point.identity().key().ok()?
+                {
+                    return None;
+                }
+                Self::ClickHouse { incident: point.incident()? }
+            }
             (DiagnosticSourceKind::WorkerQueues, TelemetryRecord::Operational(row))
                 if worker_starvation::positive_worker_queue(row) =>
             {
@@ -356,6 +373,15 @@ impl DiagnosticEpisode {
         };
         matches!(&self.scope.population, DiagnosticPopulation::Source { source, .. } if *source == condition.source_kind())
             && match (&self.scope.target, &self.scope.partition, condition.source_kind()) {
+                (
+                    CollectionTarget::Database(db),
+                    SourcePartition::Target,
+                    DiagnosticSourceKind::ClickHouseOperational,
+                ) => {
+                    db.engine == crate::Engine::Clickhouse
+                        && db.incarnation.is_some()
+                        && self.scope.measurement_scope == crate::MeasurementScope::Database
+                }
                 (
                     CollectionTarget::Shared(owner),
                     SourcePartition::InstanceLocal { member: Some(member), epoch: Some(_) },

@@ -8,6 +8,7 @@ fn snapshot(engine: Engine) -> Snapshot {
         Engine::Yugabyte => "yugabyte-demo",
         Engine::Mysql => "mysql-demo",
         Engine::Sqlite => "sqlite-demo",
+        Engine::Clickhouse => "clickhouse-demo",
     };
     let mut s: Snapshot = serde_json::from_str(
         &std::fs::read_to_string(format!("{}/../../fixtures/{name}.json", env!("CARGO_MANIFEST_DIR"))).unwrap(),

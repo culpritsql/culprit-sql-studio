@@ -133,6 +133,7 @@ fn connection_churn_finding(snapshot: &Snapshot, churn: ConnectionChurn) -> Find
     }];
     match engine {
         Engine::Yugabyte => summary.push(t!("check.connection_churn.detail.yugabyte")),
+        Engine::Clickhouse => {}
         Engine::Sqlite => summary.push(t!("check.connection_churn.detail.sqlite")),
         Engine::Postgres => {
             summary.push(t!("check.connection_churn.detail.postgres"));
@@ -164,6 +165,7 @@ fn connection_churn_finding(snapshot: &Snapshot, churn: ConnectionChurn) -> Find
         .then(|| setting_change(&snapshot.server, "thread_cache_size", &format!("{THREAD_CACHE:.0}")));
     f.fix = Some(match engine {
         Engine::Yugabyte => Fix { summary: t!("check.connection_churn.fix.yugabyte"), sql: None, cost: None },
+        Engine::Clickhouse => Fix { summary: t!("provider.clickhouse.connections"), sql: None, cost: None },
         Engine::Sqlite => Fix { summary: t!("check.connection_churn.fix.sqlite"), sql: None, cost: None },
         Engine::Postgres => Fix { summary: t!("check.connection_churn.fix.postgres"), sql: None, cost: None },
         Engine::Mssql => Fix { summary: t!("check.connection_churn.fix.mssql"), sql: None, cost: None },

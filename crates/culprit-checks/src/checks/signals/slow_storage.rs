@@ -154,10 +154,12 @@ pub(super) fn file_label(snapshot: &Snapshot, g: &FileGroup) -> FileLabel {
         (Engine::Postgres, FileKind::Log, _) => FileLabel::Wal,
         (Engine::Postgres, FileKind::Temp, _) => FileLabel::TempTables,
         (Engine::Postgres, _, _) => FileLabel::TableFiles,
-        (Engine::Mssql | Engine::Yugabyte | Engine::Mysql | Engine::Sqlite, kind, _) => match one {
-            Some(name) => FileLabel::File(name),
-            None => FileLabel::Files(kind),
-        },
+        (Engine::Mssql | Engine::Yugabyte | Engine::Mysql | Engine::Clickhouse | Engine::Sqlite, kind, _) => {
+            match one {
+                Some(name) => FileLabel::File(name),
+                None => FileLabel::Files(kind),
+            }
+        }
     }
 }
 

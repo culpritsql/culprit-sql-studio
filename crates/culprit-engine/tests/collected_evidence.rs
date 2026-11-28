@@ -10,6 +10,7 @@ mod cached_plans;
 mod cdc;
 mod change_feed;
 mod cleanup;
+mod clickhouse;
 mod cohorts;
 mod columnstore;
 mod columnstore_rowgroups;

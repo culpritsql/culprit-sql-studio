@@ -28,7 +28,7 @@ pub(super) fn findings(
             display: description.display.clone(),
             finding: finding.clone(),
             inputs,
-            query: None,
+            query: clickhouse_query(primary, finding)?,
             cause: None,
             guidance: DerivedGuidance::HistoricalRequiresFreshVerification,
         };
@@ -37,10 +37,44 @@ pub(super) fn findings(
     Ok(queries::FindingProjection { findings: findings.finish(), evaluations: evaluations.finish() })
 }
 
+/// A representative belongs to a single recorded family and its own capture interval.
+fn clickhouse_query(original: &dyn OriginalProjection, finding: &Finding) -> Result<Option<DerivedQuery>> {
+    if original.source().source != CLICKHOUSE_OPERATIONAL_SOURCE {
+        return Ok(None);
+    }
+    let [query] = finding.queries.as_slice() else {
+        return Ok(None);
+    };
+    for (position, row) in original.records().iter().enumerate() {
+        let TelemetryRecord::Operational(OperationalObservation { fact: OperationalFact::ClickHouse(point), .. }) =
+            &row.row().record
+        else {
+            continue;
+        };
+        if let ClickHouseObservation::QueryFamily(family) = point.as_ref()
+            && family.family == query.id
+        {
+            return Ok(Some(DerivedQuery {
+                identity: NativeQueryIdentity {
+                    query_id: family.family.clone(),
+                    qualifiers: point.identity().qualifiers,
+                },
+                reference: original.reference(position)?,
+                sql: family.sample.clone(),
+            }));
+        }
+    }
+    Ok(None)
+}
+
 fn references(original: &dyn OriginalProjection, finding: &Finding) -> Result<Vec<DiagnosticEvidenceRef>> {
     let mut refs = Vec::new();
     for (position, row) in original.records().iter().enumerate() {
         let matches = match (&row.row().record, finding.check.as_str()) {
+            (TelemetryRecord::Operational(obs), "clickhouse-health") => {
+                matches!(&obs.fact, OperationalFact::ClickHouse(point) if point.incident().is_some())
+                    && finding.id.strip_prefix("clickhouse-health:") == Some(obs.key.as_str())
+            }
             (TelemetryRecord::Operational(obs), "storage-capacity" | "log-reuse-blocked") => {
                 matches!(obs.fact, OperationalFact::Space(_))
             }

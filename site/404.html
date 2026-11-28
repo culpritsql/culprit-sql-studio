@@ -5,20 +5,24 @@
   <meta http-equiv="Content-Security-Policy" content="__CONTENT_SECURITY_POLICY__">
   <meta name="referrer" content="strict-origin-when-cross-origin">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Page not found · Culprit SQL Studio</title>
+  <title>Page not found · Culprit SQL</title>
   <meta name="robots" content="noindex">
   <meta name="color-scheme" content="light dark">
   <link rel="icon" href="/favicon.ico" sizes="32x32">
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/styles.css">
+  <script>try{var t=localStorage.getItem("culprit:theme")||localStorage.getItem("culprit-blog:theme");if(t==="dark"||t==="light")document.documentElement.dataset.theme=t;}catch(_){}</script>
   <script src="/main.js" defer></script>
   <script defer src="https://plausible.io/js/pa-r5EkaWqkhpILeZH2bizcF.js"></script>
 </head>
 <body>
-  <main class="wrap narrow not-found">
+  __SHARED_HEADER__
+  <main id="main" class="wrap narrow not-found">
     <p class="section-kicker">404</p>
-    <h1>This page doesn't exist.</h1>
-    <p class="section-lede center">Go to <a href="/">Culprit SQL Studio</a>, or <a href="/#download">download it</a>.</p>
+    <h1>This page does not exist.</h1>
+    <p class="section-lede center not-found-lede">Explore the <a href="/">Culprit SQL platform</a>, browse <a href="/releases/">release notes</a>, or read the <a href="/blog/">engineering blog</a>.</p>
+    <a class="btn primary large" href="/">Back to Culprit SQL</a>
   </main>
+  __SHARED_FOOTER__
 </body>
 </html>

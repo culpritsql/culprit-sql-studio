@@ -210,7 +210,7 @@ export async function demoApi(): Promise<Api> {
       engine: r.snapshot.server.engine,
       environment: r.snapshot.environment,
       host: connectFacts(r.snapshot.server.engine).file ? r.snapshot.server.database : "localhost",
-      port: { mssql: 1433, postgres: 5432, yugabyte: 5433, mysql: 3306, sqlite: null }[r.snapshot.server.engine],
+      port: { clickhouse: 8443, mssql: 1433, postgres: 5432, yugabyte: 5433, mysql: 3306, sqlite: null }[r.snapshot.server.engine],
       database: r.snapshot.server.database,
       user: null,
       auth: can(r.snapshot.server.engine, "sign_in") ? "password" : "none",

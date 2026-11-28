@@ -123,6 +123,7 @@ export function WorkloadTrend({ timeline, windowStart, flags, onSelect, selectio
         footnote={
           timeline.source === "scans"
             ? t("ui.trends.between_scans", { count: String(buckets.length + 1) })
+            : timeline.source === "click-house-log" ? t("provider.clickhouse.timeline")
             : timeline.source === "slow-log"
               ? t("ui.trends.slow_log_faster")
               : timeline.source === "native-intervals"
@@ -313,6 +314,7 @@ export function QueryTrend({ query, timeline, onSince }: { query: QueryStat; tim
           footnote={
             timeline.source === "scans"
               ? t("ui.trends.runs_from_scans")
+              : timeline.source === "click-house-log" ? t("provider.clickhouse.timeline")
               : timeline.source === "slow-log"
                 ? t("ui.trends.runs_from_slow_log")
                 : timeline.source === "native-intervals"

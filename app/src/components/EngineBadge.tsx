@@ -4,6 +4,7 @@ import type { Environment } from "../gen/Environment";
 import { databaseProduct, serverName } from "../lib/engines";
 import mssqlLogo from "../../../assets/providers/mssql.svg";
 import postgresLogo from "../../../assets/providers/postgres.svg";
+import clickhouseLogo from "../../../assets/providers/clickhouse.svg";
 import yugabyteLogo from "../../../assets/providers/yugabyte.svg";
 import mysqlLogo from "../../../assets/providers/mysql.svg";
 import mariadbLogo from "../../../assets/providers/mariadb.svg";
@@ -11,7 +12,7 @@ import sqliteLogo from "../../../assets/providers/sqlite.svg";
 import timescaleLogo from "../../../assets/providers/timescale.svg";
 
 /** The same local SVG assets are used by the marketing website. Labels still come from the engine facts. */
-const LOGOS: Record<DatabaseProduct, string> = { mssql: mssqlLogo, postgres: postgresLogo, yugabyte: yugabyteLogo, mysql: mysqlLogo, mariadb: mariadbLogo, sqlite: sqliteLogo, timescale: timescaleLogo };
+const LOGOS: Record<DatabaseProduct, string> = { clickhouse: clickhouseLogo, mssql: mssqlLogo, postgres: postgresLogo, yugabyte: yugabyteLogo, mysql: mysqlLogo, mariadb: mariadbLogo, sqlite: sqliteLogo, timescale: timescaleLogo };
 
 /**
  * The database engine's logo, with the environment as a dot on its corner (production stays unmistakable).

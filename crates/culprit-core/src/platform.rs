@@ -64,6 +64,7 @@ impl Platform {
                 Engine::Mysql => "Azure Database for MySQL",
                 Engine::Mssql | Engine::Sqlite => "Azure SQL",
                 Engine::Yugabyte => "YugabyteDB on Azure",
+                Engine::Clickhouse => "ClickHouse on Azure",
             },
             Platform::GoogleCloudSql => "Google Cloud SQL",
             Platform::GoogleAlloyDb => "Google AlloyDB",

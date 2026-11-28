@@ -2,93 +2,96 @@
 
 [Engine parity](../parity.md)
 
-Culprit detects MariaDB through the MySQL provider and uses MariaDB-specific plans, statistics, lock sources and index syntax. Its counters and capability limits are kept separate from [MySQL](mysql.md).
+Culprit detects MariaDB automatically over the MySQL wire protocol and switches to MariaDB-native execution plans (`ANALYZE FORMAT=JSON`), persistent column statistics, lock views, `IGNORED` index syntax, multi-source replication channels and Galera cluster telemetry—keeping every counter and version rule distinct from [MySQL](mysql.md).
 
 ## Connecting
 
-Choose **MySQL / MariaDB** and supply the server's MySQL-compatible connection string. The probe reads the server's version and identifies it as MariaDB for labels, SQL generation and collection.
+Select **MySQL / MariaDB** in Studio or pass a `mysql://` URL on the CLI. Existing connections from DBeaver, DataGrip or VS Code can be imported via `culprit conn import`.
 
 ```sh
-culprit conn add shop --env staging --url 'mysql://app@db.example.com:3306/shop'
+# Standard MariaDB connection (remote TLS verifies server identity by default)
+culprit conn add shop --env prod --url 'mysql://culprit_reader@mariadb.example.com:3306/shop'
+
+# Amazon RDS for MariaDB with short-lived AWS IAM token
+culprit conn add shop-rds --env prod --auth aws-iam --url 'mysql://culprit_reader@shop.xyz.us-east-1.rds.amazonaws.com:3306/shop'
+
+# Private MariaDB node through an SSH jump host
+culprit conn add shop-priv --env prod --ssh ubuntu@bastion.example.com --url 'mysql://culprit_reader@10.0.6.14:3306/shop'
 ```
 
-TLS, credential storage, saved connections and agent permissions use the shared connection workflow.
-
-In JSON, MariaDB uses `engine = "mysql"`; `latest_scan.product` / `server.product` identifies the server, and parsed plans carry `props.flavor = "MariaDB"`. Use those product facts when interpreting the shared engine identifier.
+In JSON exports and SDK payloads, MariaDB uses `engine = "mysql"` while `server.product` / `latest_scan.product` identifies `"MariaDB"` and parsed plans carry `props.flavor = "MariaDB"`.
 
 ## Permissions and setup
 
-Monitoring needs access to the relevant process, catalog and statistics views, commonly `PROCESS` plus `SELECT` on the monitoring sources. `performance_schema` can be off by default. Statement-history consumers must be enabled before they can supply captured SQL.
+Grant read-only monitoring privileges (`PROCESS`, `REPLICA MONITOR` / `BINLOG MONITOR` where applicable, and `SELECT` on monitoring catalogs):
 
-Without performance-schema digests, Culprit can read the slow query log table and, when enabled, user statistics. The setup guidance names `userstat`, `slow_query_log`, `log_output` and `long_query_time` rather than assuming a restart is the only way to record statements. It shows the settings for a person to apply; a scan does not change them.
+```sql
+CREATE USER 'culprit_reader'@'%' IDENTIFIED BY '<strong-password>';
+GRANT PROCESS, REPLICA MONITOR ON *.* TO 'culprit_reader'@'%';
+GRANT SELECT ON performance_schema.* TO 'culprit_reader'@'%';
+GRANT SELECT ON mysql.slow_log TO 'culprit_reader'@'%';
+GRANT SELECT ON `shop`.* TO 'culprit_reader'@'%';
+```
 
-When nothing is recorded, the `performance-schema` entry in `server.missing[]` presents the no-restart `SET GLOBAL …` guidance first. Capability `slow-log` means the log table is readable; it does not establish complete application coverage.
+### Zero-restart workload setup when `performance_schema` is off
+
+Many MariaDB installations ship with `performance_schema = OFF` (which requires a restart to enable). Instead of demanding a production restart, Culprit prioritizes MariaDB's dynamic table-based slow query log and `userstat` counters when nothing is currently recorded:
+
+```sql
+-- Dynamic, zero-restart workload & index-usage capture (review overhead before lowering long_query_time):
+SET GLOBAL log_output = 'TABLE';
+SET GLOBAL slow_query_log = ON;
+SET GLOBAL userstat = ON;
+```
+
+Culprit presents these commands as guidance in `server.missing[]` and Studio—scans never execute `SET GLOBAL` themselves.
 
 ## Workload and plans
 
-| Feature | Coverage |
+| Capability | MariaDB source and behavior |
 |---|---|
-| Statement statistics | Performance-schema digests, or individual runs read from the slow query log table |
-| Timeline and period comparison | Differences between saved digest scans; the slow log's own timestamps and retained period when it supplies the workload |
-| Captured statements | Statement-history consumers and slow-log samples matched to statement identities |
-| Estimated / measured plans | MariaDB `EXPLAIN FORMAT=JSON` and `ANALYZE FORMAT=JSON`; measurements use a read-only transaction |
-| Plan import | MariaDB EXPLAIN / ANALYZE JSON with per-loop rows, loops, filtering and available timing/storage facts |
-| Last actual plan | Not retained by the collected statement counters; live SHOW ANALYZE is a different observation |
-| Runtime spread | Digest minimum, average and maximum; percentiles and histograms computed from the individual slow-log runs when present |
-| Parameter sensitivity | Logged-tail evidence where the source supplies it; persistent column-statistics advice uses MariaDB's syntax |
-| Statement families | Digests or fingerprints group literal variants |
-
-Before MariaDB 11.0, plan rows can be used as a cost proxy when the plan supplies no native cost. Those values are not calibrated PostgreSQL or MySQL optimizer costs.
-
-Older MariaDB JSON plans can contain repeated `table` members instead of a `nested_loop` array. The parser retains each joined table and accounts for buffered reads rather than assuming one MySQL plan layout.
-
-`workload.source` distinguishes `"performance_schema"` from `"slow query log"`. Slow-log workloads are windowed, name the `long_query_time` threshold, and use fingerprint query IDs stable across scans. Their timeline and changes source is `"slow-log"`; two-period comparisons use the log's own timestamps. A missing period is not zero activity.
-
-CLI `explain --query-id` and MCP `query_plan` can return the plan captured by the scan when normalized SQL cannot be planned again. Measured plans carry available per-operator time, logical page reads and spill evidence.
+| Statement statistics | `performance_schema` digests (`workload.source = "performance_schema"`), or fingerprinted runs from `mysql.slow_log` (`workload.source = "slow query log"`) |
+| Period comparison | Saved-scan deltas for digests, or native `slow_log` timestamps and `long_query_time` windowing (`"slow-log"`) |
+| Estimated & measured plans | MariaDB `EXPLAIN FORMAT=JSON` and `ANALYZE FORMAT=JSON` (per-operator r_rows, r_loops, filtered %, r_total_time_ms and page reads inside a rolled-back read-only transaction) |
+| Legacy JSON compatibility | Handles pre-11.0 MariaDB plans without native cost fields (using row estimates without conflating them with MySQL/PostgreSQL costs) and repeated `table` members alongside `nested_loop` arrays |
+| Plan import & replay | Imports MariaDB `EXPLAIN` / `ANALYZE` JSON in Studio, CLI (`explain --query-id`), MCP `query_plan` and [explain.culpritsql.com](https://explain.culpritsql.com) |
+| Runtime spread | Digest min/avg/max, or exact percentiles and histograms computed directly from retained `mysql.slow_log` runs |
 
 ## Live activity and waits
 
-Live uses MariaDB's process list, transaction metadata, `INNODB_LOCK_WAITS` and `INNODB_LOCKS`. Process-list time can have millisecond precision; ALTER/LOAD operation state and progress remain distinct from per-operator progress.
+Live combines `information_schema.PROCESSLIST` (including MariaDB's sub-second `TIME_MS` precision and `STAGE` / `MAX_STAGE` progress for `ALTER TABLE` and `LOAD DATA`), `INNODB_TRX`, `INNODB_LOCK_WAITS` and `INNODB_LOCKS`.
 
-MariaDB 10.x can report transaction ID zero for transactions that have not written. Waiting sessions are matched through their requested lock; transaction ID zero alone does not establish a blocking relationship.
-
-MariaDB 10.9+ can expose a running plan through `SHOW ANALYZE`; older versions report that this source is unavailable. Cancel (`KILL QUERY`) and terminate (`KILL`) are available outside production, subject to permissions.
-
-With performance schema, live wait samples compare its counters and can fall back to process-list observations. Without it, process-list sampling and InnoDB transaction evidence show current waits. Slow-log lock time belongs only to those logged statements, not to a complete server wait mix. InnoDB's latest deadlock is a retained example, not an exhaustive incident history.
+- **Read-only transaction ID guard**: MariaDB 10.x assigns `trx_id = 0` to transactions that have not yet modified rows; Culprit matches waiting sessions through their requested lock descriptors rather than falsely linking unrelated `trx_id = 0` sessions.
+- **Running query plans (`SHOW ANALYZE`)**: On MariaDB **10.9+**, Live can inspect an executing statement's live plan via `SHOW ANALYZE FORMAT=JSON <id>`. Outside `prod` connections, `KILL QUERY` and `KILL` are available.
+- **Scheduled events (`mysql.jobs`)**: On MariaDB releases exposing `server_uid`, `--collect-native-failures` and `--collection jobs` capture up to 128 `information_schema.EVENTS` schedules without reading event bodies.
 
 ## Schema and indexes
 
-Catalog views supply tables, columns, constraints, indexes and MariaDB persistent column statistics. Index usage comes from performance schema or, where enabled, userstat `INDEX_STATISTICS`. Userstat's enable time is not recorded by the server; an unknown period does not establish that an index was unused for a week.
+Catalog views supply tables, columns, foreign keys, auto-increment bounds, indexes and MariaDB engine-independent persistent statistics (`mysql.column_stats` / `ANALYZE TABLE ... PERSISTENT FOR COLUMNS (...)`).
 
-MariaDB 10.6+ can mark an eligible index `IGNORED`. It remains maintained and `NOT IGNORED` restores optimizer use. Older releases cannot hide indexes; unknown versions do not establish support. Advice does not substitute MySQL's `INVISIBLE` syntax.
-
-Column-statistics recommendations use `ANALYZE TABLE … PERSISTENT FOR COLUMNS` where appropriate. Scan advice uses measured rows examined and returned when available, rather than assuming an unindexed filter's estimated selectivity is accurate.
+- **MariaDB 10.6+ `IGNORED` indexes**: When index-usage history establishes an eligible unused index, Culprit emits MariaDB's native `ALTER TABLE ... ALTER INDEX ... IGNORED` (reversible via `NOT IGNORED`)—never MySQL's `INVISIBLE` syntax. Note that `userstat`'s `INDEX_STATISTICS` table records no enable/reset timestamp, so Culprit never claims a 7-day unused verdict from `userstat` alone without dated scan baselines.
+- **Online DDL & `lint-sql`**: `culprit lint-sql migrations/ --format sarif` validates MariaDB migrations for `ALGORITHM=INPLACE, LOCK=NONE` compatibility, unindexed foreign keys and unsafe column rewrites.
 
 ## Limits and evidence
 
-### Background telemetry
+### Background telemetry and operational scope
 
-MariaDB uses the shared MySQL-family owned reader with native timeout, digest, lock and replication layouts.
-Background collection exports exact counters, bounded catalog/health observations, persistent blockers and the
-latest InnoDB deadlock report. Instrumentation and permission gaps remain explicit. See
-[collector source coverage](../collector.md#other-provider-source-coverage) for datasets and retention limits.
+Background `culprit collect` shares the owned MySQL-family wire reader with MariaDB-specific timeout, lock and multi-source [`SHOW ALL SLAVES / REPLICAS STATUS`](https://mariadb.com/docs/server/reference/sql-statements/administrative-sql-statements/show/show-replica-status) layouts. Server-wide counters (InnoDB redo waits, metadata-lock queues, replication channels) retain their instance scope rather than being attributed to a single database; see [collector source coverage](../collector.md#other-provider-source-coverage) and [evidence rules](coverage.md).
 
-MariaDB's server-wide status counters are not all attributable to one database. Shared redo, metadata-lock visibility, old transactions, replication channels and Galera flow-control observations keep their own scope and periods.
+### Galera cluster observations (`mariadb.galera`)
 
-Slow-log entries are individual logged executions; digest and userstat counters are aggregates with independent retention and reset limits. A table-lock duration can overlap other measurements and is not added blindly to them. No duration or missing source is represented as zero just to make views line up.
+Ordinary scans capture a lightweight 5-variable Galera readiness and flow-control summary (`wsrep_*`), treating `Donor/Desynced` state as operational context rather than an automatic outage. For deeper cluster troubleshooting on MariaDB nodes exposing native `server_uid`, run the explicit `mariadb.galera` collector recipe:
 
-Donor or desynced Galera state alone is not an outage. A complete request trace, transaction boundary or backup guarantee needs evidence beyond these sources. The shared [evidence rules](coverage.md) apply to every finding.
-
-### Operational evidence
-
-Operational sources cover InnoDB redo buffer waits, auto-increment bounds, metadata blocking involving exclusive locks, all MariaDB replication channels, and Galera readiness and flow-control history.
-
-Digests are aggregates, not request traces. Shared redo counts do not measure this database's delay. Other metadata-lock modes and queue effects can remain unresolved; missing instrumentation is explicit. Transaction age alone does not prove an acquired read view. Galera donor/desynced state alone is not an outage; flow control retains its own source period.
+| `wsrep` metric group | Captured meaning and boundaries |
+|---|---|
+| Queue depths | Current receive/send write-set queues waiting to apply or transmit at capture time |
+| Cumulative totals | Certification failures, local applier aborts, transaction replays, local commits and flow-control paused nanoseconds (kept with unknown reset epoch) |
+| Flow-control fraction | `wsrep_flow_control_paused` covers the interval since the last `FLUSH STATUS` (Culprit never runs `FLUSH STATUS` and excludes read-relative min/max/avg variables) |
+| Safety ceiling | Shared-instance scope; capped at 17 SQL statements total (including 3-point context verification), 17 allowlisted variables (`<= 32 KiB`), 1s statement timeout and 5s total budget ([Galera status reference](https://mariadb.com/docs/galera-cluster/reference/galera-cluster-status-variables)) |
 
 ## Verification
 
-Verified environments include MariaDB 10.5.29, 10.6.28, 10.11 and 11.8. Cases cover performance schema on and off, slow-log fallback, user statistics, blocking chains, deadlocks, plans and live progress.
+Verified across **MariaDB 10.5.29, 10.6.28, 10.11 and 11.8**—exercising `performance_schema` on and off, `mysql.slow_log` + `userstat` fallback, `ANALYZE FORMAT=JSON` plans, `IGNORED` indexes, blocking chains, InnoDB deadlocks and `SHOW ANALYZE` live progress.
 
-The [MySQL/MariaDB fixture](../../dev/mysql/README.md) supplies the schema and workload. Saved MariaDB reports and integration tests exercise both the normal and fallback paths. MariaDB 10.4 and earlier have not been verified. The shared provider declares its sources in [`culprit-mysql/src/sources.rs`](../../crates/providers/culprit-mysql/src/sources.rs).
-
-Source references: [MariaDB replication channels](https://mariadb.com/docs/server/reference/sql-statements/administrative-sql-statements/show/show-replica-status), [Galera status periods](https://mariadb.com/docs/galera-cluster/reference/galera-cluster-status-variables).
+- Reproducible Docker fixture: [`dev/mysql/README.md`](../../dev/mysql/README.md)
+- Declared MySQL/MariaDB sources: [`culprit-mysql/src/sources.rs`](../../crates/providers/culprit-mysql/src/sources.rs)

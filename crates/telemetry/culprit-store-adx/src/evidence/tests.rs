@@ -1,5 +1,6 @@
 mod commit_pipeline;
 use culprit_evidence::analytical::indexes::ProjectionIndexWriter;
+mod clickhouse_source;
 mod columnstore;
 mod columnstore_rowgroups;
 mod full_text_populations;

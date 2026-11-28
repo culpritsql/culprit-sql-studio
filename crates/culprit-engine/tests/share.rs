@@ -92,7 +92,7 @@ fn literals(engine: Engine) -> &'static [&'static str] {
         Engine::Mssql => &["customer42@example.com", "'shipped'"],
         Engine::Postgres | Engine::Mysql => &["'shipped'", "'returned'"],
         Engine::Yugabyte => &["'pending'", "'2026-10-10'"],
-        Engine::Sqlite => &[],
+        Engine::Sqlite | Engine::Clickhouse => &[],
     }
 }
 

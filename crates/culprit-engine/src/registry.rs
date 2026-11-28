@@ -2,7 +2,14 @@
 
 use crate::ProviderRegistration;
 use culprit_core::{ConnectionSpec, Engine, Error, ErrorCode, Provider, Result, Source, t};
-#[cfg(any(feature = "mssql", feature = "postgres", feature = "yugabyte", feature = "mysql", feature = "sqlite"))]
+#[cfg(any(
+    feature = "mssql",
+    feature = "postgres",
+    feature = "yugabyte",
+    feature = "mysql",
+    feature = "sqlite",
+    feature = "clickhouse"
+))]
 use std::sync::Arc;
 
 /// Every source a scan reads on `engine`, as its provider declares them (`<provider>/src/sources.rs`); empty for an
@@ -13,6 +20,8 @@ pub fn sources(engine: Engine) -> &'static [Source] {
         Engine::Mssql => culprit_mssql::sources::ALL,
         #[cfg(feature = "postgres")]
         Engine::Postgres => culprit_postgres::sources::ALL,
+        #[cfg(feature = "clickhouse")]
+        Engine::Clickhouse => culprit_clickhouse::sources::ALL,
         #[cfg(feature = "yugabyte")]
         Engine::Yugabyte => culprit_yugabyte::sources::ALL,
         #[cfg(feature = "mysql")]
@@ -51,6 +60,8 @@ pub fn registration(engine: Engine) -> Result<ProviderRegistration> {
         ),
         #[cfg(feature = "mysql")]
         Engine::Mysql => mysql_registration(),
+        #[cfg(feature = "clickhouse")]
+        Engine::Clickhouse => clickhouse_registration(),
         #[cfg(feature = "sqlite")]
         Engine::Sqlite => ProviderRegistration::new(
             Arc::new(|spec, context| {
@@ -64,6 +75,24 @@ pub fn registration(engine: Engine) -> Result<ProviderRegistration> {
     }
 }
 
+#[cfg(feature = "clickhouse")]
+fn clickhouse_registration() -> Result<ProviderRegistration> {
+    let registration = ProviderRegistration::new(
+        Arc::new(|spec, context| Ok(Box::new(culprit_clickhouse::ClickHouseProvider::new(spec, context)?))),
+        crate::ProviderConstructionPolicy::DeferredNativeWork,
+        culprit_clickhouse::telemetry_recipes(),
+    )?
+    .with_builtin_safety(
+        culprit_clickhouse::component_version(),
+        Arc::new(culprit_clickhouse::verify_builtin_safety),
+    )?;
+    #[cfg(feature = "collector")]
+    let registration = registration.with_profile_source(
+        culprit_clickhouse::telemetry_profile_selectors(),
+        Arc::new(|provider, request, profile| provider.telemetry_source_for_safety(request, profile)),
+    )?;
+    Ok(registration)
+}
 #[cfg(feature = "mysql")]
 fn mysql_registration() -> Result<ProviderRegistration> {
     let registration = ProviderRegistration::new(
@@ -185,6 +214,8 @@ mod tests {
                 continue;
             };
             let profiles = match engine {
+                #[cfg(feature = "clickhouse")]
+                Engine::Clickhouse => culprit_clickhouse::telemetry_profile_selectors(),
                 #[cfg(feature = "postgres")]
                 Engine::Postgres => culprit_postgres::telemetry_profile_selectors(),
                 #[cfg(feature = "mssql")]

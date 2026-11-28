@@ -1563,4 +1563,12 @@ Health Unavailable Health: SQLite has no server counters.
 Deadlocks Unavailable Deadlocks: SQLite has no deadlocks to read.
   detail: SQLite records no deadlocks: one writer at a time holds the file.
 Connections Unavailable Connections: SQLite has no server, so no connections to count.
-Replication Good Replication: A SQLite file has no replicas: nothing can fall behind."#;
+Replication Good Replication: A SQLite file has no replicas: nothing can fall behind.
+Now Info Right now: Sessions weren't read for this dashboard.
+  detail: The app reads them every few seconds; `culprit live` reads them once.
+Health Unavailable Health: ClickHouse operational coverage is incomplete.
+  detail: 0 of 6 operational sources completed on this node.
+Deadlocks Unavailable Deadlocks: Deadlock history is unavailable.
+  detail: ClickHouse can't do this (deadlocks)
+Connections Unavailable Connections: This scan has no connection counters.
+Replication Unavailable Replication: Couldn't read ClickHouse's replication state."#;

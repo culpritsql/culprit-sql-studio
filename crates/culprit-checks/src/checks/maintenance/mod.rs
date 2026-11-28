@@ -10,6 +10,7 @@ use culprit_core::{Check, t};
 
 use crate::support::*;
 
+mod clickhouse_health;
 mod dead_rows;
 mod heap_table;
 mod multixact_age;
@@ -24,8 +25,14 @@ pub use stale_stats::*;
 pub use xid_age::*;
 
 /// The checks this area registers (`crate::all()` runs every area's), in the order their findings tie.
-pub(crate) const CHECKS: &[&dyn Check] =
-    &[&StaleStatsCheck, &HeapTableCheck, &DeadRowsCheck, &XidAgeCheck, &multixact_age::MultixactAgeCheck];
+pub(crate) const CHECKS: &[&dyn Check] = &[
+    &clickhouse_health::ClickHouseHealthCheck,
+    &StaleStatsCheck,
+    &HeapTableCheck,
+    &DeadRowsCheck,
+    &XidAgeCheck,
+    &multixact_age::MultixactAgeCheck,
+];
 
 fn short_date(iso: &str) -> String {
     iso.get(..10).unwrap_or(iso).to_string()

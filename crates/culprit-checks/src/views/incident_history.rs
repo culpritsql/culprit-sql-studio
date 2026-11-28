@@ -344,6 +344,10 @@ fn question_label(signal: &DiagnosticSignal) -> String {
         return t!("view.tempdb_question.question");
     }
     let kind = match signal {
+        DiagnosticSignal::OriginalObservation {
+            condition: DiagnosticOriginalCondition::ClickHouse { incident },
+            ..
+        } => return incident.followup(),
         DiagnosticSignal::WorkerStarvation { .. }
         | DiagnosticSignal::OriginalObservation { condition: DiagnosticOriginalCondition::MssqlWorkerQueue, .. } => {
             return t!("view.worker_starvation.question");

@@ -125,7 +125,7 @@ fn regressions(snapshot: &Snapshot) -> Vec<Regression<'_>> {
     let Some(timeline) = workload.timeline.as_ref().filter(|t| t.len() >= 4) else { return Vec::new() };
     // A bucket of the slow query log averages the runs it kept, the slow ones: a wider tail (one lock episode) reads as
     // the statement getting slower while its typical run didn't change.
-    if timeline.source == TimelineSource::SlowLog {
+    if matches!(timeline.source, TimelineSource::SlowLog | TimelineSource::ClickHouseLog) {
         return Vec::new();
     }
     let mut cases: Vec<Regression> = app_queries(snapshot)

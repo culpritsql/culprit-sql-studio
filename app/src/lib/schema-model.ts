@@ -105,6 +105,8 @@ export function quoteIdent(engine: Engine, name: string): string {
   switch (sqlSyntax(engine)) {
     case "mssql":
       return `[${name.replaceAll("]", "]]")}]`;
+    case "clickhouse":
+      return "`" + name.replaceAll("\\", "\\\\").replaceAll("`", "\\`") + "`";
     case "mysql":
       return `\`${name.replaceAll("`", "``")}\``;
     case "postgres":
@@ -135,6 +137,7 @@ function sqlNote(note: string): string {
 /** Approximate DDL rebuilt from catalog metadata (columns, primary key, indexes, foreign keys). */
 export function ddl(engine: Engine, table: TableStat, columns: ColumnInfo[], indexes: IndexStat[], outgoing: Relation[]): string {
   const original = table.definition ? `${table.definition.trimEnd().replace(/;$/, "")};` : null;
+  if (engine === "clickhouse") return original ?? sqlNote(t("provider.clickhouse.ddl"));
   if (table.kind === "hypertable" || table.kind === "timescale-unresolved") return sqlNote(t("ui.schema_model.timescale"));
   if (table.kind === "virtual") return original ?? sqlNote(t("ui.schema_model.virtual_missing"));
   if (engine === "yugabyte" && !table.storage?.docdb) return original ?? sqlNote(t("ui.schema_model.docdb_missing"));

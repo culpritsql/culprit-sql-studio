@@ -20,6 +20,8 @@ pub enum IndexUsageScope {
 #[derive(Serialize, Deserialize, TS, Clone, Debug, Default)]
 #[ts(export)]
 pub struct OperationalStats {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub clickhouse: Vec<crate::telemetry::ClickHouseObservation>,
     /// Raw settings and the actual held acquisition, separate from independent display/statistics values.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
@@ -224,6 +226,7 @@ impl OperationalStats {
             cluster: &'a Option<ClusterHealth>,
         }
         let Self {
+            clickhouse: _,
             postgres_settings: _,
             indexed_views: _,
             indexed_view_originals: _,

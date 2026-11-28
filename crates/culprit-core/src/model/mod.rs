@@ -49,6 +49,7 @@ mod current_format {
 #[serde(rename_all = "lowercase")]
 #[ts(export)]
 pub enum Engine {
+    Clickhouse,
     Mssql,
     Postgres,
     Yugabyte,
@@ -64,7 +65,8 @@ pub fn wire_name<T: Serialize>(value: &T) -> String {
 
 impl Engine {
     /// Every engine, for tables kept per engine (see [`Engine::abilities`]).
-    pub const ALL: [Engine; 5] = [Engine::Mssql, Engine::Postgres, Engine::Yugabyte, Engine::Mysql, Engine::Sqlite];
+    pub const ALL: [Engine; 6] =
+        [Engine::Mssql, Engine::Postgres, Engine::Yugabyte, Engine::Mysql, Engine::Sqlite, Engine::Clickhouse];
 
     /// A server Culprit talks to: sessions, waits, deadlocks and server counters exist. A file the application opens
     /// itself (SQLite) has none of these.
@@ -175,6 +177,7 @@ impl Environment {
 #[serde(rename_all = "kebab-case")]
 #[ts(export)]
 pub enum Capability {
+    ClickHouseQueryLog,
     QueryStore,
     PlanCache,
     PgStatStatements,
@@ -214,6 +217,7 @@ impl Capability {
             self,
             Capability::QueryStore
                 | Capability::PlanCache
+                | Capability::ClickHouseQueryLog
                 | Capability::PgStatStatements
                 | Capability::PerformanceSchema
                 | Capability::SlowLog
@@ -224,6 +228,7 @@ impl Capability {
     /// What it is, as a person reads it, in the current language.
     pub fn label(self) -> String {
         match self {
+            Capability::ClickHouseQueryLog => crate::t!("provider.clickhouse.history"),
             Capability::QueryStore => crate::t!("core.model.capability.query_store"),
             Capability::PlanCache => crate::t!("core.model.capability.plan_cache"),
             Capability::PgStatStatements => crate::t!("core.model.capability.pg_stat_statements"),

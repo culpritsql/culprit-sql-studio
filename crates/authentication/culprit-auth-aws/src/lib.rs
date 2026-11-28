@@ -172,6 +172,7 @@ impl culprit_auth::DatabaseTokenProvider for AwsCli {
             Engine::Mysql => 3306,
             Engine::Mssql => 1433,
             Engine::Sqlite => 0,
+            Engine::Clickhouse => return Err(Error::invalid(t!("provider.clickhouse.auth"))),
         });
         let region =
             request.region.map(str::to_string).or_else(|| region_from_host(request.host)).ok_or_else(|| {

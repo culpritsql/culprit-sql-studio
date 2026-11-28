@@ -98,6 +98,7 @@ mod replica_database_progress;
 pub use replica_database_progress::*;
 mod azure_replica_state;
 pub use azure_replica_state::*;
+mod clickhouse;
 mod hyperscale_replicas;
 mod identity;
 mod index_operations;
@@ -110,6 +111,7 @@ mod maintenance_progress;
 mod memory_failures;
 mod missing_indexes;
 mod monitor;
+pub use clickhouse::*;
 mod native_failures;
 mod native_identity;
 mod native_read_context;
@@ -421,6 +423,12 @@ impl CollectionRequest {
             CollectionSelection::Snapshot { dataset: SnapshotDataset::ProcessCpu } => {
                 if !matches!(&self.subject,CollectionSubject::Shared{resource} if resource.engine == crate::Engine::Mssql && resource.kind == SharedResourceKind::Instance)
                 {
+                    return Err(CollectionStop::InvalidPage.error());
+                }
+            }
+            CollectionSelection::ClickHouseInvestigation { focus } => {
+                self.subject.require_database()?;
+                if !focus.is_valid() {
                     return Err(CollectionStop::InvalidPage.error());
                 }
             }
@@ -955,6 +963,7 @@ impl TelemetryRecord {
                     }
                     (SourceObservation::MaintenanceProgress { .. }, _)
                     | (_, OperationalFact::MaintenanceProgress(_)) => false,
+                    (_, OperationalFact::ClickHouse(point)) => accepted && point.fits_source(source),
                     (_, OperationalFact::MysqlGroupReplication(point)) => accepted && point.fits_source(source),
                     (SourceObservation::GroupReplication { .. }, _) => false,
                     (_, OperationalFact::MariadbGalera(point)) => accepted && point.fits_source(source),

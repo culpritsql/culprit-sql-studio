@@ -536,7 +536,7 @@ fn uuid_text_indexed_columns(snapshot: &Snapshot) -> Vec<UuidText<'_>> {
         Engine::Postgres => Some(NativeUuid::Postgres),
         Engine::Mssql => Some(NativeUuid::SqlServer),
         Engine::Mysql => Some(NativeUuid::Mysql),
-        Engine::Sqlite => None,
+        Engine::Clickhouse | Engine::Sqlite => None,
     };
     if native().is_none() {
         return Vec::new();

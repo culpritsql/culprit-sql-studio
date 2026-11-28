@@ -171,6 +171,7 @@
     "category": "queries",
     "description": "Single queries that take a large share of database time, with what their plan spends it on.",
     "engines": [
+      "clickhouse",
       "mssql",
       "postgres",
       "yugabyte",
@@ -185,6 +186,7 @@
     "category": "queries",
     "description": "Tiny queries executed so often that the round trips cost more than the work, typically a loop in application code.",
     "engines": [
+      "clickhouse",
       "mssql",
       "postgres",
       "yugabyte",
@@ -254,6 +256,7 @@
     "category": "queries",
     "description": "Queries whose duration swings wildly between runs with the same plan, a sign of parameter sensitivity or blocking.",
     "engines": [
+      "clickhouse",
       "mssql",
       "postgres",
       "yugabyte",
@@ -272,7 +275,8 @@
       "postgres",
       "yugabyte",
       "mysql",
-      "sqlite"
+      "sqlite",
+      "clickhouse"
     ],
     "id": "parameter-sensitive",
     "requires": [],
@@ -286,11 +290,22 @@
       "postgres",
       "yugabyte",
       "mysql",
-      "sqlite"
+      "sqlite",
+      "clickhouse"
     ],
     "id": "temp-spill",
     "requires": [],
     "title": "Temporary resource work"
+  },
+  {
+    "category": "maintenance",
+    "description": "Initial query exceptions, failed mutations, replica faults and rejected asynchronous inserts recorded by the observed node.",
+    "engines": [
+      "clickhouse"
+    ],
+    "id": "clickhouse-health",
+    "requires": [],
+    "title": "ClickHouse operational failures"
   },
   {
     "category": "maintenance",
@@ -543,7 +558,8 @@
       "postgres",
       "yugabyte",
       "mysql",
-      "sqlite"
+      "sqlite",
+      "clickhouse"
     ],
     "id": "network-wait",
     "requires": [],
@@ -694,7 +710,8 @@
       "postgres",
       "yugabyte",
       "mysql",
-      "sqlite"
+      "sqlite",
+      "clickhouse"
     ],
     "id": "lock-time",
     "requires": [],
@@ -804,7 +821,8 @@
       "postgres",
       "yugabyte",
       "mysql",
-      "sqlite"
+      "sqlite",
+      "clickhouse"
     ],
     "id": "slow-storage",
     "requires": [],

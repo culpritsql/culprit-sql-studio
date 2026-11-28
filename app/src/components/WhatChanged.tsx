@@ -412,7 +412,7 @@ export function ChangesSummary({ changes }: { changes: Changes }) {
         </span>
       </div>
       <p className="wc-source">
-        {changes.source === "query-store" ? t("ui.what_changed.source_query_store") : changes.source === "slow-log" ? t("ui.what_changed.source_slow_log") : changes.source === "native-intervals" ? t("ui.what_changed.source_native_intervals") : t("ui.what_changed.source_scans")}
+        {changes.source === "query-store" ? t("ui.what_changed.source_query_store") : changes.source === "click-house-log" ? t("provider.clickhouse.history") : changes.source === "slow-log" ? t("ui.what_changed.source_slow_log") : changes.source === "native-intervals" ? t("ui.what_changed.source_native_intervals") : t("ui.what_changed.source_scans")}
         {changes.baseline_coverage < 0.99 && <span className="medium"> · {t("ui.what_changed.coverage", { share: percent(changes.baseline_coverage) })}</span>}
       </p>
     </div>

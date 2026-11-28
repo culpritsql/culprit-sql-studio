@@ -379,7 +379,7 @@ fn all_source_grammars_use_the_same_directional_report_without_native_command_gu
         let sql = match engine.sql_syntax() {
             culprit_core::SqlSyntax::Mssql => "ALTER INDEX ix ON orders REBUILD",
             culprit_core::SqlSyntax::Postgres => "REINDEX INDEX ix",
-            culprit_core::SqlSyntax::Mysql => "OPTIMIZE TABLE orders",
+            culprit_core::SqlSyntax::Mysql | culprit_core::SqlSyntax::Clickhouse => "OPTIMIZE TABLE orders",
             culprit_core::SqlSyntax::Sqlite => "REINDEX ix",
         };
         let mut row = current("57", sql);

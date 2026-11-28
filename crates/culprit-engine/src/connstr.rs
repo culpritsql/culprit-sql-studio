@@ -141,6 +141,7 @@ fn read_server_url(input: &str, lower: &str) -> Option<Result<ConnectionSpec>> {
     use ServerUrlGrammar::{Authority, SqlServerJdbc};
     const SCHEMES: &[(&str, ServerUrlGrammar)] = &[
         ("jdbc:sqlserver:", SqlServerJdbc),
+        ("clickhouse:", Authority(Engine::Clickhouse)),
         ("yugabyte:", Authority(Engine::Yugabyte)),
         ("ysql:", Authority(Engine::Yugabyte)),
         ("jdbc:yugabytedb:", Authority(Engine::Yugabyte)),

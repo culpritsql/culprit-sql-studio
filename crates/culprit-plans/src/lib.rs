@@ -16,6 +16,7 @@ mod deadlocks;
 pub use culprit_core::PlanFormat;
 pub use deadlocks::parse_deadlocks;
 pub use mssql::events::{parse_xel_batch as parse_xel_events, parse_xml_batch as parse_extended_events_xml};
+pub mod clickhouse;
 pub mod export;
 pub mod mssql;
 pub mod mysql;
@@ -115,6 +116,7 @@ fn read_plan(input: &str, source_engine: Option<Engine>) -> Result<Plan> {
     let format = source_engine.map_or(detected, |engine| native_format(detected, engine));
     let unreadable = |e: Error| Error::invalid(t!("engine.plans.unreadable", format = format.label(), why = e.message));
     let mut plan = match format {
+        PlanFormat::ClickHouseJson => clickhouse::parse(text),
         PlanFormat::ShowplanXml => showplan(text),
         PlanFormat::PostgresJson => postgres_json(text),
         PlanFormat::YugabyteJson => yugabyte_json(text),
@@ -211,6 +213,9 @@ fn json_format(value: &Value) -> Option<PlanFormat> {
         other => other,
     };
     let o = top.as_object()?;
+    if clickhouse::recognized(value) {
+        return Some(PlanFormat::ClickHouseJson);
+    }
     if o.contains_key("Plan") {
         Some(
             if ["Storage Read Requests", "Storage Table Read Requests", "Storage Filter", "Storage Index Filter"]

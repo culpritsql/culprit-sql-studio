@@ -309,6 +309,12 @@ impl OperationalFact {
                 Some(sql_reference("/record/data/fact/data/request/statement", &value.request.statement))
             }
             Self::PostgresLog(value) => Some(sql_reference("/record/data/fact/data/statement", &value.statement)),
+            Self::ClickHouse(point) => match point.as_ref() {
+                ClickHouseObservation::QueryFamily(row) => {
+                    Some(sql_reference("/record/data/fact/data/observation/sample", &row.sample))
+                }
+                _ => None,
+            },
             Self::MssqlExtendedEvent(value) => {
                 Some(sql_reference("/record/data/fact/data/statement", &value.statement))
             }

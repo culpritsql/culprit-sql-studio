@@ -6,6 +6,10 @@ use serde_json::Value;
 #[derive(Serialize)]
 #[serde(tag = "kind", content = "data", rename_all = "kebab-case")]
 enum PublicObservation<'a> {
+    ClickHouseInvestigation {
+        snapshot: &'a StateSnapshotDescription,
+        focus_key: String,
+    },
     CollectorConnectionContext {
         attempt: &'a CaptureIdentity,
         snapshot_sha256: &'a str,
@@ -321,6 +325,9 @@ pub(super) fn observation(value: &SourceObservation) -> Result<Value> {
             statistics_layout: metadata.statistics_layout,
         },
         SourceObservation::Galera { snapshot, metadata } => PublicObservation::GaleraContext { snapshot, metadata },
+        SourceObservation::ClickHouseInvestigation { snapshot, focus } => {
+            PublicObservation::ClickHouseInvestigation { snapshot, focus_key: focus.key()? }
+        }
         SourceObservation::TableMemory { snapshot, target, metadata, database_writable } => {
             PublicObservation::TableMemoryContext {
                 snapshot,

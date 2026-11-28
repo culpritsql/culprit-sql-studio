@@ -5,5 +5,6 @@
   { "product": "yugabyte", "files": ["yugabyte-index.json", "yugabyte-scan.json"], "names": ["DocDB index scan", "DocDB table scan"] },
   { "product": "mysql", "files": ["mysql-index.json", "mysql-scan.json"], "names": ["Plan 4", "Plan 5"] },
   { "product": "mariadb", "files": ["mariadb-index.json", "mariadb-scan.json"], "names": ["Plan 7", "Plan 8"] },
+  { "product": "clickhouse", "files": ["clickhouse-read.json", "clickhouse-aggregate.json"], "names": ["Read numbers", "Aggregate and sort"] },
   { "product": "sqlite", "files": ["sqlite-index.txt", "sqlite-scan.txt"], "names": ["Index search", "Table scan"] }
 ]

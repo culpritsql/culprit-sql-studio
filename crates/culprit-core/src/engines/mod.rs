@@ -8,6 +8,7 @@
 //! language, and what the app reads (`app/src/gen/engines.json`, [`EngineFacts`]) are message keys, with ids its messages
 //! `select` on where another language's words agree with the engine's (its log, its planning step).
 
+mod clickhouse;
 mod mssql;
 mod mysql;
 mod postgres;
@@ -109,6 +110,10 @@ impl SessionIdFormat {
 
 /// One engine, as checks and every surface see it.
 pub trait EngineSpec: Send + Sync {
+    /// A native source without wait categories can explain which request measurements it does retain.
+    fn unavailable_wait_categories(&self) -> Option<&'static str> {
+        None
+    }
     /// Source-free network endpoint default. None means this provider does not have a network port.
     fn default_port(&self) -> Option<u16>;
 
@@ -303,10 +308,16 @@ pub trait EngineSpec: Send + Sync {
 #[serde(rename_all = "lowercase")]
 #[ts(export)]
 pub enum SqlSyntax {
+    Clickhouse,
     Mssql,
     Postgres,
     Mysql,
     Sqlite,
+}
+impl SqlSyntax {
+    pub(crate) fn dollar_quoted_strings(self) -> bool {
+        matches!(self, Self::Postgres | Self::Clickhouse)
+    }
 }
 
 #[derive(Serialize, Deserialize, TS, Clone, Copy, Debug, PartialEq, Eq)]
@@ -343,6 +354,7 @@ impl PlanningStep {
 #[serde(rename_all = "snake_case")]
 #[ts(export)]
 pub enum WriteLog {
+    Unavailable,
     Wal,
     TransactionLog,
 }
@@ -351,6 +363,7 @@ impl WriteLog {
     /// The message key of its name in a sentence: "WAL", "log".
     pub fn name_key(self) -> &'static str {
         match self {
+            WriteLog::Unavailable => key!("core.engines.clickhouse.no_log"),
             WriteLog::Wal => key!("core.engines.log.wal"),
             WriteLog::TransactionLog => key!("core.engines.log.transaction_log"),
         }
@@ -359,6 +372,7 @@ impl WriteLog {
     /// The message key of the label of what a statement wrote to it: "WAL written", "Log written".
     pub fn written_key(self) -> &'static str {
         match self {
+            WriteLog::Unavailable => key!("core.engines.clickhouse.no_log"),
             WriteLog::Wal => key!("core.engines.log_written.wal"),
             WriteLog::TransactionLog => key!("core.engines.log_written.transaction_log"),
         }
@@ -371,6 +385,7 @@ impl WriteLog {
 #[serde(rename_all = "snake_case")]
 #[ts(export)]
 pub enum ReadUnit {
+    RowsRead,
     Pages,
     RowsExamined,
 }
@@ -379,6 +394,7 @@ impl ReadUnit {
     /// The message key of a run's reads as a metric's label: "Pages read per run", "Rows examined per run".
     pub fn per_run_key(self) -> &'static str {
         match self {
+            ReadUnit::RowsRead => key!("core.engines.clickhouse.reads"),
             ReadUnit::Pages => key!("common.metric.pages_read_per_run"),
             ReadUnit::RowsExamined => key!("common.metric.rows_examined_per_run"),
         }
@@ -569,6 +585,7 @@ impl Engine {
             Engine::Yugabyte => &yugabyte::Yugabyte,
             Engine::Mysql => &mysql::Mysql,
             Engine::Sqlite => &sqlite::Sqlite,
+            Engine::Clickhouse => &clickhouse::ClickHouse,
         }
     }
 

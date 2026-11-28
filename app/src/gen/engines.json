@@ -762,5 +762,142 @@
     "integrity_history_note": null,
     "wait_sampling": null,
     "connection_security": null
+  },
+  "clickhouse": {
+    "default_port": 8443,
+    "evidence_presentation": {
+      "storage_about": "ui.beyond_time.storage.about",
+      "storage_untimed": "ui.beyond_time.storage.untimed",
+      "health_empty": "ui.health.empty_hint",
+      "generic_plan_context": "ui.plan_surface.generic_settings",
+      "statistics_freshness": "unavailable",
+      "statistics_absence_known": false,
+      "workload_windowed_by_default": true,
+      "deadlock_time_window": false,
+      "retained_actual_plans": false
+    },
+    "partition_tail": "unsupported",
+    "label": "ClickHouse",
+    "products": [
+      {
+        "id": "clickhouse",
+        "label": "ClickHouse",
+        "plan_format": "core.engines.clickhouse.plan_format",
+        "prefix": null
+      }
+    ],
+    "abilities": {
+      "sessions": true,
+      "wait_sample": false,
+      "deadlocks": false,
+      "measures_runs": false,
+      "plan_estimates": false,
+      "writes": false,
+      "periods": true,
+      "last_actual_plan": false,
+      "operator_progress": false,
+      "sign_in": true
+    },
+    "session_actions": [],
+    "session_id_format": "native-id",
+    "waiting_state": "active",
+    "connect": {
+      "choice": "ClickHouse",
+      "file": false,
+      "example": "clickhouse://reader@db.example.com:8443/analytics",
+      "accepts": "core.engines.clickhouse.accepts"
+    },
+    "limitations": [
+      "core.engines.clickhouse.history"
+    ],
+    "refusals": {
+      "deadlocks": {
+        "message": "core.engines.refusal.cant",
+        "hint": null
+      },
+      "last_actual_plan": {
+        "message": "core.engines.refusal.cant",
+        "hint": null
+      },
+      "measures_runs": {
+        "message": "core.engines.refusal.cant",
+        "hint": null
+      },
+      "operator_progress": {
+        "message": "core.engines.refusal.cant",
+        "hint": null
+      },
+      "plan_estimates": {
+        "message": "core.engines.refusal.cant",
+        "hint": null
+      },
+      "wait_sample": {
+        "message": "core.engines.refusal.cant",
+        "hint": null
+      },
+      "writes": {
+        "message": "core.engines.refusal.cant",
+        "hint": null
+      }
+    },
+    "sql_syntax": "clickhouse",
+    "statement_metrics": {
+      "planning": "planning",
+      "planning_label": "core.engines.planning.planning",
+      "planning_setting": null,
+      "compilation_history": false,
+      "reads": "rows_read",
+      "reads_label": "core.engines.clickhouse.reads",
+      "write_rows": null,
+      "lock_time": false,
+      "log": "unavailable",
+      "log_name": "core.engines.clickhouse.no_log",
+      "log_label": "core.engines.clickhouse.no_log",
+      "missing_costs_note": null,
+      "errors_note": null,
+      "runtime_note": "core.engines.clickhouse.history",
+      "runtime_histogram_note": null,
+      "runtime_cache_note": null
+    },
+    "constraint_validation": "unsupported",
+    "cleanup_evidence": "unavailable",
+    "integrity_history_note": null,
+    "wait_sampling": null,
+    "connection_security": {
+      "modes": [
+        {
+          "value": "verify-full",
+          "aliases": [],
+          "label": "ui.connection_security.mode.verify_identity",
+          "description": "ui.connection_security.description.verify_identity",
+          "allows_plaintext": false,
+          "verifies_identity": true,
+          "certificate_options": false,
+          "allows_trust_certificate": false,
+          "ca_verifies_certificate": false
+        },
+        {
+          "value": "disable",
+          "aliases": [],
+          "label": "ui.connection_security.mode.disabled",
+          "description": "ui.connection_security.description.disabled",
+          "allows_plaintext": true,
+          "verifies_identity": false,
+          "certificate_options": false,
+          "allows_trust_certificate": false,
+          "ca_verifies_certificate": false
+        }
+      ],
+      "default_mode": "verify-full",
+      "local_default_mode": "verify-full",
+      "mode_option": "sslmode",
+      "mode_aliases": [
+        "sslmode"
+      ],
+      "ca_option": "sslrootcert",
+      "ca_aliases": [],
+      "trust_certificate_option": null,
+      "hostname_option": null
+    }
   }
 }

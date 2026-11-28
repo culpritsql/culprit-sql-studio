@@ -140,6 +140,7 @@ pub(super) fn non_sargable(cx: &Cx) -> Vec<Draft> {
                 }
                 Engine::Mysql => t!("insight.non_sargable.fix.mysql", column = &col, table = &leaf, function = &lower),
                 Engine::Mssql => t!("insight.non_sargable.fix.mssql", column = &col, function = &func),
+                Engine::Clickhouse => t!("core.engines.clickhouse.sort_key"),
                 Engine::Sqlite => {
                     t!("insight.non_sargable.fix.sqlite", column = &col, table = &leaf, function = &lower)
                 }
@@ -178,6 +179,7 @@ pub(super) fn leading_wildcard(cx: &Cx) -> Vec<Draft> {
             Engine::Postgres => t!("insight.leading_wildcard.fix.postgres", named = named, column = &col),
             Engine::Mssql => t!("insight.leading_wildcard.fix.mssql", named = named, column = &col),
             Engine::Mysql => t!("insight.leading_wildcard.fix.mysql"),
+            Engine::Clickhouse => t!("core.engines.clickhouse.sort_key"),
             Engine::Sqlite => t!("insight.leading_wildcard.fix.sqlite"),
         };
         let facts = n.facts();
@@ -244,7 +246,7 @@ pub(super) fn not_in_work<'a>(cx: &Cx<'a>, n: &'a PlanNode) -> Option<Vec<&'a Pl
     let says_not_in = statement.is_empty() || statement.contains("not in");
     match cx.engine() {
         // EXPLAIN QUERY PLAN shows no per-row work to weigh.
-        Engine::Sqlite => None,
+        Engine::Sqlite | Engine::Clickhouse => None,
         Engine::Mssql => {
             let spools: Vec<&PlanNode> = n
                 .children
@@ -291,12 +293,14 @@ pub(super) fn not_in(cx: &Cx) -> Vec<Draft> {
         d.title = match cx.engine() {
             Engine::Mssql => t!("insight.not_in.title.mssql"),
             Engine::Postgres | Engine::Yugabyte => t!("insight.not_in.title.postgres"),
+            Engine::Clickhouse => continue,
             Engine::Sqlite => t!("insight.not_in.title.sqlite"),
             Engine::Mysql => t!("insight.not_in.title.mysql"),
         };
         d.detail = match cx.engine() {
             Engine::Mssql => t!("insight.not_in.detail.mssql", op = &n.op),
             Engine::Postgres | Engine::Yugabyte => t!("insight.not_in.detail.postgres"),
+            Engine::Clickhouse => continue,
             Engine::Sqlite => t!("insight.not_in.detail.sqlite"),
             Engine::Mysql => t!("insight.not_in.detail.mysql"),
         };
@@ -694,7 +698,7 @@ pub(super) fn slow_compile(cx: &Cx) -> Vec<Draft> {
     let (planning, running) = match cx.engine() {
         Engine::Mssql => (cx.plan.facts().compile_ms, None),
         Engine::Postgres | Engine::Yugabyte => (cx.plan.facts().planning_ms, cx.plan.facts().elapsed_ms),
-        Engine::Mysql | Engine::Sqlite => (None, None),
+        Engine::Mysql | Engine::Sqlite | Engine::Clickhouse => (None, None),
     };
     let Some(planning) = planning else { return Vec::new() };
     let slower_than_running = running.is_some_and(|r| planning > r && planning >= 20.0);
@@ -838,7 +842,7 @@ pub(super) fn correlated_subquery(cx: &Cx) -> Vec<Draft> {
                 let impact = if all > 0.0 { all / (cx.total - one + all) } else { 0.0 };
                 (runs, outer, impact.clamp(0.0, 1.0))
             }
-            Engine::Mssql | Engine::Sqlite => continue,
+            Engine::Mssql | Engine::Sqlite | Engine::Clickhouse => continue,
         };
         if runs < MANY_RUNS {
             continue;

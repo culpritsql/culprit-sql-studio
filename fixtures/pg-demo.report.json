@@ -1709,7 +1709,7 @@
     "analyzer": {
       "component": "culprit-checks",
       "revision": null,
-      "version": "0.6.2"
+      "version": "0.6.3"
     },
     "baselines": [],
     "collection": null,
@@ -1738,6 +1738,7 @@
         "unstable-query",
         "parameter-sensitive",
         "temp-spill",
+        "clickhouse-health",
         "stale-stats",
         "heap-table",
         "dead-rows",
@@ -1833,7 +1834,7 @@
     "previous_analyzer": {
       "component": "culprit-checks",
       "revision": null,
-      "version": "0.6.0"
+      "version": "0.6.2"
     }
   },
   "refinement": [

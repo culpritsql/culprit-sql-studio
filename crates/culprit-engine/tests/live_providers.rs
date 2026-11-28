@@ -23,7 +23,7 @@ fn connection() -> ConnectionSpec {
     };
     // The runner owns loopback-only servers with disposable development certificates.
     match engine {
-        Engine::Postgres | Engine::Yugabyte => {
+        Engine::Postgres | Engine::Yugabyte | Engine::Clickhouse => {
             spec.options.insert("sslmode".into(), "disable".into());
         }
         Engine::Mysql => {
@@ -234,11 +234,15 @@ async fn live_measured_plan_reports_confirmed_protection_without_changing_data()
     let table = engine.dialect().qualified(&[&configured("CULPRIT_SMOKE_SCHEMA"), "smoke_rows"]);
     let sql = format!("SELECT id, value FROM {table} WHERE id = 42");
     let before = provider.run(&sql, 2).await.unwrap();
+    if !engine.abilities().measures_runs {
+        assert!(provider.explain(&sql, ExplainMode::Analyze).await.is_err());
+        return;
+    }
     let measured = provider.explain(&sql, ExplainMode::Analyze).await.unwrap();
     let protection = match engine {
         Engine::Mssql | Engine::Postgres | Engine::Yugabyte => ExecutionProtection::RolledBackTransaction,
         Engine::Mysql => ExecutionProtection::ReadOnlyTransaction,
-        Engine::Sqlite => panic!("SQLite does not measure application statements"),
+        Engine::Sqlite | Engine::Clickhouse => unreachable!("checked measured execution capability"),
     };
     assert_eq!(measured.facts().execution_protection, Some(protection));
     assert_eq!(provider.run(&sql, 2).await.unwrap().rows, before.rows);

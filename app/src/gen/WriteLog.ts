@@ -4,4 +4,4 @@
  * The log a statement's changes are written to before they reach the data files: PostgreSQL's WAL, the others'
  * transaction log. Messages `select` on it (`{log, select, wal {..} other {..}}`).
  */
-export type WriteLog = "wal" | "transaction_log";
+export type WriteLog = "unavailable" | "wal" | "transaction_log";

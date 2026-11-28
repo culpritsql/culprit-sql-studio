@@ -1,4 +1,5 @@
 //! Existing native interpreters own qualification and wording; this adapter only selects their exact original.
+mod clickhouse;
 use super::incidents::resolve;
 use super::*;
 use crate::{LocalCaptureAnalysisKind as Kind, LocalSnapshotReport};
@@ -526,6 +527,9 @@ pub(super) fn original_observation(original: &dyn OriginalProjection, position: 
         SnapshotDataset::Cleanup => cleanup_observation(original, position),
         SnapshotDataset::MemoryFailures => memory_failure_observation(original, position),
         SnapshotDataset::NativeFailures => native_failure_observation(original, position),
+        SnapshotDataset::Operational if original.source().source == CLICKHOUSE_OPERATIONAL_SOURCE => {
+            clickhouse::explain(original, position)
+        }
         _ => Ok(Explanation::default()),
     }
 }

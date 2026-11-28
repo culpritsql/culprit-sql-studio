@@ -1004,6 +1004,7 @@ pub fn log_next_waits(snapshot: &Snapshot, slower_than: Option<f64>) -> LockHold
             LockHolder { lead: t!("support.lock_holder.azure_sql_database"), sql: None }
         }
         Engine::Mssql => LockHolder { lead: t!("support.lock_holder.mssql"), sql: None },
+        Engine::Clickhouse => LockHolder { lead: t!("core.engines.clickhouse.inspect_query"), sql: None },
         Engine::Sqlite => LockHolder { lead: t!("support.lock_holder.sqlite"), sql: None },
     }
 }
@@ -1030,6 +1031,7 @@ pub fn find_lock_holder(snapshot: &Snapshot, q: &QueryStat, waits: Option<f64>) 
             t!("support.lock_holder.log.azure_sql_database")
         }
         Engine::Mssql => t!("support.lock_holder.log.mssql"),
+        Engine::Clickhouse => t!("core.engines.clickhouse.inspect_query"),
         Engine::Sqlite => t!("support.lock_holder.log.sqlite"),
     };
     // A statement that ran once is history (`ran_once`): nothing is set up for it unless it runs again.

@@ -226,7 +226,8 @@ fn stale_stats_words() {
 // What each scenario said before its words moved to locales/en.json, which they must still say.
 const INFOS: &[(&str, &str)] = &[(
     "infos",
-    r#"stale-stats: Stale statistics: Tables whose optimizer statistics are far behind their data, which leads to bad row estimates and plans.
+    r#"clickhouse-health: ClickHouse operational failures: Initial query exceptions, failed mutations, replica faults and rejected asynchronous inserts recorded by the observed node.
+stale-stats: Stale statistics: Tables whose optimizer statistics are far behind their data, which leads to bad row estimates and plans.
 heap-table: Large tables without a clustered index: Heaps grow forwarded records and can't be read in key order; most OLTP tables should be clustered.
 dead-rows: Dead rows and lagging autovacuum: Tables carrying many dead tuples, which bloat storage and slow scans.
 xid-age: Transaction ID wraparound risk: Transaction ID age approaching the point where PostgreSQL stops accepting writes to protect data.

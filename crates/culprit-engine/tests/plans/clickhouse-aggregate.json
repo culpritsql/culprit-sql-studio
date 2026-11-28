@@ -1,0 +1,42 @@
+[
+  {
+    "Plan": {
+      "Node Type": "Expression",
+      "Node Id": "Expression_7",
+      "Description": "Project names",
+      "Plans": [
+        {
+          "Node Type": "Sorting",
+          "Node Id": "Sorting_6",
+          "Description": "Sorting for ORDER BY",
+          "Plans": [
+            {
+              "Node Type": "Expression",
+              "Node Id": "Expression_9",
+              "Description": "(Before ORDER BY + Projection)",
+              "Plans": [
+                {
+                  "Node Type": "Aggregating",
+                  "Node Id": "Aggregating_3",
+                  "Plans": [
+                    {
+                      "Node Type": "Expression",
+                      "Node Id": "Expression_8",
+                      "Description": "(Before GROUP BY + Change column names to column identifiers)",
+                      "Plans": [
+                        {
+                          "Node Type": "ReadFromSystemNumbers",
+                          "Node Id": "ReadFromSystemNumbers_0"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  }
+]

@@ -3,4 +3,4 @@
 /**
  * The database product a provider identified. Product branding does not select an execution provider.
  */
-export type DatabaseProduct = "mssql" | "postgres" | "timescale" | "yugabyte" | "mysql" | "mariadb" | "sqlite";
+export type DatabaseProduct = "clickhouse" | "mssql" | "postgres" | "timescale" | "yugabyte" | "mysql" | "mariadb" | "sqlite";

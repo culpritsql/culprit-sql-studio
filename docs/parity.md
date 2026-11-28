@@ -1,72 +1,68 @@
 # Engine parity
 
-Culprit uses the same workspace, findings, plans and agent tools across databases. The available evidence depends on
-what each database records. Choose a provider below for its setup, sources, supported operations, limits and verified
-versions.
+Culprit runs one analysis pipeline, workspace model, execution-plan viewer, migration linter, fleet collector and MCP toolset across seven database engines. What each scan or capture can prove depends on the measurements that engine records. Select a provider below for connection setup, read-only `GRANT` statements, workload and plan sources, live diagnostics, schema coverage, operational limits and verified releases.
 
 ## Providers
 
-| Database | Connection selection | Main evidence |
+| Database | Connection target | Main evidence |
 |---|---|---|
-| [SQL Server](providers/mssql.md) | SQL Server, including Azure SQL Database | Query Store, plan cache, DMVs and Extended Events |
-| [PostgreSQL](providers/postgres.md) | PostgreSQL, including Amazon RDS | `pg_stat_statements`, catalog/statistics views and EXPLAIN |
-| [TimescaleDB](providers/timescale.md) | PostgreSQL; extension detected automatically | PostgreSQL sources plus logical hypertable sizes and managed/compressed chunks |
-| [YugabyteDB](providers/yugabyte.md) | YugabyteDB | Native YSQL/DocDB counters, DIST plans, sharding and scoped activity sources |
-| [MySQL](providers/mysql.md) | MySQL / MariaDB | `performance_schema`, `sys`, EXPLAIN and the slow query log |
-| [MariaDB](providers/mariadb.md) | MySQL / MariaDB; product detected automatically | MariaDB plans, performance schema, slow log, user statistics and lock views |
-| [SQLite](providers/sqlite.md) | SQLite file | Read-only file/catalog inspection, EXPLAIN QUERY PLAN and optional application query logs |
+| [SQL Server](providers/mssql.md) | SQL Server, Azure SQL Database, Managed Instance and Amazon RDS | Query Store intervals, plan cache, DMVs, Showplan XML and Extended Events (`.xel` / XML) |
+| [PostgreSQL](providers/postgres.md) | PostgreSQL 15–18, Amazon RDS, Aurora and Azure Flexible Server | `pg_stat_statements`, catalog and I/O views, `EXPLAIN`, `hypopg` and JSON/CSV logs |
+| [TimescaleDB](providers/timescale.md) | PostgreSQL connection; `timescaledb` detected automatically | PostgreSQL sources plus logical hypertable storage, chunk compression and background job views |
+| [YugabyteDB](providers/yugabyte.md) | Dedicated `yugabyte://` / YSQL over DocDB provider | Native YSQL/DocDB RPC counters, `DIST` plans, `yb_pg_stat_plans`, ASH and tablet metadata |
+| [MySQL](providers/mysql.md) | MySQL 5.7–8.4, Amazon RDS, Aurora and Azure Flexible Server | `performance_schema` digests and histograms, `sys`, JSON/tree `EXPLAIN` and slow query log |
+| [MariaDB](providers/mariadb.md) | MySQL / MariaDB connection; MariaDB detected automatically | `performance_schema`, `slow_log` table, `userstat`, `ANALYZE FORMAT=JSON` and Galera status |
+| [SQLite](providers/sqlite.md) | Local read-only SQLite file (`query_only`) | Catalog pragmas, bounded `dbstat`, `sqlite_stat1`, `EXPLAIN QUERY PLAN` and framework query logs |
 
-Every provider page follows the same structure:
+Every provider guide follows the same seven sections:
 
-1. Connecting
-2. Permissions and setup
-3. Workload and plans
-4. Live activity and waits
-5. Schema and indexes
-6. Limits and evidence
-7. Verification
+1. **Connecting** — URLs, TLS defaults, cloud IAM / Entra ID, SSH jump hosts and IDE connection import
+2. **Permissions and setup** — Least-privilege read-only `GRANT` SQL and optional server telemetry setup
+3. **Workload and plans** — Statement history, runtime spread, estimated vs measured plans and virtual indexes
+4. **Live activity and waits** — Active sessions, lock chains, wait sampling, deadlocks and opt-in diagnostics
+5. **Schema and indexes** — Catalog inspection, index advice, storage layout and offline SQL migration linting
+6. **Limits and evidence** — Connection safety bounds, background collector coverage and strict attribution rules
+7. **Verification** — Reproducible Docker/file fixtures, verified server versions and source declarations
 
 ## Feature overview
 
-**✓** implemented · **◐** limited or supplied by a different source · **—** not supplied by the provider.
-Availability still depends on the server version, enabled sources and login permissions. The provider pages explain
-those conditions and the measurement period behind each result.
+**✓** supported natively · **◐** partial, version-dependent or supplied by an alternate source · **—** not recorded by the engine.
+Actual availability always depends on server version, enabled telemetry sources and login privileges.
 
 | Feature | SQL Server | PostgreSQL | TimescaleDB | YugabyteDB | MySQL | MariaDB | SQLite |
 |---|---|---|---|---|---|---|---|
 | Statement workload | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ◐ query log |
 | Timelines and period comparison | ✓ intervals | ◐ scans | ◐ scans | ◐ matching scans | ◐ scans / slow log | ◐ scans / slow log | — |
-| Estimated plans / access paths | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ◐ access paths only |
-| Explicitly measured execution plans | ✓ | ✓ | ✓ | ✓ DIST | ◐ version-dependent | ✓ ANALYZE | — |
-| Retained last actual execution plan | ◐ when enabled | — | — | — | — | — | — |
-| Live sessions and blocking | ✓ | ✓ | ✓ | ◐ native scoped evidence | ✓ | ✓ | — |
-| Live statement / operation progress | ✓ operator profiles | ◐ supported operations | ◐ PostgreSQL operations | ◐ supported native operations | ◐ plan / stages | ◐ version-dependent | — |
-| Recorded waits / activity | ✓ Query Store waits | ◐ timed statement I/O | ◐ PostgreSQL sources | ◐ weighted ASH observations | ◐ counters / lock time | ◐ counters / logged lock time | — |
+| Estimated plans / access paths | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ◐ EQP access paths |
+| Explicitly measured execution plans | ✓ | ✓ | ✓ | ✓ DIST | ◐ 8.0.18+ | ✓ ANALYZE | — |
+| Retained last actual execution plan | ◐ 2019+ opt-in | — | — | — | — | — | — |
+| Virtual indexes (`--with-index`) | — | ✓ `hypopg` | ✓ `hypopg` | ✓ `hypopg` | — | — | — |
+| Live sessions and blocking chains | ✓ | ✓ | ✓ | ◐ native scoped | ✓ | ✓ | — |
+| Live statement / operation progress | ✓ operator profiles | ◐ progress views | ◐ progress views | ◐ backfill / COPY | ◐ plan / stages | ◐ SHOW ANALYZE | — |
+| Recorded waits / activity | ✓ Query Store waits | ◐ timed I/O | ◐ PostgreSQL I/O | ◐ weighted ASH | ◐ counters / lock time | ◐ counters / lock time | — |
 | Live wait sample | ✓ counter deltas | ✓ sessions | ✓ sessions | ✓ sessions | ◐ counters / sessions | ◐ counters / sessions | — |
-| Deadlock evidence | ✓ retained events | ◐ counter / imported log | ◐ counter / imported log | — | ◐ latest report | ◐ latest report | — |
-| Index usage | ✓ | ✓ | ◐ ordinary tables | ◐ complete cluster counters | ✓ | ◐ performance schema / userstat | — |
-| Health and storage | ✓ | ✓ | ◐ logical storage and PostgreSQL sources | ◐ DocDB / shared nodes | ✓ | ✓ | ◐ file evidence |
+| Deadlock evidence | ✓ `.xel` / XML / XE | ◐ count + JSON/CSV log | ◐ count + JSON/CSV log | — | ◐ latest InnoDB | ◐ latest InnoDB | — |
+| Index usage and cleanup safety | ✓ | ✓ | ◐ ordinary tables | ◐ global views | ✓ (`INVISIBLE`) | ◐ `performance_schema` / `userstat` (`IGNORED`) | — |
+| Health, storage and posture | ✓ | ✓ | ◐ logical + PG | ◐ DocDB / nodes | ✓ | ✓ + Galera | ◐ file + WAL |
+| Offline SQL migration linting (SARIF) | ✓ | ✓ | ✓ hypertable-aware | ✓ DocDB-aware | ✓ | ✓ | ✓ |
+| Offline log / `.xel` diagnostics | ✓ `.xel` & XML | ✓ JSON & CSV | ✓ JSON & CSV | — | — | — | ✓ framework / JSONL |
+| Cloud auth & managed posture | ✓ Entra / Azure / RDS | ✓ AWS IAM / Entra | ◐ PostgreSQL auth | — | ✓ AWS IAM / Entra | ✓ AWS IAM / RDS | — |
+| Background fleet collector (ADX / CH) | ✓ | ✓ (24 datasets) | ◐ PostgreSQL base | ✓ (16 datasets) | ✓ | ✓ + `mariadb.galera` | ✓ (10 datasets) |
+| SSH jump hosts (`--ssh`) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | — |
 
-Saved scans, offline analysis, plan comparison, schema browsing, migration linting, exports and agent permissions share
-one workflow. Each provider's page defines what its underlying measurements and execution capabilities can establish.
+Saved scans, offline replay, plan comparison, schema drift, SARIF migration linting (`culprit lint-sql`), Markdown/JSON exports and [MCP agent guardrails](agents.md) work identically across providers.
 
 ## Evidence and missing data
 
-Missing or failed sources are shown with a reason. They do not produce zero measurements or a healthy assessment.
-Counters, sampled activity, retained events and current allocation keep their own dates, scope and units.
+Unavailable or permission-denied sources never silently become `0` or a clean bill of health: Culprit locks only the affected checks and explains which view, extension or `GRANT` was missing. Cumulative counters, sampled sessions, retained event buffers and current storage allocations keep their own timestamps, reset epochs and units.
 
-Rates need enough dated history. Claims that an index has never been used require at least a week of relevant counters.
-Comparisons require matching database identity, scope, contributors and reset history. The shared
-[evidence rules](providers/coverage.md) explain how those conditions apply to findings.
+Per-day rates require at least one hour of dated window (labeled "a day" only after 20 hours), and unused-index verdicts require at least seven days of continuous index-usage counters across every read-serving replica or node. Two-period comparisons verify matching database identity, contributor roster and counter reset history before computing deltas. Read the shared [evidence rules](providers/coverage.md) for the exact thresholds behind every check.
 
 <a id="verified-on"></a>
 <a id="versions"></a>
 
 ## Verification
 
-Each provider page records its verified versions, reproducible database or file fixture, and relevant source
-implementation. Older-version behavior and product differences are documented there alongside the feature they
-affect. A successful connection does not establish access to every optional source.
+Every provider page documents its verified engine releases, disposable local fixture (`dev/*`), and authoritative source table (`src/sources.rs`). Version-specific fallbacks and managed-cloud restrictions are listed alongside the capabilities they govern.
 
-For shared commands and workflows, see the [guide](guide.md). For collection and analysis boundaries, see the
-[architecture](ARCHITECTURE.md).
+For CLI commands, Studio workflows and exports, see the [user guide](guide.md). For the five-stage diagnostic pipeline (`sources → snapshot → prepare → detect → refine → rank`), see [architecture](ARCHITECTURE.md).

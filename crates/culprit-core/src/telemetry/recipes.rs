@@ -41,6 +41,7 @@ impl CollectionBudget {
 #[serde(tag = "kind", content = "collection", rename_all = "kebab-case")]
 #[ts(export)]
 pub enum RecipeSelector {
+    ClickHouseInvestigation,
     Collection(TelemetryCollection),
     ResourcePoolSettings,
     FocusedBlocking,
@@ -84,6 +85,8 @@ impl RecipeSelector {
             }
             (Self::ResourcePoolSettings, CollectionSelection::ResourcePoolSettings) => true,
             (Self::Collection(_), CollectionSelection::ResourcePoolSettings) => false,
+            (Self::ClickHouseInvestigation, CollectionSelection::ClickHouseInvestigation { .. }) => true,
+            (Self::Collection(_), CollectionSelection::ClickHouseInvestigation { .. }) => false,
             (Self::FocusedBlocking, CollectionSelection::FocusedBlocking { .. }) => true,
             (Self::Collection(_), CollectionSelection::FocusedBlocking { .. }) => false,
             (Self::PageWaitTasks, CollectionSelection::PageWaitTasks { .. }) => true,

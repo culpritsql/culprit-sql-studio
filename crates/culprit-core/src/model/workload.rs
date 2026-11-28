@@ -22,6 +22,8 @@ mod variant_tests;
 #[serde(rename_all = "kebab-case")]
 #[ts(export)]
 pub enum WorkloadKind {
+    /// Initial terminal events from the selected node and database in system.query_log.
+    ClickHouseQueryLog,
     /// SQL Server's Query Store: runtime statistics by interval, so a scan picks its window.
     QueryStore,
     /// SQL Server's plan cache: totals since each plan was cached.
@@ -1154,6 +1156,8 @@ pub enum TimelineSource {
     Scans,
     /// Runs logged one by one (MySQL and MariaDB's slow query log table), bucketed by when they ran.
     SlowLog,
+    /// Initial requests grouped by their terminal event in the local ClickHouse query log.
+    ClickHouseLog,
     /// Authenticated source-declared native runtime intervals, retaining their original scope and population.
     /// These are neither a Query Store claim nor differences of cumulative scans or individually logged runs.
     NativeIntervals,

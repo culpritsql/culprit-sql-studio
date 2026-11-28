@@ -13,6 +13,8 @@ pub use suspect_pages::{SuspectPageHistoryCase, assert_suspect_page_history_capt
 mod backup_history;
 pub use backup_history::{BackupHistoryCase, assert_backup_history_capture, backup_history_evidence};
 mod cdc;
+mod clickhouse;
+pub use clickhouse::{clickhouse_failure, clickhouse_failure_with_family};
 mod change_capture;
 pub use change_capture::multiple_errors as change_capture_multiple_errors;
 mod change_feed;

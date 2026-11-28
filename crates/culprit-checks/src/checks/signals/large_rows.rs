@@ -63,7 +63,7 @@ pub(super) fn large_value_type(engine: Engine, data_type: &str) -> bool {
         Engine::Postgres | Engine::Yugabyte => {
             matches!(t.as_str(), "text" | "bytea" | "json" | "jsonb" | "xml" | "varchar" | "character varying")
         }
-        Engine::Mysql | Engine::Sqlite => false,
+        Engine::Mysql | Engine::Clickhouse | Engine::Sqlite => false,
     }
 }
 

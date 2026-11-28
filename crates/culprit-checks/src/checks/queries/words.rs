@@ -17,6 +17,7 @@ fn many_rows_in_one_statement_are_said_in_each_engines_terms() {
             "YugabyteDB: an UPDATE over an array of keys (`= ANY($1)`), or joined to a VALUES list | an DELETE over an array of keys (`= ANY($1)`), or joined to a VALUES list | a multi-row VALUES, arrays unnested into rows, or COPY",
             "MySQL: an UPDATE over a list of keys (`IN (…)`), or joined to a temporary table of the changes | an DELETE over a list of keys (`IN (…)`), or joined to a temporary table of the changes | a multi-row VALUES, or LOAD DATA",
             "SQLite: an UPDATE over a list of keys (`IN (…)`), or joined to a temporary table of the changes | an DELETE over a list of keys (`IN (…)`), or joined to a temporary table of the changes | a multi-row VALUES",
+            "ClickHouse: Combine small inserts into batches and check the number of new parts per partition. | Combine small inserts into batches and check the number of new parts per partition. | Combine small inserts into batches and check the number of new parts per partition.",
         ]
     );
 }

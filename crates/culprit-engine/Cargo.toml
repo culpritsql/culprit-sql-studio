@@ -13,7 +13,7 @@ autotests = false
 doctest = false
 
 [features]
-default = ["mssql", "postgres", "yugabyte", "mysql", "sqlite", "auth-aws", "auth-azure"]
+default = ["mssql", "postgres", "yugabyte", "mysql", "sqlite", "clickhouse", "auth-aws", "auth-azure"]
 # Built-in authentication and cloud composition; embedders can supply the existing interfaces independently.
 auth-aws = ["dep:culprit-auth-aws"]
 auth-azure = ["dep:culprit-auth-azure", "dep:ureq"]
@@ -22,6 +22,7 @@ postgres = ["dep:culprit-postgres"]
 yugabyte = ["dep:culprit-yugabyte"]
 mysql = ["dep:culprit-mysql"]
 sqlite = ["dep:culprit-sqlite"]
+clickhouse = ["dep:culprit-clickhouse"]
 collector = ["dep:culprit-collector", "evidence"]
 evidence = ["dep:culprit-evidence"]
 warehouse-adx = ["evidence", "dep:culprit-store-adx"]
@@ -68,6 +69,7 @@ culprit-store-clickhouse = { workspace = true, optional = true, default-features
 culprit-checks.workspace = true
 culprit-mssql = { workspace = true, optional = true }
 culprit-postgres = { workspace = true, optional = true }
+culprit-clickhouse = { workspace = true, optional = true }
 culprit-yugabyte = { workspace = true, optional = true }
 culprit-mysql = { workspace = true, optional = true }
 culprit-sqlite = { workspace = true, optional = true }

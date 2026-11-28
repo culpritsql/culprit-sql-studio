@@ -541,7 +541,7 @@ impl Pressure {
 /// The stable key, label and plain meaning of a category, worded for this engine.
 pub fn category_info(key: &str, engine: Engine) -> (String, String) {
     let name = engine.label();
-    match key {
+    let (label, meaning) = match key {
         "rpc" => (t!("core.waits.category.rpc.label"), t!("core.waits.category.rpc.meaning")),
         "storage" => (t!("core.waits.category.storage.label"), t!("core.waits.category.storage.meaning")),
         "cpu" => (t!("core.waits.category.cpu.label"), t!("core.waits.category.cpu.meaning")),
@@ -558,6 +558,7 @@ pub fn category_info(key: &str, engine: Engine) -> (String, String) {
                 Engine::Postgres => t!("core.waits.category.log.meaning.postgres"),
                 Engine::Mysql => t!("core.waits.category.log.meaning.mysql"),
                 Engine::Mssql => t!("core.waits.category.log.meaning.mssql"),
+                Engine::Clickhouse => t!("core.engines.clickhouse.waits"),
                 Engine::Sqlite => t!("core.waits.category.log.meaning.sqlite"),
             },
         ),
@@ -571,12 +572,18 @@ pub fn category_info(key: &str, engine: Engine) -> (String, String) {
         "memory" => (t!("core.waits.category.memory.label"), t!("core.waits.category.memory.meaning")),
         "compilation" => (t!("core.waits.category.compilation.label"), t!("core.waits.category.compilation.meaning")),
         _ => (t!("core.waits.category.other.label"), t!("core.waits.category.other.meaning", engine = name)),
-    }
+    };
+    let meaning =
+        engine.spec().unavailable_wait_categories().map(|reason| crate::i18n::t(reason, &[])).unwrap_or(meaning);
+    (label, meaning)
 }
 
 /// What a category means, in its first sentence alone: [`category_info`]'s meaning, short enough for a tile. Its own
 /// message, never the meaning cut at a full stop.
 pub fn category_gist(key: &str, engine: Engine) -> String {
+    if let Some(reason) = engine.spec().unavailable_wait_categories() {
+        return crate::i18n::t(reason, &[]);
+    }
     match key {
         "rpc" => t!("core.waits.category.rpc.gist"),
         "storage" => t!("core.waits.category.storage.gist"),
@@ -591,6 +598,7 @@ pub fn category_gist(key: &str, engine: Engine) -> String {
             Engine::Postgres => t!("core.waits.category.log.gist.postgres"),
             Engine::Mysql => t!("core.waits.category.log.gist.mysql"),
             Engine::Mssql => t!("core.waits.category.log.gist.mssql"),
+            Engine::Clickhouse => t!("core.engines.clickhouse.waits"),
             Engine::Sqlite => t!("core.waits.category.log.gist.sqlite"),
         },
         "log-governance" => t!("core.waits.category.log_governance.gist"),
@@ -859,7 +867,21 @@ Sqlite network: Sending results | SQLite has results ready but the application r
 Sqlite parallelism: Parallel queries | Threads of a parallel query waiting for each other. Often a big scan that an index would avoid, or work split unevenly across threads.
 Sqlite memory: Memory | Waiting for memory: a grant to sort or hash before a query can start (RESOURCE_SEMAPHORE), or an allocation inside the server (CMEMTHREAD, MEMORY_ALLOCATION_EXT). Grant waits usually mean a few queries reserve far more than they use; allocation waits mean many sessions contend for one of the server's memory objects.
 Sqlite compilation: Compiling plans | Building query plans. A lot of it means the application sends one-off statements instead of parameterized ones.
-Sqlite other: Everything else | Everything SQLite doesn't break down further."#
+Sqlite other: Everything else | Everything SQLite doesn't break down further.
+Clickhouse rpc: Distributed RPCs | ClickHouse reports query duration and work counters without an exclusive wait-time breakdown.
+Clickhouse storage: Storage I/O | ClickHouse reports query duration and work counters without an exclusive wait-time breakdown.
+Clickhouse cpu: CPU | ClickHouse reports query duration and work counters without an exclusive wait-time breakdown.
+Clickhouse workers: Execution workers | ClickHouse reports query duration and work counters without an exclusive wait-time breakdown.
+Clickhouse io: Disk reads | ClickHouse reports query duration and work counters without an exclusive wait-time breakdown.
+Clickhouse rows: Row access | ClickHouse reports query duration and work counters without an exclusive wait-time breakdown.
+Clickhouse lock: Locks | ClickHouse reports query duration and work counters without an exclusive wait-time breakdown.
+Clickhouse latch: In-memory contention | ClickHouse reports query duration and work counters without an exclusive wait-time breakdown.
+Clickhouse log: Log writes | ClickHouse reports query duration and work counters without an exclusive wait-time breakdown.
+Clickhouse network: Sending results | ClickHouse reports query duration and work counters without an exclusive wait-time breakdown.
+Clickhouse parallelism: Parallel queries | ClickHouse reports query duration and work counters without an exclusive wait-time breakdown.
+Clickhouse memory: Memory | ClickHouse reports query duration and work counters without an exclusive wait-time breakdown.
+Clickhouse compilation: Compiling plans | ClickHouse reports query duration and work counters without an exclusive wait-time breakdown.
+Clickhouse other: Everything else | ClickHouse reports query duration and work counters without an exclusive wait-time breakdown."#
         );
     }
 

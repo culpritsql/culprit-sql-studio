@@ -89,7 +89,7 @@ fn stale_tables(snapshot: &Snapshot) -> Vec<StaleTable<'_>> {
         Engine::Postgres => pg_stale(snapshot),
         Engine::Mysql | Engine::Yugabyte => Vec::new(),
         // SQLite has no change counters to age statistics by; a file without them is `sqlite::statistics`'s finding.
-        Engine::Sqlite => Vec::new(),
+        Engine::Clickhouse | Engine::Sqlite => Vec::new(),
     };
     stale.sort_by(|a, b| (b.modifications / b.rows.max(1.0)).total_cmp(&(a.modifications / a.rows.max(1.0))));
     stale

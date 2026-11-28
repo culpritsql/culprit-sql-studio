@@ -62,6 +62,7 @@ fn live_actor_labels_use_explicit_engine_facts_without_changing_native_activity_
         (Engine::Yugabyte, NativeIdAndGeneration),
         (Engine::Mysql, NativeId),
         (Engine::Sqlite, NativeId),
+        (Engine::Clickhouse, NativeId),
     ];
     assert_eq!(cases.map(|case| case.0), Engine::ALL);
     let identity = crate::telemetry::NativeActivityIdentity {
@@ -87,6 +88,7 @@ fn cleanup_evidence_semantics_are_required_for_every_engine_and_shared_with_fron
         (Engine::Yugabyte, Unavailable),
         (Engine::Mysql, SharedUndoReadViews),
         (Engine::Sqlite, FileLock),
+        (Engine::Clickhouse, Unavailable),
     ];
     assert_eq!(cases.map(|case| case.0), Engine::ALL, "new engines must declare their native cleanup evidence");
     for (engine, expected) in cases {
@@ -109,6 +111,7 @@ fn constraint_semantics_are_explicit_for_every_engine() {
         (Engine::Yugabyte, Deferred),
         (Engine::Mysql, Unsupported),
         (Engine::Sqlite, Unsupported),
+        (Engine::Clickhouse, Unsupported),
     ];
     assert_eq!(cases.map(|c| c.0), Engine::ALL, "Declare native semantics for each new engine");
     for (engine, constraints) in cases {
@@ -125,7 +128,7 @@ fn partition_tail_semantics_are_explicit_for_every_engine_and_shared_with_fronte
         let expected = match engine {
             Engine::Mssql => PartitionTail::Unbounded,
             Engine::Postgres | Engine::Mysql | Engine::Yugabyte => PartitionTail::FromCatalog,
-            Engine::Sqlite => PartitionTail::Unsupported,
+            Engine::Sqlite | Engine::Clickhouse => PartitionTail::Unsupported,
         };
         assert_eq!(engine.spec().partition_tail(), expected);
         assert_eq!(engine.facts().partition_tail, expected);
@@ -273,6 +276,7 @@ fn every_engine_declares_its_vocabulary_as_messages_and_ids() {
         (Engine::Yugabyte, Planning, TransactionLog, Pages, Some(Changed)),
         (Engine::Mysql, Planning, TransactionLog, RowsExamined, None),
         (Engine::Sqlite, Planning, TransactionLog, Pages, Some(Returned)),
+        (Engine::Clickhouse, Planning, WriteLog::Unavailable, ReadUnit::RowsRead, None),
     ];
     assert_eq!(cases.map(|c| c.0), Engine::ALL, "Declare the vocabulary of each new engine explicitly");
     let english = crate::i18n::english();
@@ -680,6 +684,55 @@ Sqlite.wait_not_per_statement.0.memory: SQLite keeps no waits.
 Sqlite.index_advice_sources.0.true: Some("SQLite doesn't record missing-index requests. Candidates come from the indexes it builds for itself on every run of the logged statements, and foreign keys.")
 Sqlite.index_advice_sources.0.false: Some("SQLite keeps no history of the statements it ran, so candidates come from foreign keys only. With the application's query log on the connection, the indexes SQLite builds for itself on every run join them.")
 Sqlite.refresh_statistics: Run ANALYZE, so the planner knows each table's size and how selective each index is. | Some("ANALYZE public.orders;") | Some("ANALYZE reads the indexes and briefly takes the write lock to store what it found.")
+Clickhouse.plan_format.Clickhouse: ClickHouse EXPLAIN PLAN JSON
+Clickhouse.accepts: Use a ClickHouse HTTP endpoint, database and read-only account.
+Clickhouse.waiting_state: active
+Clickhouse.limitation.0: Query history covers retained executions visible on the observed node. Logging rules and retention can limit coverage.
+Clickhouse.limitations.0: Query history covers retained executions visible on the observed node. Logging rules and retention can limit coverage.
+Clickhouse.refusal.deadlocks: ClickHouse can't do this (deadlocks)
+Clickhouse.refusal.last_actual_plan: ClickHouse can't do this (last actual plan)
+Clickhouse.refusal.measures_runs: ClickHouse can't do this (measures runs)
+Clickhouse.refusal.operator_progress: ClickHouse can't do this (operator progress)
+Clickhouse.refusal.plan_estimates: ClickHouse can't do this (plan estimates)
+Clickhouse.refusal.wait_sample: ClickHouse can't do this (wait sample)
+Clickhouse.refusal.writes: ClickHouse can't do this (writes)
+Clickhouse.refused.sessions: ClickHouse can't do this (sessions)
+Clickhouse.refused.wait_sample: ClickHouse can't do this (wait sample)
+Clickhouse.refused.deadlocks: ClickHouse can't do this (deadlocks)
+Clickhouse.refused.measures_runs: ClickHouse can't do this (measures runs)
+Clickhouse.refused.plan_estimates: ClickHouse can't do this (plan estimates)
+Clickhouse.refused.writes: ClickHouse can't do this (writes)
+Clickhouse.refused.periods: ClickHouse can't do this (periods)
+Clickhouse.refused.last_actual_plan: ClickHouse can't do this (last actual plan)
+Clickhouse.refused.operator_progress: ClickHouse can't do this (operator progress)
+Clickhouse.refused.sign_in: ClickHouse can't do this (sign in)
+Clickhouse.metrics.planning_label: Planning
+Clickhouse.metrics.write_rows_label: None
+Clickhouse.metrics.log_name: log volume
+Clickhouse.metrics.log_label: log volume
+Clickhouse.metrics.missing_costs_note.ClickHouse: None
+Clickhouse.metrics.errors_note.ClickHouse: None
+Clickhouse.metrics.runtime_note.ClickHouse: Some("Query history covers retained executions visible on the observed node. Logging rules and retention can limit coverage.")
+Clickhouse.metrics.runtime_histogram_note.ClickHouse: None
+Clickhouse.metrics.runtime_cache_note.ClickHouse: None
+Clickhouse.session_advice.discard: None
+Clickhouse.session_advice.reset: None
+Clickhouse.session_advice.set: None
+Clickhouse.deadlock_limitation: None
+Clickhouse.unused_index_advice.0.None: Inspect the sorting key and the parts and granules selected for this query.
+Clickhouse.unused_index_advice.0.Some("hypertable"): Inspect the sorting key and the parts and granules selected for this query.
+Clickhouse.unused_index_advice.0.Some("timescale-chunk"): Inspect the sorting key and the parts and granules selected for this query.
+Clickhouse.change_setting.0.work_mem: Review work_mem in the applicable ClickHouse settings profile before changing it to 64MB. | None
+Clickhouse.database_setting.0.work_mem: None
+Clickhouse.change_setting.0.max_connections: Review max_connections in the applicable ClickHouse settings profile before changing it to 200. | None
+Clickhouse.database_setting.0.max_connections: None
+Clickhouse.wait_not_per_statement.0.io: ClickHouse reports query duration and work counters without an exclusive wait-time breakdown.
+Clickhouse.wait_not_per_statement.0.lock: ClickHouse reports query duration and work counters without an exclusive wait-time breakdown.
+Clickhouse.wait_not_per_statement.0.cpu: ClickHouse reports query duration and work counters without an exclusive wait-time breakdown.
+Clickhouse.wait_not_per_statement.0.memory: ClickHouse reports query duration and work counters without an exclusive wait-time breakdown.
+Clickhouse.index_advice_sources.0.true: Some("Inspect the sorting key and the parts and granules selected for this query.")
+Clickhouse.index_advice_sources.0.false: Some("Inspect the sorting key and the parts and granules selected for this query.")
+Clickhouse.refresh_statistics: Inspect the sorting key and the parts and granules selected for this query. | None | None
 Yugabyte.session_target: Select a node-qualified YSQL session from Live"#;
 
 #[test]
@@ -706,6 +759,7 @@ fn evidence_presentation_has_explicit_native_semantics_for_every_engine() {
         (Engine::Yugabyte, Unavailable, false, false, false),
         (Engine::Mysql, PerTable, false, true, false),
         (Engine::Sqlite, Unavailable, false, false, false),
+        (Engine::Clickhouse, Unavailable, true, false, false),
     ];
     assert_eq!(cases.map(|c| c.0), Engine::ALL);
     for (engine, statistics, windowed, deadlocks, retained) in cases {
@@ -739,6 +793,7 @@ fn every_engine_declares_the_same_source_free_default_port_for_native_clients_an
         (Engine::Yugabyte, Some(5433)),
         (Engine::Mysql, Some(3306)),
         (Engine::Sqlite, None),
+        (Engine::Clickhouse, Some(8443)),
     ];
     assert_eq!(expected.len(), Engine::ALL.len());
     for engine in Engine::ALL {

@@ -24,9 +24,9 @@ logged-errors     SQL errors recorded by the application
 repeated-request  Repeated statements within logged requests
                   SQL Server, PostgreSQL, YugabyteDB, MySQL/MariaDB, SQLite · Repeated SQL shapes correlated by explicit request_id in structured logs. Repetition identifies a caller to inspect; it does not prove an N+1 bug or removable work.
 heavy-query       Queries that dominate database time
-                  SQL Server, PostgreSQL, YugabyteDB, MySQL/MariaDB, SQLite · Single queries that take a large share of database time, with what their plan spends it on.
+                  ClickHouse, SQL Server, PostgreSQL, YugabyteDB, MySQL/MariaDB, SQLite · Single queries that take a large share of database time, with what their plan spends it on.
 chatty-query      Chatty queries
-                  SQL Server, PostgreSQL, YugabyteDB, MySQL/MariaDB · Tiny queries executed so often that the round trips cost more than the work, typically a loop in application code.
+                  ClickHouse, SQL Server, PostgreSQL, YugabyteDB, MySQL/MariaDB · Tiny queries executed so often that the round trips cost more than the work, typically a loop in application code.
 plan-warnings     Plan warnings
                   SQL Server, PostgreSQL, YugabyteDB, MySQL/MariaDB · Implicit conversions, spills, missing join predicates and missing statistics in the plans of heavy queries.
 plan-insights     Plan insights
@@ -36,11 +36,13 @@ plan-regression   Plan regressions
 regression        Queries that got slower
                   SQL Server, PostgreSQL, YugabyteDB, MySQL/MariaDB · Queries whose runs became much slower at some point in the window, with when it started and whether a plan change coincides. Needs Query Store history or a few earlier scans.
 unstable-query    Unstable queries
-                  SQL Server, PostgreSQL, YugabyteDB, MySQL/MariaDB, SQLite · Queries whose duration swings wildly between runs with the same plan, a sign of parameter sensitivity or blocking.
+                  ClickHouse, SQL Server, PostgreSQL, YugabyteDB, MySQL/MariaDB, SQLite · Queries whose duration swings wildly between runs with the same plan, a sign of parameter sensitivity or blocking.
 parameter-sensitive  Recorded query runtime differences
-                  SQL Server, PostgreSQL, YugabyteDB, MySQL/MariaDB, SQLite · Different plan averages or a long runtime tail identify statements worth investigating. They do not establish input-dependent plan reuse; the cause requires further evidence.
+                  SQL Server, PostgreSQL, YugabyteDB, MySQL/MariaDB, SQLite, ClickHouse · Different plan averages or a long runtime tail identify statements worth investigating. They do not establish input-dependent plan reuse; the cause requires further evidence.
 temp-spill        Temporary resource work
-                  SQL Server, PostgreSQL, YugabyteDB, MySQL/MariaDB, SQLite · Recorded temporary I/O, internal table creation and space use, without inferring elapsed cost or a memory shortage.
+                  SQL Server, PostgreSQL, YugabyteDB, MySQL/MariaDB, SQLite, ClickHouse · Recorded temporary I/O, internal table creation and space use, without inferring elapsed cost or a memory shortage.
+clickhouse-health  ClickHouse operational failures
+                  ClickHouse · Initial query exceptions, failed mutations, replica faults and rejected asynchronous inserts recorded by the observed node.
 stale-stats       Stale statistics
                   SQL Server, PostgreSQL · Tables whose optimizer statistics are far behind their data, which leads to bad row estimates and plans.
 heap-table        Large tables without a clustered index
@@ -84,7 +86,7 @@ worker-pressure   Running out of workers or connections
 held-cleanup      A long open transaction holds cleanup back
                   SQL Server, PostgreSQL, MySQL/MariaDB · The transaction that holds this database's cleanup back: one with uncommitted changes or row versions here (SQL Server), the oldest snapshot, replication slot or prepared transaction behind VACUUM's horizon (PostgreSQL), or the oldest read view behind InnoDB's purge (MySQL).
 network-wait      Queries with recorded network waits
-                  SQL Server, PostgreSQL, YugabyteDB, MySQL/MariaDB, SQLite · Statements with material recorded network waits. These totals do not by themselves identify a slow client, transport problem or responsible component.
+                  SQL Server, PostgreSQL, YugabyteDB, MySQL/MariaDB, SQLite, ClickHouse · Statements with material recorded network waits. These totals do not by themselves identify a slow client, transport problem or responsible component.
 tier-limit        Resource use near the cloud tier's limits
                   SQL Server · Azure SQL Database resources (CPU, data IO, log writes, workers) persistently near their limits in the available selected-period samples.
 checkpoint-pressure  Requested checkpoints
@@ -112,7 +114,7 @@ jit-overhead      JIT compilation that takes much of a statement's time
 log-volume        Writes that produce most of the log
                   SQL Server, PostgreSQL · Statements that write a large share of the WAL (PostgreSQL 13+) or transaction log (SQL Server 2017+), or many kilobytes of it per row changed. Log volume drives replication lag, backup size and checkpoints. MySQL keeps no redo bytes per statement.
 lock-time         Queries with material recorded lock waits
-                  SQL Server, PostgreSQL, YugabyteDB, MySQL/MariaDB, SQLite · Statements with material recorded lock waits. Totals can accumulate across workers and do not identify the lock resource or blocking request.
+                  SQL Server, PostgreSQL, YugabyteDB, MySQL/MariaDB, SQLite, ClickHouse · Statements with material recorded lock waits. Totals can accumulate across workers and do not identify the lock resource or blocking request.
 big-result        Queries that return huge results
                   SQL Server, PostgreSQL, YugabyteDB, MySQL/MariaDB · Reads that send tens of thousands of rows to the application on every run, with an estimate in bytes from the plan's row width where the engine gives one.
 hot-rows          Rows that many sessions fight over
@@ -132,7 +134,7 @@ table-bloat       Tables that are mostly empty space
 large-rows        Tables whose rows are mostly large values
                   SQL Server, PostgreSQL · Tables whose rows average many kilobytes, most of it in large values kept apart from the rows (SQL Server's LOB pages, PostgreSQL's TOAST): every statement that reads whole rows pulls them in, every write that sets them writes them again. From the catalog's page counts; no data is read.
 slow-storage      Storage that's slow to read or write
-                  SQL Server, PostgreSQL, YugabyteDB, MySQL/MariaDB, SQLite · Recorded timing per native storage operation, with each source’s scope and reset period. Cache pages, remote page responses and log-service accounting remain separate.
+                  SQL Server, PostgreSQL, YugabyteDB, MySQL/MariaDB, SQLite, ClickHouse · Recorded timing per native storage operation, with each source’s scope and reset period. Cache pages, remote page responses and log-service accounting remain separate.
 connection-churn  Applications that connect for every request
                   SQL Server, PostgreSQL, MySQL/MariaDB · New connections per second since startup (SQL Server logins, PostgreSQL 14+ sessions, MySQL and MariaDB Connections), with how long sessions last and how many came from a pool where the engine says.
 replica-lag       Replicas that fall behind
@@ -310,6 +312,20 @@ SQLite
   settings                  file settings · adds detail
   query log                 the application's query log · Application query log
   wal_file                  WAL sidecar file size (metadata only) · adds detail
+ClickHouse
+  tables                    ClickHouse system table measurements · Table statistics
+  columns                   ClickHouse system table measurements · adds detail
+  workload                  ClickHouse query log · ClickHouse query log
+  system.query_log.timeline ClickHouse system table measurements · adds detail
+  system.processes          Active initial queries on this node using the selected default database · Sessions and blocking
+  system.query_log.exceptions ClickHouse system table measurements · adds detail
+  system.parts              ClickHouse system table measurements · adds detail
+  system.merges             ClickHouse system table measurements · adds detail
+  system.mutations          ClickHouse system table measurements · adds detail
+  system.replicas           ClickHouse system table measurements · adds detail
+  system.replication_queue  ClickHouse system table measurements · adds detail
+  system.distribution_queue ClickHouse system table measurements · adds detail
+  system.asynchronous_insert_log ClickHouse system table measurements · adds detail
 $ culprit --format text deadlocks --file -
 The source returned 1 recorded deadlock graph.
 The source does not establish deadlock counts for this database. Recorded incidents remain available in deadlock history.

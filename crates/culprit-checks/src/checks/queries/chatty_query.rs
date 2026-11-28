@@ -10,7 +10,7 @@ pub fn chatty_query_info() -> CheckInfo {
         id: "chatty-query".into(),
         title: t!("check.chatty_query.info.title"),
         category: Category::Queries,
-        engines: vec![Engine::Mssql, Engine::Postgres, Engine::Yugabyte, Engine::Mysql],
+        engines: vec![Engine::Clickhouse, Engine::Mssql, Engine::Postgres, Engine::Yugabyte, Engine::Mysql],
         requires: vec![],
         description: t!("check.chatty_query.info.description"),
     }
@@ -494,6 +494,7 @@ fn counter_fix(snapshot: &Snapshot, isolated: bool) -> String {
         Engine::Postgres | Engine::Yugabyte => t!("check.chatty_query.sequence.postgres"),
         Engine::Mysql if snapshot.server.is_mariadb() => t!("check.chatty_query.sequence.mariadb"),
         Engine::Mysql => t!("check.chatty_query.sequence.mysql"),
+        Engine::Clickhouse => return t!("provider.clickhouse.batch"),
         Engine::Sqlite => t!("check.chatty_query.sequence.sqlite"),
     };
     t!("check.chatty_query.fix.counter", sequence = sequence)

@@ -103,6 +103,7 @@ pub(super) fn many_keys(engine: Engine, verb: &str) -> String {
     match engine {
         Engine::Mssql => t!("queries.many_keys.mssql", verb = verb),
         Engine::Postgres | Engine::Yugabyte => t!("queries.many_keys.postgres", verb = verb),
+        Engine::Clickhouse => t!("provider.clickhouse.batch"),
         Engine::Mysql | Engine::Sqlite => t!("queries.many_keys.mysql", verb = verb),
     }
 }
@@ -113,6 +114,7 @@ pub(super) fn bulk_insert(engine: Engine) -> String {
         Engine::Mssql => t!("queries.bulk_insert.mssql"),
         Engine::Postgres | Engine::Yugabyte => t!("queries.bulk_insert.postgres"),
         Engine::Mysql => t!("queries.bulk_insert.mysql"),
+        Engine::Clickhouse => t!("provider.clickhouse.batch"),
         Engine::Sqlite => t!("queries.bulk_insert.sqlite"),
     }
 }

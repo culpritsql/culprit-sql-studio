@@ -48,6 +48,7 @@ pub(crate) fn modes(engine: Engine) -> &'static [Mode] {
             &[Mode { backslash: Literal, double_quote: Identifier }, Mode { backslash: Literal, double_quote: String }]
         }
         // NO_BACKSLASH_ESCAPES × ANSI_QUOTES.
+        SqlSyntax::Clickhouse => &[Mode { backslash: Escapes, double_quote: Identifier }],
         SqlSyntax::Mysql => &[
             Mode { backslash: Escapes, double_quote: String },
             Mode { backslash: Literal, double_quote: String },
@@ -216,7 +217,7 @@ fn lex_into<'a>(
             {
                 i = line_end(bytes, i);
             }
-            b'#' if engine == SqlSyntax::Mysql => i = line_end(bytes, i),
+            b'#' if matches!(engine, SqlSyntax::Clickhouse | SqlSyntax::Mysql) => i = line_end(bytes, i),
             b'/' if next == Some(b'*') => {
                 if engine == SqlSyntax::Mysql && matches!(bytes.get(i + 2), Some(b'!') | Some(b'M')) {
                     // `/*! … */` and MariaDB's `/*M! … */` are executed by the server, so they are code, not comments.
@@ -246,8 +247,8 @@ fn lex_into<'a>(
                 }
                 i = end;
             }
-            b'`' if matches!(engine, SqlSyntax::Mysql | SqlSyntax::Sqlite) => {
-                let end = quoted_end(bytes, i, b'`', false)?;
+            b'`' if matches!(engine, SqlSyntax::Mysql | SqlSyntax::Sqlite | SqlSyntax::Clickhouse) => {
+                let end = quoted_end(bytes, i, b'`', engine == SqlSyntax::Clickhouse)?;
                 tokens.push(Token::Quoted(&text[i + 1..end - 1], b'`'));
                 i = end;
             }
@@ -256,7 +257,7 @@ fn lex_into<'a>(
                 tokens.push(Token::Quoted(&text[i + 1..end - 1], b']'));
                 i = end;
             }
-            b'$' if engine == SqlSyntax::Postgres => match dollar_tag(bytes, i) {
+            b'$' if engine.dollar_quoted_strings() => match dollar_tag(bytes, i) {
                 Some(tag) => {
                     let end = dollar_quoted_end(bytes, i, tag)?;
                     literal(&text[i..end]);

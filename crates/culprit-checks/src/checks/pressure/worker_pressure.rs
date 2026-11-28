@@ -66,7 +66,7 @@ pub enum Peak {
 
 fn worker_limits(snapshot: &Snapshot) -> Vec<WorkerPressure> {
     match snapshot.server.engine {
-        Engine::Sqlite | Engine::Yugabyte => Vec::new(),
+        Engine::Clickhouse | Engine::Sqlite | Engine::Yugabyte => Vec::new(),
         Engine::Mssql => {
             let waiting = pressure(snapshot)
                 .and_then(|p| p.signal(culprit_core::signal_id::THREADPOOL_WAITING))

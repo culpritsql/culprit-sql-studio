@@ -12,7 +12,14 @@ pub fn unstable_query_info() -> CheckInfo {
         id: "unstable-query".into(),
         title: t!("check.unstable_query.info.title"),
         category: Category::Queries,
-        engines: vec![Engine::Mssql, Engine::Postgres, Engine::Yugabyte, Engine::Mysql, Engine::Sqlite],
+        engines: vec![
+            Engine::Clickhouse,
+            Engine::Mssql,
+            Engine::Postgres,
+            Engine::Yugabyte,
+            Engine::Mysql,
+            Engine::Sqlite,
+        ],
         requires: vec![],
         description: t!("check.unstable_query.info.description"),
     }
@@ -428,6 +435,7 @@ impl<'a> WriteWaits<'a> {
     /// MySQL's statement events time an autocommit statement's commit with it.
     fn storage(&self, engine: Engine) -> String {
         match engine {
+            Engine::Clickhouse => t!("core.engines.clickhouse.inspect_query"),
             Engine::Postgres => t!("check.unstable_query.wait.storage_checkpoint"),
             Engine::Mssql | Engine::Yugabyte | Engine::Mysql | Engine::Sqlite => {
                 t!("check.unstable_query.wait.storage_commit")
@@ -440,6 +448,7 @@ impl<'a> WriteWaits<'a> {
     /// change of the row.
     fn referenced(&self, engine: Engine) -> String {
         match engine {
+            Engine::Clickhouse => t!("core.engines.clickhouse.inspect_query"),
             Engine::Postgres | Engine::Yugabyte => {
                 t!("check.unstable_query.referenced.key_share", parents = self.parents())
             }
@@ -468,7 +477,7 @@ impl<'a> WriteWaits<'a> {
             .unwrap_or(10_000.0);
         match snapshot.server.engine {
             Engine::Mssql => Some((t!("check.unstable_query.fix.query_store_waits"), None)),
-            Engine::Sqlite => None,
+            Engine::Clickhouse | Engine::Sqlite => None,
             Engine::Postgres | Engine::Yugabyte | Engine::Mysql => {
                 let LockHolder { lead, sql } = log_next_waits(snapshot, Some(bar));
                 Some((lead, sql))
@@ -510,6 +519,7 @@ impl<'a> WriteWaits<'a> {
             (false, true) => t!("check.unstable_query.fix.blockers.table_lock"),
         });
         match (self.io_ms.is_some(), engine) {
+            (_, Engine::Clickhouse) => {}
             (true, Engine::Mssql | Engine::Postgres | Engine::Yugabyte | Engine::Mysql | Engine::Sqlite) => {}
             (false, Engine::Postgres) => summary.push(t!("check.unstable_query.fix.compare_storage")),
             (false, Engine::Mssql | Engine::Yugabyte | Engine::Mysql | Engine::Sqlite) => {

@@ -44,6 +44,7 @@ culprit-evidence = { path = "crates/culprit-evidence" }
 culprit-checks = { path = "crates/culprit-checks" }
 culprit-mssql = { path = "crates/providers/culprit-mssql" }
 culprit-postgres = { path = "crates/providers/culprit-postgres" }
+culprit-clickhouse = { path = "crates/providers/culprit-clickhouse" }
 culprit-yugabyte = { path = "crates/providers/culprit-yugabyte" }
 culprit-mysql = { path = "crates/providers/culprit-mysql" }
 culprit-sqlite = { path = "crates/providers/culprit-sqlite" }

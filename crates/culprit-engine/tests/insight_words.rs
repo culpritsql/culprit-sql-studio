@@ -299,6 +299,8 @@ note: PostgreSQL plans carry no index suggestions or memory grants; index advice
   detail: This operator recorded temporary work under its native memory policy. Its volume or batch count alone does not establish elapsed cost or a suitable work_mem value.
   fix: Compare actual input rows, row width and operator memory use with work_mem and, for hash operations, hash_mem_multiplier. Reduce unnecessary input work where possible; test any session or role memory change under representative concurrency before choosing a value. For this sort, test whether an access path can supply the required order.
   verify: Compare representative executions under equivalent load: temporary-file use or batches, elapsed time, CPU and waiting. A larger work_mem can multiply memory demand across operators, workers and concurrent executions; fewer spills alone do not establish a better result.
+== tests/plans/clickhouse-aggregate.json
+== tests/plans/clickhouse-read.json
 == tests/plans/mariadb-index.json
 note: MariaDB's EXPLAIN has no actual rows or timings; ANALYZE adds them, with pages read and sort spills.
 == tests/plans/mariadb-scan.json

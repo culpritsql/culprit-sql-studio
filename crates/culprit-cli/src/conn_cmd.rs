@@ -130,6 +130,7 @@ pub(crate) enum EnvArg {
 
 #[derive(Clone, Copy, ValueEnum)]
 pub(crate) enum EngineArg {
+    Clickhouse,
     Postgres,
     #[value(alias = "yugabytedb", alias = "ysql")]
     Yugabyte,
@@ -263,6 +264,7 @@ pub(crate) async fn run(ws: &Workspace, command: ConnCommand, out: &Out) -> culp
                     EnvArg::Local => Environment::Local,
                 },
                 engine: args.engine.map(|e| match e {
+                    EngineArg::Clickhouse => Engine::Clickhouse,
                     EngineArg::Postgres => Engine::Postgres,
                     EngineArg::Yugabyte => Engine::Yugabyte,
                     EngineArg::Mssql => Engine::Mssql,

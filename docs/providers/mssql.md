@@ -2,257 +2,135 @@
 
 [Engine parity](../parity.md)
 
-Culprit uses the SQL Server provider for SQL Server and Azure SQL Database. Query Store supplies time-windowed workload history; the plan cache and DMVs supply the evidence available when Query Store is not usable.
+Culprit connects to boxed SQL Server (2017–2022+), Azure SQL Database, Azure SQL Managed Instance and Amazon RDS for SQL Server. Query Store supplies time-windowed workload intervals, historical plans and per-query wait categories; when Query Store is off or unreadable, Culprit falls back to the plan cache and DMVs with explicit retention boundaries.
 
 ## Connecting
 
-Choose **SQL Server** and paste an ADO.NET, JDBC or `mssql://` connection string. Azure SQL connections can use Microsoft Entra ID through the existing Azure CLI sign-in or Culprit's device-code flow.
+Select **SQL Server** in Culprit SQL Studio or pass an ADO.NET, JDBC or `mssql://` connection string to the CLI. You can also import existing profiles from Azure Data Studio, VS Code (`mssql`), DBeaver or DataGrip with `culprit conn import`.
 
 ```sh
-culprit conn add shop --env staging --url 'Server=tcp:db.example.com,1433;Database=shop;User ID=app'
+# Standard SQL login (password stored in OS keychain)
+culprit conn add shop --env prod --url 'Server=tcp:db.example.com,1433;Database=shop;User ID=culprit_reader;Encrypt=strict'
+
+# Azure SQL Database with Microsoft Entra ID (az login, Managed Identity, Workload Identity or device code)
+culprit conn add shop-az --env prod --auth entra --url 'Server=tcp:shop.database.windows.net,1433;Database=shop'
+
+# Private subnet via SSH jump host
+culprit conn add shop-priv --env prod --ssh bastion@10.0.1.5 --ssh-key ~/.ssh/id_ed25519 \
+  --url 'Server=tcp:10.0.2.15,1433;Database=shop;User ID=culprit_reader'
 ```
 
-Passwords stay in the OS keychain. Agent permissions and production confirmations apply separately to each saved connection.
+| Capability | Behavior |
+|---|---|
+| TLS encryption | `Encrypt=true` by default on remote hosts; TDS 8.0 `Encrypt=strict` supported for SQL Server 2022 and Azure SQL |
+| Cloud authentication | Microsoft Entra ID (`az` CLI, device-code flow, Managed Identity and Kubernetes Workload Identity). Amazon RDS SQL Server uses SQL authentication plus optional CloudWatch / RDS posture enrichment (IAM DB auth tokens are not offered by RDS SQL Server) |
+| Cloud discovery | Discovers Azure SQL servers/databases/elastic pools and AWS RDS SQL Server instances without touching application tables |
+| SSH jump hosts | Built-in SSH tunneling (`--ssh`, `--ssh-port`, `--ssh-key`); see [SSH jump hosts](../ssh.md) |
+| Environment safety | Passwords live in the OS keychain; `KILL` and measured plan execution are blocked on `prod` connections unless explicitly permitted |
 
 ### Read-only replicas
 
-Save a separate route with `ApplicationIntent=ReadOnly` and the appropriate existing login or named credential
-profile. Intent requests routing; it does not identify the member reached, prove that every HA replica was visited,
-or prevent writes by itself. Reconnecting can reach another member. A SQL session's application name does not
-identify an HTTP endpoint such as `GET odata/QueueItems` without application-provided correlation.
+Save read-scale or Availability Group secondaries as a separate connection with `ApplicationIntent=ReadOnly`. Routing intent asks the listener for a read-only member; it does not prove which physical replica answered, guarantee every secondary was visited, or prevent writes on its own.
 
-| Evidence | Scope and current support |
+| Evidence area | Scope on replicas and secondary populations |
 |---|---|
-| Query Store history | Shared database history, with native replica groups kept separate. `READ_CAPTURE_SECONDARY` permits capture; `READ_ONLY` only establishes readability. Raw telemetry retains every native group and outcome in the selected interval. |
-| A scan's Query Store workload | One exact native group per report. Ordinary scans acquire the shared history once and save separate group reports. Select a report with `scan --workload-population <ID>` or the desktop's Query history picker; the default overview never blends groups. `--full` retains the observed catalog even when no workload is available. |
-| Period comparison | `changes --workload-population <ID>` compares the same native group throughout. Baseline coverage uses that group's runtime witnesses; a shared interval calendar cannot establish its query absence. |
-| Retained actual plans | A scoped query-history report cannot attach the current connection's last actual execution without native execution-group proof. The app explains this limitation and keeps the captured plan inspectable. |
-| Activity baseline | The connected member's requests and waits. Hyperscale qualification requires native database/replica identity and a positively readable process epoch. Missing identity preserves partial raw observations; it cannot establish incident continuity, recovery or focused follow-up authority. |
-| Other detailed telemetry | Existing source-specific primary restrictions remain in place until each reader's replica semantics and production cost are qualified. |
+| Query Store history | Shared database catalog with separate native replica groups when secondary Query Store capture (`READ_CAPTURE_SECONDARY`) is enabled. Ordinary scans read the shared history once and persist independent per-population reports |
+| Selecting a population | Inspect a specific replica role/group with `culprit scan shop --workload-population <ID>`, `culprit changes shop --workload-population <ID>`, or Studio's **Query history** population picker. Reports never silently blend primary and secondary populations |
+| Activity and waits | Reflects the connected replica's live requests, locks and wait counters. Hyperscale replica continuity checks native database/replica identity and process epoch before linking follow-up reads |
+| Retained actual plans | `LAST_QUERY_PLAN_STATS` plans are attached only when native execution-group provenance matches; otherwise the captured plan remains inspectable with its limitation noted |
+| Unused-index verdicts | Local `sys.dm_db_index_usage_stats` counters on one member never prove an index is unused on secondaries. Disable/drop advice is withheld unless every read-serving member is covered across at least 7 days |
 
-The SDK exposes the same `SnapshotOptions.workload_population` selector, `Workspace::scan_populations` for the
-independent reports, and a separate cache through `Workspace::latest_population_report`. The desktop remembers each
-group's window and uses exact saved report references for finding and plan actions. Population selection changes
-query-history analysis; it is not a replica routing option. Discovery travels separately from the workload, so a
-failed Query Store or cache read can still explain the observed alternatives.
-
-Query Store's replica catalog contains observed role history, not a current physical-member inventory. Group-specific
-plan forcing stays unknown unless its native forcing location was read. Supported Azure SQL configurations, including
-Hyperscale, can capture secondary history centrally; verify the actual native state and coverage. See Microsoft's
-[read-scale monitoring](https://learn.microsoft.com/azure/azure-sql/database/read-scale-out#monitor-and-troubleshoot-read-only-replicas)
-and [secondary Query Store](https://learn.microsoft.com/sql/relational-databases/performance/query-store-for-secondary-replicas)
-documentation. These collection changes still require live load qualification; local mock tests do not establish production overhead.
-
-Local index counters never establish that an index is unused across replicas. Usage-based disable/drop advice needs
-verified coverage of every read-serving member throughout the recorded period. Native counts remain visible when
-that coverage is missing. Likewise, recent lock/escalation deltas require the index counter reader's own member and
-reset proof; probe uptime or increasing table totals are insufficient. The current native SQL Server reader cannot
-establish that metadata-cache reset proof, so these observations remain context. Tuning recommendations keep their
-native scope and cannot inherit a selected secondary group's costs or emit unqualified plan-change SQL.
+See Microsoft's [read-scale monitoring](https://learn.microsoft.com/azure/azure-sql/database/read-scale-out#monitor-and-troubleshoot-read-only-replicas) and [Query Store for secondary replicas](https://learn.microsoft.com/sql/relational-databases/performance/query-store-for-secondary-replicas) guides for native replica capture requirements.
 
 ## Permissions and setup
 
-Culprit checks the login's permissions and Query Store state before collection. SQL Server 2022 monitoring views require `VIEW SERVER PERFORMANCE STATE`; older SQL Server versions use `VIEW SERVER STATE`. Azure SQL Database uses database-scoped monitoring permissions such as `VIEW DATABASE STATE`. Individual sources can require additional access.
+Culprit probes effective permissions and Query Store state up front. Missing privileges never fail a scan: unavailable views become explicit coverage notes with the exact `GRANT` needed.
 
-Query Store must be enabled and readable for interval history, recorded plans and Query Store wait statistics. The plan cache provides a fallback with a different period and retention. Missing permissions or disabled sources produce an explanation and the relevant grant or setting, rather than an empty healthy result.
+```sql
+-- SQL Server 2022+ (least-privilege performance state + plan XML)
+USE [master];
+CREATE LOGIN [culprit_reader] WITH PASSWORD = '<strong-password>';
+GRANT VIEW SERVER PERFORMANCE STATE TO [culprit_reader];
+
+USE [shop];
+CREATE USER [culprit_reader] FOR LOGIN [culprit_reader];
+GRANT VIEW DATABASE PERFORMANCE STATE TO [culprit_reader];
+GRANT SHOWPLAN TO [culprit_reader];
+```
+
+- **SQL Server 2017–2019**: Replace the `PERFORMANCE STATE` grants above with `GRANT VIEW SERVER STATE TO [culprit_reader];` in `master` and `GRANT VIEW DATABASE STATE TO [culprit_reader];` in the target database.
+- **Azure SQL Database**: Grant `VIEW DATABASE PERFORMANCE STATE` (or `VIEW DATABASE STATE`) and `SHOWPLAN` inside the target user database.
+- **Query Store (recommended)**: Enable Query Store with wait capture for time-windowed intervals, plan regression tracking and wait-category attribution:
+
+```sql
+ALTER DATABASE [shop] SET QUERY_STORE = ON (
+    OPERATION_MODE = READ_WRITE,
+    WAIT_STATS_CAPTURE_MODE = ON
+);
+```
 
 ## Workload and plans
 
-| Feature | Coverage |
+| Capability | SQL Server source and behavior |
 |---|---|
-| Statement statistics | Query Store executions and runtime intervals; plan-cache counters when Query Store is unavailable |
-| Timeline and period comparison | Query Store intervals support selected windows, trends and two-period comparisons; plan-cache comparisons use Culprit's own scans |
-| Captured plans | Stored Query Store or cached compilation plans, with plan identities and compiled parameter values where recorded |
-| Estimated / measured plans | Estimated Showplan does not execute the statement; measured plans use `STATISTICS XML`, with measured writes rolled back |
-| Last actual plan | Retained last actual plans on SQL Server 2019+ when `LAST_QUERY_PLAN_STATS` is available |
-| Plan import | SSMS `.sqlplan` and Showplan XML |
-| Runtime spread | Recorded minimum, average, maximum and standard deviation per plan; compiled parameter values are compilation evidence, not a trace of every execution |
-| Plan and query regressions | Plan history and timed runtime evidence; plans with different retention periods are not treated as interchangeable |
-| Tuning recommendations | Query Store plan-forcing recommendations, forced-plan state and failures, where readable |
-| Statement families | Query hashes, parameter declarations and the captured statement texts |
-| Compilation memory | Query Store compile counts, times and average/latest/peak working memory per query; repeated costly compilation findings link to that query |
-| Compiler admission | Database-scoped requests waiting at least one second to compile; bounded resource-pool gateway counts, limits and native thresholds retained as shared server context |
+| Statement workload | `sys.query_store_runtime_stats` over the selected time window; falls back to `sys.dm_exec_query_stats` plan-cache counters when Query Store is off |
+| Period comparison | Native Query Store interval slicing (`culprit scan --since`, `culprit changes`), or saved-scan deltas when reading the plan cache |
+| Captured & imported plans | Stored Showplan XML from Query Store / plan cache, plus offline `.sqlplan` and XML import in Studio, CLI and [Culprit Explain](https://explain.culpritsql.com) |
+| Estimated vs measured plans | Estimated Showplan never executes user SQL; explicit measured runs use `SET STATISTICS XML ON` inside a rolled-back transaction |
+| Retained last actual plan | Reads `sys.dm_exec_query_plan_stats` on SQL Server 2019+ and Azure SQL when `LAST_QUERY_PLAN_STATS = ON` |
+| Runtime spread & PSP | Tracks min, avg, max and stdev per plan, preserves SQL Server 2022 Parameter Sensitive Plan (`PSP`) dispatcher-to-variant relationships without double-counting executions, and surfaces Query Store plan-forcing state |
+| Compilation & gateways | Reads Query Store compile counts, durations and working memory alongside `RESOURCE_SEMAPHORE_QUERY_COMPILE` waits and Resource Governor gateway thresholds |
 
-Planning, compile history, execution time, CPU, waits, rows, reads and log bytes retain their source's own meaning and dates. Compilation entry totals are not silently assigned to a selected runtime window.
+Culprit keeps compilation counters, cached plan sizes, execution memory grants and runtime intervals on their own native clocks:
 
-Compilation statistics link to SQL only when their native query identity matches the original definition,
-including its initial compilation time, query hash and context. A reused query ID or missing definition withholds
-that link and marks collection partial; independently measured database totals retain their own scope.
-
-Execution outcomes and log volume come from the same summary population as the execution counts and elapsed time.
-A later Query Store statistics reset can preserve the query identity and execution count while replacing the runs;
-Culprit therefore does not reread those costs later and attach them to the earlier denominator.
-
-Native parameter-sensitive plan relationships travel with the exact child query definition. A dispatcher can have
-no runtime row; its identity never creates parent executions or adds the child's work twice. Unverified relationship
-visibility retains readable runtime and makes the missing metadata explicit. Different plan averages or runtime
-tails are investigation candidates, rather than proof of harmful parameter sniffing or a safe plan-forcing remedy.
-
-Compiler working memory, cached plan bytes and execution memory grants are separate measurements. A waiting request is affected; it is not a compiler-memory owner. Recent high-memory compilations are linked as investigation candidates, with their native timestamps. Historical peaks do not prove simultaneous use, and gateway counts across tiers must not be summed into a unique compiler count. Retained plan variants, including dispatcher and parameter-sensitive variants, are not by themselves evidence of a compilation problem.
-
-Gateway pool IDs identify native Resource Governor pools, not Azure elastic-pool resource IDs. Their shared scope does not establish which database consumed the compiler budget.
+- **Query identity verification**: Compilation metrics link to SQL text only when `query_id`, initial compile timestamp, `query_hash` and context settings match; reused IDs or post-reset counters are never mixed across epochs.
+- **Temporary space semantics**: Query Store's tempdb metric represents average 8-KiB pages used weighted by executions—not total written bytes, peak concurrent footprint, or proof of a sort/hash spill.
 
 ## Live activity and waits
 
-Live shows current sessions, running statements, idle transactions and blocking chains. Query Store attributes recorded wait categories to statements; live wait samples compare server wait counters over the sample interval.
+Live combines `sys.dm_exec_sessions`, `sys.dm_exec_requests`, `sys.dm_tran_active_transactions`, `sys.dm_os_waiting_tasks` and lock views to render active queries, idle-in-transaction blockers, live operator progress (`sys.dm_exec_query_profiles`) and sampled server wait deltas.
 
-Focused blocking can distinguish a queued schema change from the older transaction holding it up, and name the
-captured requests waiting behind that change. An intent-lock wait can trigger the same investigation when its
-upstream chain contains a schema-lock wait. The proof uses native lock resources, waiting-task pointers and paired
-request/transaction identities; SQL text and an object's display name cannot establish the relationship.
+- **Schema-lock blocking chains**: On verified SQL Server 2022+ writable primaries, focused blocking analysis traces queued DDL (`Sch-M` / `Sch-S`) back to the upstream transaction holding incompatible locks and lists downstream waiters blocked behind the queued schema change using native lock-resource and task pointers.
+- **Wait category discipline**: Query Store wait categories, `THREADPOOL` worker starvation, CPU, compilation and memory-grant waits remain distinct; aggregate wait totals never invent a specific blocking session.
+- **System health deadlocks (SQL Server 2017+ & Managed Instance)**: When `system_health` writes to a single absolute local/UNC file path, Culprit reads retained deadlock graphs via catalog metadata without querying `sys.dm_xe_session_targets` (which forces target flushes).
+- **Session control**: Outside `prod` connections, Studio exposes `KILL <spid>` (SQL Server provides session termination rather than a separate query-cancel verb).
 
-This detailed profile currently supports a verified writable, non-AG SQL Server 2022 Enterprise member. It shares
-the existing Activity reader, pays for both lock snapshots within a 12-query allowance including session setup,
-and retains incomplete or changed evidence as a gap. Its production cost remains unqualified, so it does not
-automatically enable additional live reads. Recorded SQL identifies the observed request, not the statement that
-originally acquired a holder's lock.
+### Opt-in live & diagnostic readers
 
-Query Store wait totals remain usable when capture is currently off. Its current setting does not establish whether
-all waits were retained for an earlier interval, so absent rows remain unknown. The same native category mapping
-serves scans and telemetry export. Worker admission (`THREADPOOL`), CPU, compilation and memory waits remain
-separate; an aggregate category does not identify a blocker or which calls were slow.
+Heavy DMV projections are disabled during ordinary scans and Live polling so routine diagnostics stay fast and predictable. Request them explicitly on the CLI (`culprit scan <conn> <flag>`) or via `culprit collect once <conn> --collection <recipe>`:
 
-Live identifies connections through native session IDs, login generations, application names and logins. It excludes the observing session itself; another Culprit connection can still appear as a blocker or long-running request. Local connection aliases are not server-side client identities.
-
-Live and background activity capture use the same native reader and counter interpretation. Live requests visible activity and can show an idle transaction's previous batch; background capture keeps qualifying requests and blocker context, with redacted SQL. Request counters remain distinct from session lifetime counters. Missing database-wide permissions fail explicitly, and an unavailable SQL detail does not discard readable session metadata.
-
-When query profiling is available, live progress shows measured operator activity. SQL Server offers **terminate** (`KILL`), not a separate cancel operation; Culprit exposes session actions outside production only.
-
-SQL Server 2017+ and Managed Instance read existing configured `system_health` event files when native metadata exposes one absolute target path. Scans and background collection share the file reader and recheck its native configuration. Configuration discovery reads persistent catalog metadata; it avoids `sys.dm_xe_session_targets`, whose reads [force collected-session data to flush to disk](https://learn.microsoft.com/en-us/sql/relational-databases/system-dynamic-management-objects/sys-dm-xe-session-targets-transact-sql). Culprit never creates, starts or alters this session.
-
-Here an absolute path means a native filesystem path, including a Windows drive or UNC path. Blob URL targets, including Managed Instance URL configurations, are unsupported by this profile. Relative, hidden, missing or ambiguous file configuration is explicitly unavailable. Culprit does not guess a directory or fall back to runtime target data or the server ring buffer. Shared-server incidents remain inspectable, including unresolved database membership; database names and reused IDs cannot establish counts or findings for the current database.
-
-Configured files remain readable while the emitter is stopped or restarted. File retention and selection limits can omit incidents; current process and configuration witnesses do not establish an older event's original emitter generation or uninterrupted history. The `mssql.system-health-deadlocks` recipe remains cost-unqualified: row caps and timeouts do not prove bounded server file scanning or sorting.
-
-Azure SQL Database continues to read its explicitly configured database-scoped ring-buffer session, described below. A missing or truncated event source does not establish that no deadlocks happened.
-
-### Observed page-wait targets
-
-`culprit scan shop --collect-page-wait-targets` opts into native page mapping. The collector exposes the same
-reader through `--collection page-wait-targets`; ordinary scans and Live do not read page headers.
-
-The reader retains up to 64 coordinator/task wait observations and maps at most eight distinct pages through two
-`sys.dm_db_page_info(..., 'LIMITED')` reads. It checks native source, database/file, request generation, statement
-and catalog identity around the reads. Visible rowstore metadata can identify the current table/index and leaf
-or branch page; allocation pages, heap pages and unqualified layouts stay distinct. `LIMITED` can leave the header
-version null; known native type/level and visible rowstore catalog facts still qualify the layout. A present
-unrecognized format remains unclassified. Missing permissions, outside-database addresses and unresolved metadata
-retain the original wait with an explicit reason. A mapped header must match the independently decoded original
-database/file/page address; this is enforced by the shared fact contract as well as the native reader.
-
-The original wait remains historical evidence when a later wait ends or changes. Independent before/after rechecks
-record request/statement continuity, later wait state and their own clocks; page metadata can remain checked even
-if its earlier requester is gone. SQL links require the same native statement and trusted source; changing plans
-withholds the plan link. Task associations additionally require the original task tuple and wait at both checks.
-None of these associations proves continuous physical page identity, task continuity or latch ownership.
-
-`PAGELATCH` is in-memory synchronization; `PAGEIOLATCH` concerns page I/O. Waiting SQL identifies an affected
-participant, not the latch holder, allocation owner or query that caused the I/O. Equal metadata at both bounds
-does not exclude page reuse between reads. Parallel-task waits retain their own native task address, execution
-context, wait, duration and raw blocking fields without replacing the coordinator's state. Repeated tasks on one
-request/page remain distinct; addresses and signed blocking IDs identify no verified owner generation. Native
-visibility is checked separately from database request visibility. On Azure, only positively verified server-role
-and effective database permissions currently admit task reads; other admin/service-tier routes remain unqualified.
-An unreadable task population retains readable coordinator observations, including an explicitly partial empty
-capture. The exact durable activity follow-up still checks only its original coordinator and cannot accept a task
-as a substitute. The app keeps the explanation brief and puts native details behind disclosure.
-
-Mapped rowstore targets can also carry an independent index-partition counter point, including page-latch and
-page-I/O waits. The reader deduplicates at most eight exact database/object/index/partition tuples; it never expands
-this lookup to every partition. The catalog lookup also binds the already checked native partition ID alongside
-the object, index and partition-number guards. An ended request or changed page mapping retains the acquired point
-with its own clock and linkage state. Native reset time remains unknown: these partition totals do not measure the original
-page wait, identify a holder or prove last-leaf contention.
-
-Scans and collector captures share a native budget of at most 18 query batches, with a one-second statement deadline
-and a five-second total budget. Stricter caller limits take precedence.
-Azure SQL admission checks native resource pressure before each header phase and stops immediately when pressure
-is high or unavailable. Page headers can still require I/O and latching: these limits do not establish a CPU/I/O
-quota or justify frequent production polling. Cold-page, managed-service and representative production-load
-qualification remain required for the task population and targeted rechecks as well as page headers. `TOP` does not
-bound native task enumeration work. A deadline can still encounter the documented
-driver cancellation uncertainty; the reader withholds the capture and fences subsequent work.
-
-Query Store's temporary-space metric retains its documented meaning: average used 8-KiB pages, weighted by recorded
-executions. Its sum is distinct from written pages, a simultaneous footprint or an observed spill. Culprit keeps
-that meaning in the typed statement-resource model rather than treating it as temporary I/O.
-
-### Current execution-memory participants
-
-`culprit scan shop --collect-request-memory` and `--collection current-request-memory` share one native reader.
-They retain exact reservation/usage values, queue state, worker counts, native source visibility and the point
-capture clock. Native grant times without an offset remain separate from UTC read times.
-
-A generation-checked request supplies current SQL context. It does not prove that statement acquired the grant,
-that every granted reservation is used, or that a waiting request owns memory. Unresolved associations remain
-unowned evidence. Historical peaks, compilation memory and tracked session allocations are separate measurements.
-
-Both entry points discover the native platform. Boxed SQL Server retains its qualified instance/process owner;
-Azure SQL requires the verified primary identity. Missing authority or permissions is unavailable evidence.
-
-Where SQL Server 17+ exposes them, the same read retains shared workload-group tempdb data usage, peak usage,
-limit-abort history and stored limits. Stored limits may not yet be effective; historical aborts do not identify
-the current request. Group totals must not be added once per captured grant.
-
-Both entry points apply the same 200-row, nine-query, three-second statement and ten-second total ceilings, with
-stricter caller limits preserved. The Azure route needs at most six queries. The output limit does not by itself
-bound native DMV traversal cost; these recipes remain unqualified for automatic scheduling.
+| Opt-in reader | CLI scan flag / collector recipe | What it captures and safety bounds |
+|---|---|---|
+| Observed page-wait targets | `--collect-page-wait-targets` / `page-wait-targets` | Maps up to 8 distinct `PAGELATCH_*` / `PAGEIOLATCH_*` wait pages via `sys.dm_db_page_info(..., 'LIMITED')` (rowstore leaf/branch, heap, PFS/GAM/SGAM) plus up to 8 partition counter points; 18-batch, 1s statement / 5s total budget, gated on Azure SQL resource pressure |
+| Current execution memory | `--collect-request-memory` / `current-request-memory` | Captures active/queued `sys.dm_exec_query_memory_grants` reservations, usage, workers and SQL Server 2017+ workload-group tempdb usage/limits; 200-row, 9-query, 3s/10s budget |
+| Task-level tempdb space | `--collect-task-space` / `task-space` | Captures `sys.dm_db_task_space_usage` user/internal allocation & deallocation page counters per task; 200-row, 1s/5s budget (see details below) |
+| Out-of-memory events | `--collect-memory-failures` / `memory-failures` | Reads up to 128 retained `sys.dm_os_out_of_memory_events` rows on Azure SQL Database & Managed Instance; 3s/10s budget (see details below) |
+| Boxed process CPU | `mssql.process-cpu` (collector) | Captures SQLOS user/kernel CPU totals, Resource Governor pool CPU totals and latest scheduler-monitor ring-buffer sample; 10 dispatches max |
+| MI resource history | `mssql.mi-resource-stats` (collector) | Streams up to 512 15-second intervals (max 2h window) from `sys.server_resource_stats` on Managed Instance; 1s/5s budget |
 
 ### Task-level temporary-space observations
 
-`culprit scan shop --collect-task-space` opts into `sys.dm_db_task_space_usage`; normal scans and Live add no task
-query. `--collection task-space` uses the same native reader for a database capture. Scans support SQL Server,
-Managed Instance and Azure SQL where the required native metadata is visible. Fleet capture supports Azure SQL
-Database and boxed SQL Server 2022 or later on a verified writable native source. Managed Instance fleet capture
-remains unavailable. Original native instance/process/database identity and permission checks must succeed;
-endpoint names and routing intent cannot supply those facts.
+`culprit scan shop --collect-task-space` (and `--collection task-space`) opts into [`sys.dm_db_task_space_usage`](https://learn.microsoft.com/en-us/sql/relational-databases/system-dynamic-management-views/sys-dm-db-task-space-usage-transact-sql) when investigating active `tempdb` growth. Scans support SQL Server, Managed Instance and Azure SQL Database; fleet capture supports Azure SQL Database and boxed SQL Server 2022+ writable primaries.
 
-Each retained session/request/execution-context tuple carries four exact native page counters: user allocations,
-user deallocations, internal allocations and internal deallocations. They are kept separately from session totals,
-historical Query Store space averages and spill measurements. Reservations, object caching and deferred cleanup
-limit their interpretation; they are not a current footprint, peak, spill duration or memory-sizing recommendation.
-
-Current request/statement context is checked before and after bounded SQL enrichment using the shared participant
-reader. The task tuple has no native incarnation evidence, and an earlier statement in the same batch may have
-allocated the pages. Checked current SQL is an investigation link, not an allocator verdict or authority for a
-later task-counter subtraction. Missing or changed context retains the counters and withholds the SQL link.
-
-The native cap is 200 task rows plus one truncation witness, with a one-second statement deadline and five-second
-total budget. Boxed acquisition uses at most ten native batches and fleet completion adds three native-owner
-checks (thirteen total). Azure acquisition uses at most seven batches, including initial platform discovery;
-fleet completion adds one verification (eight total). Stricter caller budgets remain in force. These are
-manual, cost-unqualified profiles; the extra ownership work invalidates earlier recipe cost fingerprints.
-The reader does not sort or aggregate task counters, fetch plan XML, read OS task stacks or change instrumentation.
-The output cap does not bound the native DMV traversal cost, so managed-service and representative-load
-qualification remain required before scheduling production polling. See the [native task-counter semantics](https://learn.microsoft.com/en-us/sql/relational-databases/system-dynamic-management-views/sys-dm-db-task-space-usage-transact-sql).
+- **Four exact 8-KiB page counters per task**: User allocations, user deallocations, internal allocations and internal deallocations per `(session_id, request_id, exec_context_id)`.
+- **Strict attribution**: Cached temp tables, deferred drop cleanup and earlier statements in the same batch affect task counters. Checked current SQL is attached as an investigation candidate—not proof of peak footprint, spill duration or allocator ownership.
+- **Hard ceiling**: Capped at 200 task rows + 1 overflow witness, 1-second statement timeout and 5-second total budget, with no server-side sort, plan XML fetch or OS stack walk.
 
 ### Azure SQL deadlock events
 
-For offline analysis, use **Plans → Open events XML** in the desktop app (which accepts both binary `.xel` files and
-exported XML), `culprit logs ./events.xel --input-format mssql-xe-xel`, or MCP's `analyze_event_xel` and
-`analyze_event_xml` tools. All routes share the same bounded normalizer and explanations for attention, errors and
-deadlocks. Binary `.xel` framing and embedded metadata are decoded separately from exported XML without cross-format
-fallback; QPC-derived UTC instants and offset-free timestamps remain distinct, and a captured request's SQL does not
-prove which statement acquired its locks. Local intake requires no database credentials, never starts or alters a
-server event session, and keeps imported artifacts unassigned (`resource: None`) rather than binding a filename or
-database label to a monitored production resource.
+For **offline event analysis**—with zero database credentials or server changes—open binary `.xel` or exported XML files directly in **Studio** (**Plans → Open events XML**), drag-and-drop into **[explain.culpritsql.com](https://explain.culpritsql.com)**, run `culprit logs ./events.xel --input-format mssql-xe-xel`, or invoke MCP's `analyze_event_xel` / `analyze_event_xml` tools. Binary `.xel` framing, QPC-derived UTC timestamps, attention/timeout events, errors and multi-victim deadlock graphs are decoded locally in Rust/Wasm.
 
-Culprit never reads Azure SQL's internal `dl` event session. Microsoft [advises against reading that session](https://learn.microsoft.com/en-us/azure/azure-sql/database/xevent-db-diff-from-svr#best-practices) because reading its retained events can affect database availability.
-
-An administrator can explicitly create this database-scoped session in the database being monitored. Scans and unattended collection only read its configuration and target; they never create, start or alter it.
+For **live Azure SQL Database scans**, Culprit **never** reads Azure SQL's internal `dl` session ([Microsoft advises against reading it](https://learn.microsoft.com/en-us/azure/azure-sql/database/xevent-db-diff-from-svr#best-practices) due to availability impact). Instead, an administrator can optionally create this bounded database-scoped ring buffer; Culprit only reads it if it already exists with these exact caps (`<= 1024` KiB, `<= 256` events):
 
 ```sql
 CREATE EVENT SESSION [culprit_deadlocks] ON DATABASE
-ADD EVENT sqlserver.database_xml_deadlock_report
-(
-    ACTION(package0.event_sequence)
+ADD EVENT sqlserver.database_xml_deadlock_report (
+    ACTION (package0.event_sequence)
 )
-ADD TARGET package0.ring_buffer
-(
+ADD TARGET package0.ring_buffer (
     SET max_memory = 1024, max_events_limit = 256
 )
-WITH
-(
+WITH (
     MAX_MEMORY = 2048 KB,
     EVENT_RETENTION_MODE = ALLOW_SINGLE_EVENT_LOSS,
     MAX_DISPATCH_LATENCY = 5 SECONDS,
@@ -261,228 +139,32 @@ WITH
 ALTER EVENT SESSION [culprit_deadlocks] ON DATABASE STATE = START;
 ```
 
-Review this setup against the database and elastic pool's Extended Events limits before running it. The reader requires this exact session name, one deadlock event with `event_sequence`, one ring-buffer target, and explicit target limits of at most 1,024 KiB and 256 events. A missing, stopped or differently configured session is unavailable. See [Microsoft's ring-buffer guidance](https://learn.microsoft.com/en-us/sql/relational-databases/extended-events/targets-for-extended-events-in-sql-server#ring_buffer-target).
-
-The ring buffer keeps only recent events and is cleared when the session restarts. Older events can be overwritten; collection never claims complete history. Truncated XML, an oversized target, missing event identity or a changed session fails the observation. Native session generation and exact event sequence distinguish records across reads and restarts. An empty valid buffer is distinct from an unavailable source.
-
-This configured Azure source requires its own native and production-cost qualification. Unit fixtures validate configuration admission, graph decoding, identity, limits and collector verification; they do not establish Azure permissions or production overhead. Durable event-file and managed log feeds are separate source capabilities.
+Ring buffers clear on restart and overwrite oldest entries first, so an empty buffer means zero currently retained events—not proof that no deadlocks ever occurred.
 
 ### Retained out-of-memory observations
 
-`culprit scan shop --collect-memory-failures` explicitly requests the supported native OOM buffer on Azure SQL
-Database or Managed Instance. Default scans skip it. Boxed SQL Server is excluded: Microsoft documents
-`sys.dm_os_out_of_memory_events` as unsupported there, even when the view is visible.
+`culprit scan shop --collect-memory-failures` (and `--collection memory-failures`) reads [`sys.dm_os_out_of_memory_events`](https://learn.microsoft.com/en-us/sql/relational-databases/system-dynamic-management-objects/sys-dm-os-out-of-memory-events?view=azuresqldb-current) on **Azure SQL Database** and **Azure SQL Managed Instance** (boxed SQL Server is excluded because Microsoft marks the view unsupported there).
 
-The same reader serves scans and the collector's `memory-failures` profile. It projects at most 128 native rows
-without a sort, join or server-side JSON parsing, with a three-second statement ceiling and a ten-second overall
-budget. These limits bound admission and waiting; cloud source-load qualification is still required before
-scheduling it. Identity changes, overflow or uncertain connection shutdown withhold the observation.
-
-This is shared hosting evidence, not the selected database's memory pressure. Managed Instance uses its verified
-instance identity; an eligible writable pool member uses verified pool membership and the same physical database
-route before and after the read. Other Azure SQL routes retain unowned hosting context rather than inventing a
-pool identity. Native cause codes suggest investigations, but identify no requesting or owning query.
-
-Native event times have no documented UTC offset. Culprit keeps them separate from UTC read bounds and does not
-assign them to the selected workload window. Signed MB values, SQL NULLs, JSON-null documents, unknown JSON members
-and malformed bounded documents remain distinct. Equal native rows remain separate captured observations: the
-buffer supplies no occurrence identifier, can omit or evict failures, and resets on restart. An empty read cannot
-establish that no failures occurred. See the [native source and permission reference](https://learn.microsoft.com/en-us/sql/relational-databases/system-dynamic-management-objects/sys-dm-os-out-of-memory-events?view=azuresqldb-current).
-
-### Boxed process CPU originals
-
-The manual `mssql.process-cpu` profile keeps three independent native populations: process user/kernel totals,
-Resource Governor pool CPU totals, and the newest retained scheduler-monitor CPU sample when available. It uses
-the existing shared-instance source owner, at most ten dispatches including session setup, and the caller’s
-stricter limits. Ordinary scans do not acquire these extra populations. The recipe remains cost-unqualified.
-
-Two explicitly selected complete originals can explain observed average engine CPU from the increase across
-all native pool totals, elapsed host ticks and the host’s logical CPU count. Matching process, pool roster,
-statistics-start witnesses and capacity are required. These endpoint checks do not exclude intervening reset,
-pool replacement or capacity changes; the acquisition is not atomic. The exact numerator and denominator remain
-available separately from the approximate derived percentage. Process user/kernel totals alone are not utilization.
-
-Retained scheduler samples keep host ticks separately from acquisition UTC. Their averaging window and original
-UTC event time are unknown. Linux `SystemIdle = 0` remains a raw diagnostic value, with measured idle unavailable;
-unsupported platforms also retain unknown measurements. The profile does not derive other-process CPU, identify
-a database/query cause, or qualify collection cost from these observations.
-
-### Resource history
-
-On Azure SQL Database, scans and background capture share the same native resource reader. Scans reuse their retained samples for the resource timeline and pressure summary. Selected export windows and workload admission request their own bounded projections, with the same units, scope, null handling and timestamps. Instance CPU and memory remain shared context. Background resource capture currently supports primary replicas; native reads preserve the connected replica's role.
-
-Managed Instance has a separate native resource-history recipe through a discovered instance identity. It reads
-[`sys.server_resource_stats`](https://learn.microsoft.com/en-us/sql/relational-databases/system-catalog-views/sys-server-resource-stats-azure-sql-database?view=azuresqldb-current)
-in a selected window of at most two hours, retaining up to 512 rows and one lookahead. The existing streaming reader
-bounds native batches and total bytes; the same frozen capture supplies output pages without repeating the query.
-
-| Native facts | Meaning |
-|---|---|
-| CPU percentage | Mean over the native nominal 15-second interval, relative to the Managed Instance service-tier limit; shared across its databases and resource pools |
-| I/O requests, bytes read and bytes written | Exact totals within each original interval, separate from rates and running counters |
-| Reserved/used storage, vCores, tier and hardware | Native configuration and resource context; nullable values and unavailable columns remain distinct |
-
-Original interval times stay separate from the current reader's process witness. Publication freshness and
-continuous historical coverage remain unproven. A bounded partial prefix stays readable without advancing the
-fleet checkpoint past unread rows. The recipe remains cost-unqualified: its one-second statement and five-second
-overall ceilings do not establish a server CPU or I/O quota.
-
-The separate `resource-pool-settings` selection retains six native user-resource-pool configuration values through
-the original database route. Optional elastic-pool membership is independent: hidden membership cannot discard
-readable limits, and native Resource Governor IDs do not become Azure elastic-pool identities. These settings
-describe configured limits, not observed contention, current memory availability or cloud entitlement.
+- **Shared hosting scope**: Reports instance-wide (Managed Instance) or elastic-pool / hosting-level memory events rather than blaming the current database or a specific query.
+- **Bounded projection**: Reads at most 128 rows without server-side sorting, joins or JSON parsing inside a 3-second statement / 10-second total budget, keeping offset-free native event timestamps separate from UTC capture bounds.
 
 ## Schema and indexes
 
-Catalog and DMV sources provide tables, columns, constraints, statistics, index definitions and usage. Missing-index requests come from the optimizer's own DMVs and are checked against the existing index set.
+Catalog and DMV readers inspect tables, columns, constraints, statistics (`DBCC` is never executed), persisted columnstore configuration (compression delay, ordered columns), partition functions/schemes, triggers, index definitions, `sys.dm_db_index_usage_stats` and optimizer missing-index DMVs.
 
-Background catalog capture shares the scan readers. Exports preserve native object IDs, local metadata timestamps, exact integer counters and versioned, redacted expressions. Missing statistics properties and unsupported index usage remain explicit. Full catalog coverage requires database-wide metadata visibility before and after the read.
-
-Database properties include the last recorded successful integrity check, read in the existing metadata query.
-The native time has no UTC offset; availability groups report the primary's check. A missing value stays unknown,
-and a recorded success does not establish current integrity. Collection never runs `DBCC CHECKDB`.
-[Native property and supported versions](https://learn.microsoft.com/en-us/sql/t-sql/functions/databasepropertyex-transact-sql#arguments).
-
-`--collection objects` records versioned table, view, procedure, function and trigger metadata through the shared change reader. Native object IDs, creation generations, parent references and local modification dates remain facts. These observations do not establish an exact UTC change time or record dropped objects.
-
-`--collection triggers` records user DML triggers on tables and views, including disabled and CLR triggers, native creation/parent identities, modification dates, timing and replication flags. It shares its bounded catalog query and decoder with the app's active-table trigger list. Missing event metadata remains unknown and makes scope partial; complete catalog visibility is checked before and after export. Trigger bodies are neither read nor executed. Database/server DDL triggers are outside this dataset.
-
-`--collection partitions` records table/index placement, scheme/function generations, native boundary direction, fanout and parameter types. NULL boundaries differ from functions with no boundaries. Converted display values are bounded and redacted with the existing partition-date policy; a separate native binary fingerprint detects changes that display rounding or redaction can hide. Missing fingerprints make scope partial. The app uses the same reader for heap/clustered storage; export also includes nonclustered layouts. Catalog visibility is checked before and after the read. SQL Server's final range is unbounded, so a finite last boundary does not produce an inserts-will-run-out warning. [Partition functions](https://learn.microsoft.com/en-us/sql/t-sql/statements/create-partition-function-transact-sql), [native boundary metadata](https://learn.microsoft.com/en-us/sql/relational-databases/system-catalog-views/sys-partition-range-values-transact-sql).
-
-`--collection cached-definitions` captures redacted cache SQL and estimated plans for the native statement offsets. `--collection retained-plans` independently captures last-known batch XML where the native facility already exists; it never enables capture or executes an application statement. Both reuse the app's native identity, statement slicing, payload and retained-plan components. Original-text fingerprints distinguish changes hidden by redaction; missing, encrypted, oversized or unredactable bodies have explicit states. Effective per-body limits also reserve space for JSON encoding and record metadata. Retained XML may be simplified and does not establish a measured runtime for every statement. Native statement counts and local start times retain their own meanings; database-scoped capture settings do not imply the state of server trace flags. Cache eviction and concurrent changes can leave references unresolved, so these are bounded observations rather than a complete execution history.
-
-SQL Server can reuse a cache plan handle after a procedure changes. Both paths independently verify its native
-SQL-handle binding after reading the payload; changed or missing bindings withhold plan enrichment. The original
-module text can qualify a READONLY table parameter for an unambiguous direct scan. Ambiguous function, join or
-subquery scopes remain unclassified; a variable name alone never establishes TVP identity. Historical Query Store
-plans need separate compilation provenance and cannot borrow today's module declarations.
-
-An earlier cache-statistics count or last-start estimate does not date the retained XML's execution. Retained
-records preserve those counters separately; an unproved execution timestamp is left unknown.
-
-Compilation capture shares the scan's Query Store decoder. `--collection query-compilation` exports each retained query's exact compilation count, average compile microseconds and first/last compile timestamps. These are lifetime observations, including Culprit's retained queries, rather than costs attributed to a runtime interval. Native reset continuity remains unknown.
-
-`--collection cached-runtime` captures completed statement-cache work without Query Store: exact execution counts and total/last/minimum/maximum CPU, elapsed, CLR, read/write and row counters. The reader shares native statement context and database ownership with the scan and memory-grant capture.
-
-The three local cache collections admit a positively identified, readable connected member, including a read-only
-replica, with the same native member, process, database and updateability checked before and after acquisition.
-Unknown or changing authority is refused. Cached definitions require supported current-type JSON grammar; retained
-plans retain their own native feature and permission checks. Native plan-attribute database IDs qualify every row;
-NULL SQL-text database IDs never fall back to the connected database. Each member's cache population remains
-separate, and its observations neither cover other read-serving members nor duplicate database-wide Query Store
-history. These recipes remain cost-unqualified and require explicit admission: TOP limits the returned rows, not
-the work needed to search a server-wide cache or evaluate its native metadata functions.
-
-Where the native columns are available, the same cache read retains total/last/minimum/maximum spilled 8-KiB pages. Column discovery does not add another cache walk; unavailable spill counters remain unknown. These pages are distinct from current task allocations and do not establish spill duration, an operator or a memory setting.
-
-Local timestamps retain their missing offset; reset continuity remains unknown. Zero native plan handles leave unqualified counters unavailable. Cache eviction can remove history between observations. [Native counter meanings and limitations](https://learn.microsoft.com/en-us/sql/relational-databases/system-dynamic-management-views/sys-dm-exec-query-stats-transact-sql).
-
-The existing index read also retains current persisted columnstore configuration: native compression delay in
-minutes, ordered-column ordinals and data-clustering ordinals where the exact catalog layout supports them.
-Supported NULL compression delay (native automatic management) differs from an unsupported, denied or unknown
-field; observed ordinal zero remains zero. These facts keep the original database-local table/index/column IDs and
-catalog dates, appear in scan JSON and bounded per-index schema JSON, and are not original compile-schema proof.
-The same one-dispatch catalog query and decoder serve scans and index snapshots; optional layout, type, version
-and permission checks occur before optional identifiers compile. No rowgroup DMV or application rows are read,
-and configured ordering/delay does not establish physical ordering, refresh progress or columnstore health.
-The changed `mssql.indexes` recipe remains cost-Unqualified; output limits do not establish a native CPU/I/O quota.
-
-`mssql.columnstore-rowgroups` reads the public rowgroup catalog for one explicitly selected native table/index
-and optional partition. Supply `CollectionSelection::ColumnstoreRowgroups` through a collection selection file
-or the SDK. The source rechecks the table's original catalog identity, modification date, index kind, permissions,
-connected member and role before and after acquisition. It retains up to 128 rowgroups, with at most 11 native
-dispatches, a one-second statement timeout and a five-second source deadline. The recipe remains manual and
-cost-Unqualified.
-
-The captured report preserves native state, physical/deleted rows, delta-store HoBT and byte counts, including
-NULLs and incomplete coverage. It does not read the physical-stats DMV, shared dictionaries or application rows.
-Nonclustered deleted counts omit the separate delete buffer; reported bytes are neither a complete index
-footprint nor reclaimable space. Rowgroup numbers do not establish continuity across captures or a maintenance
-benefit. The same canonical observations can be replayed locally or through ADX and ClickHouse.
-
-`mssql.backup-history` captures retained backup metadata from the native Azure SQL database DMV or the connected
-SQL Server/Managed Instance's MSDB catalog. Request `SnapshotDataset::BackupHistory` through the SDK or a collection
-selection file. Native identifiers, nullable flags, historical initiator/software, offset-free timestamps,
-time-zone codes and exact byte/LSN values remain separate facts.
-
-The manual, cost-Unqualified profile retains at most 64 rows, with one overflow witness, at most 12 native
-dispatches, a one-second statement timeout and a five-second source deadline. Retention and missing history leave
-coverage partial, including an empty result. Hyperscale's snapshot backups have no history in
-[`sys.dm_database_backups`](https://learn.microsoft.com/en-us/sql/relational-databases/system-dynamic-management-objects/sys-dm-database-backups-azure-sql-database),
-so that profile reports unavailable evidence. Backup media, restore chains and recovery readiness require
-separate evidence; collection performs no backup, restore or media access.
-
-CLI evidence analysis and MCP's existing `analyze_capture` operation expose the same captured rowgroup and backup
-reports. They retain original targets, source gaps and entry references, with bounded output and no database
-reconnection.
-
-The advisor combines those requests with workload and plan evidence, unindexed foreign keys, and duplicate, overlapping or unused indexes. Disabling an eligible index keeps its definition and stops its maintenance; `ALTER INDEX … REBUILD` restores it. Clustered, unique and constraint-backed indexes are not treated as disposable unused indexes.
-
-Schema drift and migration linting use the saved catalog, actual table sizes and captured workload. The proposed SQL remains a suggestion for review.
+- **Reversible index cleanup**: Eligible unused nonclustered indexes (verified over `>= 7` days across all readable replicas, excluding clustered, unique and constraint-backing indexes) recommend `ALTER INDEX ... DISABLE` first—stopping write maintenance while keeping metadata intact so `ALTER INDEX ... REBUILD` can restore it instantly.
+- **Offline SQL migration linting**: `culprit lint-sql migrations/ --format sarif` (and `--write` safe autofixes) checks T-SQL DDL for table-locking rewrites, missing `ONLINE = ON` / `LOCK_TIMEOUT` guards, unindexed foreign keys and destructive changes in CI or VS Code.
+- **Opt-in schema & operational collector datasets**: Beyond core schema/workload polling, `culprit collect` supports bounded targeted captures for `objects`, `triggers`, `partitions`, `cached-definitions`, `retained-plans`, `query-compilation`, `cached-runtime`, `columnstore-rowgroups`, `backup-history`, `agent-jobs`, `cdc`, `change-feed`, `hyperscale-log-components`, `suspect-pages`, `full-text-populations`, `table-memory`, `numa-nodes` and `tempdb-metadata-memory` (`sys.dm_db_xtp_memory_consumers` on SQL Server 2022+). Every capture replay works offline via CLI and MCP `analyze_capture`.
 
 ## Limits and evidence
 
-Statistics sessions use a two-second lock-wait timeout, low deadlock priority and read-uncommitted isolation. Schema and catalog locks are still possible; these settings do not cap CPU or logical reads. A statistics operation is never automatically replayed after a connection error.
-
-Background capture owns each native request until completion or bounded cancellation handling. If shutdown cannot be confirmed, further collection in that workspace is blocked, including after restart. Artifact writes run outside the async runtime so a slow disk does not postpone source cancellation. This ownership does not coordinate separate workspaces or hosts.
-
-On Azure SQL Database, admission for the heavier background sources checks database CPU, instance CPU, workers, data I/O and log-write pressure. Historical averages can miss a new spike. Row limits, `MAXDOP 1` and client deadlines do not establish a server CPU or I/O quota; retained-history query cost still requires qualification at the deployment's scale.
-
-Query Store and the plan cache are aggregate histories, not application request traces. Cache eviction, resets, retention, permissions and the selected interval limit what can be compared. A compilation plan does not measure the work of the execution being investigated.
-
-Background Query Store runtime and wait capture also has a Managed Instance acquisition profile. It uses the same
-reader, native layout discovery and caller limits, with the local process, recovery, role and connection checked
-before and after collection. This acquisition identity does not identify the historical executor or invent a replica
-group. The profile remains manual and unqualified until actual Managed Instance compatibility, cancellation and cost
-have been validated; scripted tests alone do not enable automatic production collection.
-
-Host CPU or filesystem capacity is shown only when the relevant source supplies it. Backup recoverability, database corruption and application transaction boundaries cannot be certified from a successful statistics scan. Cloud limits retain their measured scope and period.
-
-Rates require sufficient history, and an unused-index verdict requires at least a week of dated counters. See the shared [evidence rules](coverage.md).
-
-### Operational evidence
-
-Current database log occupancy and reuse reasons, writable filegroup allocation and configured growth, shared tempdb allocation by user objects, internal objects and version store, and exact identity/sequence numeric bounds are collected where readable.
-
-Filegroup capacity is aggregated across files. Shared tempdb is context, not attributed to the selected database. Configured growth does not prove filesystem headroom. Reserved sequence values do not forecast remaining requests. Unreadable DMVs remain unavailable.
-
-### Tempdb metadata memory
-
-The explicitly selected shared Operational source uses the same retained native instance/process owner to record
-`IsTempDbMetadataMemoryOptimized` and, on supported boxed SQL Server 2022+ instances, a bounded tempdb
-`sys.dm_db_xtp_memory_consumers` projection. Both fixed statements execute in a nested tempdb context and return
-`DB_ID()` from that context; the nested batch restores the reader's original database context. The source checks
-actual database ID 2, tempdb creation, native UTC read bounds and final instance/process identity. Azure SQL Database
-and Managed Instance do not acquire this tempdb authority.
-
-A capability/permission read precedes at most one consumer read. The enabled branch retains at most 64 consumers
-plus one independent native feature point, with a single overflow witness and no sort, aggregation, retry or user
-rows. It requires tempdb `VIEW DATABASE PERFORMANCE STATE` and metadata visibility. Disabled, native NULL,
-unreadable and partial states remain distinct, and unavailable new fields do not withdraw other shared families.
-
-The metadata feature state does not attribute every consumer’s bytes to metadata. Allocated bytes are native
-reservations; used bytes are interpreted only for documented `VARHEAP` consumers.
-Aggregation rows are excluded. Other native usage values remain uninterpreted properties, and unknown usage stays
-unknown. Consumer IDs establish no cross-read continuity. The pure report distinguishes reservation, usage and
-contradictory values without adding memory pressure, reclaimable capacity, an allocating query or transaction,
-leak, duration or recovery claims. This source is unqualified for production cost until its changed recipe is
-measured; it does not enable memory-optimized metadata or request garbage collection.
-
-The local `analyze_capture` action `tempdb_metadata_memory` and archive CLI analysis
-`--analysis tempdb-metadata-memory` use the same report. An explicit scan attachment,
-`--evidence-outbox DIRECTORY --tempdb-metadata-memory-capture OBSERVATION`, adds that original shared context
-to Health after the scan owner settles. It retains the original rows and native scope for saved replay without
-reopening the Outbox; it neither collects shared resources nor matches the original owner to the current database.
-Private original receipts are withheld from shared exports with an explicit unavailable qualification.
-
-Native contracts: [database-level XTP memory consumers](https://learn.microsoft.com/sql/relational-databases/system-dynamic-management-objects/sys-dm-db-xtp-memory-consumers-transact-sql),
-[tempdb metadata-memory troubleshooting](https://learn.microsoft.com/troubleshoot/sql/database-engine/performance/memory-optimized-tempdb-out-of-memory),
-and [scoped dynamic-statement database context](https://learn.microsoft.com/sql/relational-databases/system-stored-procedures/sp-executesql-transact-sql).
+- **Session guardrails**: Every monitoring connection sets `LOCK_TIMEOUT 2000`, `DEADLOCK_PRIORITY LOW` and `READ UNCOMMITTED` where appropriate, tags every query with `/* culprit */` so Culprit's own SQL is excluded from workload findings, and never replays timed-out batches automatically.
+- **Confirmed cancellation**: Background telemetry owns each TDS connection until completion or confirmed cancellation; if driver cancellation remains uncertain, the workspace fences further background polls rather than leaking orphaned sessions.
+- **Azure SQL pressure admission**: Heavy background recipes verify database CPU, instance CPU, worker %, data I/O and log-write pressure before running and abort immediately when pressure is elevated.
+- **Operational scope**: Transaction log occupancy (`log_reuse_wait_desc`), filegroup space, shared `tempdb` user/internal/version-store allocation, last recorded `DBCC CHECKDB` timestamp (`DATABASEPROPERTYEX`, never running `DBCC CHECKDB`), and identity/sequence exhaustion bounds keep their exact database vs instance scope. See the shared [evidence rules](coverage.md) and [collector source coverage](../collector.md).
 
 ## Verification
 
-The saved examples cover SQL Server 2022 and Azure SQL Database. The reproducible [SQL Server fixture](../../dev/mssql/README.md) plants workload, index, blocking and deadlock problems; saved snapshots exercise offline replay, plan analysis, views and agent output.
+Exercised against **SQL Server 2022** and **Azure SQL Database**, with saved snapshots, `.sqlplan` / `.xel` corpora and offline golden replay tests. Spin up the local Docker fixture with planted indexing, parameter-sensitivity, blocking and deadlock scenarios in [`dev/mssql/README.md`](../../dev/mssql/README.md).
 
-The implementation declares its sources in [`culprit-mssql/src/sources.rs`](../../crates/providers/culprit-mssql/src/sources.rs). Version-, edition- and permission-dependent measurements remain unavailable when the server does not supply them.
-
-Source references: [SQL Server file-space DMV](https://learn.microsoft.com/en-us/sql/relational-databases/system-dynamic-management-objects/sys-dm-db-file-space-usage-transact-sql).
+All declared SQL Server sources and capability locks live in [`culprit-mssql/src/sources.rs`](../../crates/providers/culprit-mssql/src/sources.rs).

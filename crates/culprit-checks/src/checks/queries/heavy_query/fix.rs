@@ -652,6 +652,7 @@ fn storage_fix(snapshot: &Snapshot, q: &QueryStat, cheap_plan: bool, finds_nothi
             let reads = format::count(n);
             // What the engine counts a statement's reads in: rows examined (MySQL) or pages.
             let mut opening = vec![match snapshot.server.engine.spec().statement_metrics().reads {
+                ReadUnit::RowsRead => t!("check.heavy_query.fix.storage.reads_rows_read", n = n, reads = reads),
                 ReadUnit::RowsExamined => t!("check.heavy_query.fix.storage.reads_rows_examined", n = n, reads = reads),
                 ReadUnit::Pages => t!("check.heavy_query.fix.storage.reads_pages", n = n, reads = reads),
             }];
@@ -762,6 +763,9 @@ impl ResidualRead<'_> {
         // What the engine counts a statement's reads in: rows examined (MySQL) or pages.
         let (n, reads, returns) = (self.reads, format::count(self.reads), self.returns.select());
         let runs = match self.engine.spec().statement_metrics().reads {
+            ReadUnit::RowsRead => {
+                t!("check.heavy_query.lookups.runs_rows_read", n = n, reads = reads, returns = returns)
+            }
             ReadUnit::RowsExamined => {
                 t!("check.heavy_query.lookups.runs_rows_examined", n = n, reads = reads, returns = returns)
             }

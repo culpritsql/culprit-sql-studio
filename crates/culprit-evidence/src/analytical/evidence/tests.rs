@@ -7,6 +7,7 @@ use culprit_core::telemetry::*;
 
 mod activity;
 mod cache_entry_memory;
+mod clickhouse;
 mod diagnostics;
 mod empty;
 mod object_definitions;
