@@ -28,6 +28,16 @@ REPOS: tuple[tuple[str, str, str, str], ...] = (
 
 GROUP_BY_PRODUCT: dict[str, str] = {prod: grp for _, prod, _, grp in REPOS}
 
+HISTORICAL_TAG_DATES: dict[str, str] = {
+    "v0.6.1": "2026-11-26T16:22:22Z",
+    "v0.6.0": "2026-11-25T11:48:44Z",
+}
+
+
+def parse_semver(tag: str) -> tuple[int, int, int]:
+    m = re.match(r"^v?(\d+)\.(\d+)\.(\d+)", tag.strip())
+    return (int(m.group(1)), int(m.group(2)), int(m.group(3))) if m else (0, 0, 0)
+
 
 def sanitize_release_body(body: str) -> str:
     """Strip GitHub auto-generated personal handles while preserving engineering notes and compare links."""
@@ -147,10 +157,26 @@ def load_releases(root: Path) -> list[dict]:
                 curated = f"{curated}\n\n{compare_match.group(1)}"
             r["body"] = sanitize_release_body(curated)
 
+    max_published_studio = max(
+        (parse_semver(r["tag"]) for r in items if r["product"] == "studio" and not r.get("prerelease")),
+        default=(0, 0, 0),
+    )
     today_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT00:00:00Z")
     for tag, body in changelog_map.items():
         if tag not in seen_studio_tags:
             ver = tag.removeprefix("v")
+            sem = parse_semver(tag)
+            if tag in HISTORICAL_TAG_DATES:
+                pub_at = HISTORICAL_TAG_DATES[tag]
+            elif sem > max_published_studio:
+                pub_at = today_iso
+            else:
+                next_dates = [
+                    r["publishedAt"]
+                    for r in items
+                    if r["product"] == "studio" and parse_semver(r["tag"]) > sem and r.get("publishedAt")
+                ]
+                pub_at = min(next_dates) if next_dates else "1970-01-01T00:00:00Z"
             items.append(
                 {
                     "repo": "culprit-sql-studio",
@@ -158,7 +184,7 @@ def load_releases(root: Path) -> list[dict]:
                     "productLabel": "Culprit SQL Studio",
                     "tag": tag,
                     "name": f"Culprit SQL Studio {ver}",
-                    "publishedAt": today_iso,
+                    "publishedAt": pub_at,
                     "prerelease": False,
                     "url": f"https://github.com/culpritsql/culprit-sql-studio/releases/tag/{tag}",
                     "body": sanitize_release_body(body),
@@ -166,7 +192,13 @@ def load_releases(root: Path) -> list[dict]:
                 }
             )
 
-    items.sort(key=lambda r: r.get("publishedAt") or "", reverse=True)
+    items.sort(
+        key=lambda r: (
+            r.get("publishedAt") or "",
+            parse_semver(r["tag"]) if r["product"] == "studio" else (0, 0, 0),
+        ),
+        reverse=True,
+    )
 
     for r in items:
         r["group"] = GROUP_BY_PRODUCT.get(r["product"], "ci")
@@ -182,8 +214,15 @@ def latest_by_product(releases: list[dict], studio_version: str) -> list[dict]:
     """Return the 8-tile current artifact matrix across the platform."""
     latest: dict[str, dict] = {}
     for r in releases:
-        if r["product"] not in latest and not r.get("prerelease"):
-            latest[r["product"]] = r
+        if r.get("prerelease"):
+            continue
+        prod = r["product"]
+        prev = latest.get(prod)
+        if prev is None or (parse_semver(r["tag"]), r.get("publishedAt") or "") > (
+            parse_semver(prev["tag"]),
+            prev.get("publishedAt") or "",
+        ):
+            latest[prod] = r
 
     studio_rel = latest.get("studio")
     studio_tag = studio_rel["tag"] if studio_rel else f"v{studio_version}"
